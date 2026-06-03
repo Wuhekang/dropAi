@@ -1,0 +1,38 @@
+server:
+  port: ${PORT:8080}
+
+spring:
+  datasource:
+    driver-class-name: org.h2.Driver
+    url: jdbc:h2:file:${APP_DATA_DIR:/app/data}/drop_ai;MODE=MySQL;DATABASE_TO_LOWER=TRUE;CASE_INSENSITIVE_IDENTIFIERS=TRUE
+    username: sa
+    password:
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema-h2.sql
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 60MB
+  h2:
+    console:
+      enabled: false
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    db-config:
+      id-type: auto
+
+ai:
+  doubao:
+    enabled: true
+    api-key: ${DOUBAO_API_KEY:}
+    endpoint: ${DOUBAO_ENDPOINT:https://ark.cn-beijing.volces.com/api/v3/chat/completions}
+    model: ${DOUBAO_MODEL:doubao-seed-1-8-251228}
+    temperature: 0.35
+    connect-timeout-seconds: 10
+    read-timeout-seconds: 120
+    document-concurrency: 32

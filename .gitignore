@@ -1,0 +1,11 @@
+backend/target/
+frontend/node_modules/
+frontend/dist/
+frontend/.npm-cache/
+backend/storage/
+.env
+frontend/.idea/
+backend/.idea/
+
+*.log
+.DS_Store
