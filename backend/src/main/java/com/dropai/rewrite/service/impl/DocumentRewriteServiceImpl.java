@@ -183,6 +183,13 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
                 update(job, "SUCCESS", job.getModeName() + "完成，正文已成功改写 " + job.getRewrittenParagraphs()
                         + " 个段落；模型状态：" + aiRewriteService.lastCallProvider());
             }
+            if (failedParagraphs > 0) {
+                update(job, "FAILED", "Document rewrite failed: rewritten=" + job.getRewrittenParagraphs()
+                        + ", failed=" + failedParagraphs + ", firstError=" + firstFailure);
+            } else {
+                update(job, "SUCCESS", "Document rewrite completed: rewritten=" + job.getRewrittenParagraphs()
+                        + ", provider=" + aiRewriteService.lastCallProvider());
+            }
         } catch (Exception exception) {
             writeJobLog(jobId, exception);
             update(job, "FAILED", "处理失败：" + readableMessage(exception) + "；详情见 storage/jobs/" + jobId + ".log");
