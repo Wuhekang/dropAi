@@ -235,7 +235,7 @@
           <div class="score">{{ analysis.score ?? '--' }}</div>
           <div class="score-meta">
             <strong>风险评分</strong>
-            <span>根据模板化连接词、句长波动和段落结构进行规则评估</span>
+            <span>根据句式规整、逻辑词密度、语态特征、词汇分布和论证深度进行自查预估</span>
           </div>
         </div>
 
