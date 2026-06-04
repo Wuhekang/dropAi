@@ -148,10 +148,11 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             job.setUpdatedAt(LocalDateTime.now());
 
             List<RewriteResult> results = rewriteTargetsConcurrently(job, targets);
+            long failedParagraphs = results.stream().filter(result -> !result.success()).count();
             results.stream()
                     .sorted(Comparator.comparingInt(RewriteResult::index))
                     .forEach(result -> {
-                        if (result.rewrittenText() != null && !result.rewrittenText().isBlank()) {
+                        if (result.success() && result.rewrittenText() != null && !result.rewrittenText().isBlank()) {
                             replaceParagraphText(result.paragraph(), result.rewrittenText());
                             job.setRewrittenParagraphs(job.getRewrittenParagraphs() + 1);
                         }
@@ -162,6 +163,13 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             job.setDownloadUrl("/api/document/rewrite/download/" + jobId);
             update(job, "SUCCESS", job.getModeName() + "完成，目录后正文已处理 " + job.getRewrittenParagraphs()
                     + " 个段落；模型状态：" + aiRewriteService.lastCallProvider());
+            if (failedParagraphs > 0) {
+                update(job, "FAILED", job.getModeName() + "未完成：成功改写 " + job.getRewrittenParagraphs()
+                        + " 个段落，失败 " + failedParagraphs + " 个段落；模型状态：" + aiRewriteService.lastCallProvider());
+            } else {
+                update(job, "SUCCESS", job.getModeName() + "完成，正文已成功改写 " + job.getRewrittenParagraphs()
+                        + " 个段落；模型状态：" + aiRewriteService.lastCallProvider());
+            }
         } catch (Exception exception) {
             writeJobLog(jobId, exception);
             update(job, "FAILED", "处理失败：" + readableMessage(exception) + "；详情见 storage/jobs/" + jobId + ".log");
@@ -223,11 +231,12 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
                         return new RewriteResult(
                                 target.index(),
                                 target.paragraph(),
-                                rewritten
+                                rewritten,
+                                true
                         );
                     } catch (Exception exception) {
                         updateParagraphStatus(job, target.index(), "FAILED", target.text(), "处理失败，保留原文：" + readableMessage(exception));
-                        return new RewriteResult(target.index(), target.paragraph(), target.text());
+                        return new RewriteResult(target.index(), target.paragraph(), target.text(), false);
                     }
                 });
             }
@@ -427,6 +436,6 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
     private record RewriteTarget(int index, XWPFParagraph paragraph, String text) {
     }
 
-    private record RewriteResult(int index, XWPFParagraph paragraph, String rewrittenText) {
+    private record RewriteResult(int index, XWPFParagraph paragraph, String rewrittenText, boolean success) {
     }
 }
