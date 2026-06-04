@@ -52,7 +52,8 @@ public class DoubaoAiRewriteService implements AiRewriteService {
             lastCallProvider.set("豆包未调用：AI 服务已关闭");
             throw new IllegalStateException("AI 服务已关闭，请开启 ai.doubao.enabled");
         }
-        if (isBlank(properties.getApiKey())) {
+        String apiKey = normalizeApiKey(properties.getApiKey());
+        if (isBlank(apiKey)) {
             lastCallProvider.set("豆包未调用：未配置 DOUBAO_API_KEY");
             throw new IllegalStateException("未读取到 DOUBAO_API_KEY，请在 Render 的 Environment 中配置豆包 API Key 后重新部署");
         }
@@ -70,7 +71,7 @@ public class DoubaoAiRewriteService implements AiRewriteService {
 
             String response = restClient.post()
                     .uri(properties.getEndpoint())
-                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + properties.getApiKey())
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(requestBody)
                     .retrieve()
@@ -183,6 +184,13 @@ public class DoubaoAiRewriteService implements AiRewriteService {
 
     private boolean isBlank(String value) {
         return value == null || value.isBlank();
+    }
+
+    private String normalizeApiKey(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.replaceAll("[\\r\\n\\t ]", "").trim();
     }
 
     private String compact(String value) {
