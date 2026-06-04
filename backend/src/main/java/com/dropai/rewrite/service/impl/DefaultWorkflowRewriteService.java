@@ -48,9 +48,10 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
         steps.add(new WorkflowStepVO("ACADEMIC_POLISH", "学术风格润色 Skill",
                 "统一论文语气，减少口语化和过度扩写"));
 
-        boolean useModelHumanize = !"降低AI写作痕迹".equals(rewriteType) && originalRisk.getScore() >= 45;
+        boolean aiReductionType = "降低AI写作痕迹".equals(rewriteType) || "双降".equals(rewriteType);
+        boolean useModelHumanize = !aiReductionType && originalRisk.getScore() >= 45;
         String finalText = humanizeExpression(polished, useModelHumanize);
-        if ("降低AI写作痕迹".equals(rewriteType)) {
+        if (aiReductionType) {
             finalText = retryIfRiskNotReduced(preparedText, finalText, originalRisk.getScore());
         }
         String finalProvider = useModelHumanize ? aiRewriteService.lastCallProvider() : sentenceProvider;

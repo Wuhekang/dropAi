@@ -118,7 +118,7 @@ public class DoubaoAiRewriteService implements AiRewriteService {
     }
 
     private String systemPrompt(String rewriteType) {
-        if ("降低AI写作痕迹".equals(rewriteType)) {
+        if ("降低AI写作痕迹".equals(rewriteType) || "双降".equals(rewriteType)) {
             return skillPromptService.loadSkill("humanize-zh-academic");
         }
         return """
@@ -142,6 +142,15 @@ public class DoubaoAiRewriteService implements AiRewriteService {
                     上一次失败原因：%s
                     请严格按 Skill 执行，只输出一版改写后的正文。
                     """.formatted(beforeScore, isBlank(feedback) ? "无" : feedback);
+        } else if ("双降".equals(rewriteType)) {
+            extraRule = """
+                    双降优先级：
+                    1. 先避免 AI 味升高，再降低重复表达。
+                    2. 降重只能通过局部语序调整、短语替换、删减冗余来完成，禁止大幅扩写。
+                    3. 不要把短句改成完整解释句，不要把技术描述改成“全流程、多维度、系统性”等泛化表达。
+                    4. 改写后长度控制在原文 80%% 到 110%% 之间；若原文较短，尽量保持相近长度。
+                    5. 如果降重和降 AI 冲突，优先选择更自然、更像人工修改的表达。
+                    """;
         }
         return """
                 优化类型：%s

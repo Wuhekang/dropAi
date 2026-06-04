@@ -356,8 +356,7 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             return workflowRewriteService.execute(text, "降重复改写").getRewrittenText();
         }
         if ("DOUBLE_REDUCE".equals(mode)) {
-            String duplicateReduced = workflowRewriteService.execute(text, "降重复改写").getRewrittenText();
-            return workflowRewriteService.execute(duplicateReduced, "降低AI写作痕迹").getRewrittenText();
+            return workflowRewriteService.execute(text, "双降").getRewrittenText();
         }
         return workflowRewriteService.execute(text, "降低AI写作痕迹").getRewrittenText();
     }
