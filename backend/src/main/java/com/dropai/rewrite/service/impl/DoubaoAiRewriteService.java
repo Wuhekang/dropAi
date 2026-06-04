@@ -10,6 +10,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StreamUtils;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 
@@ -176,9 +177,19 @@ public class DoubaoAiRewriteService implements AiRewriteService {
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
                         .contentType(MediaType.APPLICATION_JSON)
                         .body(requestBody)
-                        .retrieve()
-                        .body(byte[].class);
+                        .exchange((request, clientResponse) -> {
+                            byte[] body = StreamUtils.copyToByteArray(clientResponse.getBody());
+                            if (clientResponse.getStatusCode().isError()) {
+                                throw new DoubaoHttpException(clientResponse.getStatusCode().value(), new String(body, StandardCharsets.UTF_8));
+                            }
+                            return body;
+                        });
                 return response == null ? "" : new String(response, StandardCharsets.UTF_8);
+            } catch (DoubaoHttpException exception) {
+                if (exception.statusCode() != 429 || attempt == maxAttempts) {
+                    throw new IllegalStateException("豆包调用失败：HTTP " + exception.statusCode() + "，" + compact(exception.responseBody()), exception);
+                }
+                sleepQuietly(attempt * 5000L);
             } catch (RestClientResponseException exception) {
                 if (exception.getStatusCode().value() != 429 || attempt == maxAttempts) {
                     throw exception;
@@ -228,5 +239,24 @@ public class DoubaoAiRewriteService implements AiRewriteService {
         }
         String compacted = value.replaceAll("\\s+", " ").trim();
         return compacted.length() > 240 ? compacted.substring(0, 240) + "..." : compacted;
+    }
+
+    private static class DoubaoHttpException extends RuntimeException {
+        private final int statusCode;
+        private final String responseBody;
+
+        DoubaoHttpException(int statusCode, String responseBody) {
+            super("HTTP " + statusCode);
+            this.statusCode = statusCode;
+            this.responseBody = responseBody;
+        }
+
+        int statusCode() {
+            return statusCode;
+        }
+
+        String responseBody() {
+            return responseBody;
+        }
     }
 }
