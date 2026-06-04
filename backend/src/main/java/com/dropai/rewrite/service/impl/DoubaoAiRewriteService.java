@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -69,13 +70,7 @@ public class DoubaoAiRewriteService implements AiRewriteService {
                     )
             );
 
-            String response = restClient.post()
-                    .uri(properties.getEndpoint())
-                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .body(requestBody)
-                    .retrieve()
-                    .body(String.class);
+            String response = postWithRetry(apiKey, requestBody);
 
             String content = parseContent(response);
             lastCallProvider.set(providerName() + " / " + modelName());
@@ -167,6 +162,37 @@ public class DoubaoAiRewriteService implements AiRewriteService {
         factory.setConnectTimeout(Duration.ofSeconds(properties.getConnectTimeoutSeconds()));
         factory.setReadTimeout(Duration.ofSeconds(properties.getReadTimeoutSeconds()));
         return factory;
+    }
+
+    private String postWithRetry(String apiKey, Map<String, Object> requestBody) {
+        int maxAttempts = 4;
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                byte[] response = restClient.post()
+                        .uri(properties.getEndpoint())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(requestBody)
+                        .retrieve()
+                        .body(byte[].class);
+                return response == null ? "" : new String(response, StandardCharsets.UTF_8);
+            } catch (RestClientResponseException exception) {
+                if (exception.getStatusCode().value() != 429 || attempt == maxAttempts) {
+                    throw exception;
+                }
+                sleepQuietly(attempt * 5000L);
+            }
+        }
+        throw new IllegalStateException("Doubao request exhausted retry attempts");
+    }
+
+    private void sleepQuietly(long millis) {
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Doubao retry interrupted", exception);
+        }
     }
 
     private String parseContent(String response) throws Exception {
