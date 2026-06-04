@@ -64,8 +64,10 @@ export function uploadDocument(file, mode) {
   })
 }
 
-export function getDocumentJob(jobId) {
-  return request.get(`/document/rewrite/job/${jobId}`)
+export function getDocumentJob(jobId, includeParagraphs = false) {
+  return request.get(`/document/rewrite/job/${jobId}`, {
+    params: { includeParagraphs }
+  })
 }
 
 export function getDocumentJobs() {

@@ -38,13 +38,18 @@ public class DocumentRewriteController {
     }
 
     @GetMapping("/job/{jobId}")
-    public Result<DocumentRewriteJobVO> job(@PathVariable String jobId) {
-        return Result.success(documentRewriteService.getJob(jobId));
+    public Result<DocumentRewriteJobVO> job(
+            @PathVariable String jobId,
+            @RequestParam(value = "includeParagraphs", defaultValue = "false") boolean includeParagraphs
+    ) {
+        return Result.success(snapshot(documentRewriteService.getJob(jobId), includeParagraphs));
     }
 
     @GetMapping("/jobs")
     public Result<List<DocumentRewriteJobVO>> jobs() {
-        return Result.success(documentRewriteService.listJobs());
+        return Result.success(documentRewriteService.listJobs().stream()
+                .map(job -> snapshot(job, false))
+                .toList());
     }
 
     @GetMapping("/download/{jobId}")
@@ -55,5 +60,25 @@ public class DocumentRewriteController {
                 .contentType(MediaType.APPLICATION_OCTET_STREAM)
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename*=UTF-8''" + fileName)
                 .body(documentRewriteService.download(jobId));
+    }
+
+    private DocumentRewriteJobVO snapshot(DocumentRewriteJobVO source, boolean includeParagraphs) {
+        DocumentRewriteJobVO target = new DocumentRewriteJobVO();
+        target.setJobId(source.getJobId());
+        target.setFileName(source.getFileName());
+        target.setMode(source.getMode());
+        target.setModeName(source.getModeName());
+        target.setStatus(source.getStatus());
+        target.setTotalParagraphs(source.getTotalParagraphs());
+        target.setProcessedParagraphs(source.getProcessedParagraphs());
+        target.setRewrittenParagraphs(source.getRewrittenParagraphs());
+        target.setMessage(source.getMessage());
+        target.setDownloadUrl(source.getDownloadUrl());
+        target.setCreatedAt(source.getCreatedAt());
+        target.setUpdatedAt(source.getUpdatedAt());
+        if (includeParagraphs) {
+            target.setParagraphs(source.getParagraphs());
+        }
+        return target;
     }
 }

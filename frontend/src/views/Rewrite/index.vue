@@ -590,7 +590,15 @@ async function syncDocumentJob(jobId) {
 }
 
 function setDocumentJob(job) {
-  Object.assign(documentJob, job || {})
+  const next = job || {}
+  const previousParagraphs = Array.isArray(documentJob.paragraphs) ? documentJob.paragraphs : []
+  const keepParagraphs =
+    documentDetailVisible.value &&
+    next.jobId === documentJob.jobId &&
+    previousParagraphs.length > 0 &&
+    (!Array.isArray(next.paragraphs) || next.paragraphs.length === 0)
+  Object.assign(documentJob, next)
+  documentJob.paragraphs = keepParagraphs ? previousParagraphs : (Array.isArray(next.paragraphs) ? next.paragraphs : [])
 }
 
 async function downloadOptimizedDocument() {
@@ -614,9 +622,15 @@ function selectDocumentJob(job) {
   }
 }
 
-function openDocumentJob(job) {
+async function openDocumentJob(job) {
   selectDocumentJob(job)
   documentDetailVisible.value = true
+  try {
+    const detailJob = await getDocumentJob(job.jobId, true)
+    setDocumentJob(detailJob)
+  } catch (error) {
+    ElMessage.error(error.message || '加载文档详情失败')
+  }
 }
 
 function upsertDocumentJob(job) {
