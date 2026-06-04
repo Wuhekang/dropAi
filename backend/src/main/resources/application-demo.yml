@@ -35,4 +35,4 @@ ai:
     temperature: 0.35
     connect-timeout-seconds: 10
     read-timeout-seconds: 120
-    document-concurrency: ${DOUBAO_DOCUMENT_CONCURRENCY:4}
+    document-concurrency: ${DOUBAO_DOCUMENT_CONCURRENCY:32}
