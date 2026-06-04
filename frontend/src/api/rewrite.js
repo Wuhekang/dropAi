@@ -13,20 +13,22 @@ request.interceptors.response.use(
     }
     const result = response.data
     if (result && result.code !== 200) {
-      ElMessage.error(result.message || '请求失败')
-      return Promise.reject(new Error(result.message || '请求失败'))
+      const message = result.message || '请求失败'
+      ElMessage.error(message)
+      return Promise.reject(new Error(message))
     }
     return result.data
   },
   (error) => {
+    const serverMessage = error.response?.data?.message
+    let message = serverMessage || error.message || '网络请求异常'
     if (error.code === 'ECONNABORTED') {
-      ElMessage.error('文本较长，处理时间超过120秒。请缩短文本或稍后重试')
+      message = '处理时间超过 120 秒，请稍后查看任务进度或缩短文本'
     } else if (!error.response) {
-      ElMessage.error('无法连接后端服务，请确认 Spring Boot 已在 8080 端口启动')
-    } else {
-      ElMessage.error(error.message || '网络请求异常')
+      message = '无法连接后端服务，请确认服务已启动'
     }
-    return Promise.reject(error)
+    ElMessage.error(message)
+    return Promise.reject(new Error(message))
   }
 )
 
