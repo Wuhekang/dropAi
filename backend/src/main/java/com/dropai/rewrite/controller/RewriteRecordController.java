@@ -4,8 +4,8 @@ import com.dropai.rewrite.dto.AnalyzeTextDTO;
 import com.dropai.rewrite.dto.RewriteSubmitDTO;
 import com.dropai.rewrite.service.AiRewriteService;
 import com.dropai.rewrite.service.RewriteRecordService;
-import com.dropai.rewrite.vo.AiProviderStatusVO;
 import com.dropai.rewrite.vo.AiAnalyzeVO;
+import com.dropai.rewrite.vo.AiProviderStatusVO;
 import com.dropai.rewrite.vo.Result;
 import com.dropai.rewrite.vo.RewriteResultVO;
 import jakarta.validation.Valid;
@@ -52,14 +52,21 @@ public class RewriteRecordController {
         vo.setModel(aiRewriteService.modelName());
         vo.setEndpoint(aiRewriteService.endpoint());
         vo.setApiKeyConfigured(aiRewriteService.apiKeyConfigured());
+
         if (!vo.isApiKeyConfigured()) {
             vo.setTestStatus("failed");
-            vo.setTestMessage("未读取到 DOUBAO_API_KEY，请确认后端启动进程的环境变量");
+            vo.setTestMessage("未读取到 DOUBAO_API_KEY，请在 Render 的 Environment 中配置后重新部署");
             return Result.success(vo);
         }
-        String sample = aiRewriteService.rewrite("本文研究这个问题。", "学术化润色");
-        vo.setTestStatus(aiRewriteService.lastCallProvider().contains("fallback") ? "failed" : "success");
-        vo.setTestMessage(aiRewriteService.lastCallProvider() + "；返回预览：" + preview(sample));
+
+        try {
+            String sample = aiRewriteService.rewrite("本文研究这个问题。", "学术化润色");
+            vo.setTestStatus("success");
+            vo.setTestMessage(aiRewriteService.lastCallProvider() + "；返回预览：" + preview(sample));
+        } catch (Exception exception) {
+            vo.setTestStatus("failed");
+            vo.setTestMessage(exception.getMessage());
+        }
         return Result.success(vo);
     }
 

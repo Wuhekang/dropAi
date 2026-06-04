@@ -10,8 +10,8 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientResponseException;
 
 import java.time.Duration;
 import java.util.List;
@@ -25,14 +25,12 @@ public class DoubaoAiRewriteService implements AiRewriteService {
     private final DoubaoProperties properties;
     private final ObjectMapper objectMapper;
     private final RestClient restClient;
-    private final MockAiRewriteService mockAiRewriteService;
     private final SkillPromptService skillPromptService;
 
     public DoubaoAiRewriteService(
             DoubaoProperties properties,
             ObjectMapper objectMapper,
             RestClient.Builder restClientBuilder,
-            MockAiRewriteService mockAiRewriteService,
             SkillPromptService skillPromptService
     ) {
         this.properties = properties;
@@ -40,7 +38,6 @@ public class DoubaoAiRewriteService implements AiRewriteService {
         this.restClient = restClientBuilder
                 .requestFactory(requestFactory(properties))
                 .build();
-        this.mockAiRewriteService = mockAiRewriteService;
         this.skillPromptService = skillPromptService;
     }
 
@@ -51,15 +48,20 @@ public class DoubaoAiRewriteService implements AiRewriteService {
 
     @Override
     public String rewriteWithFeedback(String originalText, String rewriteType, int beforeScore, String feedback) {
-        if (!properties.isEnabled() || isBlank(properties.getApiKey())) {
-            lastCallProvider.set("Mock fallback（未配置 DOUBAO_API_KEY）");
-            return mockAiRewriteService.rewrite(originalText, rewriteType);
+        if (!properties.isEnabled()) {
+            lastCallProvider.set("豆包未调用：AI 服务已关闭");
+            throw new IllegalStateException("AI 服务已关闭，请开启 ai.doubao.enabled");
+        }
+        if (isBlank(properties.getApiKey())) {
+            lastCallProvider.set("豆包未调用：未配置 DOUBAO_API_KEY");
+            throw new IllegalStateException("未读取到 DOUBAO_API_KEY，请在 Render 的 Environment 中配置豆包 API Key 后重新部署");
         }
 
         try {
             Map<String, Object> requestBody = Map.of(
                     "model", properties.getModel(),
                     "temperature", properties.getTemperature(),
+                    "max_tokens", 4096,
                     "messages", List.of(
                             Map.of("role", "system", "content", systemPrompt(rewriteType)),
                             Map.of("role", "user", "content", userPrompt(originalText, rewriteType, beforeScore, feedback))
@@ -74,15 +76,21 @@ public class DoubaoAiRewriteService implements AiRewriteService {
                     .retrieve()
                     .body(String.class);
 
-            String content = parseContent(response, originalText, rewriteType);
+            String content = parseContent(response);
             lastCallProvider.set(providerName() + " / " + modelName());
             return content;
         } catch (RestClientResponseException exception) {
-            lastCallProvider.set("Mock fallback（豆包HTTP失败：" + exception.getStatusCode().value() + "，" + compact(exception.getResponseBodyAsString()) + "）");
-            return mockAiRewriteService.rewrite(originalText, rewriteType);
+            lastCallProvider.set("豆包调用失败：HTTP " + exception.getStatusCode().value());
+            throw new IllegalStateException(
+                    "豆包调用失败：HTTP " + exception.getStatusCode().value() + "，" + compact(exception.getResponseBodyAsString()),
+                    exception
+            );
+        } catch (IllegalStateException exception) {
+            lastCallProvider.set("豆包调用失败：" + compact(exception.getMessage()));
+            throw exception;
         } catch (Exception exception) {
-            lastCallProvider.set("Mock fallback（豆包调用失败：" + compact(exception.getMessage()) + "）");
-            return mockAiRewriteService.rewrite(originalText, rewriteType);
+            lastCallProvider.set("豆包调用失败：" + compact(exception.getMessage()));
+            throw new IllegalStateException("豆包调用失败：" + compact(exception.getMessage()), exception);
         }
     }
 
@@ -129,13 +137,6 @@ public class DoubaoAiRewriteService implements AiRewriteService {
                 """;
     }
 
-    private SimpleClientHttpRequestFactory requestFactory(DoubaoProperties properties) {
-        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-        factory.setConnectTimeout(Duration.ofSeconds(properties.getConnectTimeoutSeconds()));
-        factory.setReadTimeout(Duration.ofSeconds(properties.getReadTimeoutSeconds()));
-        return factory;
-    }
-
     private String userPrompt(String originalText, String rewriteType, int beforeScore, String feedback) {
         String extraRule = "";
         if ("降低AI写作痕迹".equals(rewriteType)) {
@@ -160,15 +161,22 @@ public class DoubaoAiRewriteService implements AiRewriteService {
                 """.formatted(rewriteType, extraRule, originalText);
     }
 
-    private String parseContent(String response, String originalText, String rewriteType) throws Exception {
+    private SimpleClientHttpRequestFactory requestFactory(DoubaoProperties properties) {
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(Duration.ofSeconds(properties.getConnectTimeoutSeconds()));
+        factory.setReadTimeout(Duration.ofSeconds(properties.getReadTimeoutSeconds()));
+        return factory;
+    }
+
+    private String parseContent(String response) throws Exception {
         if (isBlank(response)) {
-            return mockAiRewriteService.rewrite(originalText, rewriteType);
+            throw new IllegalStateException("豆包返回为空");
         }
         JsonNode root = objectMapper.readTree(response);
         JsonNode contentNode = root.path("choices").path(0).path("message").path("content");
         String content = contentNode.asText("");
         if (isBlank(content)) {
-            return mockAiRewriteService.rewrite(originalText, rewriteType);
+            throw new IllegalStateException("豆包返回内容为空");
         }
         return content.trim();
     }
@@ -182,6 +190,6 @@ public class DoubaoAiRewriteService implements AiRewriteService {
             return "无详细信息";
         }
         String compacted = value.replaceAll("\\s+", " ").trim();
-        return compacted.length() > 120 ? compacted.substring(0, 120) + "..." : compacted;
+        return compacted.length() > 240 ? compacted.substring(0, 240) + "..." : compacted;
     }
 }
