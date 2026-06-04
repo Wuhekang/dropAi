@@ -207,10 +207,63 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
         if (isCatalogLine(trimmed) || isProtectedSectionTitle(trimmed)) {
             return false;
         }
+        if (isTechnicalFragment(trimmed)) {
+            return false;
+        }
         if ("PRECISE_AI_REDUCE".equals(mode)) {
             return hasAiTraceSignal(trimmed);
         }
         return true;
+    }
+
+    private boolean isTechnicalFragment(String text) {
+        String compact = text.replaceAll("\\s+", " ").trim();
+        String lower = compact.toLowerCase();
+        if (compact.length() <= 40 && hasAny(lower,
+                "varchar", "bigint", "timestamp", "int", "decimal", "datetime",
+                "字段名称", "字段说明", "默认值", "主键", "外键", "类型", "长度", "not null",
+                "auto_increment", "current_timestamp")) {
+            return true;
+        }
+        if (compact.matches("^@\\w+(Mapping|Autowired|Resource|Override|Service|Controller|Entity|Table).*")) {
+            return true;
+        }
+        if (hasAny(compact,
+                "public ", "private ", "protected ", "class ", "interface ", "return ",
+                "if (", "else", "for (", "while (", "try {", "catch (", "new ",
+                "String ", "Integer ", "Long ", "Float ", "Double ", "Boolean ",
+                "queryWrapper.", "Result.", ".get", ".set")) {
+            int codeMarks = countCodeMarks(compact);
+            if (codeMarks >= 2 || compact.endsWith(";") || compact.endsWith("{") || compact.endsWith("}")) {
+                return true;
+            }
+        }
+        if (compact.matches("^[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*|\\([^)]*\\)|;|\\{|\\}).*")) {
+            return true;
+        }
+        if (compact.matches("^[/A-Za-z0-9_{}.$\"'=<>!+\\-*/(),;:\\[\\] ]+$") && countCodeMarks(compact) >= 2) {
+            return true;
+        }
+        return false;
+    }
+
+    private boolean hasAny(String text, String... needles) {
+        for (String needle : needles) {
+            if (text.contains(needle)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private int countCodeMarks(String text) {
+        int count = 0;
+        for (char ch : text.toCharArray()) {
+            if ("{}();=@\"'./<>[]".indexOf(ch) >= 0) {
+                count++;
+            }
+        }
+        return count;
     }
 
     private List<RewriteTarget> collectRewriteTargets(DocumentRewriteJobVO job, List<XWPFParagraph> paragraphs) {

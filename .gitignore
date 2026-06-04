@@ -3,6 +3,7 @@ frontend/node_modules/
 frontend/dist/
 frontend/.npm-cache/
 backend/storage/
+work/
 .env
 frontend/.idea/
 backend/.idea/
