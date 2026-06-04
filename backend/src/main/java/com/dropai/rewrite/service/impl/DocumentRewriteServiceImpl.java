@@ -144,6 +144,10 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             job.setParagraphs(targets.stream().map(this::toParagraphJob).collect(Collectors.toList()));
             job.setProcessedParagraphs(0);
             job.setTotalParagraphs(targets.size());
+            if (targets.isEmpty()) {
+                update(job, "FAILED", "未识别到可优化正文段落，未生成优化结果。请检查文档是否包含目录后的正文内容。");
+                return;
+            }
             job.setMessage("已提取 " + targets.size() + " 个待优化段落，开始并发处理");
             job.setUpdatedAt(LocalDateTime.now());
 
@@ -207,11 +211,8 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
         if (isCatalogLine(trimmed) || isProtectedSectionTitle(trimmed)) {
             return false;
         }
-        if (isTechnicalFragment(trimmed)) {
-            return false;
-        }
         if ("PRECISE_AI_REDUCE".equals(mode)) {
-            return hasAiTraceSignal(trimmed);
+            return hasAiTraceSignal(trimmed) && !isTechnicalFragment(trimmed);
         }
         return true;
     }
