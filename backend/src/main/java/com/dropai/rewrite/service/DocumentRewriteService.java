@@ -8,7 +8,7 @@ import java.util.List;
 
 public interface DocumentRewriteService {
 
-    DocumentRewriteJobVO submit(MultipartFile file, String mode);
+    DocumentRewriteJobVO submit(MultipartFile file, String mode, String platform);
 
     DocumentRewriteJobVO getJob(String jobId);
 

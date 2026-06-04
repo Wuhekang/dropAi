@@ -32,9 +32,10 @@ public class DocumentRewriteController {
     @PostMapping("/upload")
     public Result<DocumentRewriteJobVO> upload(
             @RequestParam("file") MultipartFile file,
-            @RequestParam(value = "mode", defaultValue = "FULL_AI_REDUCE") String mode
+            @RequestParam(value = "mode", defaultValue = "FULL_AI_REDUCE") String mode,
+            @RequestParam(value = "platform", defaultValue = "GENERAL") String platform
     ) {
-        return Result.success(documentRewriteService.submit(file, mode));
+        return Result.success(documentRewriteService.submit(file, mode, platform));
     }
 
     @GetMapping("/job/{jobId}")
@@ -68,6 +69,8 @@ public class DocumentRewriteController {
         target.setFileName(source.getFileName());
         target.setMode(source.getMode());
         target.setModeName(source.getModeName());
+        target.setPlatform(source.getPlatform());
+        target.setPlatformName(source.getPlatformName());
         target.setStatus(source.getStatus());
         target.setTotalParagraphs(source.getTotalParagraphs());
         target.setProcessedParagraphs(source.getProcessedParagraphs());

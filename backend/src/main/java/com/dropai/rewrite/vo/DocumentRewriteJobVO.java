@@ -10,6 +10,8 @@ public class DocumentRewriteJobVO {
     private String fileName;
     private String mode;
     private String modeName;
+    private String platform;
+    private String platformName;
     private String status;
     private int totalParagraphs;
     private int processedParagraphs;
@@ -50,6 +52,22 @@ public class DocumentRewriteJobVO {
 
     public void setModeName(String modeName) {
         this.modeName = modeName;
+    }
+
+    public String getPlatform() {
+        return platform;
+    }
+
+    public void setPlatform(String platform) {
+        this.platform = platform;
+    }
+
+    public String getPlatformName() {
+        return platformName;
+    }
+
+    public void setPlatformName(String platformName) {
+        this.platformName = platformName;
     }
 
     public String getStatus() {

@@ -118,7 +118,8 @@ public class DoubaoAiRewriteService implements AiRewriteService {
     }
 
     private String systemPrompt(String rewriteType) {
-        if ("降低AI写作痕迹".equals(rewriteType) || "双降".equals(rewriteType)) {
+        String baseRewriteType = baseRewriteType(rewriteType);
+        if ("降低AI写作痕迹".equals(baseRewriteType) || "双降".equals(baseRewriteType)) {
             return skillPromptService.loadSkill("humanize-zh-academic");
         }
         return """
@@ -135,26 +136,30 @@ public class DoubaoAiRewriteService implements AiRewriteService {
     }
 
     private String userPrompt(String originalText, String rewriteType, int beforeScore, String feedback) {
+        String baseRewriteType = baseRewriteType(rewriteType);
+        String platform = platformCode(rewriteType);
         String extraRule = "";
-        if ("降低AI写作痕迹".equals(rewriteType)) {
+        if ("降低AI写作痕迹".equals(baseRewriteType)) {
             extraRule = """
                     改写前风险分：%d
                     上一次失败原因：%s
                     请严格按 Skill 执行，只输出一版改写后的正文。
                     """.formatted(beforeScore, isBlank(feedback) ? "无" : feedback);
-        } else if ("双降".equals(rewriteType)) {
+        } else if ("双降".equals(baseRewriteType)) {
             extraRule = """
                     双降优先级：
-                    1. 目标是同时降低重复风险和 AI 风险，两个风险都按低于 20 处理。
-                    2. 先避免 AI 味升高，再降低重复表达。
+                    1. 一次性同时处理重复表达和 AI 痕迹，不要写成“先降重、再降 AI”的两段式结果。
+                    2. 优先避免 AI 味升高，再降低重复表达；宁可少改，也不要改得更工整、更完整。
                     3. 降重只能通过局部语序调整、短语替换、删减冗余来完成，禁止大幅扩写。
                     4. 不要把短句改成完整解释句，不要把技术描述改成“全流程、多维度、系统性”等泛化表达。
-                    5. 改写后长度控制在原文 80%% 到 110%% 之间；若原文较短，尽量保持相近长度。
+                    5. 改写后长度控制在原文 80%% 到 105%% 之间；若原文较短，尽量保持相近长度。
                     6. 如果降重和降 AI 冲突，优先选择更自然、更像人工修改的表达。
                     """;
         }
+        String platformRule = platformRules(platform);
         return """
                 优化类型：%s
+                目标检测口径：%s
 
                 请按以下策略处理：
                 - 保留原意和论文语气。
@@ -165,10 +170,78 @@ public class DoubaoAiRewriteService implements AiRewriteService {
                 - 如果是扩写，只补充解释性表达，不添加未经提供的数据或案例。
                 - 如果是缩写，压缩冗余内容但保留关键论点。
                 %s
+                %s
 
                 原文：
                 %s
-                """.formatted(rewriteType, extraRule, originalText);
+                """.formatted(baseRewriteType, platformName(platform), extraRule, platformRule, originalText);
+    }
+
+    private String baseRewriteType(String rewriteType) {
+        if (rewriteType == null) {
+            return "";
+        }
+        int index = rewriteType.indexOf('@');
+        return index >= 0 ? rewriteType.substring(0, index) : rewriteType;
+    }
+
+    private String platformCode(String rewriteType) {
+        if (rewriteType == null) {
+            return "GENERAL";
+        }
+        int index = rewriteType.indexOf('@');
+        if (index < 0 || index == rewriteType.length() - 1) {
+            return "GENERAL";
+        }
+        return rewriteType.substring(index + 1).trim().toUpperCase();
+    }
+
+    private String platformName(String platform) {
+        return switch (platform) {
+            case "CNKI" -> "知网";
+            case "WEIPU" -> "维普";
+            case "WANFANG" -> "万方";
+            case "GEZIDA" -> "格子达";
+            default -> "通用";
+        };
+    }
+
+    private String platformRules(String platform) {
+        return switch (platform) {
+            case "CNKI" -> """
+                    知网口径适配：
+                    - 弱化“背景-问题-措施-意义”的完整模板结构。
+                    - 不要把每段都写成高度规范的论文综述腔。
+                    - 摘要、绪论和系统介绍段落要保留部分朴素、直接的作者表达。
+                    - 避免“本文旨在、研究表明、具有重要意义、提供参考”等万能句。
+                    """;
+            case "WEIPU" -> """
+                    维普口径适配：
+                    - 重点打散词汇分布和句式规律，不要连续使用“通过……实现……”。
+                    - 保留句长差异，避免每句都在相近长度收尾。
+                    - 降低连接词密度，少用“因此、此外、同时、进而、从而”。
+                    - 不要把同类功能名反复换成同一组高级同义词。
+                    """;
+            case "WANFANG" -> """
+                    万方口径适配：
+                    - 不要让语义承接过度顺滑，避免每句都严丝合缝地解释上一句。
+                    - 保留具体模块、对象、操作和约束，不要抽象成“系统性、整体性、多维度”。
+                    - 工程类描述以清楚为主，不改成宏观理论表述。
+                    - 避免“有效提升、优化效果、实践价值、管理效率提升”等泛化结论。
+                    """;
+            case "GEZIDA" -> """
+                    格子达口径适配：
+                    - 控制段落疑似率，短段落不要扩成长段落。
+                    - 避免万能开头和万能结尾，不要每段都有完整总结句。
+                    - 保留人工写作中的节奏变化，允许局部表达不完全对称。
+                    - 拆开过长的完整说明句，也不要把所有短句合成长句。
+                    """;
+            default -> """
+                    通用口径适配：
+                    - 轻量、局部、克制地修改，不扩写、不拔高、不模板化。
+                    - 保留人工写作节奏，避免过度完整、过度顺滑、过度正式。
+                    """;
+        };
     }
 
     private SimpleClientHttpRequestFactory requestFactory(DoubaoProperties properties) {

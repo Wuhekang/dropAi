@@ -35,15 +35,16 @@ public class RewriteRecordServiceImpl extends ServiceImpl<RewriteRecordMapper, R
 
     @Override
     public RewriteResultVO submit(RewriteSubmitDTO dto) {
+        String rewriteType = rewriteTypeWithPlatform(dto.getRewriteType(), dto.getPlatform());
         WorkflowRewriteService.WorkflowRewriteResult workflowResult =
-                workflowRewriteService.execute(dto.getOriginalText(), dto.getRewriteType());
+                workflowRewriteService.execute(dto.getOriginalText(), rewriteType);
         String rewrittenText = workflowResult.getRewrittenText();
         AiAnalyzeVO analyzeVO = AiRiskAnalyzeUtil.analyze(rewrittenText);
 
         RewriteRecord record = new RewriteRecord();
         record.setOriginalText(dto.getOriginalText());
         record.setRewrittenText(rewrittenText);
-        record.setRewriteType(dto.getRewriteType());
+        record.setRewriteType(displayRewriteType(dto.getRewriteType(), dto.getPlatform()));
         record.setAiScore(analyzeVO.getScore());
         record.setAiLevel(analyzeVO.getLevel());
         record.setSuggestions(toJson(analyzeVO.getSuggestions()));
@@ -57,6 +58,36 @@ public class RewriteRecordServiceImpl extends ServiceImpl<RewriteRecordMapper, R
         vo.setQualityCheck(workflowResult.getQualityCheck());
         vo.setWorkflowSteps(workflowResult.getWorkflowSteps());
         return vo;
+    }
+
+    private String rewriteTypeWithPlatform(String rewriteType, String platform) {
+        String normalizedPlatform = normalizePlatform(platform);
+        return "GENERAL".equals(normalizedPlatform) ? rewriteType : rewriteType + "@" + normalizedPlatform;
+    }
+
+    private String displayRewriteType(String rewriteType, String platform) {
+        String platformName = platformName(normalizePlatform(platform));
+        return "通用".equals(platformName) ? rewriteType : rewriteType + " / " + platformName;
+    }
+
+    private String normalizePlatform(String platform) {
+        if (platform == null || platform.isBlank()) {
+            return "GENERAL";
+        }
+        return switch (platform.trim().toUpperCase()) {
+            case "CNKI", "WEIPU", "WANFANG", "GEZIDA" -> platform.trim().toUpperCase();
+            default -> "GENERAL";
+        };
+    }
+
+    private String platformName(String platform) {
+        return switch (platform) {
+            case "CNKI" -> "知网";
+            case "WEIPU" -> "维普";
+            case "WANFANG" -> "万方";
+            case "GEZIDA" -> "格子达";
+            default -> "通用";
+        };
     }
 
     @Override

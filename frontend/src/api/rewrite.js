@@ -52,10 +52,11 @@ export function deleteRewrite(id) {
   return request.delete(`/rewrite/${id}`)
 }
 
-export function uploadDocument(file, mode) {
+export function uploadDocument(file, mode, platform = 'GENERAL') {
   const formData = new FormData()
   formData.append('file', file)
   formData.append('mode', mode)
+  formData.append('platform', platform)
   return request.post('/document/rewrite/upload', formData, {
     headers: {
       'Content-Type': 'multipart/form-data'

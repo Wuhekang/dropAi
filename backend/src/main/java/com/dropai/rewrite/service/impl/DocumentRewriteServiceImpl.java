@@ -63,9 +63,10 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
     }
 
     @Override
-    public DocumentRewriteJobVO submit(MultipartFile file, String mode) {
+    public DocumentRewriteJobVO submit(MultipartFile file, String mode, String platform) {
         String originalName = file.getOriginalFilename() == null ? "document.docx" : file.getOriginalFilename();
         String normalizedMode = normalizeMode(mode);
+        String normalizedPlatform = normalizePlatform(platform);
         if (!originalName.toLowerCase().endsWith(".docx")) {
             throw new IllegalArgumentException("当前仅支持上传 .docx 文件");
         }
@@ -83,8 +84,10 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             job.setFileName(originalName);
             job.setMode(normalizedMode);
             job.setModeName(modeName(normalizedMode));
+            job.setPlatform(normalizedPlatform);
+            job.setPlatformName(platformName(normalizedPlatform));
             job.setStatus("PENDING");
-            job.setMessage("文档已上传，等待执行：" + job.getModeName());
+            job.setMessage("文档已上传，等待执行：" + job.getModeName() + " / " + job.getPlatformName());
             job.setCreatedAt(LocalDateTime.now());
             job.setUpdatedAt(LocalDateTime.now());
             jobs.put(jobId, job);
@@ -300,7 +303,7 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
                 completionService.submit(() -> {
                     updateParagraphStatus(job, target.index(), "RUNNING", null, "正在改写");
                     try {
-                        String rewritten = rewriteByMode(target.text(), job.getMode());
+                        String rewritten = rewriteByMode(target.text(), job.getMode(), job.getPlatform());
                         updateParagraphStatus(job, target.index(), "SUCCESS", rewritten, "已完成");
                         return new RewriteResult(
                                 target.index(),
@@ -351,14 +354,15 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
         }
     }
 
-    private String rewriteByMode(String text, String mode) {
+    private String rewriteByMode(String text, String mode, String platform) {
+        String suffix = platform == null || "GENERAL".equals(platform) ? "" : "@" + platform;
         if ("DUPLICATE_REDUCE".equals(mode)) {
             return workflowRewriteService.execute(text, "降重复改写").getRewrittenText();
         }
         if ("DOUBLE_REDUCE".equals(mode)) {
-            return workflowRewriteService.execute(text, "双降").getRewrittenText();
+            return workflowRewriteService.execute(text, "双降" + suffix).getRewrittenText();
         }
-        return workflowRewriteService.execute(text, "降低AI写作痕迹").getRewrittenText();
+        return workflowRewriteService.execute(text, "降低AI写作痕迹" + suffix).getRewrittenText();
     }
 
     private String normalizeMode(String mode) {
@@ -376,6 +380,26 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             case "DOUBLE_REDUCE" -> "双降";
             case "PRECISE_AI_REDUCE" -> "精准降AI";
             default -> "全文降AI";
+        };
+    }
+
+    private String normalizePlatform(String platform) {
+        if (platform == null || platform.isBlank()) {
+            return "GENERAL";
+        }
+        return switch (platform.trim().toUpperCase()) {
+            case "CNKI", "WEIPU", "WANFANG", "GEZIDA" -> platform.trim().toUpperCase();
+            default -> "GENERAL";
+        };
+    }
+
+    private String platformName(String platform) {
+        return switch (platform) {
+            case "CNKI" -> "知网";
+            case "WEIPU" -> "维普";
+            case "WANFANG" -> "万方";
+            case "GEZIDA" -> "格子达";
+            default -> "通用";
         };
     }
 

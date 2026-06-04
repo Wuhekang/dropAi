@@ -35,6 +35,14 @@
         </button>
       </div>
 
+      <div class="platform-strip">
+        <span class="platform-label">检测口径</span>
+        <el-segmented
+          v-model="targetPlatform"
+          :options="platformOptions"
+        />
+      </div>
+
       <div class="document-upload">
         <el-upload
           drag
@@ -53,6 +61,7 @@
         <div class="document-status">
           <span>文件：{{ documentJob.fileName || '未选择' }}</span>
           <span>模式：{{ currentDocumentMode.label }}</span>
+          <span>口径：{{ documentJob.platformName || currentPlatform.label }}</span>
           <span>进度：{{ documentProgress }}%（{{ documentJob.processedParagraphs || 0 }}/{{ documentJob.totalParagraphs || 0 }} 段）</span>
           <span>{{ documentJob.message || '支持 .docx，处理完成后可下载结果文档' }}</span>
           <el-progress :percentage="documentProgress" :status="progressStatus" />
@@ -84,6 +93,7 @@
       >
         <el-table-column prop="fileName" label="文件" min-width="220" show-overflow-tooltip />
         <el-table-column prop="modeName" label="模式" width="110" />
+        <el-table-column prop="platformName" label="口径" width="90" />
         <el-table-column label="状态" width="110">
           <template #default="{ row }">
             <el-tag :type="jobTagType(row.status)">{{ row.status }}</el-tag>
@@ -114,6 +124,7 @@
         </div>
         <div class="document-detail-meta">
           <span>模式：{{ documentJob.modeName || currentDocumentMode.label }}</span>
+          <span>口径：{{ documentJob.platformName || currentPlatform.label }}</span>
           <span>进度：{{ documentProgress }}%（{{ documentJob.processedParagraphs || 0 }}/{{ documentJob.totalParagraphs || 0 }}）</span>
           <span>{{ documentJob.message }}</span>
         </div>
@@ -159,6 +170,14 @@
         />
 
         <div class="controls">
+          <el-select v-model="targetPlatform" class="platform-select" placeholder="检测口径">
+            <el-option
+              v-for="item in platformOptions"
+              :key="item.value"
+              :label="item.label"
+              :value="item.value"
+            />
+          </el-select>
           <el-select v-model="rewriteType" class="type-select" placeholder="选择优化类型">
             <el-option
               v-for="item in rewriteTypes"
@@ -382,6 +401,7 @@ const detailVisible = ref(false)
 const detail = ref(null)
 const selectedDocument = ref(null)
 const documentMode = ref('FULL_AI_REDUCE')
+const targetPlatform = ref('GENERAL')
 const documentUploading = ref(false)
 const documentPollTimer = ref(null)
 const documentJobs = ref([])
@@ -394,6 +414,8 @@ const documentJob = reactive({
   processedParagraphs: 0,
   rewrittenParagraphs: 0,
   modeName: '',
+  platform: 'GENERAL',
+  platformName: '通用',
   message: '',
   downloadUrl: '',
   paragraphs: []
@@ -417,13 +439,20 @@ const documentModes = [
   {
     value: 'DOUBLE_REDUCE',
     label: '双降',
-    description: '先降重，再降低AI写作痕迹'
+    description: '一次性同时控制重复表达与AI痕迹'
   },
   {
     value: 'PRECISE_AI_REDUCE',
     label: '精准降AI',
     description: '只处理含明显AI痕迹信号的正文段落'
   }
+]
+const platformOptions = [
+  { value: 'GENERAL', label: '通用' },
+  { value: 'CNKI', label: '知网' },
+  { value: 'WEIPU', label: '维普' },
+  { value: 'WANFANG', label: '万方' },
+  { value: 'GEZIDA', label: '格子达' }
 ]
 const workflowSteps = ref([])
 const qualityCheck = reactive({
@@ -457,6 +486,9 @@ const progressStatus = computed(() => {
 const currentDocumentMode = computed(() =>
   documentModes.find((item) => item.value === documentMode.value) || documentModes[0]
 )
+const currentPlatform = computed(() =>
+  platformOptions.find((item) => item.value === targetPlatform.value) || platformOptions[0]
+)
 
 async function handleSubmit() {
   if (!originalText.value.trim()) {
@@ -467,7 +499,8 @@ async function handleSubmit() {
   try {
     const result = await submitRewrite({
       originalText: originalText.value,
-      rewriteType: rewriteType.value
+      rewriteType: rewriteType.value,
+      platform: targetPlatform.value
     })
     currentResult.value = result
     rewrittenText.value = result.rewrittenText || ''
@@ -528,7 +561,7 @@ async function submitDocument() {
   }
   documentUploading.value = true
   try {
-    const job = await uploadDocument(selectedDocument.value, documentMode.value)
+    const job = await uploadDocument(selectedDocument.value, documentMode.value, targetPlatform.value)
     setDocumentJob(job)
     rememberDocumentJob(job)
     ElMessage.success('文档任务已提交，正在后台处理')
@@ -849,6 +882,24 @@ onBeforeUnmount(() => {
   color: #1d4ed8;
 }
 
+.platform-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  margin-bottom: 14px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+
+.platform-label {
+  color: #475569;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .document-upload {
   display: grid;
   grid-template-columns: minmax(280px, 420px) minmax(0, 1fr);
@@ -965,6 +1016,10 @@ onBeforeUnmount(() => {
 
 .type-select {
   width: 190px;
+}
+
+.platform-select {
+  width: 140px;
 }
 
 .result-actions {
@@ -1101,8 +1156,14 @@ onBeforeUnmount(() => {
     flex-direction: column;
   }
 
-  .type-select {
+  .type-select,
+  .platform-select {
     width: 100%;
+  }
+
+  .platform-strip {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
 </style>

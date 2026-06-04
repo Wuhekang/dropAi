@@ -12,6 +12,8 @@ public class RewriteSubmitDTO {
     @NotBlank(message = "优化类型不能为空")
     private String rewriteType;
 
+    private String platform;
+
     public String getOriginalText() {
         return originalText;
     }
@@ -26,5 +28,13 @@ public class RewriteSubmitDTO {
 
     public void setRewriteType(String rewriteType) {
         this.rewriteType = rewriteType;
+    }
+
+    public String getPlatform() {
+        return platform;
+    }
+
+    public void setPlatform(String platform) {
+        this.platform = platform;
     }
 }
