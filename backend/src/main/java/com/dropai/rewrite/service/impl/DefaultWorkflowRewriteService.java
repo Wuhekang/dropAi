@@ -10,7 +10,9 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 @Service
 public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
@@ -53,6 +55,9 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
         String finalText = humanizeExpression(polished, useModelHumanize);
         if (aiReductionType) {
             finalText = retryIfRiskNotReduced(preparedText, finalText, originalRisk.getScore());
+        }
+        if ("双降".equals(rewriteType)) {
+            finalText = retryDoubleReduceUntilTarget(preparedText, finalText);
         }
         String finalProvider = useModelHumanize ? aiRewriteService.lastCallProvider() : sentenceProvider;
         steps.add(new WorkflowStepVO("HUMAN_EXPRESSION_ADJUST", "人工化表达调整 Skill",
@@ -164,6 +169,62 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
         String secondText = rewriteSentences(originalText, "降低AI写作痕迹", beforeScore, feedback);
         AiAnalyzeVO secondAnalyze = AiRiskAnalyzeUtil.analyze(secondText);
         return secondAnalyze.getScore() <= firstAnalyze.getScore() ? secondText : firstText;
+    }
+
+    private String retryDoubleReduceUntilTarget(String originalText, String firstText) {
+        String bestText = firstText;
+        int bestScore = combinedRiskScore(originalText, bestText);
+        for (int attempt = 1; attempt <= 2; attempt++) {
+            AiAnalyzeVO aiAnalyze = AiRiskAnalyzeUtil.analyze(bestText);
+            int duplicateRisk = estimateDuplicateRisk(originalText, bestText);
+            if (aiAnalyze.getScore() <= 20 && duplicateRisk <= 20) {
+                return bestText;
+            }
+            String feedback = "双降目标未达成：当前AI风险估算为" + aiAnalyze.getScore()
+                    + "，重复风险估算为" + duplicateRisk
+                    + "。请在不扩写的前提下重写：删除模板连接词，减少原文连续短语复用，保留技术名词，不新增信息，长度保持接近原文。";
+            String candidate = rewriteSentences(originalText, "双降", aiAnalyze.getScore(), feedback);
+            int candidateScore = combinedRiskScore(originalText, candidate);
+            if (candidateScore < bestScore) {
+                bestText = candidate;
+                bestScore = candidateScore;
+            }
+        }
+        return bestText;
+    }
+
+    private int combinedRiskScore(String originalText, String rewrittenText) {
+        return AiRiskAnalyzeUtil.analyze(rewrittenText).getScore() + estimateDuplicateRisk(originalText, rewrittenText);
+    }
+
+    private int estimateDuplicateRisk(String originalText, String rewrittenText) {
+        Set<String> originalGrams = ngrams(originalText, 8);
+        Set<String> rewrittenGrams = ngrams(rewrittenText, 8);
+        if (originalGrams.isEmpty() || rewrittenGrams.isEmpty()) {
+            return 0;
+        }
+        int overlap = 0;
+        for (String gram : originalGrams) {
+            if (rewrittenGrams.contains(gram)) {
+                overlap++;
+            }
+        }
+        return Math.min(100, Math.round(overlap * 100f / originalGrams.size()));
+    }
+
+    private Set<String> ngrams(String text, int size) {
+        String normalized = text == null ? "" : text.replaceAll("\\s+", "");
+        Set<String> grams = new HashSet<>();
+        if (normalized.length() < size) {
+            if (!normalized.isBlank()) {
+                grams.add(normalized);
+            }
+            return grams;
+        }
+        for (int index = 0; index <= normalized.length() - size; index++) {
+            grams.add(normalized.substring(index, index + size));
+        }
+        return grams;
     }
 
     private QualityCheckVO qualityCheck(String originalText, String rewrittenText) {
