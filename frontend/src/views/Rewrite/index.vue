@@ -447,10 +447,7 @@ const modelLabel = computed(() => {
 })
 const isDocumentRunning = computed(() => ['PENDING', 'RUNNING'].includes(documentJob.status))
 const documentProgress = computed(() => {
-  if (!documentJob.totalParagraphs) {
-    return documentJob.status === 'SUCCESS' ? 100 : 0
-  }
-  return Math.min(100, Math.round((documentJob.processedParagraphs / documentJob.totalParagraphs) * 100))
+  return jobProgress(documentJob)
 })
 const progressStatus = computed(() => {
   if (documentJob.status === 'SUCCESS') return 'success'
@@ -535,15 +532,25 @@ async function submitDocument() {
     setDocumentJob(job)
     rememberDocumentJob(job)
     ElMessage.success('文档任务已提交，正在后台处理')
-    startDocumentPolling(job.jobId)
+    await startDocumentPolling(job.jobId)
   } finally {
     documentUploading.value = false
   }
 }
 
-function startDocumentPolling(jobId) {
+async function startDocumentPolling(jobId) {
   if (documentPollTimer.value) {
     clearInterval(documentPollTimer.value)
+  }
+  await syncDocumentJob(jobId)
+  if (['SUCCESS', 'FAILED'].includes(documentJob.status)) {
+    if (documentJob.status === 'FAILED') {
+      ElMessage.error(documentJob.message || '文档处理失败')
+    }
+    if (documentJob.status === 'SUCCESS') {
+      ElMessage.success(documentJob.message || '文档处理完成')
+    }
+    return
   }
   documentPollTimer.value = setInterval(async () => {
     try {
@@ -567,7 +574,19 @@ function startDocumentPolling(jobId) {
       documentJob.status = 'FAILED'
       documentJob.message = error.message || '查询文档任务失败'
     }
-  }, 3000)
+  }, 800)
+}
+
+async function syncDocumentJob(jobId) {
+  try {
+    const job = await getDocumentJob(jobId)
+    setDocumentJob(job)
+    upsertDocumentJob(job)
+    rememberDocumentJob(job)
+  } catch (error) {
+    documentJob.status = 'FAILED'
+    documentJob.message = error.message || '查询文档任务失败'
+  }
 }
 
 function setDocumentJob(job) {
@@ -636,10 +655,15 @@ async function restoreDocumentJobs() {
 }
 
 function jobProgress(job) {
-  if (!job.totalParagraphs) {
+  const paragraphs = Array.isArray(job.paragraphs) ? job.paragraphs : []
+  const paragraphTotal = paragraphs.length
+  const paragraphDone = paragraphs.filter((item) => ['SUCCESS', 'FAILED'].includes(item.status)).length
+  const total = job.totalParagraphs || paragraphTotal
+  const done = Math.max(job.processedParagraphs || 0, paragraphDone)
+  if (!total) {
     return job.status === 'SUCCESS' ? 100 : 0
   }
-  return Math.min(100, Math.round((job.processedParagraphs / job.totalParagraphs) * 100))
+  return Math.min(100, Math.round((done / total) * 100))
 }
 
 function jobTagType(status) {
