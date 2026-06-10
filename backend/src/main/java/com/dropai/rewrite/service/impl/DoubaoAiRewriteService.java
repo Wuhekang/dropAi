@@ -119,7 +119,9 @@ public class DoubaoAiRewriteService implements AiRewriteService {
 
     private String systemPrompt(String rewriteType) {
         String baseRewriteType = baseRewriteType(rewriteType);
-        if ("降低AI写作痕迹".equals(baseRewriteType) || "双降".equals(baseRewriteType)) {
+        if ("降低AI写作痕迹".equals(baseRewriteType)
+                || "深度降低AI写作痕迹".equals(baseRewriteType)
+                || "双降".equals(baseRewriteType)) {
             return skillPromptService.loadSkill("humanize-zh-academic");
         }
         return """
@@ -139,7 +141,21 @@ public class DoubaoAiRewriteService implements AiRewriteService {
         String baseRewriteType = baseRewriteType(rewriteType);
         String platform = platformCode(rewriteType);
         String extraRule = "";
-        if ("降低AI写作痕迹".equals(baseRewriteType)) {
+        if ("深度降低AI写作痕迹".equals(baseRewriteType)) {
+            extraRule = """
+                    当前为全文深度降 AI 模式。改写前风险分：%d
+                    上一次失败原因：%s
+                    这一模式的目标不是同义词替换或单纯降重，而是降低整段表达中的机械规律。
+                    请在保留事实、论点、专业术语和逻辑关系的前提下执行较深入重写：
+                    1. 先识别段落中最像模板生成的部分，再重组信息出现顺序；不要沿着原句逐句翻译式改写。
+                    2. 至少对一处句子进行合理拆分或合并，并改变部分句子的起笔方式和主语安排。
+                    3. 删除可有可无的总结句、过渡词、空泛限定词；不要用新的套话补足它们。
+                    4. 保留长短句差异，允许表达略有停顿和转折，不要把结果写得过分完整、均匀、顺滑。
+                    5. 避免连续句使用相同语法骨架，也不要只靠替换近义词制造表面差异。
+                    6. 改写后通常保持原文长度的 75%% 到 110%%，不得新增原文没有的事实、数据或结论。
+                    只输出一版改写后的正文。
+                    """.formatted(beforeScore, isBlank(feedback) ? "无" : feedback);
+        } else if ("降低AI写作痕迹".equals(baseRewriteType)) {
             extraRule = """
                     改写前风险分：%d
                     上一次失败原因：%s
@@ -156,7 +172,13 @@ public class DoubaoAiRewriteService implements AiRewriteService {
                     6. 如果降重和降 AI 冲突，优先选择更自然、更像人工修改的表达。
                     """;
         }
-        String platformRule = platformRules(platform);
+        String platformRule = "深度降低AI写作痕迹".equals(baseRewriteType) && "GENERAL".equals(platform)
+                ? """
+                    通用深度降 AI 口径：
+                    - 优先打散句式、信息顺序和段落节奏中的机械规律，不以同义替换率作为主要目标。
+                    - 可以进行必要的句子拆合与删减，但不扩写、不拔高、不改变原意。
+                    """
+                : platformRules(platform);
         return """
                 优化类型：%s
                 目标检测口径：%s

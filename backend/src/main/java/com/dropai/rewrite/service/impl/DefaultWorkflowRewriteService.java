@@ -62,7 +62,9 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
         steps.add(new WorkflowStepVO("ACADEMIC_POLISH", "学术风格润色 Skill",
                 "统一论文语气，减少口语化和过度扩写"));
 
-        boolean aiReductionType = "降低AI写作痕迹".equals(baseRewriteType) || "双降".equals(baseRewriteType);
+        boolean aiReductionType = "降低AI写作痕迹".equals(baseRewriteType)
+                || "深度降低AI写作痕迹".equals(baseRewriteType)
+                || "双降".equals(baseRewriteType);
         boolean useModelHumanize = !aiReductionType && originalRisk.getScore() >= 45;
         String finalText = humanizeExpression(polished, useModelHumanize);
         String finalProvider = useModelHumanize ? aiRewriteService.lastCallProvider() : sentenceProvider;
@@ -95,7 +97,7 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
         if ("降重复改写".equals(rewriteType)) {
             rules.add("调整语序与句式结构");
         }
-        if ("降低AI写作痕迹".equals(rewriteType) || risk.getScore() >= 45) {
+        if ("降低AI写作痕迹".equals(rewriteType) || "深度降低AI写作痕迹".equals(rewriteType) || risk.getScore() >= 45) {
             rules.add("减少模板化连接词");
             rules.add("避免连续三句使用相同结构");
         }

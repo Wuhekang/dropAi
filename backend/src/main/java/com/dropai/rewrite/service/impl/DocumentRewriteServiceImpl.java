@@ -362,6 +362,9 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
         if ("DOUBLE_REDUCE".equals(mode)) {
             return workflowRewriteService.execute(text, "双降" + suffix).getRewrittenText();
         }
+        if ("FULL_AI_REDUCE".equals(mode)) {
+            return workflowRewriteService.execute(text, "深度降低AI写作痕迹" + suffix).getRewrittenText();
+        }
         return workflowRewriteService.execute(text, "降低AI写作痕迹" + suffix).getRewrittenText();
     }
 
