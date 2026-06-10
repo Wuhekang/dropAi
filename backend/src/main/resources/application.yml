@@ -31,3 +31,10 @@ ai:
     connect-timeout-seconds: 10
     read-timeout-seconds: 120
     document-concurrency: 64
+
+auth:
+  wechat:
+    app-id: ${WECHAT_APP_ID:}
+    app-secret: ${WECHAT_APP_SECRET:}
+    redirect-uri: ${WECHAT_REDIRECT_URI:}
+    frontend-success-uri: ${WECHAT_FRONTEND_SUCCESS_URI:/login}

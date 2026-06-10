@@ -43,12 +43,12 @@ request.interceptors.response.use(
   }
 )
 
-export function login(data) {
-  return request.post('/auth/login', data)
+export function getWechatLoginStatus() {
+  return request.get('/auth/wechat/status')
 }
 
-export function register(data) {
-  return request.post('/auth/register', data)
+export function getWechatLoginUrl() {
+  return request.get('/auth/wechat/url')
 }
 
 export function logout() {

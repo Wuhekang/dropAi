@@ -15,8 +15,25 @@ CREATE TABLE IF NOT EXISTS rewrite_record (
 
 CREATE TABLE IF NOT EXISTS user_account (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
-  username VARCHAR(32) NOT NULL UNIQUE,
-  password_hash VARCHAR(100) NOT NULL,
+  wechat_openid VARCHAR(128) NOT NULL UNIQUE,
+  wechat_unionid VARCHAR(128) UNIQUE,
+  nickname VARCHAR(128),
+  avatar_url VARCHAR(500),
+  created_at DATETIME NOT NULL,
+  updated_at DATETIME NOT NULL
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+ALTER TABLE user_account ADD COLUMN IF NOT EXISTS wechat_openid VARCHAR(128) NULL;
+ALTER TABLE user_account ADD COLUMN IF NOT EXISTS wechat_unionid VARCHAR(128) NULL;
+ALTER TABLE user_account ADD COLUMN IF NOT EXISTS nickname VARCHAR(128) NULL;
+ALTER TABLE user_account ADD COLUMN IF NOT EXISTS avatar_url VARCHAR(500) NULL;
+ALTER TABLE user_account ADD COLUMN IF NOT EXISTS updated_at DATETIME NULL;
+ALTER TABLE user_account DROP COLUMN IF EXISTS username;
+ALTER TABLE user_account DROP COLUMN IF EXISTS password_hash;
+
+CREATE TABLE IF NOT EXISTS wechat_login_state (
+  state VARCHAR(64) PRIMARY KEY,
+  expires_at DATETIME NOT NULL,
   created_at DATETIME NOT NULL
 ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

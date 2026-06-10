@@ -133,6 +133,19 @@ SPRING_DATASOURCE_PASSWORD=你的Aiven密码
 
 启用后，账号、登录会话、文本改写记录、文档任务和处理后的 Word 文件都会保存在 Aiven。
 
+## 微信扫码登录
+
+在微信开放平台创建并审核“网站应用”，授权回调域填写 `dropai-demo.onrender.com`，然后在 Render 配置：
+
+```text
+WECHAT_APP_ID=网站应用AppID
+WECHAT_APP_SECRET=网站应用AppSecret
+WECHAT_REDIRECT_URI=https://dropai-demo.onrender.com/api/auth/wechat/callback
+WECHAT_FRONTEND_SUCCESS_URI=https://dropai-demo.onrender.com/login
+```
+
+系统仅保留微信扫码登录，用户表通过 `wechat_openid` 和 `wechat_unionid` 唯一识别用户。
+
 ```text
 http://服务器公网IP/api/rewrite/ai/status
 ```
