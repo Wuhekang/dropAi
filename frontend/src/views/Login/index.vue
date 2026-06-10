@@ -50,7 +50,7 @@ onMounted(async () => {
   if (route.query.token) {
     localStorage.setItem('dropai_token', route.query.token)
     localStorage.setItem('dropai_username', route.query.username || '微信用户')
-    await router.replace('/rewrite')
+    await router.replace('/dashboard')
     return
   }
   const status = await getWechatLoginStatus()

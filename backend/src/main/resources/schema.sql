@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS document_job (
   job_id VARCHAR(64) PRIMARY KEY,
   user_id BIGINT NOT NULL,
   file_name VARCHAR(255) NOT NULL,
+  source_feature VARCHAR(50) NOT NULL DEFAULT 'REWRITE',
   mode VARCHAR(50), mode_name VARCHAR(50),
   platform VARCHAR(50), platform_name VARCHAR(50),
   status VARCHAR(30) NOT NULL,
@@ -62,6 +63,7 @@ CREATE TABLE IF NOT EXISTS document_job (
   updated_at DATETIME NOT NULL,
   INDEX idx_document_user_created (user_id, created_at)
 ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+ALTER TABLE document_job ADD COLUMN IF NOT EXISTS source_feature VARCHAR(50) NOT NULL DEFAULT 'REWRITE';
 
 ALTER TABLE rewrite_record CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 ALTER TABLE rewrite_record ADD COLUMN IF NOT EXISTS user_id BIGINT NULL COMMENT '所属账号';

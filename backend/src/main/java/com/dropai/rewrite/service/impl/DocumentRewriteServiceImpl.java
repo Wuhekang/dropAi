@@ -102,6 +102,7 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             DocumentRewriteJobVO job = new DocumentRewriteJobVO();
             job.setJobId(jobId);
             job.setFileName(originalName);
+            job.setSourceFeature("REWRITE");
             job.setMode(normalizedMode);
             job.setModeName(modeName(normalizedMode));
             job.setPlatform(normalizedPlatform);
@@ -551,6 +552,7 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             record.setCreatedAt(job.getCreatedAt());
         }
         record.setFileName(job.getFileName());
+        record.setSourceFeature(job.getSourceFeature() == null ? "REWRITE" : job.getSourceFeature());
         record.setMode(job.getMode());
         record.setModeName(job.getModeName());
         record.setPlatform(job.getPlatform());
@@ -575,6 +577,7 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
         DocumentRewriteJobVO job = new DocumentRewriteJobVO();
         job.setJobId(record.getJobId());
         job.setFileName(record.getFileName());
+        job.setSourceFeature(record.getSourceFeature() == null ? "REWRITE" : record.getSourceFeature());
         job.setMode(record.getMode());
         job.setModeName(record.getModeName());
         job.setPlatform(record.getPlatform());

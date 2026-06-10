@@ -10,6 +10,7 @@ public class DocumentJobRecord {
     private String jobId;
     private Long userId;
     private String fileName;
+    private String sourceFeature;
     private String mode;
     private String modeName;
     private String platform;
@@ -30,6 +31,8 @@ public class DocumentJobRecord {
     public void setUserId(Long userId) { this.userId = userId; }
     public String getFileName() { return fileName; }
     public void setFileName(String fileName) { this.fileName = fileName; }
+    public String getSourceFeature() { return sourceFeature; }
+    public void setSourceFeature(String sourceFeature) { this.sourceFeature = sourceFeature; }
     public String getMode() { return mode; }
     public void setMode(String mode) { this.mode = mode; }
     public String getModeName() { return modeName; }

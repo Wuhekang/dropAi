@@ -8,6 +8,7 @@ public class DocumentRewriteJobVO {
 
     private String jobId;
     private String fileName;
+    private String sourceFeature;
     private String mode;
     private String modeName;
     private String platform;
@@ -37,6 +38,8 @@ public class DocumentRewriteJobVO {
     public void setFileName(String fileName) {
         this.fileName = fileName;
     }
+    public String getSourceFeature() { return sourceFeature; }
+    public void setSourceFeature(String sourceFeature) { this.sourceFeature = sourceFeature; }
 
     public String getMode() {
         return mode;

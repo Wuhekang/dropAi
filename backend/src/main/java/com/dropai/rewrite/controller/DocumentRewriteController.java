@@ -67,6 +67,7 @@ public class DocumentRewriteController {
         DocumentRewriteJobVO target = new DocumentRewriteJobVO();
         target.setJobId(source.getJobId());
         target.setFileName(source.getFileName());
+        target.setSourceFeature(source.getSourceFeature());
         target.setMode(source.getMode());
         target.setModeName(source.getModeName());
         target.setPlatform(source.getPlatform());

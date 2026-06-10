@@ -110,3 +110,14 @@ export function downloadDocument(jobId) {
     timeout: 120000
   })
 }
+
+export function getMyDocuments() {
+  return request.get('/documents')
+}
+
+export function downloadMyDocument(jobId) {
+  return request.get(`/documents/${jobId}/download`, {
+    responseType: 'blob',
+    timeout: 120000
+  })
+}

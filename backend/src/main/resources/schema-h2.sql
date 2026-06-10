@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS document_job (
   job_id VARCHAR(64) PRIMARY KEY,
   user_id BIGINT NOT NULL,
   file_name VARCHAR(255) NOT NULL,
+  source_feature VARCHAR(50) DEFAULT 'REWRITE' NOT NULL,
   mode VARCHAR(50), mode_name VARCHAR(50),
   platform VARCHAR(50), platform_name VARCHAR(50),
   status VARCHAR(30) NOT NULL,
@@ -58,6 +59,7 @@ CREATE TABLE IF NOT EXISTS document_job (
   created_at TIMESTAMP NOT NULL,
   updated_at TIMESTAMP NOT NULL
 );
+ALTER TABLE document_job ADD COLUMN IF NOT EXISTS source_feature VARCHAR(50) DEFAULT 'REWRITE' NOT NULL;
 
 CREATE TABLE IF NOT EXISTS workflow_node (
   id BIGINT AUTO_INCREMENT PRIMARY KEY,

@@ -6,6 +6,7 @@
         <p>面向论文段落的润色、改写与表达风险辅助分析</p>
       </div>
       <div class="top-tags">
+        <el-button text type="primary" @click="router.push('/dashboard')">返回 Dashboard</el-button>
         <el-tag type="success" effect="dark">MVP</el-tag>
         <el-tag :type="aiStatus.testStatus === 'success' ? 'success' : 'danger'">
           {{ aiStatus.testStatus === 'success' ? '模型已连接' : '模型未连接' }}
