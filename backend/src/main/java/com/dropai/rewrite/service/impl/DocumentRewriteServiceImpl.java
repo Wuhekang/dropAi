@@ -1,6 +1,9 @@
 package com.dropai.rewrite.service.impl;
 
 import com.dropai.rewrite.config.DoubaoProperties;
+import com.dropai.rewrite.auth.AuthContext;
+import com.dropai.rewrite.entity.DocumentJobRecord;
+import com.dropai.rewrite.mapper.DocumentJobMapper;
 import com.dropai.rewrite.service.DocumentRewriteService;
 import com.dropai.rewrite.service.AiRewriteService;
 import com.dropai.rewrite.service.WorkflowRewriteService;
@@ -15,6 +18,7 @@ import org.apache.poi.xwpf.usermodel.XWPFRun;
 import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTRPr;
 import jakarta.annotation.PreDestroy;
 import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -39,6 +43,9 @@ import java.util.concurrent.CompletionService;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.Future;
 import java.util.stream.Collectors;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 @Service
 public class DocumentRewriteServiceImpl implements DocumentRewriteService {
@@ -46,6 +53,8 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
     private final WorkflowRewriteService workflowRewriteService;
     private final AiRewriteService aiRewriteService;
     private final DoubaoProperties doubaoProperties;
+    private final DocumentJobMapper documentJobMapper;
+    private final ObjectMapper objectMapper;
     private final Map<String, DocumentRewriteJobVO> jobs = new ConcurrentHashMap<>();
     private final Path uploadDir = Path.of("storage", "uploads");
     private final Path outputDir = Path.of("storage", "outputs");
@@ -55,15 +64,26 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
     public DocumentRewriteServiceImpl(
             WorkflowRewriteService workflowRewriteService,
             AiRewriteService aiRewriteService,
-            DoubaoProperties doubaoProperties
+            DoubaoProperties doubaoProperties,
+            DocumentJobMapper documentJobMapper,
+            ObjectMapper objectMapper
     ) {
         this.workflowRewriteService = workflowRewriteService;
         this.aiRewriteService = aiRewriteService;
         this.doubaoProperties = doubaoProperties;
+        this.documentJobMapper = documentJobMapper;
+        this.objectMapper = objectMapper;
     }
 
     @Override
     public DocumentRewriteJobVO submit(MultipartFile file, String mode, String platform) {
+        Long userId = AuthContext.requireUserId();
+        Long running = documentJobMapper.selectCount(new LambdaQueryWrapper<DocumentJobRecord>()
+                .eq(DocumentJobRecord::getUserId, userId)
+                .in(DocumentJobRecord::getStatus, "PENDING", "RUNNING"));
+        if (running >= 2) {
+            throw new IllegalStateException("每个账号最多同时处理 2 个文档，请等待当前任务完成");
+        }
         String originalName = file.getOriginalFilename() == null ? "document.docx" : file.getOriginalFilename();
         String normalizedMode = normalizeMode(mode);
         String normalizedPlatform = normalizePlatform(platform);
@@ -91,6 +111,7 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             job.setCreatedAt(LocalDateTime.now());
             job.setUpdatedAt(LocalDateTime.now());
             jobs.put(jobId, job);
+            persistJob(job, userId, null);
 
             documentExecutor.submit(() -> process(jobId, inputPath, outputDir.resolve(jobId + "-ai-optimized.docx")));
             return job;
@@ -101,27 +122,32 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
 
     @Override
     public DocumentRewriteJobVO getJob(String jobId) {
+        Long userId = AuthContext.requireUserId();
         DocumentRewriteJobVO job = jobs.get(jobId);
-        if (job == null) {
+        DocumentJobRecord record = ownedRecord(jobId, userId);
+        if (record == null) {
             throw new IllegalArgumentException("任务不存在");
         }
-        return job;
+        return job == null ? toJob(record) : job;
     }
 
     @Override
     public List<DocumentRewriteJobVO> listJobs() {
-        return jobs.values().stream()
-                .sorted((left, right) -> right.getCreatedAt().compareTo(left.getCreatedAt()))
+        Long userId = AuthContext.requireUserId();
+        return documentJobMapper.selectList(new LambdaQueryWrapper<DocumentJobRecord>()
+                        .eq(DocumentJobRecord::getUserId, userId)
+                        .orderByDesc(DocumentJobRecord::getCreatedAt))
+                .stream().map(this::toJob)
                 .toList();
     }
 
     @Override
     public Resource download(String jobId) {
-        Path outputPath = outputDir.resolve(jobId + "-ai-optimized.docx");
-        if (!Files.exists(outputPath)) {
+        DocumentJobRecord record = ownedRecord(jobId, AuthContext.requireUserId());
+        if (record == null || record.getOutputFile() == null || record.getOutputFile().length == 0) {
             throw new IllegalArgumentException("处理结果不存在或任务尚未完成");
         }
-        return new FileSystemResource(outputPath);
+        return new ByteArrayResource(record.getOutputFile());
     }
 
     @Override
@@ -197,9 +223,11 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
                 update(job, "SUCCESS", "Document rewrite completed: rewritten=" + job.getRewrittenParagraphs()
                         + ", provider=" + aiRewriteService.lastCallProvider());
             }
+            persistJob(job, null, Files.readAllBytes(outputPath));
         } catch (Exception exception) {
             writeJobLog(jobId, exception);
             update(job, "FAILED", "处理失败：" + readableMessage(exception) + "；详情见 storage/jobs/" + jobId + ".log");
+            persistJob(job, null, null);
         }
     }
 
@@ -505,6 +533,66 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
         job.setStatus(status);
         job.setMessage(message);
         job.setUpdatedAt(LocalDateTime.now());
+    }
+
+    private DocumentJobRecord ownedRecord(String jobId, Long userId) {
+        return documentJobMapper.selectOne(new LambdaQueryWrapper<DocumentJobRecord>()
+                .eq(DocumentJobRecord::getJobId, jobId)
+                .eq(DocumentJobRecord::getUserId, userId));
+    }
+
+    private void persistJob(DocumentRewriteJobVO job, Long userId, byte[] outputFile) {
+        if (job == null) return;
+        DocumentJobRecord record = documentJobMapper.selectById(job.getJobId());
+        if (record == null) {
+            record = new DocumentJobRecord();
+            record.setJobId(job.getJobId());
+            record.setUserId(userId);
+            record.setCreatedAt(job.getCreatedAt());
+        }
+        record.setFileName(job.getFileName());
+        record.setMode(job.getMode());
+        record.setModeName(job.getModeName());
+        record.setPlatform(job.getPlatform());
+        record.setPlatformName(job.getPlatformName());
+        record.setStatus(job.getStatus());
+        record.setTotalParagraphs(job.getTotalParagraphs());
+        record.setProcessedParagraphs(job.getProcessedParagraphs());
+        record.setRewrittenParagraphs(job.getRewrittenParagraphs());
+        record.setMessage(job.getMessage());
+        record.setUpdatedAt(job.getUpdatedAt());
+        try {
+            record.setParagraphsJson(objectMapper.writeValueAsString(job.getParagraphs()));
+        } catch (Exception ignored) {
+            record.setParagraphsJson("[]");
+        }
+        if (outputFile != null) record.setOutputFile(outputFile);
+        if (documentJobMapper.selectById(job.getJobId()) == null) documentJobMapper.insert(record);
+        else documentJobMapper.updateById(record);
+    }
+
+    private DocumentRewriteJobVO toJob(DocumentJobRecord record) {
+        DocumentRewriteJobVO job = new DocumentRewriteJobVO();
+        job.setJobId(record.getJobId());
+        job.setFileName(record.getFileName());
+        job.setMode(record.getMode());
+        job.setModeName(record.getModeName());
+        job.setPlatform(record.getPlatform());
+        job.setPlatformName(record.getPlatformName());
+        job.setStatus(record.getStatus());
+        job.setTotalParagraphs(record.getTotalParagraphs() == null ? 0 : record.getTotalParagraphs());
+        job.setProcessedParagraphs(record.getProcessedParagraphs() == null ? 0 : record.getProcessedParagraphs());
+        job.setRewrittenParagraphs(record.getRewrittenParagraphs() == null ? 0 : record.getRewrittenParagraphs());
+        job.setMessage(record.getMessage());
+        job.setCreatedAt(record.getCreatedAt());
+        job.setUpdatedAt(record.getUpdatedAt());
+        if (record.getOutputFile() != null) job.setDownloadUrl("/api/document/rewrite/download/" + record.getJobId());
+        try {
+            job.setParagraphs(objectMapper.readValue(record.getParagraphsJson(), new TypeReference<List<DocumentParagraphJobVO>>() {}));
+        } catch (Exception ignored) {
+            job.setParagraphs(new ArrayList<>());
+        }
+        return job;
     }
 
     private DocumentParagraphJobVO toParagraphJob(RewriteTarget target) {

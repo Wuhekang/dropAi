@@ -3,6 +3,7 @@ package com.dropai.rewrite.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.dropai.rewrite.dto.RewriteSubmitDTO;
+import com.dropai.rewrite.auth.AuthContext;
 import com.dropai.rewrite.entity.RewriteRecord;
 import com.dropai.rewrite.mapper.RewriteRecordMapper;
 import com.dropai.rewrite.service.RewriteRecordService;
@@ -42,6 +43,7 @@ public class RewriteRecordServiceImpl extends ServiceImpl<RewriteRecordMapper, R
         AiAnalyzeVO analyzeVO = AiRiskAnalyzeUtil.analyze(rewrittenText);
 
         RewriteRecord record = new RewriteRecord();
+        record.setUserId(AuthContext.requireUserId());
         record.setOriginalText(dto.getOriginalText());
         record.setRewrittenText(rewrittenText);
         record.setRewriteType(displayRewriteType(dto.getRewriteType(), dto.getPlatform()));
@@ -98,19 +100,24 @@ public class RewriteRecordServiceImpl extends ServiceImpl<RewriteRecordMapper, R
     @Override
     public List<RewriteResultVO> listRecords() {
         LambdaQueryWrapper<RewriteRecord> wrapper = new LambdaQueryWrapper<RewriteRecord>()
+                .eq(RewriteRecord::getUserId, AuthContext.requireUserId())
                 .orderByDesc(RewriteRecord::getCreatedAt);
         return list(wrapper).stream().map(this::toVO).toList();
     }
 
     @Override
     public RewriteResultVO detail(Long id) {
-        RewriteRecord record = getById(id);
+        RewriteRecord record = getOne(new LambdaQueryWrapper<RewriteRecord>()
+                .eq(RewriteRecord::getId, id)
+                .eq(RewriteRecord::getUserId, AuthContext.requireUserId()));
         return record == null ? null : toVO(record);
     }
 
     @Override
     public boolean deleteRecord(Long id) {
-        return removeById(id);
+        return remove(new LambdaQueryWrapper<RewriteRecord>()
+                .eq(RewriteRecord::getId, id)
+                .eq(RewriteRecord::getUserId, AuthContext.requireUserId()));
     }
 
     private RewriteResultVO toVO(RewriteRecord record) {

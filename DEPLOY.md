@@ -120,6 +120,19 @@ docker compose logs -f backend
 
 如果豆包调用失败，先打开：
 
+## Aiven MySQL
+
+将 Aiven 控制台中的连接信息配置到 Render Environment：
+
+```text
+SPRING_PROFILES_ACTIVE=aiven
+SPRING_DATASOURCE_URL=jdbc:mysql://HOST:PORT/defaultdb?sslMode=REQUIRED&useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+SPRING_DATASOURCE_USERNAME=avnadmin
+SPRING_DATASOURCE_PASSWORD=你的Aiven密码
+```
+
+启用后，账号、登录会话、文本改写记录、文档任务和处理后的 Word 文件都会保存在 Aiven。
+
 ```text
 http://服务器公网IP/api/rewrite/ai/status
 ```

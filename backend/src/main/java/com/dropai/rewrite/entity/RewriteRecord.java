@@ -11,6 +11,7 @@ public class RewriteRecord {
 
     @TableId(type = IdType.AUTO)
     private Long id;
+    private Long userId;
     private String originalText;
     private String rewrittenText;
     private String rewriteType;
@@ -23,6 +24,8 @@ public class RewriteRecord {
     public Long getId() {
         return id;
     }
+    public Long getUserId() { return userId; }
+    public void setUserId(Long userId) { this.userId = userId; }
 
     public void setId(Long id) {
         this.id = id;

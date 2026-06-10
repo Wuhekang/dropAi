@@ -1,12 +1,8 @@
 SET NAMES utf8mb4;
 
-CREATE DATABASE IF NOT EXISTS drop_ai DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-ALTER DATABASE drop_ai DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-
-USE drop_ai;
-
 CREATE TABLE IF NOT EXISTS rewrite_record (
   id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '记录ID',
+  user_id BIGINT NOT NULL COMMENT '所属账号',
   original_text TEXT NOT NULL COMMENT '原文内容',
   rewritten_text TEXT COMMENT '改写后内容',
   rewrite_type VARCHAR(50) NOT NULL COMMENT '改写类型',
@@ -17,7 +13,41 @@ CREATE TABLE IF NOT EXISTS rewrite_record (
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间'
 ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS user_account (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  username VARCHAR(32) NOT NULL UNIQUE,
+  password_hash VARCHAR(100) NOT NULL,
+  created_at DATETIME NOT NULL
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS user_session (
+  token VARCHAR(64) PRIMARY KEY,
+  user_id BIGINT NOT NULL,
+  expires_at DATETIME NOT NULL,
+  created_at DATETIME NOT NULL,
+  INDEX idx_session_user (user_id)
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS document_job (
+  job_id VARCHAR(64) PRIMARY KEY,
+  user_id BIGINT NOT NULL,
+  file_name VARCHAR(255) NOT NULL,
+  mode VARCHAR(50), mode_name VARCHAR(50),
+  platform VARCHAR(50), platform_name VARCHAR(50),
+  status VARCHAR(30) NOT NULL,
+  total_paragraphs INT DEFAULT 0,
+  processed_paragraphs INT DEFAULT 0,
+  rewritten_paragraphs INT DEFAULT 0,
+  message TEXT,
+  paragraphs_json LONGTEXT,
+  output_file LONGBLOB,
+  created_at DATETIME NOT NULL,
+  updated_at DATETIME NOT NULL,
+  INDEX idx_document_user_created (user_id, created_at)
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 ALTER TABLE rewrite_record CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+ALTER TABLE rewrite_record ADD COLUMN IF NOT EXISTS user_id BIGINT NULL COMMENT '所属账号';
 
 CREATE TABLE IF NOT EXISTS workflow_node (
   id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '节点ID',

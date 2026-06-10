@@ -11,6 +11,8 @@
           {{ aiStatus.testStatus === 'success' ? '模型已连接' : '模型未连接' }}
         </el-tag>
         <el-tag type="primary">{{ modelLabel }}</el-tag>
+        <el-tag type="info">{{ username }}</el-tag>
+        <el-button text type="danger" @click="signOut">退出</el-button>
       </div>
     </header>
 
@@ -401,6 +403,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useRouter } from 'vue-router'
 import {
   analyzeText,
   deleteRewrite,
@@ -411,8 +414,19 @@ import {
   getRewriteDetail,
   getRewriteList,
   submitRewrite,
-  uploadDocument
+  uploadDocument,
+  logout
 } from '../../api/rewrite'
+
+const router = useRouter()
+const username = localStorage.getItem('dropai_username') || '当前账号'
+async function signOut() {
+  try { await logout() } finally {
+    localStorage.removeItem('dropai_token')
+    localStorage.removeItem('dropai_username')
+    router.replace('/login')
+  }
+}
 
 const rewriteTypes = [
   '学术化润色',

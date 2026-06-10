@@ -6,6 +6,12 @@ const request = axios.create({
   timeout: 120000
 })
 
+request.interceptors.request.use((config) => {
+  const token = localStorage.getItem('dropai_token')
+  if (token) config.headers.Authorization = `Bearer ${token}`
+  return config
+})
+
 request.interceptors.response.use(
   (response) => {
     if (response.config.responseType === 'blob' || response.data instanceof Blob) {
@@ -20,6 +26,11 @@ request.interceptors.response.use(
     return result.data
   },
   (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem('dropai_token')
+      localStorage.removeItem('dropai_username')
+      if (window.location.pathname !== '/login') window.location.href = '/login'
+    }
     const serverMessage = error.response?.data?.message
     let message = serverMessage || error.message || '网络请求异常'
     if (error.code === 'ECONNABORTED') {
@@ -31,6 +42,18 @@ request.interceptors.response.use(
     return Promise.reject(new Error(message))
   }
 )
+
+export function login(data) {
+  return request.post('/auth/login', data)
+}
+
+export function register(data) {
+  return request.post('/auth/register', data)
+}
+
+export function logout() {
+  return request.post('/auth/logout')
+}
 
 export function submitRewrite(data) {
   return request.post('/rewrite/submit', data)
