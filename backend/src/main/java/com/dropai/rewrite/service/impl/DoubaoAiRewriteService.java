@@ -74,7 +74,7 @@ public class DoubaoAiRewriteService implements AiRewriteService {
             String response = postWithRetry(apiKey, requestBody);
 
             String content = parseContent(response);
-            lastCallProvider.set(providerName() + " / " + modelName());
+            lastCallProvider.set(providerName());
             return content;
         } catch (RestClientResponseException exception) {
             lastCallProvider.set("豆包调用失败：HTTP " + exception.getStatusCode().value());
@@ -104,7 +104,7 @@ public class DoubaoAiRewriteService implements AiRewriteService {
     @Override
     public String lastCallProvider() {
         String provider = lastCallProvider.get();
-        return isBlank(provider) ? providerName() + " / " + modelName() : provider;
+        return isBlank(provider) ? providerName() : provider;
     }
 
     @Override
