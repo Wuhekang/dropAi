@@ -121,3 +121,10 @@ export function downloadMyDocument(jobId) {
     timeout: 120000
   })
 }
+
+export function generateEngineeringDocument(data) {
+  return request.post('/engineering-writing/generate', data, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 300000
+  })
+}
