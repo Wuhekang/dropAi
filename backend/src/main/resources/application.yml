@@ -26,7 +26,7 @@ ai:
     enabled: true
     api-key: ${DOUBAO_API_KEY:}
     endpoint: ${DOUBAO_ENDPOINT:https://ark.cn-beijing.volces.com/api/v3/chat/completions}
-    model: ${DOUBAO_MODEL:doubao-seed-1-8-251228}
+    model: ${DOUBAO_MODEL:doubao-seed-2-0-lite-260428}
     temperature: 0.35
     connect-timeout-seconds: 10
     read-timeout-seconds: 120

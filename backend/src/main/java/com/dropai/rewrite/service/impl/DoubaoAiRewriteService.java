@@ -65,6 +65,7 @@ public class DoubaoAiRewriteService implements AiRewriteService {
                     "model", properties.getModel(),
                     "temperature", properties.getTemperature(),
                     "max_tokens", 4096,
+                    "thinking", Map.of("type", "disabled"),
                     "messages", List.of(
                             Map.of("role", "system", "content", systemPrompt(rewriteType)),
                             Map.of("role", "user", "content", userPrompt(originalText, rewriteType, beforeScore, feedback))

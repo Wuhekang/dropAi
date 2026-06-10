@@ -10,7 +10,7 @@ public class DoubaoProperties {
     private boolean enabled = true;
     private String apiKey;
     private String endpoint = "https://ark.cn-beijing.volces.com/api/v3/chat/completions";
-    private String model = "doubao-seed-1-8-251228";
+    private String model = "doubao-seed-2-0-lite-260428";
     private double temperature = 0.35;
     private int connectTimeoutSeconds = 10;
     private int readTimeoutSeconds = 120;

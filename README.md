@@ -33,7 +33,7 @@ source backend/src/main/resources/schema.sql;
 
 ```powershell
 $env:DOUBAO_API_KEY="你的豆包API Key"
-$env:DOUBAO_MODEL="doubao-seed-1-8-251228"
+$env:DOUBAO_MODEL="doubao-seed-2-0-lite-260428"
 ```
 
 ```bash

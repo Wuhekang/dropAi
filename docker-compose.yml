@@ -33,7 +33,7 @@ services:
       SPRING_DATASOURCE_USERNAME: ${MYSQL_USER:-dropai}
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD}
       DOUBAO_API_KEY: ${DOUBAO_API_KEY}
-      DOUBAO_MODEL: ${DOUBAO_MODEL:-doubao-seed-1-8-251228}
+      DOUBAO_MODEL: ${DOUBAO_MODEL:-doubao-seed-2-0-lite-260428}
       DOUBAO_ENDPOINT: ${DOUBAO_ENDPOINT:-https://ark.cn-beijing.volces.com/api/v3/chat/completions}
       TZ: Asia/Shanghai
     volumes:

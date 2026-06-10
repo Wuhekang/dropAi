@@ -8,7 +8,7 @@ services:
       - key: SPRING_PROFILES_ACTIVE
         value: demo
       - key: DOUBAO_MODEL
-        value: doubao-seed-1-8-251228
+        value: doubao-seed-2-0-lite-260428
       - key: DOUBAO_ENDPOINT
         value: https://ark.cn-beijing.volces.com/api/v3/chat/completions
       - key: DOUBAO_API_KEY

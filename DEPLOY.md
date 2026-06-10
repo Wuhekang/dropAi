@@ -67,7 +67,7 @@ MYSQL_USER=dropai
 MYSQL_PASSWORD=你的数据库密码
 
 DOUBAO_API_KEY=你的豆包Ark Key
-DOUBAO_MODEL=doubao-seed-1-8-251228
+DOUBAO_MODEL=doubao-seed-2-0-lite-260428
 DOUBAO_ENDPOINT=https://ark.cn-beijing.volces.com/api/v3/chat/completions
 ```
 
