@@ -40,6 +40,12 @@ export function analyzeText(data) {
   return request.post('/rewrite/analyze', data)
 }
 
+export function getAiStatus() {
+  return request.get('/rewrite/ai/status', {
+    timeout: 180000
+  })
+}
+
 export function getRewriteList() {
   return request.get('/rewrite/list')
 }

@@ -1,6 +1,7 @@
 package com.dropai.rewrite.service.impl;
 
 import com.dropai.rewrite.service.AiRewriteService;
+import com.dropai.rewrite.service.TextStructureProtector;
 import com.dropai.rewrite.service.WorkflowRewriteService;
 import com.dropai.rewrite.utils.AiRiskAnalyzeUtil;
 import com.dropai.rewrite.vo.AiAnalyzeVO;
@@ -21,18 +22,28 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
     );
 
     private final AiRewriteService aiRewriteService;
+    private final TextStructureProtector textStructureProtector;
 
-    public DefaultWorkflowRewriteService(AiRewriteService aiRewriteService) {
+    public DefaultWorkflowRewriteService(
+            AiRewriteService aiRewriteService,
+            TextStructureProtector textStructureProtector
+    ) {
         this.aiRewriteService = aiRewriteService;
+        this.textStructureProtector = textStructureProtector;
     }
 
     @Override
     public WorkflowRewriteResult execute(String originalText, String rewriteType) {
         List<WorkflowStepVO> steps = new ArrayList<>();
         String preparedText = preprocess(originalText);
+        TextStructureProtector.ProtectedText protectedText = textStructureProtector.protect(preparedText);
         String baseRewriteType = baseRewriteType(rewriteType);
         String platformName = platformName(platformCode(rewriteType));
         steps.add(new WorkflowStepVO("TEXT_PREPROCESS", "文本预处理", "清理多余空白并保留原始语义边界"));
+        steps.add(new WorkflowStepVO("STRUCTURE_PROTECT", "结构保护",
+                protectedText.protectedCount() == 0
+                        ? "未发现需要保护的表格、代码、URL 或参考文献"
+                        : "已锁定 " + protectedText.protectedCount() + " 处表格、代码、URL 或参考文献，改写后原样恢复"));
 
         AiAnalyzeVO originalRisk = AiRiskAnalyzeUtil.analyze(preparedText);
         steps.add(new WorkflowStepVO("AI_TRACE_ANALYZE", "AI痕迹分析 Skill",
@@ -41,7 +52,8 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
         String strategy = planStrategy(baseRewriteType, originalRisk) + "；平台约束：" + platformName;
         steps.add(new WorkflowStepVO("REWRITE_PLAN", "改写策略规划 Skill", strategy));
 
-        String sentenceRewritten = rewriteSentences(preparedText, rewriteType, originalRisk.getScore(), "");
+        String sentenceRewritten = rewriteSentences(protectedText.text(), rewriteType, originalRisk.getScore(), "");
+        sentenceRewritten = protectedText.restore(sentenceRewritten);
         String sentenceProvider = aiRewriteService.lastCallProvider();
         steps.add(new WorkflowStepVO("SENTENCE_REWRITE", "分句改写 Skill",
                 "按句处理，约束为不改变核心含义、不新增虚假案例、不只做同义词替换；调用：" + sentenceProvider));

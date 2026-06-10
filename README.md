@@ -43,7 +43,7 @@ mvn spring-boot:run
 
 接口统一前缀：`http://localhost:8080/api/rewrite`
 
-如果未设置 `DOUBAO_API_KEY`，系统会自动使用 Mock 改写服务，便于本地开发。
+如果未设置 `DOUBAO_API_KEY`，系统会拒绝改写请求并明确提示模型未连接，不会生成模拟结果。
 
 ## 启动前端
 

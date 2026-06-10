@@ -7,9 +7,28 @@
       </div>
       <div class="top-tags">
         <el-tag type="success" effect="dark">MVP</el-tag>
+        <el-tag :type="aiStatus.testStatus === 'success' ? 'success' : 'danger'">
+          {{ aiStatus.testStatus === 'success' ? '模型已连接' : '模型未连接' }}
+        </el-tag>
         <el-tag type="primary">{{ modelLabel }}</el-tag>
       </div>
     </header>
+
+    <el-alert
+      class="model-status-alert"
+      :type="aiStatus.testStatus === 'success' ? 'success' : 'error'"
+      :closable="false"
+      show-icon
+    >
+      <template #title>
+        {{ aiStatus.provider || '豆包 Ark' }} / {{ aiStatus.model || '未读取模型配置' }}
+      </template>
+      <div class="model-status-detail">
+        <span>{{ aiStatus.testMessage || '正在校验真实模型连接状态...' }}</span>
+        <span v-if="aiStatus.endpoint">Endpoint：{{ aiStatus.endpoint }}</span>
+        <el-button text type="primary" :loading="checkingAiStatus" @click="loadAiStatus">重新校验</el-button>
+      </div>
+    </el-alert>
 
     <el-card class="panel document-panel" shadow="never">
       <template #header>
@@ -69,7 +88,7 @@
             <el-button
               type="primary"
               :loading="documentUploading"
-              :disabled="!selectedDocument || isDocumentRunning"
+              :disabled="!selectedDocument || isDocumentRunning || aiStatus.testStatus !== 'success'"
               @click="submitDocument"
             >
               开始整篇处理
@@ -186,12 +205,25 @@
               :value="item"
             />
           </el-select>
-          <el-button type="primary" :loading="submitting" @click="handleSubmit">
+          <el-button
+            type="primary"
+            :loading="submitting"
+            :disabled="aiStatus.testStatus !== 'success'"
+            @click="handleSubmit"
+          >
             开始优化
           </el-button>
           <el-button :loading="analyzing" @click="handleAnalyze">
             风险分析
           </el-button>
+          <el-button @click="loadDemoText">
+            加载演示文本
+          </el-button>
+        </div>
+
+        <div class="protection-hint">
+          <strong>结构保护已启用</strong>
+          <span>表格、代码块、URL 与参考文献会在模型调用前锁定，完成后原样恢复。</span>
         </div>
       </el-card>
 
@@ -261,7 +293,8 @@
         <div class="current-record">
           <span>ID：{{ currentResult?.id || '--' }}</span>
           <span>类型：{{ currentResult?.rewriteType || rewriteType }}</span>
-          <span>模型：{{ currentResult?.aiProvider || '提交后显示' }}</span>
+          <span>提供商：{{ currentResult?.aiProvider || '提交后显示' }}</span>
+          <span>模型：{{ currentResult?.aiModel || aiStatus.model || '提交后显示' }}</span>
           <span>创建时间：{{ formatTime(currentResult?.createdAt) }}</span>
         </div>
       </el-card>
@@ -372,6 +405,7 @@ import {
   analyzeText,
   deleteRewrite,
   downloadDocument,
+  getAiStatus,
   getDocumentJob,
   getDocumentJobs,
   getRewriteDetail,
@@ -397,6 +431,15 @@ const analyzing = ref(false)
 const historyLoading = ref(false)
 const history = ref([])
 const currentResult = ref(null)
+const checkingAiStatus = ref(false)
+const aiStatus = reactive({
+  provider: '豆包 Ark',
+  model: '',
+  endpoint: '',
+  apiKeyConfigured: false,
+  testStatus: '',
+  testMessage: ''
+})
 const detailVisible = ref(false)
 const detail = ref(null)
 const selectedDocument = ref(null)
@@ -470,10 +513,25 @@ const qualityPassed = computed(() =>
 )
 const modelLabel = computed(() => {
   if (currentResult.value?.aiProvider) {
-    return currentResult.value.aiProvider
+    return `${currentResult.value.aiProvider} / ${currentResult.value.aiModel || aiStatus.model}`
   }
-  return '豆包 1.8'
+  return aiStatus.model || '模型待校验'
 })
+
+function loadDemoText() {
+  originalText.value = `随着信息技术的快速发展，传统管理方式已经难以满足当前需求。因此，本文基于 Spring Boot 构建系统，通过 MyBatis-Plus 实现数据访问，从而有效提升管理效率。
+
+| 接口 | 方法 | 说明 |
+|---|---|---|
+| /api/rewrite/submit | POST | 提交优化任务 |
+
+相关配置见 \`application.yml\`，项目文档地址为 https://example.com/docs。
+
+[1] 张三. 学术写作表达研究[J]. 写作研究, 2025(2): 10-15.`
+  rewriteType.value = '降低AI写作痕迹'
+  targetPlatform.value = 'GENERAL'
+  ElMessage.success('演示文本已加载，可直接点击开始优化')
+}
 const isDocumentRunning = computed(() => ['PENDING', 'RUNNING'].includes(documentJob.status))
 const documentProgress = computed(() => {
   return jobProgress(documentJob)
@@ -495,6 +553,10 @@ async function handleSubmit() {
     ElMessage.warning('请输入原文内容')
     return
   }
+  if (aiStatus.testStatus !== 'success') {
+    ElMessage.error('真实模型尚未连接，已阻止提交，不会生成模拟结果')
+    return
+  }
   submitting.value = true
   try {
     const result = await submitRewrite({
@@ -510,6 +572,18 @@ async function handleSubmit() {
     await loadHistory()
   } finally {
     submitting.value = false
+  }
+}
+
+async function loadAiStatus() {
+  checkingAiStatus.value = true
+  try {
+    Object.assign(aiStatus, await getAiStatus())
+  } catch (error) {
+    aiStatus.testStatus = 'failed'
+    aiStatus.testMessage = error.message || '真实模型连接校验失败'
+  } finally {
+    checkingAiStatus.value = false
   }
 }
 
@@ -557,6 +631,10 @@ function handleDocumentSelected(uploadFile) {
 async function submitDocument() {
   if (!selectedDocument.value) {
     ElMessage.warning('请先选择 .docx 文件')
+    return
+  }
+  if (aiStatus.testStatus !== 'success') {
+    ElMessage.error('真实模型尚未连接，已阻止文档任务，不会生成模拟结果')
     return
   }
   documentUploading.value = true
@@ -786,6 +864,7 @@ function levelTagType(level) {
 }
 
 onMounted(() => {
+  loadAiStatus()
   loadHistory()
   restoreDocumentJobs()
 })
@@ -831,6 +910,17 @@ onBeforeUnmount(() => {
 .topbar p {
   margin: 8px 0 0;
   color: #64748b;
+}
+
+.model-status-alert {
+  margin-bottom: 16px;
+}
+
+.model-status-detail {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .workspace {
@@ -1012,6 +1102,21 @@ onBeforeUnmount(() => {
   gap: 10px;
   margin-top: 14px;
   flex-wrap: wrap;
+}
+
+.protection-hint {
+  display: grid;
+  gap: 4px;
+  margin-top: 14px;
+  padding: 10px 12px;
+  color: #475569;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+}
+
+.protection-hint strong {
+  color: #166534;
 }
 
 .type-select {

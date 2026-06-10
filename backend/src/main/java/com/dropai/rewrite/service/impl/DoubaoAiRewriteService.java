@@ -57,7 +57,7 @@ public class DoubaoAiRewriteService implements AiRewriteService {
         String apiKey = normalizeApiKey(properties.getApiKey());
         if (isBlank(apiKey)) {
             lastCallProvider.set("豆包未调用：未配置 DOUBAO_API_KEY");
-            throw new IllegalStateException("未读取到 DOUBAO_API_KEY，请在 Render 的 Environment 中配置豆包 API Key 后重新部署");
+            throw new IllegalStateException("未配置 DOUBAO_API_KEY，未调用模型，也不会生成模拟结果");
         }
 
         try {
@@ -169,6 +169,7 @@ public class DoubaoAiRewriteService implements AiRewriteService {
                 - 避免连续使用“通过……实现……”“基于……构建……”“在……基础上……”这类同形句。
                 - 功能类和工程类段落保留具体对象和动作，不要抽象成宏观管理学表达。
                 - 代码、注解、接口路径、SQL、字段名、变量名、方法名、配置项必须尽量原样保留，不要改成解释性长句。
+                - 任何 [[DROP_AI_PROTECTED_数字]] 占位符都必须逐字原样保留，不得删除、改写、翻译或调整顺序。
                 - 不要新增“全流程、多维度、系统性、有效提升、优化效果、用户体验提升”等泛化套话。
                 - 如果是扩写，只补充解释性表达，不添加未经提供的数据或案例。
                 - 如果是缩写，压缩冗余内容但保留关键论点。
