@@ -33,7 +33,7 @@ ai:
     document-concurrency: 64
   matrix-design:
     enabled: ${MATRIX_DESIGN_ENABLED:true}
-    api-key: ${MATRIX_API_KEY:}
+    api-key: ${MATRIX_API_KEY:${OPENAI_API_KEY:}}
     endpoint: ${MATRIX_ENDPOINT:https://taotoken.net/api/v1/chat/completions}
     model: ${MATRIX_MODEL:claude-opus-4-7}
     connect-timeout-seconds: 15
