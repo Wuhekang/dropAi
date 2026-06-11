@@ -23,5 +23,3 @@ services:
         sync: false
       - key: MATRIX_MODEL
         value: claude-opus-4-7
-      - key: MATRIX_ENDPOINT
-        value: https://www.aikeys.me/v1/chat/completions

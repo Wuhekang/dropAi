@@ -14,6 +14,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.StreamSupport;
 
 @Service
 public class MatrixDesignService {
@@ -65,6 +66,27 @@ public class MatrixDesignService {
     public boolean apiKeyConfigured() { return !normalize(properties.getApiKey()).isBlank(); }
     public String modelName() { return properties.getModel(); }
     public String endpoint() { return properties.getEndpoint(); }
+
+    public List<String> availableModels() {
+        String apiKey = normalize(properties.getApiKey());
+        if (apiKey.isBlank()) throw new IllegalStateException("未配置 MATRIX_API_KEY");
+        try {
+            String modelsEndpoint = properties.getEndpoint().replaceFirst("/chat/completions/?$", "/models");
+            String response = restClient.get()
+                    .uri(modelsEndpoint)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
+                    .retrieve()
+                    .body(String.class);
+            JsonNode root = objectMapper.readTree(response);
+            return StreamSupport.stream(root.path("data").spliterator(), false)
+                    .map(model -> model.path("id").asText(""))
+                    .filter(id -> !id.isBlank())
+                    .sorted()
+                    .toList();
+        } catch (Exception exception) {
+            throw new IllegalStateException("读取万量矩阵模型列表失败：" + compact(exception.getMessage()), exception);
+        }
+    }
 
     private String parseText(String response) throws Exception {
         JsonNode root = objectMapper.readTree(response);

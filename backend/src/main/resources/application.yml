@@ -34,7 +34,7 @@ ai:
   matrix-design:
     enabled: ${MATRIX_DESIGN_ENABLED:true}
     api-key: ${MATRIX_API_KEY:${OPENAI_API_KEY:}}
-    endpoint: ${MATRIX_ENDPOINT:https://www.aikeys.me/v1/chat/completions}
+    endpoint: https://www.aikeys.me/v1/chat/completions
     model: ${MATRIX_MODEL:claude-opus-4-7}
     connect-timeout-seconds: 15
     read-timeout-seconds: 180

@@ -42,6 +42,11 @@ public class EngineeringWritingController {
         return Result.success(status);
     }
 
+    @GetMapping("/ai/models")
+    public Result<List<String>> aiModels() {
+        return Result.success(matrixDesignService.availableModels());
+    }
+
     @PostMapping("/analyze")
     public Result<DesignAnalysisVO> analyze(
             @RequestParam(value = "title", defaultValue = "") String title,
