@@ -139,3 +139,11 @@ export function analyzeEngineeringDesign(data) {
 export function getEngineeringAiStatus() {
   return request.get('/engineering-writing/ai/status', { timeout: 240000 })
 }
+
+export function downloadEngineeringDxf(params) {
+  return request.get('/engineering-writing/cad/dxf', {
+    params,
+    responseType: 'blob',
+    timeout: 120000
+  })
+}

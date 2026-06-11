@@ -2,12 +2,18 @@ package com.dropai.rewrite.controller;
 
 import com.dropai.rewrite.service.EngineeringWritingService;
 import com.dropai.rewrite.service.MatrixDesignService;
+import com.dropai.rewrite.service.ParametricDxfService;
 import com.dropai.rewrite.vo.AiProviderStatusVO;
 import com.dropai.rewrite.vo.DesignAnalysisVO;
 import com.dropai.rewrite.vo.DocumentRewriteJobVO;
 import com.dropai.rewrite.vo.Result;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 @RestController
@@ -15,9 +21,11 @@ import java.util.List;
 public class EngineeringWritingController {
     private final EngineeringWritingService service;
     private final MatrixDesignService matrixDesignService;
-    public EngineeringWritingController(EngineeringWritingService service, MatrixDesignService matrixDesignService) {
+    private final ParametricDxfService dxfService;
+    public EngineeringWritingController(EngineeringWritingService service, MatrixDesignService matrixDesignService, ParametricDxfService dxfService) {
         this.service = service;
         this.matrixDesignService = matrixDesignService;
+        this.dxfService = dxfService;
     }
 
     @GetMapping("/ai/status")
@@ -64,6 +72,25 @@ public class EngineeringWritingController {
             @RequestParam(value = "files", required = false) List<MultipartFile> files
     ) {
         return Result.success(service.generate(title, outputType, requirements, files == null ? List.of() : files));
+    }
+
+    @GetMapping("/cad/dxf")
+    public ResponseEntity<byte[]> downloadDxf(
+            @RequestParam(defaultValue = "机械设计") String title,
+            @RequestParam double length,
+            @RequestParam double width,
+            @RequestParam double height,
+            @RequestParam double wheelbase,
+            @RequestParam double wheelDiameter
+    ) {
+        byte[] dxf = dxfService.generate(length, width, height, wheelbase, wheelDiameter);
+        String safeTitle = title.replaceAll("[\\\\/:*?\"<>|]", "-");
+        String fileName = URLEncoder.encode(safeTitle + "-总装方案图.dxf", StandardCharsets.UTF_8).replace("+", "%20");
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType("application/dxf"))
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename*=UTF-8''" + fileName)
+                .contentLength(dxf.length)
+                .body(dxf);
     }
 
     @ExceptionHandler(Exception.class)

@@ -96,7 +96,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { analyzeEngineeringDesign, downloadMyDocument, generateEngineeringDocument, getEngineeringAiStatus } from '../../api/rewrite'
+import { analyzeEngineeringDesign, downloadEngineeringDxf, downloadMyDocument, generateEngineeringDocument, getEngineeringAiStatus } from '../../api/rewrite'
 
 const router = useRouter()
 const title = ref('')
@@ -199,15 +199,17 @@ function buildCad() {
   generatedShapes.value = shapes
   cadViewBox.value = `${-L * .06} ${-H * 1.08} ${L * 1.12} ${H * 1.18}`
 }
-function dxfPair(code, value) { return `${code}\n${value}\n` }
-function downloadDxf() {
-  let dxf = '0\nSECTION\n2\nHEADER\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n'
-  generatedShapes.value.forEach((shape) => {
-    if (shape.type === 'LINE') dxf += dxfPair(0, 'LINE') + dxfPair(8, 'DESIGN_OUTLINE') + dxfPair(10, shape.x1) + dxfPair(20, shape.y1) + dxfPair(11, shape.x2) + dxfPair(21, shape.y2)
-    else dxf += dxfPair(0, 'CIRCLE') + dxfPair(8, 'DESIGN_OUTLINE') + dxfPair(10, shape.cx) + dxfPair(20, shape.cy) + dxfPair(40, shape.r)
+async function downloadDxf() {
+  const blob = await downloadEngineeringDxf({
+    title: title.value || '机械设计',
+    length: parameters.length,
+    width: parameters.width,
+    height: parameters.height,
+    wheelbase: parameters.wheelbase,
+    wheelDiameter: parameters.wheelDiameter
   })
-  dxf += '0\nENDSEC\n0\nEOF\n'
-  downloadBlob(new Blob([dxf], { type: 'application/dxf' }), `${title.value}-总装方案图.dxf`)
+  const safeTitle = (title.value || '机械设计').replace(/[\\/:*?"<>|]/g, '-')
+  downloadBlob(blob, `${safeTitle}-总装方案图.dxf`)
 }
 function downloadCadScreenshot() {
   const source = new XMLSerializer().serializeToString(generatedSvg.value)
