@@ -6,7 +6,13 @@ services:
     dockerfilePath: ./Dockerfile.render
     envVars:
       - key: SPRING_PROFILES_ACTIVE
-        value: demo
+        value: aiven
+      - key: SPRING_DATASOURCE_URL
+        value: jdbc:mysql://dropai-mysql-dropai-production.c.aivencloud.com:21940/defaultdb?sslMode=REQUIRED&useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+      - key: SPRING_DATASOURCE_USERNAME
+        value: avnadmin
+      - key: SPRING_DATASOURCE_PASSWORD
+        sync: false
       - key: DOUBAO_MODEL
         value: doubao-seed-2-0-lite-260428
       - key: DOUBAO_ENDPOINT
