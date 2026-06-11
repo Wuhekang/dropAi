@@ -18,9 +18,8 @@ public class EngineeringWritingController {
             @RequestParam String title,
             @RequestParam String outputType,
             @RequestParam(value = "requirements", defaultValue = "") String requirements,
-            @RequestParam("files") List<MultipartFile> files
+            @RequestParam(value = "files", required = false) List<MultipartFile> files
     ) {
-        if (files.isEmpty()) throw new IllegalArgumentException("请至少上传一份任务书、开题报告、模板、参考文献或设计资料");
-        return Result.success(service.generate(title, outputType, requirements, files));
+        return Result.success(service.generate(title, outputType, requirements, files == null ? List.of() : files));
     }
 }

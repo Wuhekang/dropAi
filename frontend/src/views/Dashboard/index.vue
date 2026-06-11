@@ -17,10 +17,10 @@
         <span class="product-action">进入工作区 →</span>
       </button>
       <button class="product-card new-product" type="button" @click="router.push('/new-project')">
-        <span class="product-label">独立新功能</span>
-        <strong>新项目空间</strong>
-        <p>与降重、降 AI 业务分离的独立产品方向，等待下一步需求定义。</p>
-        <span class="product-action">进入新项目 →</span>
+        <span class="product-label">机械设计工作区</span>
+        <strong>设计生成</strong>
+        <p>根据设计参数与上传资料，生成设计说明、参数表、CAD 方案图和论文插图截图。</p>
+        <span class="product-action">进入设计生成 →</span>
       </button>
     </section>
 
@@ -90,7 +90,7 @@ async function signOut() {
 }
 function statusType(status) { return status === 'SUCCESS' ? 'success' : status === 'FAILED' ? 'danger' : 'warning' }
 function statusText(status) { return ({ SUCCESS: '已完成', FAILED: '失败', RUNNING: '处理中', PENDING: '等待中' })[status] || status }
-function featureName(feature) { return feature === 'REWRITE' ? '降重与降 AI' : feature || '新项目' }
+function featureName(feature) { return feature === 'REWRITE' ? '降重与降 AI' : feature === 'DESIGN_GENERATION' || feature === 'ENGINEERING_WRITING' ? '设计生成' : feature || '设计生成' }
 onMounted(loadDocuments)
 </script>
 

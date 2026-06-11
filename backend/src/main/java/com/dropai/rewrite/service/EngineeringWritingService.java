@@ -59,11 +59,11 @@ public class EngineeringWritingService {
         record.setJobId(UUID.randomUUID().toString().replace("-", ""));
         record.setUserId(userId);
         record.setFileName(title + "-" + typeName + ".docx");
-        record.setSourceFeature("ENGINEERING_WRITING");
+        record.setSourceFeature("DESIGN_GENERATION");
         record.setMode(outputType);
         record.setModeName(typeName);
         record.setPlatform("ENGINEERING");
-        record.setPlatformName("机械毕业设计");
+        record.setPlatformName("设计生成");
         record.setStatus("RUNNING");
         record.setTotalParagraphs(1);
         record.setProcessedParagraphs(0);
@@ -104,7 +104,7 @@ public class EngineeringWritingService {
 
     private String buildPrompt(String title, String typeName, String requirements, String sources) {
         return """
-                你正在生成一份机械类本科毕业设计文档。只输出可直接写入 Word 的正文，不解释过程，不虚构参考文献、数据、标准编号或图片内容。
+                你正在生成一份机械设计方案与本科毕业设计交付文档。只输出可直接写入 Word 的正文，不解释过程，不虚构参考文献、数据、标准编号或图片内容。
 
                 题目：%s
                 输出文档：%s
@@ -113,11 +113,11 @@ public class EngineeringWritingService {
                 写作规则：
                 1. 内容以用户上传的任务书、开题报告、模板和参考文献为唯一事实依据。缺少数据时明确写“待补充”，不得编造。
                 2. 使用连续、科学、自然的中文段落，避免过多分点与模板化 AI 话术。
-                3. 涉及机械论文时突出方案设计、零部件选型与计算、二维三维绘制或有限元分析。
+                3. 首先输出“设计输入参数表”和“关键设计参数表”，明确参数名称、符号、数值、单位、来源与是否需要校核。随后输出结构方案、零部件选型、关键计算、CAD 图纸清单和工程校核项。
                 4. 参考文献只引用资料中真实出现的文献；没有真实文献时不要生成参考文献。
-                5. 图片与 CAD 无法直接读取细节时，只规划插图位置和图注，不虚构结构参数。
+                5. 图片与 CAD 无法直接读取细节时，只规划插图位置和图注，不虚构结构参数。用户明确提供的参数可以用于计算与设计说明。
                 6. 公式使用可复制的线性表达，并在需要编号处使用“式 3-1”形式。
-                7. 根据所选文档类型生成合理章节。论文初稿应包含摘要、关键词、绪论、方案设计、主要零件计算、零件选型、二维三维或分析章节、结论与展望、参考文献占位。
+                7. 输出类型为设计方案包时，必须包含设计目标、工况与约束、参数表、总体方案、零部件清单、关键计算、CAD 图纸清单、截图图注建议和待工程师校核项。论文初稿应包含摘要、关键词、绪论、方案设计、主要零件计算、零件选型、二维三维或分析章节、结论与展望、参考文献占位。
 
                 上传资料：
                 %s
@@ -153,6 +153,7 @@ public class EngineeringWritingService {
             case "PROPOSAL" -> "开题报告";
             case "MIDTERM" -> "中期检查";
             case "THESIS_DRAFT" -> "论文初稿";
+            case "DESIGN_PACKAGE" -> "设计方案包";
             default -> "设计文档";
         };
     }
