@@ -22,16 +22,6 @@ CREATE TABLE IF NOT EXISTS user_account (
   updated_at DATETIME NOT NULL
 ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-ALTER TABLE user_account ADD COLUMN IF NOT EXISTS phone VARCHAR(20) NULL;
-ALTER TABLE user_account ADD COLUMN IF NOT EXISTS password_hash VARCHAR(100) NULL;
-ALTER TABLE user_account ADD COLUMN IF NOT EXISTS role VARCHAR(20) NOT NULL DEFAULT 'USER';
-ALTER TABLE user_account ADD COLUMN IF NOT EXISTS updated_at DATETIME NULL;
-ALTER TABLE user_account DROP COLUMN IF EXISTS wechat_openid;
-ALTER TABLE user_account DROP COLUMN IF EXISTS wechat_unionid;
-ALTER TABLE user_account DROP COLUMN IF EXISTS nickname;
-ALTER TABLE user_account DROP COLUMN IF EXISTS avatar_url;
-DROP TABLE IF EXISTS wechat_login_state;
-
 CREATE TABLE IF NOT EXISTS user_session (
   token VARCHAR(64) PRIMARY KEY,
   user_id BIGINT NOT NULL,
@@ -58,10 +48,8 @@ CREATE TABLE IF NOT EXISTS document_job (
   updated_at DATETIME NOT NULL,
   INDEX idx_document_user_created (user_id, created_at)
 ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-ALTER TABLE document_job ADD COLUMN IF NOT EXISTS source_feature VARCHAR(50) NOT NULL DEFAULT 'REWRITE';
 
 ALTER TABLE rewrite_record CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-ALTER TABLE rewrite_record ADD COLUMN IF NOT EXISTS user_id BIGINT NULL COMMENT '所属账号';
 
 CREATE TABLE IF NOT EXISTS workflow_node (
   id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '节点ID',
