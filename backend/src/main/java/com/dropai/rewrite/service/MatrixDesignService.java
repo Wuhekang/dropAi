@@ -43,21 +43,32 @@ public class MatrixDesignService {
                             Map.of("role", "user", "content", input)
                     )
             );
-            byte[] response = restClient.post()
-                    .uri(properties.getEndpoint())
-                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .body(body)
-                    .exchange((request, result) -> {
-                        byte[] bytes = StreamUtils.copyToByteArray(result.getBody());
-                        if (result.getStatusCode().isError()) {
-                            throw new IllegalStateException("万量矩阵设计生成失败：HTTP " + result.getStatusCode().value() + "，" + compact(new String(bytes, StandardCharsets.UTF_8)));
-                        }
-                        return bytes;
-                    });
-            return parseText(response == null ? "" : new String(response, StandardCharsets.UTF_8));
+            String lastEmptyResponse = "";
+            for (int attempt = 1; attempt <= 3; attempt++) {
+                byte[] response = restClient.post()
+                        .uri(properties.getEndpoint())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(body)
+                        .exchange((request, result) -> {
+                            byte[] bytes = StreamUtils.copyToByteArray(result.getBody());
+                            if (result.getStatusCode().isError()) {
+                                throw new IllegalStateException("万量矩阵设计生成失败：HTTP " + result.getStatusCode().value() + "，" + compact(new String(bytes, StandardCharsets.UTF_8)));
+                            }
+                            return bytes;
+                        });
+                String responseText = response == null ? "" : new String(response, StandardCharsets.UTF_8);
+                String parsed = parseText(responseText);
+                if (!parsed.isBlank()) return parsed;
+                lastEmptyResponse = responseText;
+                if (attempt < 3) Thread.sleep(800L * attempt);
+            }
+            throw new IllegalStateException("万量矩阵连续返回空内容：" + compact(lastEmptyResponse));
         } catch (IllegalStateException exception) {
             throw exception;
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("万量矩阵设计生成重试被中断", exception);
         } catch (Exception exception) {
             throw new IllegalStateException("万量矩阵设计生成失败：" + compact(exception.getMessage()), exception);
         }
@@ -89,10 +100,18 @@ public class MatrixDesignService {
     }
 
     private String parseText(String response) throws Exception {
-        JsonNode root = objectMapper.readTree(response);
-        String text = root.path("choices").path(0).path("message").path("content").asText("");
-        if (!text.isBlank()) return text.trim();
-        throw new IllegalStateException("万量矩阵返回内容为空：" + compact(response));
+        JsonNode content = objectMapper.readTree(response).path("choices").path(0).path("message").path("content");
+        if (content.isTextual()) return content.asText("").trim();
+        if (!content.isArray()) return "";
+        StringBuilder result = new StringBuilder();
+        for (JsonNode part : content) {
+            String text = part.path("text").asText("");
+            if (!text.isBlank()) {
+                if (!result.isEmpty()) result.append('\n');
+                result.append(text);
+            }
+        }
+        return result.toString().trim();
     }
 
     private String normalize(String value) { return value == null ? "" : value.replaceAll("[\\r\\n\\t ]", "").trim(); }
