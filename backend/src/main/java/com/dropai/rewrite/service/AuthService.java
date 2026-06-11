@@ -27,6 +27,7 @@ public class AuthService {
         UserAccount account = new UserAccount();
         account.setPhone(dto.getPhone());
         account.setPasswordHash(encoder.encode(dto.getPassword()));
+        account.setRole("USER");
         account.setCreatedAt(LocalDateTime.now());
         account.setUpdatedAt(LocalDateTime.now());
         accountMapper.insert(account);
