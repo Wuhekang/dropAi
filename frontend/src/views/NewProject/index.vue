@@ -5,47 +5,50 @@
         <el-button text type="primary" @click="router.push('/dashboard')">← 返回 Dashboard</el-button>
         <span class="eyebrow">PARAMETRIC MECHANICAL DESIGN</span>
         <h1>设计生成</h1>
-        <p>从设计参数和资料出发，生成设计说明、参数表、CAD 方案图与可用于论文的图纸截图。</p>
+        <p>上传任务书和设计资料，AI 自动提取并推导设计参数，再生成 CAD 方案图、截图与设计说明。</p>
       </div>
       <el-tag type="warning" size="large">方案级图纸 · 需工程校核</el-tag>
     </header>
 
     <section class="workflow">
       <el-card class="form-card" shadow="never">
-        <template #header><strong>1. 定义设计与工况</strong></template>
+        <template #header><strong>1. 上传任务书并分析参数</strong></template>
         <el-form label-position="top">
           <el-form-item label="设计题目">
-            <el-input v-model="title" placeholder="例如：履带式巡检机器人结构设计" />
+            <el-input v-model="title" placeholder="可选，模型也会根据任务书识别设计方向" />
           </el-form-item>
-          <div class="parameter-grid">
-            <el-form-item label="总长 mm"><el-input-number v-model="parameters.length" :min="300" :max="10000" /></el-form-item>
-            <el-form-item label="总宽 mm"><el-input-number v-model="parameters.width" :min="200" :max="5000" /></el-form-item>
-            <el-form-item label="总高 mm"><el-input-number v-model="parameters.height" :min="200" :max="5000" /></el-form-item>
-            <el-form-item label="轴距 mm"><el-input-number v-model="parameters.wheelbase" :min="200" :max="8000" /></el-form-item>
-            <el-form-item label="轮径 mm"><el-input-number v-model="parameters.wheelDiameter" :min="50" :max="2000" /></el-form-item>
-            <el-form-item label="设计载荷 kg"><el-input-number v-model="parameters.load" :min="1" :max="100000" /></el-form-item>
-            <el-form-item label="目标速度 m/s"><el-input-number v-model="parameters.speed" :min="0.1" :max="100" :step="0.1" /></el-form-item>
-            <el-form-item label="安全系数"><el-input-number v-model="parameters.safetyFactor" :min="1" :max="10" :step="0.1" /></el-form-item>
-          </div>
-          <el-form-item label="设计说明与约束">
-            <el-input v-model="requirements" type="textarea" :rows="4" placeholder="填写工作环境、材料、驱动方式、重点计算、学校格式等。" />
-          </el-form-item>
+          <el-upload drag multiple action="" :auto-upload="false" :file-list="fileList" :on-change="onFileChange" :on-remove="onFileRemove"
+            accept=".docx,.txt,.md,.dxf,.dwg,.png,.jpg,.jpeg,.webp,.bmp">
+            <div class="upload-copy"><strong>拖入任务书、开题报告、参考图和现有 CAD</strong><span>模型会区分任务书明确参数、推导参数和工程建议值</span></div>
+          </el-upload>
+          <el-button class="generate-button" type="primary" size="large" :loading="analyzing" :disabled="!fileList.length" @click="analyze">
+            分析任务书并生成设计参数
+          </el-button>
         </el-form>
       </el-card>
 
       <el-card class="upload-card" shadow="never">
-        <template #header><strong>2. 上传设计依据</strong></template>
-        <el-upload drag multiple action="" :auto-upload="false" :file-list="fileList" :on-change="onFileChange" :on-remove="onFileRemove"
-          accept=".docx,.txt,.md,.dxf,.dwg,.png,.jpg,.jpeg,.webp,.bmp">
-          <div class="upload-copy"><strong>拖入任务书、开题报告、参考图、现有 CAD 或论文模板</strong><span>资料可选；没有资料时按输入参数生成方案初稿</span></div>
-        </el-upload>
+        <template #header><strong>2. 确认模型生成的参数</strong></template>
+        <el-empty v-if="!analysisReady" description="上传任务书后，参数将由模型自动生成" />
+        <template v-else>
+          <el-alert type="success" :closable="false" :title="analysis.designType || '设计参数分析完成'" :description="analysis.summary" />
+          <div class="parameter-grid">
+            <el-form-item v-for="field in parameterFields" :key="field.key" :label="`${field.label} ${field.unit}`">
+              <el-input-number v-model="parameters[field.key]" :min="field.min" :max="field.max" :step="field.step || 1" />
+              <el-tag class="source-tag" size="small" :type="statusType(parameterMeta[field.key]?.status)">{{ statusName(parameterMeta[field.key]?.status) }}</el-tag>
+            </el-form-item>
+          </div>
+          <el-form-item label="补充约束或人工修正说明">
+            <el-input v-model="requirements" type="textarea" :rows="3" placeholder="参数已由模型生成；这里只填写需要纠正或补充的内容。" />
+          </el-form-item>
+        </template>
         <el-form-item class="output-select" label="设计说明交付物">
           <el-select v-model="outputType">
             <el-option v-for="type in outputTypes" :key="type.value" :label="type.label" :value="type.value" />
           </el-select>
         </el-form-item>
-        <el-button class="generate-button" type="primary" size="large" :loading="generating" :disabled="!title" @click="generate">
-          生成设计参数、CAD 与说明文档
+        <el-button class="generate-button" type="primary" size="large" :loading="generating" :disabled="!analysisReady" @click="generate">
+          使用确认后的参数生成 CAD 与说明文档
         </el-button>
       </el-card>
     </section>
@@ -60,7 +63,7 @@
             <el-table-column prop="name" label="参数" />
             <el-table-column prop="value" label="数值" width="110" />
             <el-table-column prop="unit" label="单位" width="80" />
-            <el-table-column prop="basis" label="依据" min-width="160" />
+            <el-table-column prop="basis" label="参数来源与依据" min-width="220" />
           </el-table>
         </div>
         <div class="cad-preview">
@@ -91,20 +94,34 @@
 <script setup>
 import { computed, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { downloadMyDocument, generateEngineeringDocument } from '../../api/rewrite'
+import { analyzeEngineeringDesign, downloadMyDocument, generateEngineeringDocument } from '../../api/rewrite'
 
 const router = useRouter()
 const title = ref('')
 const requirements = ref('')
 const outputType = ref('DESIGN_PACKAGE')
 const fileList = ref([])
+const analyzing = ref(false)
 const generating = ref(false)
+const analysisReady = ref(false)
 const designReady = ref(false)
 const result = reactive({})
+const analysis = reactive({})
+const parameterMeta = reactive({})
 const generatedSvg = ref()
 const generatedShapes = ref([])
 const cadViewBox = ref('0 -600 1800 700')
 const parameters = reactive({ length: 1600, width: 900, height: 850, wheelbase: 1100, wheelDiameter: 260, load: 350, speed: 1.2, safetyFactor: 1.8 })
+const parameterFields = [
+  { key: 'length', label: '总长', unit: 'mm', min: 300, max: 10000 },
+  { key: 'width', label: '总宽', unit: 'mm', min: 200, max: 5000 },
+  { key: 'height', label: '总高', unit: 'mm', min: 200, max: 5000 },
+  { key: 'wheelbase', label: '轴距', unit: 'mm', min: 200, max: 8000 },
+  { key: 'wheelDiameter', label: '轮径', unit: 'mm', min: 50, max: 2000 },
+  { key: 'load', label: '设计载荷', unit: 'kg', min: 1, max: 100000 },
+  { key: 'speed', label: '目标速度', unit: 'm/s', min: .1, max: 100, step: .1 },
+  { key: 'safetyFactor', label: '安全系数', unit: '', min: 1, max: 10, step: .1 }
+]
 const outputTypes = [
   { value: 'DESIGN_PACKAGE', label: '设计方案包' },
   { value: 'TASK_BOOK', label: '任务书' },
@@ -113,17 +130,33 @@ const outputTypes = [
   { value: 'THESIS_DRAFT', label: '论文初稿' }
 ]
 const parameterRows = computed(() => [
-  { name: '总体尺寸', value: `${parameters.length} × ${parameters.width} × ${parameters.height}`, unit: 'mm', basis: '用户输入设计边界' },
-  { name: '轴距', value: parameters.wheelbase, unit: 'mm', basis: '用户输入，决定轮组布置' },
-  { name: '轮径', value: parameters.wheelDiameter, unit: 'mm', basis: '用户输入，决定离地间隙' },
-  { name: '设计载荷', value: parameters.load, unit: 'kg', basis: '用户输入工况' },
-  { name: '目标速度', value: parameters.speed, unit: 'm/s', basis: '用户输入工况' },
+  { name: '总体尺寸', value: `${parameters.length} × ${parameters.width} × ${parameters.height}`, unit: 'mm', basis: `${parameterMeta.length?.source || ''}；${parameterMeta.length?.basis || ''}` },
+  { name: '轴距', value: parameters.wheelbase, unit: 'mm', basis: `${parameterMeta.wheelbase?.source || ''}；${parameterMeta.wheelbase?.basis || ''}` },
+  { name: '轮径', value: parameters.wheelDiameter, unit: 'mm', basis: `${parameterMeta.wheelDiameter?.source || ''}；${parameterMeta.wheelDiameter?.basis || ''}` },
+  { name: '设计载荷', value: parameters.load, unit: 'kg', basis: `${parameterMeta.load?.source || ''}；${parameterMeta.load?.basis || ''}` },
+  { name: '目标速度', value: parameters.speed, unit: 'm/s', basis: `${parameterMeta.speed?.source || ''}；${parameterMeta.speed?.basis || ''}` },
   { name: '设计载荷力', value: Math.round(parameters.load * 9.81 * parameters.safetyFactor), unit: 'N', basis: '质量 × 重力加速度 × 安全系数' }
 ])
-function onFileChange(file, files) { fileList.value = files }
-function onFileRemove(file, files) { fileList.value = files }
+function onFileChange(file, files) { fileList.value = files; analysisReady.value = false }
+function onFileRemove(file, files) { fileList.value = files; analysisReady.value = false }
+async function analyze() {
+  analyzing.value = true
+  try {
+    const data = new FormData()
+    data.append('title', title.value)
+    fileList.value.forEach((file) => data.append('files', file.raw))
+    const response = await analyzeEngineeringDesign(data)
+    Object.assign(analysis, response)
+    Object.entries(response.parameters || {}).forEach(([key, parameter]) => {
+      if (key in parameters) parameters[key] = Number(parameter.value)
+      parameterMeta[key] = parameter
+    })
+    if (!title.value) title.value = response.designType || '机械结构设计'
+    analysisReady.value = true
+  } finally { analyzing.value = false }
+}
 function buildRequirements() {
-  return `${requirements.value}\n明确设计输入：总长 ${parameters.length} mm，总宽 ${parameters.width} mm，总高 ${parameters.height} mm，轴距 ${parameters.wheelbase} mm，轮径 ${parameters.wheelDiameter} mm，设计载荷 ${parameters.load} kg，目标速度 ${parameters.speed} m/s，安全系数 ${parameters.safetyFactor}。请区分用户输入、计算结果与待校核参数。`
+  return `${requirements.value}\n模型从任务书分析并经用户确认的设计参数：总长 ${parameters.length} mm，总宽 ${parameters.width} mm，总高 ${parameters.height} mm，轴距 ${parameters.wheelbase} mm，轮径 ${parameters.wheelDiameter} mm，设计载荷 ${parameters.load} kg，目标速度 ${parameters.speed} m/s，安全系数 ${parameters.safetyFactor}。请继续区分任务书明确值、推导值、工程建议值与待校核项。`
 }
 async function generate() {
   generating.value = true
@@ -188,8 +221,10 @@ async function downloadResult() {
 function downloadBlob(blob, name) {
   const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = name; link.click(); URL.revokeObjectURL(url)
 }
+function statusType(status) { return status === 'EXPLICIT' ? 'success' : status === 'INFERRED' ? 'warning' : 'info' }
+function statusName(status) { return ({ EXPLICIT: '任务书明确', INFERRED: '资料推导', RECOMMENDED: '工程建议' })[status] || '工程建议' }
 </script>
 
 <style scoped>
-.project-page{max-width:1380px;margin:auto;padding:32px 24px 70px}.project-header{display:flex;justify-content:space-between;gap:30px;margin-bottom:30px}.project-header h1{font-size:36px;margin:12px 0 8px}.project-header p{color:#64748b;margin:0}.eyebrow{display:block;margin-top:20px;font-size:12px;color:#7c3aed;font-weight:800;letter-spacing:.16em}.workflow{display:grid;grid-template-columns:1.1fr .9fr;gap:22px}.form-card,.upload-card,.result-card{border-radius:18px}.parameter-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:0 12px}.parameter-grid :deep(.el-input-number){width:100%}.upload-copy{display:grid;gap:8px}.upload-copy span{color:#64748b}.output-select{margin-top:22px}.generate-button{width:100%;margin-top:8px}.result-card{margin-top:22px}.design-result{display:grid;grid-template-columns:.9fr 1.1fr;gap:24px;margin-top:18px}.cad-preview svg{width:100%;height:440px;background:#fff;border:1px solid #dbe3ef;border-radius:10px}.cad-preview line,.cad-preview circle{fill:none;stroke:#111827;stroke-width:2;vector-effect:non-scaling-stroke}.actions,.document-result{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px}.document-result{padding-top:20px;border-top:1px solid #e5e7eb}.document-result h3,.document-result p{margin:0 0 6px}.document-result p{color:#64748b}@media(max-width:950px){.workflow,.design-result{grid-template-columns:1fr}.parameter-grid{grid-template-columns:repeat(2,1fr)}}@media(max-width:600px){.parameter-grid{grid-template-columns:1fr}.project-header{display:block}}
+.project-page{max-width:1380px;margin:auto;padding:32px 24px 70px}.project-header{display:flex;justify-content:space-between;gap:30px;margin-bottom:30px}.project-header h1{font-size:36px;margin:12px 0 8px}.project-header p{color:#64748b;margin:0}.eyebrow{display:block;margin-top:20px;font-size:12px;color:#7c3aed;font-weight:800;letter-spacing:.16em}.workflow{display:grid;grid-template-columns:.9fr 1.1fr;gap:22px}.form-card,.upload-card,.result-card{border-radius:18px}.parameter-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:0 12px;margin-top:18px}.parameter-grid :deep(.el-input-number){width:100%}.source-tag{margin-top:7px}.upload-copy{display:grid;gap:8px}.upload-copy span{color:#64748b}.output-select{margin-top:22px}.generate-button{width:100%;margin-top:16px}.result-card{margin-top:22px}.design-result{display:grid;grid-template-columns:.9fr 1.1fr;gap:24px;margin-top:18px}.cad-preview svg{width:100%;height:440px;background:#fff;border:1px solid #dbe3ef;border-radius:10px}.cad-preview line,.cad-preview circle{fill:none;stroke:#111827;stroke-width:2;vector-effect:non-scaling-stroke}.actions,.document-result{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px}.document-result{padding-top:20px;border-top:1px solid #e5e7eb}.document-result h3,.document-result p{margin:0 0 6px}.document-result p{color:#64748b}@media(max-width:1100px){.parameter-grid{grid-template-columns:repeat(2,1fr)}}@media(max-width:950px){.workflow,.design-result{grid-template-columns:1fr}}@media(max-width:600px){.parameter-grid{grid-template-columns:1fr}.project-header{display:block}}
 </style>

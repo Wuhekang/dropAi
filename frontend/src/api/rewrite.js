@@ -128,3 +128,10 @@ export function generateEngineeringDocument(data) {
     timeout: 300000
   })
 }
+
+export function analyzeEngineeringDesign(data) {
+  return request.post('/engineering-writing/analyze', data, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 300000
+  })
+}

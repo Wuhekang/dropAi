@@ -3,7 +3,10 @@ package com.dropai.rewrite.service;
 import com.dropai.rewrite.auth.AuthContext;
 import com.dropai.rewrite.entity.DocumentJobRecord;
 import com.dropai.rewrite.mapper.DocumentJobMapper;
+import com.dropai.rewrite.vo.DesignAnalysisVO;
+import com.dropai.rewrite.vo.DesignParameterVO;
 import com.dropai.rewrite.vo.DocumentRewriteJobVO;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.apache.poi.xwpf.usermodel.XWPFParagraph;
 import org.apache.poi.xwpf.usermodel.XWPFRun;
@@ -14,17 +17,33 @@ import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
 public class EngineeringWritingService {
     private final AiRewriteService aiRewriteService;
     private final DocumentJobMapper documentJobMapper;
+    private final ObjectMapper objectMapper;
 
-    public EngineeringWritingService(AiRewriteService aiRewriteService, DocumentJobMapper documentJobMapper) {
+    public EngineeringWritingService(AiRewriteService aiRewriteService, DocumentJobMapper documentJobMapper, ObjectMapper objectMapper) {
         this.aiRewriteService = aiRewriteService;
         this.documentJobMapper = documentJobMapper;
+        this.objectMapper = objectMapper;
+    }
+
+    public DesignAnalysisVO analyze(String title, List<MultipartFile> files) {
+        try {
+            String sources = extractSources(files);
+            String response = aiRewriteService.rewrite(buildAnalysisPrompt(title, sources), "设计参数提取");
+            DesignAnalysisVO analysis = objectMapper.readValue(extractJson(response), DesignAnalysisVO.class);
+            normalizeAnalysis(analysis);
+            return analysis;
+        } catch (Exception exception) {
+            throw new IllegalStateException("设计参数分析失败：" + readable(exception), exception);
+        }
     }
 
     public DocumentRewriteJobVO generate(String title, String outputType, String requirements, List<MultipartFile> files) {
@@ -122,6 +141,78 @@ public class EngineeringWritingService {
                 上传资料：
                 %s
                 """.formatted(title, typeName, requirements == null ? "" : requirements.trim(), sources);
+    }
+
+    private String buildAnalysisPrompt(String title, String sources) {
+        return """
+                你是机械设计需求分析工程师。请根据上传的任务书、开题报告和设计资料，提取并推导用于方案级 CAD 总装图的参数。
+                题目：%s
+
+                只输出一个合法 JSON 对象，不要 Markdown 代码块，不要解释文字。结构必须严格如下：
+                {
+                  "designType":"设计类型",
+                  "summary":"不超过120字的设计目标摘要",
+                  "parameters":{
+                    "length":{"value":1600,"unit":"mm","source":"任务书原文或工程建议","status":"EXPLICIT或INFERRED或RECOMMENDED","basis":"依据"},
+                    "width":{"value":900,"unit":"mm","source":"...","status":"...","basis":"..."},
+                    "height":{"value":850,"unit":"mm","source":"...","status":"...","basis":"..."},
+                    "wheelbase":{"value":1100,"unit":"mm","source":"...","status":"...","basis":"..."},
+                    "wheelDiameter":{"value":260,"unit":"mm","source":"...","status":"...","basis":"..."},
+                    "load":{"value":350,"unit":"kg","source":"...","status":"...","basis":"..."},
+                    "speed":{"value":1.2,"unit":"m/s","source":"...","status":"...","basis":"..."},
+                    "safetyFactor":{"value":1.8,"unit":"","source":"...","status":"...","basis":"..."}
+                  },
+                  "assumptions":["用于形成初稿的假设"],
+                  "confirmations":["生成加工图前必须确认的问题"]
+                }
+
+                规则：
+                1. 资料明确给出的参数标记 EXPLICIT，并在 source 中写明资料名称或原文依据。
+                2. 可由其他数据计算得到的参数标记 INFERRED，basis 必须写清推导关系。
+                3. 资料缺失但 CAD 初稿必须使用的参数，给出保守合理的工程建议值并标记 RECOMMENDED，禁止伪装成任务书原值。
+                4. 所有 value 必须为正数。总体尺寸、轴距、轮径统一换算为 mm，载荷统一为 kg，速度统一为 m/s。
+                5. wheelbase 必须小于 length，wheelDiameter 必须小于 height。
+                6. 不虚构标准编号、材料性能或参考文献。
+
+                上传资料：
+                %s
+                """.formatted(title == null ? "" : title.trim(), sources);
+    }
+
+    private String extractJson(String response) {
+        int start = response.indexOf('{');
+        int end = response.lastIndexOf('}');
+        if (start < 0 || end <= start) throw new IllegalStateException("模型未返回合法参数 JSON");
+        return response.substring(start, end + 1);
+    }
+
+    private void normalizeAnalysis(DesignAnalysisVO analysis) {
+        Map<String, Double> defaults = new LinkedHashMap<>();
+        defaults.put("length", 1600d);
+        defaults.put("width", 900d);
+        defaults.put("height", 850d);
+        defaults.put("wheelbase", 1100d);
+        defaults.put("wheelDiameter", 260d);
+        defaults.put("load", 350d);
+        defaults.put("speed", 1.2d);
+        defaults.put("safetyFactor", 1.8d);
+        Map<String, DesignParameterVO> parameters = analysis.getParameters() == null ? new LinkedHashMap<>() : analysis.getParameters();
+        defaults.forEach((key, value) -> {
+            DesignParameterVO parameter = parameters.computeIfAbsent(key, ignored -> new DesignParameterVO());
+            if (!Double.isFinite(parameter.getValue()) || parameter.getValue() <= 0) parameter.setValue(value);
+            if (parameter.getStatus() == null || parameter.getStatus().isBlank()) parameter.setStatus("RECOMMENDED");
+            if (parameter.getSource() == null || parameter.getSource().isBlank()) parameter.setSource("系统工程建议");
+            if (parameter.getBasis() == null || parameter.getBasis().isBlank()) parameter.setBasis("任务书未明确，生成方案初稿所需");
+        });
+        DesignParameterVO length = parameters.get("length");
+        DesignParameterVO height = parameters.get("height");
+        DesignParameterVO wheelbase = parameters.get("wheelbase");
+        DesignParameterVO wheelDiameter = parameters.get("wheelDiameter");
+        if (wheelbase.getValue() >= length.getValue()) wheelbase.setValue(length.getValue() * 0.7);
+        if (wheelDiameter.getValue() >= height.getValue()) wheelDiameter.setValue(height.getValue() * 0.3);
+        analysis.setParameters(parameters);
+        if (analysis.getAssumptions() == null) analysis.setAssumptions(List.of());
+        if (analysis.getConfirmations() == null) analysis.setConfirmations(List.of());
     }
 
     private byte[] buildDocx(String title, String typeName, String generated) throws Exception {

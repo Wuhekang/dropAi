@@ -120,6 +120,13 @@ public class DoubaoAiRewriteService implements AiRewriteService {
 
     private String systemPrompt(String rewriteType) {
         String baseRewriteType = baseRewriteType(rewriteType);
+        if ("设计参数提取".equals(baseRewriteType)) {
+            return """
+                    你是机械设计需求分析工程师。严格按用户给出的 JSON 结构返回结果。
+                    只输出合法 JSON，不输出 Markdown、解释、标题或额外文字。
+                    必须区分资料明确参数、推导参数和工程建议值，不得把建议值伪装成任务书原值。
+                    """;
+        }
         if ("降低AI写作痕迹".equals(baseRewriteType)
                 || "深度降低AI写作痕迹".equals(baseRewriteType)
                 || "双降".equals(baseRewriteType)) {
@@ -140,6 +147,9 @@ public class DoubaoAiRewriteService implements AiRewriteService {
 
     private String userPrompt(String originalText, String rewriteType, int beforeScore, String feedback) {
         String baseRewriteType = baseRewriteType(rewriteType);
+        if ("设计参数提取".equals(baseRewriteType)) {
+            return originalText;
+        }
         String platform = platformCode(rewriteType);
         String extraRule = "";
         if ("深度降低AI写作痕迹".equals(baseRewriteType)) {
