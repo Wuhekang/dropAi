@@ -4,12 +4,12 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
 @Component
-@ConfigurationProperties(prefix = "ai.openai-design")
-public class OpenAiDesignProperties {
+@ConfigurationProperties(prefix = "ai.matrix-design")
+public class MatrixDesignProperties {
     private boolean enabled = true;
     private String apiKey;
-    private String endpoint = "https://api.openai.com/v1/responses";
-    private String model = "gpt-5.4-mini";
+    private String endpoint = "https://taotoken.net/api/v1/chat/completions";
+    private String model = "claude-opus-4-7";
     private int connectTimeoutSeconds = 15;
     private int readTimeoutSeconds = 180;
 

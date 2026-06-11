@@ -1,0 +1,52 @@
+package com.dropai.rewrite;
+
+import com.dropai.rewrite.config.MatrixDesignProperties;
+import com.dropai.rewrite.service.MatrixDesignService;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sun.net.httpserver.HttpServer;
+import org.junit.jupiter.api.Test;
+import org.springframework.web.client.RestClient;
+
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
+import java.util.concurrent.atomic.AtomicReference;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+class MatrixDesignServiceTests {
+    @Test
+    void usesOpenAiCompatibleChatCompletionsProtocol() throws Exception {
+        ObjectMapper objectMapper = new ObjectMapper();
+        AtomicReference<String> authorization = new AtomicReference<>();
+        AtomicReference<JsonNode> requestBody = new AtomicReference<>();
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/api/v1/chat/completions", exchange -> {
+            authorization.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            requestBody.set(objectMapper.readTree(exchange.getRequestBody()));
+            byte[] response = "{\"choices\":[{\"message\":{\"content\":\"OK\"}}]}".getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+
+        try {
+            MatrixDesignProperties properties = new MatrixDesignProperties();
+            properties.setApiKey("matrix-key");
+            properties.setModel("claude-opus-4-7");
+            properties.setEndpoint("http://localhost:" + server.getAddress().getPort() + "/api/v1/chat/completions");
+            MatrixDesignService service = new MatrixDesignService(properties, objectMapper, RestClient.builder());
+
+            assertEquals("OK", service.generate("system prompt", "user prompt"));
+            assertEquals("Bearer matrix-key", authorization.get());
+            assertEquals("claude-opus-4-7", requestBody.get().path("model").asText());
+            assertEquals("system", requestBody.get().path("messages").path(0).path("role").asText());
+            assertEquals("system prompt", requestBody.get().path("messages").path(0).path("content").asText());
+            assertEquals("user prompt", requestBody.get().path("messages").path(1).path("content").asText());
+        } finally {
+            server.stop(0);
+        }
+    }
+}

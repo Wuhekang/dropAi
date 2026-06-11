@@ -1,7 +1,7 @@
 package com.dropai.rewrite.controller;
 
 import com.dropai.rewrite.service.EngineeringWritingService;
-import com.dropai.rewrite.service.OpenAiDesignService;
+import com.dropai.rewrite.service.MatrixDesignService;
 import com.dropai.rewrite.vo.AiProviderStatusVO;
 import com.dropai.rewrite.vo.DesignAnalysisVO;
 import com.dropai.rewrite.vo.DocumentRewriteJobVO;
@@ -14,27 +14,27 @@ import java.util.List;
 @RequestMapping("/api/engineering-writing")
 public class EngineeringWritingController {
     private final EngineeringWritingService service;
-    private final OpenAiDesignService openAiDesignService;
-    public EngineeringWritingController(EngineeringWritingService service, OpenAiDesignService openAiDesignService) {
+    private final MatrixDesignService matrixDesignService;
+    public EngineeringWritingController(EngineeringWritingService service, MatrixDesignService matrixDesignService) {
         this.service = service;
-        this.openAiDesignService = openAiDesignService;
+        this.matrixDesignService = matrixDesignService;
     }
 
     @GetMapping("/ai/status")
     public Result<AiProviderStatusVO> aiStatus() {
         AiProviderStatusVO status = new AiProviderStatusVO();
-        status.setProvider("OpenAI Responses API");
-        status.setModel(openAiDesignService.modelName());
-        status.setEndpoint(openAiDesignService.endpoint());
-        status.setApiKeyConfigured(openAiDesignService.apiKeyConfigured());
+        status.setProvider("万量矩阵 Chat Completions API");
+        status.setModel(matrixDesignService.modelName());
+        status.setEndpoint(matrixDesignService.endpoint());
+        status.setApiKeyConfigured(matrixDesignService.apiKeyConfigured());
         if (!status.isApiKeyConfigured()) {
             status.setTestStatus("failed");
-            status.setTestMessage("未配置 OPENAI_API_KEY");
+            status.setTestMessage("未配置 MATRIX_API_KEY");
             return Result.success(status);
         }
         try {
             status.setTestStatus("success");
-            status.setTestMessage("OpenAI 连接成功；返回：" + openAiDesignService.generate("只输出 OK", "连接测试"));
+            status.setTestMessage("万量矩阵连接成功；返回：" + matrixDesignService.generate("只输出 OK", "连接测试"));
         } catch (Exception exception) {
             status.setTestStatus("failed");
             status.setTestMessage(exception.getMessage());

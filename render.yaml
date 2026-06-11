@@ -19,9 +19,9 @@ services:
         value: https://ark.cn-beijing.volces.com/api/v3/chat/completions
       - key: DOUBAO_API_KEY
         sync: false
-      - key: OPENAI_API_KEY
+      - key: MATRIX_API_KEY
         sync: false
-      - key: OPENAI_MODEL
-        value: gpt-5.4-mini
-      - key: OPENAI_ENDPOINT
-        value: https://api.openai.com/v1/responses
+      - key: MATRIX_MODEL
+        value: claude-opus-4-7
+      - key: MATRIX_ENDPOINT
+        value: https://taotoken.net/api/v1/chat/completions

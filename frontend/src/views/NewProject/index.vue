@@ -14,7 +14,7 @@
       <el-card class="form-card" shadow="never">
         <template #header><strong>1. 上传任务书并分析参数</strong></template>
         <el-alert class="ai-status" :type="aiStatus.testStatus === 'success' ? 'success' : 'warning'" :closable="false"
-          :title="aiStatusTitle" :description="aiStatus.testMessage || '正在检测 OpenAI 设计模型连接'" />
+          :title="aiStatusTitle" :description="aiStatus.testMessage || '正在检测万量矩阵设计模型连接'" />
         <el-form label-position="top">
           <el-form-item label="设计题目">
             <el-input v-model="title" placeholder="可选，模型也会根据任务书识别设计方向" />
@@ -133,8 +133,8 @@ const outputTypes = [
   { value: 'THESIS_DRAFT', label: '论文初稿' }
 ]
 const aiStatusTitle = computed(() => aiStatus.testStatus === 'success'
-  ? `OpenAI 设计模型已连接：${aiStatus.model}`
-  : `OpenAI 设计模型不可用：${aiStatus.model || '等待检测'}`)
+  ? `万量矩阵设计模型已连接：${aiStatus.model}`
+  : `万量矩阵设计模型不可用：${aiStatus.model || '等待检测'}`)
 const parameterRows = computed(() => [
   { name: '总体尺寸', value: `${parameters.length} × ${parameters.width} × ${parameters.height}`, unit: 'mm', basis: `${parameterMeta.length?.source || ''}；${parameterMeta.length?.basis || ''}` },
   { name: '轴距', value: parameters.wheelbase, unit: 'mm', basis: `${parameterMeta.wheelbase?.source || ''}；${parameterMeta.wheelbase?.basis || ''}` },
