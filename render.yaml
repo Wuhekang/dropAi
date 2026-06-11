@@ -13,11 +13,3 @@ services:
         value: https://ark.cn-beijing.volces.com/api/v3/chat/completions
       - key: DOUBAO_API_KEY
         sync: false
-      - key: WECHAT_APP_ID
-        sync: false
-      - key: WECHAT_APP_SECRET
-        sync: false
-      - key: WECHAT_REDIRECT_URI
-        value: https://dropai-demo.onrender.com/api/auth/wechat/callback
-      - key: WECHAT_FRONTEND_SUCCESS_URI
-        value: https://dropai-demo.onrender.com/login

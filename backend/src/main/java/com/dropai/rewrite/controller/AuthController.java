@@ -1,32 +1,21 @@
 package com.dropai.rewrite.controller;
 
+import com.dropai.rewrite.dto.PhoneAuthDTO;
 import com.dropai.rewrite.service.AuthService;
 import com.dropai.rewrite.vo.AuthVO;
 import com.dropai.rewrite.vo.Result;
-import org.springframework.http.ResponseEntity;
+import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
-import java.net.URI;
-import java.util.Map;
 
 @RestController
 @RequestMapping("/api/auth")
 public class AuthController {
     private final AuthService authService;
     public AuthController(AuthService authService) { this.authService = authService; }
-
-    @GetMapping("/wechat/status")
-    public Result<Map<String, Boolean>> wechatStatus() {
-        return Result.success(Map.of("configured", authService.wechatConfigured()));
-    }
-    @GetMapping("/wechat/url")
-    public Result<Map<String, String>> wechatUrl() {
-        return Result.success(Map.of("url", authService.wechatAuthorizeUrl()));
-    }
-    @GetMapping("/wechat/callback")
-    public ResponseEntity<Void> wechatCallback(@RequestParam String code, @RequestParam String state) {
-        AuthVO auth = authService.wechatCallback(code, state);
-        return ResponseEntity.status(302).location(URI.create(authService.frontendSuccessUri(auth))).build();
-    }
+    @PostMapping("/register")
+    public Result<AuthVO> register(@Valid @RequestBody PhoneAuthDTO dto) { return Result.success(authService.register(dto)); }
+    @PostMapping("/login")
+    public Result<AuthVO> login(@Valid @RequestBody PhoneAuthDTO dto) { return Result.success(authService.login(dto)); }
     @PostMapping("/logout")
     public Result<Boolean> logout(@RequestHeader(value = "Authorization", required = false) String authorization) {
         authService.logout(token(authorization));

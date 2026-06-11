@@ -9,23 +9,17 @@ import java.time.LocalDateTime;
 public class UserAccount {
     @TableId(type = IdType.AUTO)
     private Long id;
-    private String wechatOpenid;
-    private String wechatUnionid;
-    private String nickname;
-    private String avatarUrl;
+    private String phone;
+    private String passwordHash;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
-    public String getWechatOpenid() { return wechatOpenid; }
-    public void setWechatOpenid(String wechatOpenid) { this.wechatOpenid = wechatOpenid; }
-    public String getWechatUnionid() { return wechatUnionid; }
-    public void setWechatUnionid(String wechatUnionid) { this.wechatUnionid = wechatUnionid; }
-    public String getNickname() { return nickname; }
-    public void setNickname(String nickname) { this.nickname = nickname; }
-    public String getAvatarUrl() { return avatarUrl; }
-    public void setAvatarUrl(String avatarUrl) { this.avatarUrl = avatarUrl; }
+    public String getPhone() { return phone; }
+    public void setPhone(String phone) { this.phone = phone; }
+    public String getPasswordHash() { return passwordHash; }
+    public void setPasswordHash(String passwordHash) { this.passwordHash = passwordHash; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }
