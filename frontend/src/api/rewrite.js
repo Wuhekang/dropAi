@@ -135,3 +135,7 @@ export function analyzeEngineeringDesign(data) {
     timeout: 300000
   })
 }
+
+export function getEngineeringAiStatus() {
+  return request.get('/engineering-writing/ai/status', { timeout: 240000 })
+}

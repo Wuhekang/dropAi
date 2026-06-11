@@ -54,6 +54,10 @@ public class OpenAiDesignService {
         }
     }
 
+    public boolean apiKeyConfigured() { return !normalize(properties.getApiKey()).isBlank(); }
+    public String modelName() { return properties.getModel(); }
+    public String endpoint() { return properties.getEndpoint(); }
+
     private String parseText(String response) throws Exception {
         JsonNode root = objectMapper.readTree(response);
         String outputText = root.path("output_text").asText("");

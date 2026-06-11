@@ -13,6 +13,8 @@
     <section class="workflow">
       <el-card class="form-card" shadow="never">
         <template #header><strong>1. 上传任务书并分析参数</strong></template>
+        <el-alert class="ai-status" :type="aiStatus.testStatus === 'success' ? 'success' : 'warning'" :closable="false"
+          :title="aiStatusTitle" :description="aiStatus.testMessage || '正在检测 OpenAI 设计模型连接'" />
         <el-form label-position="top">
           <el-form-item label="设计题目">
             <el-input v-model="title" placeholder="可选，模型也会根据任务书识别设计方向" />
@@ -92,9 +94,9 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { analyzeEngineeringDesign, downloadMyDocument, generateEngineeringDocument } from '../../api/rewrite'
+import { analyzeEngineeringDesign, downloadMyDocument, generateEngineeringDocument, getEngineeringAiStatus } from '../../api/rewrite'
 
 const router = useRouter()
 const title = ref('')
@@ -107,6 +109,7 @@ const analysisReady = ref(false)
 const designReady = ref(false)
 const result = reactive({})
 const analysis = reactive({})
+const aiStatus = reactive({})
 const parameterMeta = reactive({})
 const generatedSvg = ref()
 const generatedShapes = ref([])
@@ -129,6 +132,9 @@ const outputTypes = [
   { value: 'MIDTERM', label: '中期检查' },
   { value: 'THESIS_DRAFT', label: '论文初稿' }
 ]
+const aiStatusTitle = computed(() => aiStatus.testStatus === 'success'
+  ? `OpenAI 设计模型已连接：${aiStatus.model}`
+  : `OpenAI 设计模型不可用：${aiStatus.model || '等待检测'}`)
 const parameterRows = computed(() => [
   { name: '总体尺寸', value: `${parameters.length} × ${parameters.width} × ${parameters.height}`, unit: 'mm', basis: `${parameterMeta.length?.source || ''}；${parameterMeta.length?.basis || ''}` },
   { name: '轴距', value: parameters.wheelbase, unit: 'mm', basis: `${parameterMeta.wheelbase?.source || ''}；${parameterMeta.wheelbase?.basis || ''}` },
@@ -223,6 +229,9 @@ function downloadBlob(blob, name) {
 }
 function statusType(status) { return status === 'EXPLICIT' ? 'success' : status === 'INFERRED' ? 'warning' : 'info' }
 function statusName(status) { return ({ EXPLICIT: '任务书明确', INFERRED: '资料推导', RECOMMENDED: '工程建议' })[status] || '工程建议' }
+onMounted(async () => {
+  try { Object.assign(aiStatus, await getEngineeringAiStatus()) } catch (error) { aiStatus.testMessage = error.message }
+})
 </script>
 
 <style scoped>

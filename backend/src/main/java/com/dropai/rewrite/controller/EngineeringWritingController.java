@@ -1,6 +1,8 @@
 package com.dropai.rewrite.controller;
 
 import com.dropai.rewrite.service.EngineeringWritingService;
+import com.dropai.rewrite.service.OpenAiDesignService;
+import com.dropai.rewrite.vo.AiProviderStatusVO;
 import com.dropai.rewrite.vo.DesignAnalysisVO;
 import com.dropai.rewrite.vo.DocumentRewriteJobVO;
 import com.dropai.rewrite.vo.Result;
@@ -12,7 +14,33 @@ import java.util.List;
 @RequestMapping("/api/engineering-writing")
 public class EngineeringWritingController {
     private final EngineeringWritingService service;
-    public EngineeringWritingController(EngineeringWritingService service) { this.service = service; }
+    private final OpenAiDesignService openAiDesignService;
+    public EngineeringWritingController(EngineeringWritingService service, OpenAiDesignService openAiDesignService) {
+        this.service = service;
+        this.openAiDesignService = openAiDesignService;
+    }
+
+    @GetMapping("/ai/status")
+    public Result<AiProviderStatusVO> aiStatus() {
+        AiProviderStatusVO status = new AiProviderStatusVO();
+        status.setProvider("OpenAI Responses API");
+        status.setModel(openAiDesignService.modelName());
+        status.setEndpoint(openAiDesignService.endpoint());
+        status.setApiKeyConfigured(openAiDesignService.apiKeyConfigured());
+        if (!status.isApiKeyConfigured()) {
+            status.setTestStatus("failed");
+            status.setTestMessage("未配置 OPENAI_API_KEY");
+            return Result.success(status);
+        }
+        try {
+            status.setTestStatus("success");
+            status.setTestMessage("OpenAI 连接成功；返回：" + openAiDesignService.generate("只输出 OK", "连接测试"));
+        } catch (Exception exception) {
+            status.setTestStatus("failed");
+            status.setTestMessage(exception.getMessage());
+        }
+        return Result.success(status);
+    }
 
     @PostMapping("/analyze")
     public Result<DesignAnalysisVO> analyze(
@@ -31,5 +59,10 @@ public class EngineeringWritingController {
             @RequestParam(value = "files", required = false) List<MultipartFile> files
     ) {
         return Result.success(service.generate(title, outputType, requirements, files == null ? List.of() : files));
+    }
+
+    @ExceptionHandler(Exception.class)
+    public Result<Void> handleException(Exception exception) {
+        return Result.fail(exception.getMessage() == null ? "设计生成请求失败" : exception.getMessage());
     }
 }
