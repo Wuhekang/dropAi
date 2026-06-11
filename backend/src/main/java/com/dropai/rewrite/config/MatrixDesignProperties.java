@@ -8,7 +8,7 @@ import org.springframework.stereotype.Component;
 public class MatrixDesignProperties {
     private boolean enabled = true;
     private String apiKey;
-    private String endpoint = "https://taotoken.net/api/v1/chat/completions";
+    private String endpoint = "https://www.aikeys.me/v1/chat/completions";
     private String model = "claude-opus-4-7";
     private int connectTimeoutSeconds = 15;
     private int readTimeoutSeconds = 180;
