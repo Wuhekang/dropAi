@@ -13,3 +13,9 @@ services:
         value: https://ark.cn-beijing.volces.com/api/v3/chat/completions
       - key: DOUBAO_API_KEY
         sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-5.4-mini
+      - key: OPENAI_ENDPOINT
+        value: https://api.openai.com/v1/responses

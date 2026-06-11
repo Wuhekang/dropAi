@@ -36,3 +36,10 @@ ai:
     connect-timeout-seconds: 10
     read-timeout-seconds: 120
     document-concurrency: ${DOUBAO_DOCUMENT_CONCURRENCY:8}
+  openai-design:
+    enabled: ${OPENAI_DESIGN_ENABLED:true}
+    api-key: ${OPENAI_API_KEY:}
+    endpoint: ${OPENAI_ENDPOINT:https://api.openai.com/v1/responses}
+    model: ${OPENAI_MODEL:gpt-5.4-mini}
+    connect-timeout-seconds: 15
+    read-timeout-seconds: 180

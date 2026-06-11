@@ -24,12 +24,12 @@ import java.util.UUID;
 
 @Service
 public class EngineeringWritingService {
-    private final AiRewriteService aiRewriteService;
+    private final OpenAiDesignService openAiDesignService;
     private final DocumentJobMapper documentJobMapper;
     private final ObjectMapper objectMapper;
 
-    public EngineeringWritingService(AiRewriteService aiRewriteService, DocumentJobMapper documentJobMapper, ObjectMapper objectMapper) {
-        this.aiRewriteService = aiRewriteService;
+    public EngineeringWritingService(OpenAiDesignService openAiDesignService, DocumentJobMapper documentJobMapper, ObjectMapper objectMapper) {
+        this.openAiDesignService = openAiDesignService;
         this.documentJobMapper = documentJobMapper;
         this.objectMapper = objectMapper;
     }
@@ -37,7 +37,10 @@ public class EngineeringWritingService {
     public DesignAnalysisVO analyze(String title, List<MultipartFile> files) {
         try {
             String sources = extractSources(files);
-            String response = aiRewriteService.rewrite(buildAnalysisPrompt(title, sources), "设计参数提取");
+            String response = openAiDesignService.generate(
+                    "你是机械设计需求分析工程师。严格输出用户要求的合法 JSON，不输出 Markdown 或额外文字。",
+                    buildAnalysisPrompt(title, sources)
+            );
             DesignAnalysisVO analysis = objectMapper.readValue(extractJson(response), DesignAnalysisVO.class);
             normalizeAnalysis(analysis);
             return analysis;
@@ -54,7 +57,10 @@ public class EngineeringWritingService {
         documentJobMapper.insert(record);
         try {
             String sourceSummary = extractSources(files);
-            String generated = aiRewriteService.rewrite(buildPrompt(normalizedTitle, typeName, requirements, sourceSummary), "扩写");
+            String generated = openAiDesignService.generate(
+                    "你是机械设计与本科毕业设计工程师。输出可直接写入 Word 的中文设计说明，不虚构数据、标准或参考文献。",
+                    buildPrompt(normalizedTitle, typeName, requirements, sourceSummary)
+            );
             byte[] output = buildDocx(normalizedTitle, typeName, generated);
             record.setStatus("SUCCESS");
             record.setMessage(typeName + "已生成，资料文件 " + files.size() + " 个");
