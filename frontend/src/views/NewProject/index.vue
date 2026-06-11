@@ -55,8 +55,29 @@
       </el-card>
     </section>
 
+    <el-card v-if="workflow.workflowId" class="result-card workflow-card" shadow="never">
+      <template #header>
+        <div class="workflow-heading">
+          <strong>3. 生成工作流</strong>
+          <el-tag :type="workflowStatusType">{{ workflowStatusText }}</el-tag>
+        </div>
+      </template>
+      <p class="workflow-message">{{ workflow.message }}</p>
+      <div class="stage-grid">
+        <div v-for="stage in workflow.stages || []" :key="stage.key" class="stage-item">
+          <div class="stage-title">
+            <strong>{{ stage.name }}</strong>
+            <el-tag size="small" :type="stageStatusType(stage.status)">{{ stageStatusText(stage.status) }}</el-tag>
+          </div>
+          <el-progress :percentage="stageProgress(stage.status)" :status="stageProgressStatus(stage.status)" />
+          <p>{{ stage.message }}</p>
+          <el-button v-if="stage.jobId" size="small" type="success" @click="downloadStage(stage)">下载 {{ stage.fileName }}</el-button>
+        </div>
+      </div>
+    </el-card>
+
     <el-card v-if="designReady" class="result-card" shadow="never">
-      <template #header><strong>3. 参数化 CAD 方案图</strong></template>
+      <template #header><strong>4. 参数化 CAD 方案图</strong></template>
       <el-alert type="warning" :closable="false" title="这是参数驱动的方案级总装图，可编辑但不可未经校核直接加工。" />
       <div class="design-result">
         <div>
@@ -94,9 +115,9 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { analyzeEngineeringDesign, downloadEngineeringDxf, downloadMyDocument, generateEngineeringDocument, getEngineeringAiStatus } from '../../api/rewrite'
+import { analyzeEngineeringDesign, downloadEngineeringDxf, downloadMyDocument, getEngineeringAiStatus, getEngineeringWorkflow, submitEngineeringWorkflow } from '../../api/rewrite'
 
 const router = useRouter()
 const title = ref('')
@@ -108,6 +129,8 @@ const generating = ref(false)
 const analysisReady = ref(false)
 const designReady = ref(false)
 const result = reactive({})
+const workflow = reactive({})
+let workflowTimer
 const analysis = reactive({})
 const aiStatus = reactive({})
 const parameterMeta = reactive({})
@@ -173,9 +196,27 @@ async function generate() {
     data.append('title', title.value)
     data.append('outputType', outputType.value)
     data.append('requirements', buildRequirements())
+    Object.entries(parameters).forEach(([key, value]) => data.append(key, value))
     fileList.value.forEach((file) => data.append('files', file.raw))
-    Object.assign(result, await generateEngineeringDocument(data))
+    Object.assign(workflow, await submitEngineeringWorkflow(data))
+    startWorkflowPolling()
   } finally { generating.value = false }
+}
+function startWorkflowPolling() {
+  clearInterval(workflowTimer)
+  workflowTimer = setInterval(refreshWorkflow, 2000)
+  refreshWorkflow()
+}
+async function refreshWorkflow() {
+  if (!workflow.workflowId) return
+  const latest = await getEngineeringWorkflow(workflow.workflowId)
+  Object.assign(workflow, latest)
+  const documentStage = latest.stages?.find((stage) => stage.key === 'DOCUMENT' && stage.jobId)
+  if (documentStage) Object.assign(result, documentStage)
+  if (['SUCCESS', 'PARTIAL_SUCCESS', 'FAILED'].includes(latest.status)) clearInterval(workflowTimer)
+}
+async function downloadStage(stage) {
+  downloadBlob(await downloadMyDocument(stage.jobId), stage.fileName)
 }
 function buildCad() {
   const L = parameters.length
@@ -231,11 +272,19 @@ function downloadBlob(blob, name) {
 }
 function statusType(status) { return status === 'EXPLICIT' ? 'success' : status === 'INFERRED' ? 'warning' : 'info' }
 function statusName(status) { return ({ EXPLICIT: '任务书明确', INFERRED: '资料推导', RECOMMENDED: '工程建议' })[status] || '工程建议' }
+function stageProgress(status) { return status === 'SUCCESS' ? 100 : status === 'FAILED' ? 100 : status === 'RUNNING' ? 55 : 0 }
+function stageProgressStatus(status) { return status === 'FAILED' ? 'exception' : status === 'SUCCESS' ? 'success' : '' }
+function stageStatusType(status) { return status === 'SUCCESS' ? 'success' : status === 'FAILED' ? 'danger' : status === 'RUNNING' ? 'warning' : 'info' }
+function stageStatusText(status) { return ({ SUCCESS: '已完成', FAILED: '失败', RUNNING: '生成中', PENDING: '等待中' })[status] || status }
+const workflowStatusType = computed(() => workflow.status === 'SUCCESS' ? 'success' : workflow.status === 'FAILED' ? 'danger' : workflow.status === 'PARTIAL_SUCCESS' ? 'warning' : 'primary')
+const workflowStatusText = computed(() => ({ SUCCESS: '全部完成', PARTIAL_SUCCESS: '部分完成', FAILED: '生成失败', RUNNING: '后台生成中' })[workflow.status] || workflow.status)
 onMounted(async () => {
   try { Object.assign(aiStatus, await getEngineeringAiStatus()) } catch (error) { aiStatus.testMessage = error.message }
 })
+onUnmounted(() => clearInterval(workflowTimer))
 </script>
 
 <style scoped>
 .project-page{max-width:1380px;margin:auto;padding:32px 24px 70px}.project-header{display:flex;justify-content:space-between;gap:30px;margin-bottom:30px}.project-header h1{font-size:36px;margin:12px 0 8px}.project-header p{color:#64748b;margin:0}.eyebrow{display:block;margin-top:20px;font-size:12px;color:#7c3aed;font-weight:800;letter-spacing:.16em}.workflow{display:grid;grid-template-columns:.9fr 1.1fr;gap:22px}.form-card,.upload-card,.result-card{border-radius:18px}.parameter-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:0 12px;margin-top:18px}.parameter-grid :deep(.el-input-number){width:100%}.source-tag{margin-top:7px}.upload-copy{display:grid;gap:8px}.upload-copy span{color:#64748b}.output-select{margin-top:22px}.generate-button{width:100%;margin-top:16px}.result-card{margin-top:22px}.design-result{display:grid;grid-template-columns:.9fr 1.1fr;gap:24px;margin-top:18px}.cad-preview svg{width:100%;height:440px;background:#fff;border:1px solid #dbe3ef;border-radius:10px}.cad-preview line,.cad-preview circle{fill:none;stroke:#111827;stroke-width:2;vector-effect:non-scaling-stroke}.actions,.document-result{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px}.document-result{padding-top:20px;border-top:1px solid #e5e7eb}.document-result h3,.document-result p{margin:0 0 6px}.document-result p{color:#64748b}@media(max-width:1100px){.parameter-grid{grid-template-columns:repeat(2,1fr)}}@media(max-width:950px){.workflow,.design-result{grid-template-columns:1fr}}@media(max-width:600px){.parameter-grid{grid-template-columns:1fr}.project-header{display:block}}
+.workflow-heading,.stage-title{display:flex;align-items:center;justify-content:space-between;gap:12px}.workflow-message,.stage-item p{color:#64748b}.stage-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}.stage-item{padding:15px;border:1px solid #e5e7eb;border-radius:12px;background:#f8fafc}.stage-item :deep(.el-progress){margin-top:14px}.stage-item p{min-height:42px;font-size:13px}@media(max-width:1100px){.stage-grid{grid-template-columns:repeat(2,1fr)}}@media(max-width:600px){.stage-grid{grid-template-columns:1fr}}
 </style>

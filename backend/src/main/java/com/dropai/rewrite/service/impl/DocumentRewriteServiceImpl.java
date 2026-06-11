@@ -154,6 +154,9 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
     @Override
     public String downloadFileName(String jobId) {
         DocumentRewriteJobVO job = getJob(jobId);
+        if (!"REWRITE".equals(job.getSourceFeature())) {
+            return job.getFileName();
+        }
         String baseName = job.getFileName().replaceAll("(?i)\\.docx$", "");
         return baseName + "-AI痕迹优化.docx";
     }

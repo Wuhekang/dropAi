@@ -77,7 +77,9 @@ async function download(row) {
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
-  link.download = row.fileName?.replace(/\.docx$/i, '') + '-生成结果.docx'
+  link.download = row.sourceFeature === 'REWRITE'
+    ? row.fileName?.replace(/\.docx$/i, '') + '-生成结果.docx'
+    : row.fileName
   link.click()
   URL.revokeObjectURL(url)
 }

@@ -129,6 +129,17 @@ export function generateEngineeringDocument(data) {
   })
 }
 
+export function submitEngineeringWorkflow(data) {
+  return request.post('/engineering-writing/workflows', data, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 120000
+  })
+}
+
+export function getEngineeringWorkflow(workflowId) {
+  return request.get(`/engineering-writing/workflows/${workflowId}`)
+}
+
 export function analyzeEngineeringDesign(data) {
   return request.post('/engineering-writing/analyze', data, {
     headers: { 'Content-Type': 'multipart/form-data' },

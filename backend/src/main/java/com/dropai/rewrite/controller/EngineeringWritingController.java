@@ -1,11 +1,13 @@
 package com.dropai.rewrite.controller;
 
 import com.dropai.rewrite.service.EngineeringWritingService;
+import com.dropai.rewrite.service.DesignWorkflowService;
 import com.dropai.rewrite.service.MatrixDesignService;
 import com.dropai.rewrite.service.ParametricDxfService;
 import com.dropai.rewrite.vo.AiProviderStatusVO;
 import com.dropai.rewrite.vo.DesignAnalysisVO;
 import com.dropai.rewrite.vo.DocumentRewriteJobVO;
+import com.dropai.rewrite.vo.DesignWorkflowVO;
 import com.dropai.rewrite.vo.Result;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -22,10 +24,13 @@ public class EngineeringWritingController {
     private final EngineeringWritingService service;
     private final MatrixDesignService matrixDesignService;
     private final ParametricDxfService dxfService;
-    public EngineeringWritingController(EngineeringWritingService service, MatrixDesignService matrixDesignService, ParametricDxfService dxfService) {
+    private final DesignWorkflowService workflowService;
+    public EngineeringWritingController(EngineeringWritingService service, MatrixDesignService matrixDesignService, ParametricDxfService dxfService,
+                                        DesignWorkflowService workflowService) {
         this.service = service;
         this.matrixDesignService = matrixDesignService;
         this.dxfService = dxfService;
+        this.workflowService = workflowService;
     }
 
     @GetMapping("/ai/status")
@@ -72,6 +77,27 @@ public class EngineeringWritingController {
             @RequestParam(value = "files", required = false) List<MultipartFile> files
     ) {
         return Result.success(service.generate(title, outputType, requirements, files == null ? List.of() : files));
+    }
+
+    @PostMapping("/workflows")
+    public Result<DesignWorkflowVO> submitWorkflow(
+            @RequestParam String title,
+            @RequestParam String outputType,
+            @RequestParam(value = "requirements", defaultValue = "") String requirements,
+            @RequestParam(value = "files", required = false) List<MultipartFile> files,
+            @RequestParam double length,
+            @RequestParam double width,
+            @RequestParam double height,
+            @RequestParam double wheelbase,
+            @RequestParam double wheelDiameter
+    ) {
+        return Result.success(workflowService.submit(title, outputType, requirements, files == null ? List.of() : files,
+                length, width, height, wheelbase, wheelDiameter));
+    }
+
+    @GetMapping("/workflows/{workflowId}")
+    public Result<DesignWorkflowVO> getWorkflow(@PathVariable String workflowId) {
+        return Result.success(workflowService.get(workflowId));
     }
 
     @GetMapping("/cad/dxf")
