@@ -18,7 +18,11 @@ WORKDIR /app
 ENV TZ=Asia/Shanghai
 ENV SPRING_PROFILES_ACTIVE=demo
 ENV APP_DATA_DIR=/app/data
-RUN mkdir -p /app/data /app/storage/uploads /app/storage/outputs /app/storage/jobs
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends fonts-noto-cjk fontconfig \
+    && fc-cache -f -v \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /app/data /app/storage/uploads /app/storage/outputs /app/storage/jobs
 COPY --from=backend-build /backend/target/*.jar /app/app.jar
 EXPOSE 8080
 ENTRYPOINT ["java", "-jar", "/app/app.jar"]
