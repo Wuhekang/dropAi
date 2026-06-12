@@ -120,6 +120,7 @@ public class DesignProject {
         private String name;
         private String function;
         private String material;
+        private String geometry = "BOX";
         private int quantity;
         private double x;
         private double y;
@@ -140,6 +141,7 @@ public class DesignProject {
         public String getName() { return name; } public void setName(String v) { name = v; }
         public String getFunction() { return function; } public void setFunction(String v) { function = v; }
         public String getMaterial() { return material; } public void setMaterial(String v) { material = v; }
+        public String getGeometry() { return geometry; } public void setGeometry(String v) { geometry = v; }
         public int getQuantity() { return quantity; } public void setQuantity(int v) { quantity = v; }
         public double getX() { return x; } public void setX(double v) { x = v; }
         public double getY() { return y; } public void setY(double v) { y = v; }

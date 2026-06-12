@@ -2,6 +2,8 @@ package com.dropai.rewrite;
 
 import com.dropai.rewrite.modules.calculationEngine.CalculationEngine;
 import com.dropai.rewrite.modules.drawingEngine.DrawingEngine;
+import com.dropai.rewrite.modules.designAnalyzer.DesignAnalyzer;
+import com.dropai.rewrite.modules.documentParser.DocumentParser;
 import com.dropai.rewrite.modules.model.DesignProject;
 import com.dropai.rewrite.modules.parameterEngine.ParameterEngine;
 import com.dropai.rewrite.modules.paperEngine.PaperEngine;
@@ -11,6 +13,7 @@ import org.apache.poi.xwpf.usermodel.XWPFDocument;
 
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -49,6 +52,22 @@ class DesignPackageModuleTests {
             assertTrue(text.contains("参考文献"));
             assertTrue(text.replaceAll("\\s+", "").length() >= 8000);
         }
+    }
+
+    @Test
+    void semanticArchitecturesProduceRecognizableComponents() {
+        assertArchitecture("重力沉降室设计", "沉降分离设备", "排灰斗", "HOPPER");
+        assertArchitecture("带式输送机设计", "带式输送设备", "输送带", "BELT");
+        assertArchitecture("六自由度机械手设计", "关节机械手", "夹爪", "CLAW");
+    }
+
+    private void assertArchitecture(String title, String architecture, String componentName, String geometry) {
+        DesignProject analyzed = new DesignAnalyzer().analyze(title,
+                List.of(new DocumentParser.ParsedDocument("任务书.txt", "TASK_BOOK", title)));
+        DesignProject project = new StructureEngine().design(new ParameterEngine().normalize(analyzed));
+        assertTrue(architecture.equals(project.getDesignType()));
+        assertTrue(project.getComponents().stream().anyMatch(c -> componentName.equals(c.getName()) && geometry.equals(c.getGeometry())));
+        assertTrue(project.getBom().stream().anyMatch(item -> componentName.equals(item.getName())));
     }
 
     private DesignProject structuredProject() {

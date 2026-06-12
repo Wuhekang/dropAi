@@ -53,13 +53,9 @@ public class DrawingEngine {
         double sx = 520, sy = 205, sw = 145, sh = 165;
         c.text("TEXT", mx, my - 18, 4, "主视图"); c.text("TEXT", tx, ty - 18, 4, "俯视图"); c.text("TEXT", sx, sy - 18, 4, "侧视图");
         for (DesignProject.Component part : p.getComponents()) {
-            c.rect(layer(part), mx + part.getX() / totalL * mw, my + part.getZ() / totalH * mh,
-                    Math.max(8, part.getLength() / totalL * mw), Math.max(6, part.getHeight() / totalH * mh));
-            c.rect(layer(part), tx + part.getX() / totalL * tw, ty + part.getY() / totalW * th,
-                    Math.max(8, part.getLength() / totalL * tw), Math.max(6, part.getWidth() / totalW * th));
-            c.rect(layer(part), sx + part.getY() / totalW * sw, sy + part.getZ() / totalH * sh,
-                    Math.max(8, part.getWidth() / totalW * sw), Math.max(6, part.getHeight() / totalH * sh));
-            drawViewFeatures(c, part, mx, my, mw, mh, totalL, totalH);
+            project(c, part, "FRONT", mx, my, mw, mh, totalL, totalW, totalH);
+            project(c, part, "TOP", tx, ty, tw, th, totalL, totalW, totalH);
+            project(c, part, "SIDE", sx, sy, sw, sh, totalL, totalW, totalH);
             if (part.isKeyPart()) {
                 double bx = mx + (part.getX() + part.getLength() / 2) / totalL * mw;
                 double by = my + (part.getZ() + part.getHeight() / 2) / totalH * mh;
@@ -68,15 +64,61 @@ public class DrawingEngine {
         }
     }
 
-    private void drawViewFeatures(Canvas c, DesignProject.Component part, double x, double y, double w, double h, double totalL, double totalH) {
-        double cx = x + (part.getX() + part.getLength() / 2) / totalL * w;
-        double cy = y + (part.getZ() + part.getHeight() / 2) / totalH * h;
-        if ("INTERFACE".equals(part.getRole()) || "FUNCTION".equals(part.getRole())) {
-            c.circle(layer(part), cx, cy, Math.max(5, Math.min(part.getLength() / totalL * w, part.getHeight() / totalH * h) / 3));
+    private void project(Canvas c, DesignProject.Component p, String view, double ox, double oy, double vw, double vh,
+                         double totalL, double totalW, double totalH) {
+        double x, y, w, h;
+        if ("TOP".equals(view)) {
+            x = ox + p.getX() / totalL * vw; y = oy + p.getY() / totalW * vh;
+            w = p.getLength() / totalL * vw; h = p.getWidth() / totalW * vh;
+        } else if ("SIDE".equals(view)) {
+            x = ox + p.getY() / totalW * vw; y = oy + p.getZ() / totalH * vh;
+            w = p.getWidth() / totalW * vw; h = p.getHeight() / totalH * vh;
+        } else {
+            x = ox + p.getX() / totalL * vw; y = oy + p.getZ() / totalH * vh;
+            w = p.getLength() / totalL * vw; h = p.getHeight() / totalH * vh;
         }
-        if ("SUPPORT".equals(part.getRole()) || "BASE".equals(part.getRole())) {
-            c.line("STRUCTURE", cx - 12, cy - 8, cx + 12, cy + 8);
-            c.line("STRUCTURE", cx - 12, cy + 8, cx + 12, cy - 8);
+        w = Math.max(7, w); h = Math.max(6, h);
+        String geometry = p.getGeometry() == null ? "BOX" : p.getGeometry();
+        String layer = layer(p);
+        boolean circle = ("CYLINDER_Y".equals(geometry) && "FRONT".equals(view))
+                || ("CYLINDER_Z".equals(geometry) && "TOP".equals(view))
+                || ("DUCT_X".equals(geometry) && "SIDE".equals(view))
+                || "JOINT".equals(geometry) || "ROTOR".equals(geometry);
+        if (circle) {
+            c.circle(layer, x + w / 2, y + h / 2, Math.max(4, Math.min(w, h) / 2));
+            c.line("CENTER", x + w / 2 - 5, y + h / 2, x + w / 2 + 5, y + h / 2);
+            c.line("CENTER", x + w / 2, y + h / 2 - 5, x + w / 2, y + h / 2 + 5);
+        } else if ("HOPPER".equals(geometry) && !"TOP".equals(view)) {
+            c.poly(layer, x, y + h, x + w, y + h, x + w * .68, y + h * .18, x + w * .55, y, x + w * .45, y, x + w * .32, y + h * .18);
+        } else if ("BELT".equals(geometry) && "FRONT".equals(view)) {
+            c.circle(layer, x + h / 2, y + h / 2, h / 2);
+            c.circle(layer, x + w - h / 2, y + h / 2, h / 2);
+            c.line(layer, x + h / 2, y + h, x + w - h / 2, y + h);
+            c.line(layer, x + h / 2, y, x + w - h / 2, y);
+        } else if ("ARM_XZ".equals(geometry) && "FRONT".equals(view)) {
+            c.poly(layer, x, y, x + w * .12, y - h * .16, x + w, y + h * .76, x + w * .88, y + h);
+            c.circle("JOINT", x, y, Math.max(4, h * .2)); c.circle("JOINT", x + w, y + h * .78, Math.max(4, h * .2));
+        } else if ("CLAW".equals(geometry) && "FRONT".equals(view)) {
+            c.line(layer, x, y + h / 2, x + w * .45, y + h / 2);
+            c.line(layer, x + w * .45, y + h / 2, x + w, y + h);
+            c.line(layer, x + w * .45, y + h / 2, x + w, y);
+            c.line(layer, x + w, y + h, x + w * .82, y + h * .72);
+            c.line(layer, x + w, y, x + w * .82, y + h * .28);
+        } else {
+            c.rect(layer, x, y, w, h);
+            if ("CHAMBER".equals(geometry)) {
+                c.line("STRUCTURE", x + w * .35, y, x + w * .35, y + h);
+                c.line("STRUCTURE", x + w * .68, y, x + w * .68, y + h);
+            } else if ("TRUSS".equals(geometry) || "FRAME".equals(geometry)) {
+                c.line("STRUCTURE", x, y, x + w, y + h);
+                c.line("STRUCTURE", x, y + h, x + w, y);
+            } else if ("DOOR".equals(geometry)) {
+                c.line("STRUCTURE", x, y, x + w, y + h);
+                c.circle("STRUCTURE", x + w * .82, y + h / 2, 2.5);
+            } else if ("MOTOR".equals(geometry)) {
+                c.circle("STRUCTURE", x + w * .78, y + h / 2, Math.min(w, h) * .24);
+                c.line("STRUCTURE", x, y + h * .25, x - w * .18, y + h * .25);
+            }
         }
     }
 
@@ -150,34 +192,37 @@ public class DrawingEngine {
     }
 
     private String showcaseSvg(DesignProject p) {
-        StringBuilder b = new StringBuilder("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1200 720\"><rect width=\"1200\" height=\"720\" fill=\"#f3f7fb\"/>");
-        b.append("<text x=\"60\" y=\"70\" font-size=\"32\" font-family=\"Noto Sans CJK SC,sans-serif\" fill=\"#10233f\">").append(escape(p.getProjectTitle())).append("</text>");
-        b.append("<text x=\"60\" y=\"108\" font-size=\"17\" font-family=\"Noto Sans CJK SC,sans-serif\" fill=\"#52657d\">").append(escape(p.getWorkingPrinciple())).append("</text>");
-        String[] colors = {"#5b8ff9","#61d9a0","#f6bd16","#e8684a","#9270ca","#6dc8ec","#ff99c3"};
-        int i = 0;
-        for (DesignProject.Component c : p.getComponents()) {
-            double x=80+c.getX()/p.number("总长",4200)*720, y=180+c.getZ()/p.number("总高",1800)*330;
-            double w=Math.max(45,c.getLength()/p.number("总长",4200)*720), h=Math.max(28,c.getHeight()/p.number("总高",1800)*330);
-            b.append("<rect x=\"").append(x).append("\" y=\"").append(560-y-h).append("\" width=\"").append(w).append("\" height=\"").append(h)
-                    .append("\" rx=\"8\" fill=\"").append(colors[i++%colors.length]).append("\" opacity=\".82\" stroke=\"#17324d\"/>");
-            b.append("<text x=\"").append(x+5).append("\" y=\"").append(580-y-h).append("\" font-size=\"13\" font-family=\"Noto Sans CJK SC,sans-serif\">").append(escape(c.getName())).append("</text>");
-        }
-        b.append("<rect x=\"850\" y=\"155\" width=\"290\" height=\"420\" rx=\"18\" fill=\"white\" stroke=\"#d7e2ed\"/><text x=\"880\" y=\"200\" font-size=\"22\" font-family=\"Noto Sans CJK SC,sans-serif\">结构与参数摘要</text>");
-        int row=0; for (DesignProject.BomItem item:p.getBom().stream().limit(9).toList()) b.append("<text x=\"880\" y=\"").append(240+row++*28).append("\" font-size=\"15\" font-family=\"Noto Sans CJK SC,sans-serif\">").append(item.getSequence()).append(". ").append(escape(item.getName())).append(" ×").append(item.getQuantity()).append("</text>");
-        return b.append("</svg>").toString();
+        return showcaseCanvas(p).svg();
     }
 
     private byte[] renderShowcase(DesignProject p) {
         try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-            BufferedImage image = new BufferedImage(1600, 960, BufferedImage.TYPE_INT_RGB);
-            Graphics2D g = graphics(image, new Color(243,247,251)); Font f=font();
-            g.setColor(new Color(16,35,63)); g.setFont(f.deriveFont(34f)); g.drawString(p.getProjectTitle(),70,70);
-            Color[] colors={new Color(91,143,249),new Color(97,217,160),new Color(246,189,22),new Color(232,104,74),new Color(146,112,202),new Color(109,200,236)};
-            int i=0; double L=p.number("总长",4200),H=p.number("总高",1800);
-            for(DesignProject.Component c:p.getComponents()){int x=(int)(90+c.getX()/L*950), y=(int)(700-(c.getZ()+c.getHeight())/H*470), w=(int)Math.max(55,c.getLength()/L*950), h=(int)Math.max(35,c.getHeight()/H*470); g.setColor(colors[i++%colors.length]);g.fillRoundRect(x,y,w,h,14,14);g.setColor(new Color(20,45,70));g.drawRoundRect(x,y,w,h,14,14);g.setFont(f.deriveFont(17f));g.drawString(c.getName(),x+6,y-6);}
-            g.setColor(Color.WHITE);g.fillRoundRect(1150,130,380,650,24,24);g.setColor(new Color(20,45,70));g.setFont(f.deriveFont(24f));g.drawString("结构与参数摘要",1190,185);g.setFont(f.deriveFont(17f));int y=230;for(DesignProject.BomItem item:p.getBom().stream().limit(12).toList()){g.drawString(item.getSequence()+". "+item.getName()+" ×"+item.getQuantity(),1190,y);y+=34;}
+            BufferedImage image = new BufferedImage(1680, 1180, BufferedImage.TYPE_INT_RGB);
+            Graphics2D g = graphics(image, new Color(243,247,251));
+            g.setColor(new Color(24,34,48));
+            for (Shape shape : showcaseCanvas(p).shapes) draw(g, shape, 2, false);
             g.dispose();ImageIO.write(image,"png",out);return out.toByteArray();
         }catch(Exception e){throw new IllegalStateException("生成方案展示图失败："+e.getMessage(),e);}
+    }
+
+    private Canvas showcaseCanvas(DesignProject p) {
+        Canvas c = new Canvas(p.getProjectTitle(), "设备结构示意图", "FA-01");
+        c.text("TEXT", 55, 540, 9, p.getProjectTitle());
+        c.text("TEXT", 55, 520, 4.5, "识别架构：" + p.getDesignType() + "；设备：" + p.getEquipmentName());
+        double l = p.number("总长", 4200), w = p.number("总宽", 1600), h = p.number("总高", 1800);
+        for (DesignProject.Component part : p.getComponents()) {
+            project(c, part, "FRONT", 55, 130, 560, 330, l, w, h);
+            double tx = 55 + (part.getX() + part.getLength() / 2) / l * 560;
+            double ty = 140 + (part.getZ() + part.getHeight()) / h * 330;
+            c.text("ANNOTATION", tx, Math.min(485, ty), 3.5, part.getSequence() + " " + part.getName());
+        }
+        c.rect("TABLE", 640, 130, 170, 350);
+        c.text("TABLE", 655, 455, 5, "结构组成");
+        int row = 0;
+        for (DesignProject.BomItem item : p.getBom().stream().limit(10).toList()) {
+            c.text("TABLE", 655, 425 - row++ * 28, 3.5, item.getSequence() + ". " + item.getName() + " ×" + item.getQuantity());
+        }
+        return c;
     }
 
     private Graphics2D graphics(BufferedImage image, Color bg){Graphics2D g=image.createGraphics();g.setRenderingHint(RenderingHints.KEY_ANTIALIASING,RenderingHints.VALUE_ANTIALIAS_ON);g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,RenderingHints.VALUE_TEXT_ANTIALIAS_ON);g.setColor(bg);g.fillRect(0,0,image.getWidth(),image.getHeight());g.setColor(new Color(24,34,48));g.setStroke(new BasicStroke(2));return g;}
@@ -192,6 +237,7 @@ public class DrawingEngine {
         void line(String l,double a,double b,double c,double d){shapes.add(new Shape("LINE",l,a,b,c,d,0,""));}
         void rect(String l,double x,double y,double w,double h){line(l,x,y,x+w,y);line(l,x+w,y,x+w,y+h);line(l,x+w,y+h,x,y+h);line(l,x,y+h,x,y);}
         void circle(String l,double x,double y,double r){shapes.add(new Shape("CIRCLE",l,x,y,0,0,r,""));}
+        void poly(String l,double... points){for(int i=0;i<points.length;i+=2){int n=(i+2)%points.length;line(l,points[i],points[i+1],points[n],points[n+1]);}}
         void text(String l,double x,double y,double s,String t){shapes.add(new Shape("TEXT",l,x,y,0,0,s,t));}
         String dxf(){StringBuilder b=new StringBuilder("0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1027\n0\nENDSEC\n0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLAYER\n70\n13\n");for(String l:List.of("FRAME","TITLE","BODY","SUPPORT","INTERFACE","FUNCTION","STRUCTURE","CENTER","DIMENSION","ANNOTATION","TABLE","TEXT"))b.append("0\nLAYER\n2\n").append(l).append("\n70\n0\n62\n7\n6\nCONTINUOUS\n");b.append("0\nENDTAB\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n");shapes.forEach(s->s.dxf(b));return b.append("0\nENDSEC\n0\nEOF\n").toString();}
         String svg(){StringBuilder b=new StringBuilder("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 840 590\"><rect width=\"840\" height=\"590\" fill=\"white\"/>");shapes.forEach(s->s.svg(b));return b.append("</svg>").toString();}

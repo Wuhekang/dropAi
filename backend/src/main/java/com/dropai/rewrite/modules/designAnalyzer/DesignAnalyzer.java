@@ -16,9 +16,10 @@ public class DesignAnalyzer {
     public DesignProject analyze(String title, List<DocumentParser.ParsedDocument> documents) {
         DesignProject project = new DesignProject();
         if (title != null && !title.isBlank()) project.setProjectTitle(title.trim());
-        project.setEquipmentName(inferEquipmentName(project.getProjectTitle()));
-        project.setDesignType("通用机械类毕业设计");
         String sourceText = documents.stream().map(DocumentParser.ParsedDocument::text).reduce("", (a, b) -> a + "\n" + b);
+        String evidence = project.getProjectTitle() + "\n" + sourceText;
+        project.setEquipmentName(inferEquipmentName(project.getProjectTitle(), evidence));
+        project.setDesignType(detectArchitecture(evidence));
         project.setMainFunctions(detectFunctions(sourceText));
         project.setWorkingPrinciple(buildPrinciple(project.getMainFunctions()));
         Map<String, String> aliases = Map.of(
@@ -31,8 +32,26 @@ public class DesignAnalyzer {
         project.getVerificationItems().add("计算结果与图纸尺寸一致性复核");
         return project;
     }
-    private String inferEquipmentName(String title) {
-        return title.replace("设计", "").replace("毕业", "").trim().isBlank() ? "机械设备" : title.replace("设计", "").trim();
+    private String inferEquipmentName(String title, String evidence) {
+        String cleaned = title.replace("设计", "").replace("毕业", "").trim();
+        if (!cleaned.isBlank() && !cleaned.equals("通用机械类")) return cleaned;
+        Map<String, List<String>> names = architectureVocabulary();
+        return names.entrySet().stream().filter(entry -> entry.getValue().stream().anyMatch(evidence::contains))
+                .map(Map.Entry::getKey).findFirst().orElse("机械设备");
+    }
+
+    private String detectArchitecture(String evidence) {
+        return architectureVocabulary().entrySet().stream()
+                .filter(entry -> entry.getValue().stream().anyMatch(evidence::contains))
+                .map(Map.Entry::getKey).findFirst().orElse("通用机械结构");
+    }
+
+    private Map<String, List<String>> architectureVocabulary() {
+        Map<String, List<String>> catalog = new LinkedHashMap<>();
+        catalog.put("沉降分离设备", List.of("重力沉降室", "沉降室", "沉降腔", "排灰斗", "除尘"));
+        catalog.put("带式输送设备", List.of("输送机", "输送带", "驱动滚筒", "从动滚筒", "托辊"));
+        catalog.put("关节机械手", List.of("机械手", "夹爪", "大臂", "小臂", "末端执行器"));
+        return catalog;
     }
     private void extractNumber(DocumentParser.ParsedDocument document, String name, String alias, DesignProject project) {
         Pattern pattern = Pattern.compile("(?:" + alias + ")\\s*[:：=]?\\s*(\\d+(?:\\.\\d+)?)\\s*(mm|m|kg|t)?", Pattern.CASE_INSENSITIVE);

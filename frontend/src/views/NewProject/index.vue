@@ -69,6 +69,16 @@
           <div><span>CAD文件</span><strong>{{ groups.cad.length }}</strong></div>
           <div><span>全部任务</span><strong>{{ artifacts.length }}</strong></div>
         </div>
+        <section v-if="previews.scheme || previews.cad" class="preview-stage">
+          <div v-if="previews.scheme" class="preview-card">
+            <div><strong>设备结构示意图</strong><span>{{ project.designType }} · {{ project.equipmentName }}</span></div>
+            <img :src="previews.scheme" alt="设备结构示意图" />
+          </div>
+          <div v-if="previews.cad" class="preview-card">
+            <div><strong>CAD 三视图预览</strong><span>主视图、俯视图、侧视图使用同一结构模型</span></div>
+            <img :src="previews.cad" alt="CAD 三视图预览" />
+          </div>
+        </section>
         <el-tabs>
           <el-tab-pane label="设计计算预览">
             <el-table :data="project.calculations">
@@ -113,6 +123,7 @@ const ArtifactList = defineComponent({
 const router = useRouter()
 const steps = ['上传资料','AI识别','参数确认','设计计算','总体方案','CAD总装图','零件图','SW宏','论文预览','成果包']
 const fileList = ref([]), analyzing = ref(false), generating = ref(false), artifacts = ref([]), parameters = ref([])
+const previews = reactive({ scheme: '', cad: '' })
 const packageStatus = ref('pending'), packageMessage = ref('等待生成')
 const project = reactive({ projectTitle: '通用机械设备毕业设计', equipmentName: '机械设备', designType: '通用机械结构设计', explicitParameters: [], derivedParameters: [], suggestedParameters: [], verificationItems: [], calculations: [] })
 const successCount = computed(() => artifacts.value.filter(x => x.status === 'success').length)
@@ -157,9 +168,22 @@ async function generate() {
   syncProjectParameters(); generating.value = true; packageStatus.value = 'running'; packageMessage.value = '正在生成并校验各项成果文件'
   try {
     const result = await generateDesignPackage(project); Object.assign(project, result.project); parameters.value = flattenParameters(result.project); artifacts.value = result.artifacts || []
+    await loadPreviews()
     packageStatus.value = result.status || 'failed'; packageMessage.value = result.message || '生成流程已结束'
     packageStatus.value === 'success' ? ElMessage.success(packageMessage.value) : ElMessage.warning(packageMessage.value)
   } catch (error) { packageStatus.value = 'failed'; packageMessage.value = friendlyError(error); ElMessage.error(packageMessage.value) } finally { generating.value = false }
+}
+async function loadPreviews() {
+  for (const key of ['scheme', 'cad']) {
+    if (previews[key]) URL.revokeObjectURL(previews[key])
+    previews[key] = ''
+  }
+  const targets = { scheme: 'preview.png', cad: 'cad_preview.png' }
+  for (const [key, fileName] of Object.entries(targets)) {
+    const item = artifacts.value.find(file => file.fileName === fileName && file.status === 'success' && file.downloadUrl)
+    if (!item) continue
+    try { previews[key] = URL.createObjectURL(await downloadArtifact(item.downloadUrl)) } catch (_) { /* artifact card keeps the failure visible */ }
+  }
 }
 async function download(item) {
   if (item.status !== 'success' || !item.downloadUrl || !item.size) return ElMessage.error(item.failureReason || '文件未生成成功，无法下载')
@@ -181,5 +205,5 @@ function statusText(status) { return ({ pending:'等待中', running:'生成中'
 </script>
 
 <style scoped>
-.workspace{max-width:1500px;margin:auto;padding:30px 24px 70px}.hero,.panel-head{display:flex;justify-content:space-between;align-items:flex-start;gap:24px}.hero h1{font-size:36px;margin:10px 0}.hero p{color:#64748b}.eyebrow{display:block;margin-top:18px;color:#2563eb;font-weight:800;font-size:12px;letter-spacing:.16em}.steps{margin:34px 0}.grid{display:grid;grid-template-columns:.72fr 1.28fr;gap:20px}.grid .el-card,.panel{border-radius:18px}.full{width:100%;margin:14px 0 0}.panel{margin-top:20px}.parameter-table{margin-top:16px;overflow:auto}.parameter-header,.parameter-row{display:grid;grid-template-columns:1fr .75fr .5fr .8fr 1.45fr 60px;gap:8px;align-items:center;min-width:850px}.parameter-header{padding:8px 0;color:#64748b;font-size:13px;font-weight:700}.parameter-row{padding:8px 0;border-top:1px solid #edf1f6}.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:20px 0}.metrics div{padding:18px;border-radius:14px;background:#f4f7fb}.metrics span{display:block;color:#64748b}.metrics strong{font-size:28px}.artifact-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:14px}.artifact{display:flex;justify-content:space-between;align-items:center;padding:16px;border:1px solid #e4e9f1;border-radius:12px}.artifact span{display:block;color:#64748b;font-size:12px;margin-top:5px}.artifact-action{display:flex;align-items:center;gap:8px}@media(max-width:1050px){.grid{grid-template-columns:1fr}.metrics{grid-template-columns:repeat(2,1fr)}}@media(max-width:700px){.steps{display:none}.artifact-grid,.metrics{grid-template-columns:1fr}.hero{display:block}}
+.workspace{max-width:1500px;margin:auto;padding:30px 24px 70px}.hero,.panel-head{display:flex;justify-content:space-between;align-items:flex-start;gap:24px}.hero h1{font-size:36px;margin:10px 0}.hero p{color:#64748b}.eyebrow{display:block;margin-top:18px;color:#2563eb;font-weight:800;font-size:12px;letter-spacing:.16em}.steps{margin:34px 0}.grid{display:grid;grid-template-columns:.72fr 1.28fr;gap:20px}.grid .el-card,.panel{border-radius:18px}.full{width:100%;margin:14px 0 0}.panel{margin-top:20px}.parameter-table{margin-top:16px;overflow:auto}.parameter-header,.parameter-row{display:grid;grid-template-columns:1fr .75fr .5fr .8fr 1.45fr 60px;gap:8px;align-items:center;min-width:850px}.parameter-header{padding:8px 0;color:#64748b;font-size:13px;font-weight:700}.parameter-row{padding:8px 0;border-top:1px solid #edf1f6}.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:20px 0}.metrics div{padding:18px;border-radius:14px;background:#f4f7fb}.metrics span{display:block;color:#64748b}.metrics strong{font-size:28px}.preview-stage{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin:20px 0}.preview-card{border:1px solid #e4e9f1;border-radius:16px;padding:14px;background:#f8fafc}.preview-card div{display:flex;justify-content:space-between;gap:12px;margin-bottom:10px}.preview-card span{color:#64748b;font-size:12px}.preview-card img{display:block;width:100%;height:360px;object-fit:contain;background:white;border-radius:10px}.artifact-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:14px}.artifact{display:flex;justify-content:space-between;align-items:center;padding:16px;border:1px solid #e4e9f1;border-radius:12px}.artifact span{display:block;color:#64748b;font-size:12px;margin-top:5px}.artifact-action{display:flex;align-items:center;gap:8px}@media(max-width:1050px){.grid,.preview-stage{grid-template-columns:1fr}.metrics{grid-template-columns:repeat(2,1fr)}}@media(max-width:700px){.steps{display:none}.artifact-grid,.metrics{grid-template-columns:1fr}.hero{display:block}}
 </style>
