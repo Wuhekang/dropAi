@@ -158,3 +158,16 @@ export function downloadEngineeringDxf(params) {
     timeout: 120000
   })
 }
+
+export function generateDesignPackage(project) {
+  return request.post('/design-packages/generate', project, {
+    timeout: 300000
+  })
+}
+
+export function analyzeDesignPackage(data) {
+  return request.post('/design-packages/analyze', data, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 180000
+  })
+}

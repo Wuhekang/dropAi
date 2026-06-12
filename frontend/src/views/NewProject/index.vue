@@ -1,290 +1,144 @@
 <template>
-  <main class="project-page">
-    <header class="project-header">
+  <main class="workspace">
+    <header class="hero">
       <div>
-        <el-button text type="primary" @click="router.push('/dashboard')">← 返回 Dashboard</el-button>
-        <span class="eyebrow">PARAMETRIC MECHANICAL DESIGN</span>
-        <h1>设计生成</h1>
-        <p>上传任务书和设计资料，AI 自动提取并推导设计参数，再生成 CAD 方案图、截图与设计说明。</p>
+        <el-button text type="primary" @click="router.push('/dashboard')">返回工作台</el-button>
+        <span class="eyebrow">GRADUATION DESIGN PACKAGE</span>
+        <h1>完整毕业设计成果包</h1>
+        <p>资料解析、参数推导、工程计算、CAD工程图、SolidWorks宏与论文初稿共用一套设计参数。</p>
       </div>
-      <el-tag type="warning" size="large">方案级图纸 · 需工程校核</el-tag>
+      <el-tag size="large" type="success">通用机械类流程</el-tag>
     </header>
 
-    <section class="workflow">
-      <el-card class="form-card" shadow="never">
-        <template #header><strong>1. 上传任务书并分析参数</strong></template>
-        <el-alert class="ai-status" :type="aiStatus.testStatus === 'success' ? 'success' : 'warning'" :closable="false"
-          :title="aiStatusTitle" :description="aiStatus.testMessage || '正在检测万量矩阵设计模型连接'" />
+    <el-steps :active="activeStep" finish-status="success" class="steps" align-center>
+      <el-step v-for="step in steps" :key="step" :title="step" />
+    </el-steps>
+
+    <section class="grid">
+      <el-card shadow="never">
+        <template #header><strong>1. 上传资料与识别设计目标</strong></template>
         <el-form label-position="top">
-          <el-form-item label="设计题目">
-            <el-input v-model="title" placeholder="可选，模型也会根据任务书识别设计方向" />
-          </el-form-item>
-          <el-upload drag multiple action="" :auto-upload="false" :file-list="fileList" :on-change="onFileChange" :on-remove="onFileRemove"
-            accept=".docx,.txt,.md,.dxf,.dwg,.png,.jpg,.jpeg,.webp,.bmp">
-            <div class="upload-copy"><strong>拖入任务书、开题报告、参考图和现有 CAD</strong><span>模型会区分任务书明确参数、推导参数和工程建议值</span></div>
+          <el-form-item label="毕业设计题目"><el-input v-model="project.projectTitle" /></el-form-item>
+          <el-form-item label="设备名称"><el-input v-model="project.equipmentName" /></el-form-item>
+          <el-form-item label="设计类型"><el-input v-model="project.designType" /></el-form-item>
+          <el-upload drag multiple action="" :auto-upload="false" :file-list="fileList" :on-change="(_, files) => fileList = files" :on-remove="(_, files) => fileList = files"
+            accept=".docx,.txt,.md,.pdf,.dxf,.dwg,.png,.jpg,.jpeg,.webp,.bmp">
+            <strong>拖入任务书、开题报告、论文模板、参考文献、图片或CAD参考图</strong>
+            <p>文档用于识别目标与明确参数，图片和CAD参考图作为结构方案依据。</p>
           </el-upload>
-          <el-button class="generate-button" type="primary" size="large" :loading="analyzing" :disabled="!fileList.length" @click="analyze">
-            分析任务书并生成设计参数
-          </el-button>
+          <el-button class="full" type="primary" :loading="analyzing" :disabled="!fileList.length" @click="analyze">AI识别资料与参数</el-button>
         </el-form>
       </el-card>
 
-      <el-card class="upload-card" shadow="never">
-        <template #header><strong>2. 确认模型生成的参数</strong></template>
-        <el-empty v-if="!analysisReady" description="上传任务书后，参数将由模型自动生成" />
-        <template v-else>
-          <el-alert type="success" :closable="false" :title="analysis.designType || '设计参数分析完成'" :description="analysis.summary" />
-          <div class="parameter-grid">
-            <el-form-item v-for="field in parameterFields" :key="field.key" :label="`${field.label} ${field.unit}`">
-              <el-input-number v-model="parameters[field.key]" :min="field.min" :max="field.max" :step="field.step || 1" />
-              <el-tag class="source-tag" size="small" :type="statusType(parameterMeta[field.key]?.status)">{{ statusName(parameterMeta[field.key]?.status) }}</el-tag>
-            </el-form-item>
-          </div>
-          <el-form-item label="补充约束或人工修正说明">
-            <el-input v-model="requirements" type="textarea" :rows="3" placeholder="参数已由模型生成；这里只填写需要纠正或补充的内容。" />
-          </el-form-item>
-        </template>
-        <el-form-item class="output-select" label="设计说明交付物">
-          <el-select v-model="outputType">
-            <el-option v-for="type in outputTypes" :key="type.value" :label="type.label" :value="type.value" />
-          </el-select>
-        </el-form-item>
-        <el-button class="generate-button" type="primary" size="large" :loading="generating" :disabled="!analysisReady" @click="generate">
-          使用确认后的参数生成 CAD 与说明文档
-        </el-button>
+      <el-card shadow="never">
+        <template #header><strong>2. 参数确认与工程推导</strong></template>
+        <el-tabs v-model="parameterTab">
+          <el-tab-pane label="明确参数" name="explicit"><parameter-editor v-model="project.explicitParameters" source-label="来源" /></el-tab-pane>
+          <el-tab-pane label="推导参数" name="derived"><parameter-editor v-model="project.derivedParameters" source-label="推导依据" /></el-tab-pane>
+          <el-tab-pane label="建议参数" name="suggested"><parameter-editor v-model="project.suggestedParameters" source-label="建议依据" /></el-tab-pane>
+        </el-tabs>
+        <el-button class="full" @click="addParameter">添加参数</el-button>
+        <el-button class="full generate" type="primary" size="large" :loading="generating" @click="generate">重新计算并生成全部成果</el-button>
       </el-card>
     </section>
 
-    <el-card v-if="workflow.workflowId" class="result-card workflow-card" shadow="never">
-      <template #header>
-        <div class="workflow-heading">
-          <strong>3. 生成工作流</strong>
-          <el-tag :type="workflowStatusType">{{ workflowStatusText }}</el-tag>
+    <el-card class="panel" shadow="never">
+      <template #header><div class="panel-head"><strong>3-10. 成果包工作台</strong><el-tag :type="artifacts.length ? 'success' : 'info'">{{ artifacts.length ? `已生成 ${artifacts.length} 个文件` : '等待生成' }}</el-tag></div></template>
+      <el-empty v-if="!artifacts.length" description="确认参数后生成完整成果包" />
+      <template v-else>
+        <div class="metrics">
+          <div><span>设计参数</span><strong>{{ allParameters.length }}</strong></div>
+          <div><span>设计计算</span><strong>{{ project.calculations.length }}</strong></div>
+          <div><span>CAD图纸</span><strong>{{ groups.cad.length }}</strong></div>
+          <div><span>交付文件</span><strong>{{ artifacts.length }}</strong></div>
         </div>
+        <el-tabs>
+          <el-tab-pane label="设计计算预览">
+            <el-table :data="project.calculations">
+              <el-table-column prop="name" label="校核项目" /><el-table-column prop="formula" label="公式" />
+              <el-table-column prop="substitution" label="代入" /><el-table-column label="结果"><template #default="{row}">{{ row.result }} {{ row.unit }}</template></el-table-column>
+              <el-table-column prop="conclusion" label="结论" min-width="180" />
+            </el-table>
+          </el-tab-pane>
+          <el-tab-pane label="CAD总装图与零件图"><artifact-list :items="groups.cad" @download="download" /></el-tab-pane>
+          <el-tab-pane label="SolidWorks宏"><artifact-list :items="groups.macro" @download="download" /></el-tab-pane>
+          <el-tab-pane label="论文与计算书"><artifact-list :items="groups.document" @download="download" /></el-tab-pane>
+          <el-tab-pane label="成果包下载"><artifact-list :items="groups.package" @download="download" /></el-tab-pane>
+        </el-tabs>
       </template>
-      <p class="workflow-message">{{ workflow.message }}</p>
-      <div class="stage-grid">
-        <div v-for="stage in workflow.stages || []" :key="stage.key" class="stage-item">
-          <div class="stage-title">
-            <strong>{{ stage.name }}</strong>
-            <el-tag size="small" :type="stageStatusType(stage.status)">{{ stageStatusText(stage.status) }}</el-tag>
-          </div>
-          <el-progress :percentage="stageProgress(stage.status)" :status="stageProgressStatus(stage.status)" />
-          <p>{{ stage.message }}</p>
-          <el-button v-if="stage.jobId" size="small" type="success" @click="downloadStage(stage)">下载 {{ stage.fileName }}</el-button>
-        </div>
-      </div>
-    </el-card>
-
-    <el-card v-if="designReady" class="result-card" shadow="never">
-      <template #header><strong>4. 参数化 CAD 方案图</strong></template>
-      <el-alert type="warning" :closable="false" title="这是参数驱动的方案级总装图，可编辑但不可未经校核直接加工。" />
-      <div class="design-result">
-        <div>
-          <h3>关键设计参数</h3>
-          <el-table :data="parameterRows" size="small">
-            <el-table-column prop="name" label="参数" />
-            <el-table-column prop="value" label="数值" width="110" />
-            <el-table-column prop="unit" label="单位" width="80" />
-            <el-table-column prop="basis" label="参数来源与依据" min-width="220" />
-          </el-table>
-        </div>
-        <div class="cad-preview">
-          <h3>总装侧视方案图</h3>
-          <svg ref="generatedSvg" :viewBox="cadViewBox" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">
-            <rect x="0" y="0" width="100%" height="100%" fill="white" />
-            <g>
-              <template v-for="(shape, index) in generatedShapes" :key="index">
-                <line v-if="shape.type === 'LINE'" :x1="shape.x1" :y1="-shape.y1" :x2="shape.x2" :y2="-shape.y2" />
-                <circle v-else :cx="shape.cx" :cy="-shape.cy" :r="shape.r" />
-              </template>
-            </g>
-          </svg>
-          <div class="actions">
-            <el-button type="primary" @click="downloadDxf">下载可编辑 DXF</el-button>
-            <el-button type="success" @click="downloadCadScreenshot">下载 CAD 截图 PNG</el-button>
-          </div>
-        </div>
-      </div>
-      <div v-if="result.jobId" class="document-result">
-        <div><h3>{{ result.fileName }}</h3><p>{{ result.message }}</p></div>
-        <el-button type="success" @click="downloadResult">下载设计说明 Word</el-button>
-      </div>
     </el-card>
   </main>
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, defineComponent, h, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { analyzeEngineeringDesign, downloadEngineeringDxf, downloadMyDocument, getEngineeringAiStatus, getEngineeringWorkflow, submitEngineeringWorkflow } from '../../api/rewrite'
+import { ElButton, ElInput, ElMessage } from 'element-plus'
+import { analyzeDesignPackage, downloadMyDocument, generateDesignPackage } from '../../api/rewrite'
+
+const ParameterEditor = defineComponent({
+  props: { modelValue: Array, sourceLabel: String }, emits: ['update:modelValue'],
+  setup(props, { emit }) {
+    const update = (index, key, value) => { const rows = [...props.modelValue]; rows[index] = { ...rows[index], [key]: value }; emit('update:modelValue', rows) }
+    const remove = (index) => emit('update:modelValue', props.modelValue.filter((_, i) => i !== index))
+    return () => h('div', { class: 'parameter-list' }, props.modelValue.map((row, index) => h('div', { class: 'parameter-row' }, [
+      h(ElInput, { modelValue: row.name, placeholder: '参数名', 'onUpdate:modelValue': v => update(index, 'name', v) }),
+      h(ElInput, { modelValue: row.value, placeholder: '数值', 'onUpdate:modelValue': v => update(index, 'value', isNaN(Number(v)) ? v : Number(v)) }),
+      h(ElInput, { modelValue: row.unit, placeholder: '单位', 'onUpdate:modelValue': v => update(index, 'unit', v) }),
+      h(ElInput, { modelValue: row.source || row.basis, placeholder: props.sourceLabel, 'onUpdate:modelValue': v => update(index, row.source ? 'source' : 'basis', v) }),
+      h(ElButton, { type: 'danger', text: true, onClick: () => remove(index) }, () => '删除')
+    ])))
+  }
+})
+const ArtifactList = defineComponent({
+  props: { items: Array }, emits: ['download'],
+  setup(props, { emit }) { return () => h('div', { class: 'artifact-grid' }, props.items.map(item => h('div', { class: 'artifact' }, [
+    h('div', [h('strong', item.fileName), h('span', item.mediaType)]), h(ElButton, { type: 'primary', onClick: () => emit('download', item) }, () => '下载')
+  ]))) }
+})
 
 const router = useRouter()
-const title = ref('')
-const requirements = ref('')
-const outputType = ref('DESIGN_PACKAGE')
-const fileList = ref([])
-const analyzing = ref(false)
-const generating = ref(false)
-const analysisReady = ref(false)
-const designReady = ref(false)
-const result = reactive({})
-const workflow = reactive({})
-let workflowTimer
-const analysis = reactive({})
-const aiStatus = reactive({})
-const parameterMeta = reactive({})
-const generatedSvg = ref()
-const generatedShapes = ref([])
-const cadViewBox = ref('0 -600 1800 700')
-const parameters = reactive({ length: 1600, width: 900, height: 850, wheelbase: 1100, wheelDiameter: 260, load: 350, speed: 1.2, safetyFactor: 1.8 })
-const parameterFields = [
-  { key: 'length', label: '总长', unit: 'mm', min: 300, max: 10000 },
-  { key: 'width', label: '总宽', unit: 'mm', min: 200, max: 5000 },
-  { key: 'height', label: '总高', unit: 'mm', min: 200, max: 5000 },
-  { key: 'wheelbase', label: '轴距', unit: 'mm', min: 200, max: 8000 },
-  { key: 'wheelDiameter', label: '轮径', unit: 'mm', min: 50, max: 2000 },
-  { key: 'load', label: '设计载荷', unit: 'kg', min: 1, max: 100000 },
-  { key: 'speed', label: '目标速度', unit: 'm/s', min: .1, max: 100, step: .1 },
-  { key: 'safetyFactor', label: '安全系数', unit: '', min: 1, max: 10, step: .1 }
-]
-const outputTypes = [
-  { value: 'DESIGN_PACKAGE', label: '设计方案包' },
-  { value: 'TASK_BOOK', label: '任务书' },
-  { value: 'PROPOSAL', label: '开题报告' },
-  { value: 'MIDTERM', label: '中期检查' },
-  { value: 'THESIS_DRAFT', label: '论文初稿' }
-]
-const aiStatusTitle = computed(() => aiStatus.testStatus === 'success'
-  ? `万量矩阵设计模型已连接：${aiStatus.model}`
-  : `万量矩阵设计模型不可用：${aiStatus.model || '等待检测'}`)
-const parameterRows = computed(() => [
-  { name: '总体尺寸', value: `${parameters.length} × ${parameters.width} × ${parameters.height}`, unit: 'mm', basis: `${parameterMeta.length?.source || ''}；${parameterMeta.length?.basis || ''}` },
-  { name: '轴距', value: parameters.wheelbase, unit: 'mm', basis: `${parameterMeta.wheelbase?.source || ''}；${parameterMeta.wheelbase?.basis || ''}` },
-  { name: '轮径', value: parameters.wheelDiameter, unit: 'mm', basis: `${parameterMeta.wheelDiameter?.source || ''}；${parameterMeta.wheelDiameter?.basis || ''}` },
-  { name: '设计载荷', value: parameters.load, unit: 'kg', basis: `${parameterMeta.load?.source || ''}；${parameterMeta.load?.basis || ''}` },
-  { name: '目标速度', value: parameters.speed, unit: 'm/s', basis: `${parameterMeta.speed?.source || ''}；${parameterMeta.speed?.basis || ''}` },
-  { name: '设计载荷力', value: Math.round(parameters.load * 9.81 * parameters.safetyFactor), unit: 'N', basis: '质量 × 重力加速度 × 安全系数' }
-])
-function onFileChange(file, files) { fileList.value = files; analysisReady.value = false }
-function onFileRemove(file, files) { fileList.value = files; analysisReady.value = false }
+const steps = ['上传资料','AI识别','参数确认','设计计算','总体方案','CAD总装图','零件图','SW宏','论文预览','成果包']
+const fileList = ref([]), analyzing = ref(false), generating = ref(false), parameterTab = ref('explicit'), artifacts = ref([])
+const project = reactive({
+  projectTitle: '通用机械设备毕业设计', equipmentName: '机械设备', designType: '通用机械结构设计',
+  explicitParameters: [], derivedParameters: [], suggestedParameters: [
+    { name: '总长', value: 4200, unit: 'mm', basis: '方案阶段建议值' }, { name: '总宽', value: 1600, unit: 'mm', basis: '方案阶段建议值' },
+    { name: '总高', value: 1800, unit: 'mm', basis: '方案阶段建议值' }, { name: '设计载荷', value: 1200, unit: 'kg', basis: '方案阶段建议值' },
+    { name: '安全系数', value: 1.8, unit: '', basis: '方案阶段建议值' }
+  ], verificationItems: [], calculations: []
+})
+const allParameters = computed(() => [...project.explicitParameters, ...project.derivedParameters, ...project.suggestedParameters])
+const activeStep = computed(() => artifacts.value.length ? 10 : allParameters.value.length ? 3 : fileList.value.length ? 1 : 0)
+const groups = computed(() => ({
+  cad: artifacts.value.filter(x => /\.(dxf|svg)$/i.test(x.fileName)),
+  macro: artifacts.value.filter(x => /\.(bas|txt)$/i.test(x.fileName)),
+  document: artifacts.value.filter(x => /\.(docx|pdf)$/i.test(x.fileName)),
+  package: artifacts.value.filter(x => /\.(zip|json)$/i.test(x.fileName))
+}))
+function addParameter() {
+  const target = parameterTab.value === 'explicit' ? project.explicitParameters : parameterTab.value === 'derived' ? project.derivedParameters : project.suggestedParameters
+  target.push({ name: '', value: '', unit: '', [parameterTab.value === 'explicit' ? 'source' : 'basis']: '' })
+}
 async function analyze() {
   analyzing.value = true
   try {
-    const data = new FormData()
-    data.append('title', title.value)
-    fileList.value.forEach((file) => data.append('files', file.raw))
-    const response = await analyzeEngineeringDesign(data)
-    Object.assign(analysis, response)
-    Object.entries(response.parameters || {}).forEach(([key, parameter]) => {
-      if (key in parameters) parameters[key] = Number(parameter.value)
-      parameterMeta[key] = parameter
-    })
-    if (!title.value) title.value = response.designType || '机械结构设计'
-    analysisReady.value = true
+    const form = new FormData(); form.append('title', project.projectTitle); fileList.value.forEach(file => form.append('files', file.raw))
+    const result = await analyzeDesignPackage(form)
+    Object.assign(project, result)
+    ElMessage.success('资料识别完成，请确认参数后生成成果包')
   } finally { analyzing.value = false }
-}
-function buildRequirements() {
-  return `${requirements.value}\n模型从任务书分析并经用户确认的设计参数：总长 ${parameters.length} mm，总宽 ${parameters.width} mm，总高 ${parameters.height} mm，轴距 ${parameters.wheelbase} mm，轮径 ${parameters.wheelDiameter} mm，设计载荷 ${parameters.load} kg，目标速度 ${parameters.speed} m/s，安全系数 ${parameters.safetyFactor}。请继续区分任务书明确值、推导值、工程建议值与待校核项。`
 }
 async function generate() {
   generating.value = true
-  buildCad()
-  designReady.value = true
-  try {
-    const data = new FormData()
-    data.append('title', title.value)
-    data.append('outputType', outputType.value)
-    data.append('requirements', buildRequirements())
-    Object.entries(parameters).forEach(([key, value]) => data.append(key, value))
-    fileList.value.forEach((file) => data.append('files', file.raw))
-    Object.assign(workflow, await submitEngineeringWorkflow(data))
-    startWorkflowPolling()
-  } finally { generating.value = false }
+  try { const result = await generateDesignPackage(project); Object.assign(project, result.project); artifacts.value = result.artifacts || []; ElMessage.success('完整成果包已生成') }
+  finally { generating.value = false }
 }
-function startWorkflowPolling() {
-  clearInterval(workflowTimer)
-  workflowTimer = setInterval(refreshWorkflow, 2000)
-  refreshWorkflow()
+async function download(item) {
+  const blob = await downloadMyDocument(item.jobId); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = item.fileName; a.click(); URL.revokeObjectURL(url)
 }
-async function refreshWorkflow() {
-  if (!workflow.workflowId) return
-  const latest = await getEngineeringWorkflow(workflow.workflowId)
-  Object.assign(workflow, latest)
-  const documentStage = latest.stages?.find((stage) => stage.key === 'DOCUMENT' && stage.jobId)
-  if (documentStage) Object.assign(result, documentStage)
-  if (['SUCCESS', 'PARTIAL_SUCCESS', 'FAILED'].includes(latest.status)) clearInterval(workflowTimer)
-}
-async function downloadStage(stage) {
-  downloadBlob(await downloadMyDocument(stage.jobId), stage.fileName)
-}
-function buildCad() {
-  const L = parameters.length
-  const H = parameters.height
-  const wb = Math.min(parameters.wheelbase, L * .82)
-  const r = parameters.wheelDiameter / 2
-  const y = r + 40
-  const left = (L - wb) / 2
-  const right = left + wb
-  const shapes = []
-  const line = (x1, y1, x2, y2) => shapes.push({ type: 'LINE', x1, y1, x2, y2 })
-  const circle = (cx, cy, radius) => shapes.push({ type: 'CIRCLE', cx, cy, r: radius })
-  line(0, 0, L, 0); line(L, 0, L, H * .55); line(L, H * .55, L * .82, H * .82)
-  line(L * .82, H * .82, L * .28, H * .82); line(L * .28, H * .82, L * .12, H * .58); line(L * .12, H * .58, 0, H * .55); line(0, H * .55, 0, 0)
-  line(left - r, y - r - 25, right + r, y - r - 25); line(right + r, y - r - 25, right + r, y + r + 25)
-  line(right + r, y + r + 25, left - r, y + r + 25); line(left - r, y + r + 25, left - r, y - r - 25)
-  circle(left, y, r); circle(right, y, r)
-  const supportCount = 5
-  for (let i = 1; i <= supportCount; i++) circle(left + (wb * i) / (supportCount + 1), y - r * .18, r * .48)
-  line(L * .42, H * .82, L * .42, H); line(L * .42, H, L * .53, H); line(L * .53, H, L * .53, H * .82)
-  generatedShapes.value = shapes
-  cadViewBox.value = `${-L * .06} ${-H * 1.08} ${L * 1.12} ${H * 1.18}`
-}
-async function downloadDxf() {
-  const blob = await downloadEngineeringDxf({
-    title: title.value || '机械设计',
-    length: parameters.length,
-    width: parameters.width,
-    height: parameters.height,
-    wheelbase: parameters.wheelbase,
-    wheelDiameter: parameters.wheelDiameter
-  })
-  const safeTitle = (title.value || '机械设计').replace(/[\\/:*?"<>|]/g, '-')
-  downloadBlob(blob, `${safeTitle}-总装方案图.dxf`)
-}
-function downloadCadScreenshot() {
-  const source = new XMLSerializer().serializeToString(generatedSvg.value)
-  const image = new Image()
-  const url = URL.createObjectURL(new Blob([source], { type: 'image/svg+xml;charset=utf-8' }))
-  image.onload = () => {
-    const canvas = document.createElement('canvas'); canvas.width = 1800; canvas.height = 1000
-    const ctx = canvas.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height); ctx.drawImage(image, 0, 0, canvas.width, canvas.height)
-    canvas.toBlob((blob) => downloadBlob(blob, `${title.value}-CAD方案图截图.png`), 'image/png')
-    URL.revokeObjectURL(url)
-  }
-  image.src = url
-}
-async function downloadResult() {
-  downloadBlob(await downloadMyDocument(result.jobId), result.fileName)
-}
-function downloadBlob(blob, name) {
-  const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = name; link.click(); URL.revokeObjectURL(url)
-}
-function statusType(status) { return status === 'EXPLICIT' ? 'success' : status === 'INFERRED' ? 'warning' : 'info' }
-function statusName(status) { return ({ EXPLICIT: '任务书明确', INFERRED: '资料推导', RECOMMENDED: '工程建议' })[status] || '工程建议' }
-function stageProgress(status) { return status === 'SUCCESS' ? 100 : status === 'FAILED' ? 100 : status === 'RUNNING' ? 55 : 0 }
-function stageProgressStatus(status) { return status === 'FAILED' ? 'exception' : status === 'SUCCESS' ? 'success' : '' }
-function stageStatusType(status) { return status === 'SUCCESS' ? 'success' : status === 'FAILED' ? 'danger' : status === 'RUNNING' ? 'warning' : 'info' }
-function stageStatusText(status) { return ({ SUCCESS: '已完成', FAILED: '失败', RUNNING: '生成中', PENDING: '等待中' })[status] || status }
-const workflowStatusType = computed(() => workflow.status === 'SUCCESS' ? 'success' : workflow.status === 'FAILED' ? 'danger' : workflow.status === 'PARTIAL_SUCCESS' ? 'warning' : 'primary')
-const workflowStatusText = computed(() => ({ SUCCESS: '全部完成', PARTIAL_SUCCESS: '部分完成', FAILED: '生成失败', RUNNING: '后台生成中' })[workflow.status] || workflow.status)
-onMounted(async () => {
-  try { Object.assign(aiStatus, await getEngineeringAiStatus()) } catch (error) { aiStatus.testMessage = error.message }
-})
-onUnmounted(() => clearInterval(workflowTimer))
 </script>
 
 <style scoped>
-.project-page{max-width:1380px;margin:auto;padding:32px 24px 70px}.project-header{display:flex;justify-content:space-between;gap:30px;margin-bottom:30px}.project-header h1{font-size:36px;margin:12px 0 8px}.project-header p{color:#64748b;margin:0}.eyebrow{display:block;margin-top:20px;font-size:12px;color:#7c3aed;font-weight:800;letter-spacing:.16em}.workflow{display:grid;grid-template-columns:.9fr 1.1fr;gap:22px}.form-card,.upload-card,.result-card{border-radius:18px}.parameter-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:0 12px;margin-top:18px}.parameter-grid :deep(.el-input-number){width:100%}.source-tag{margin-top:7px}.upload-copy{display:grid;gap:8px}.upload-copy span{color:#64748b}.output-select{margin-top:22px}.generate-button{width:100%;margin-top:16px}.result-card{margin-top:22px}.design-result{display:grid;grid-template-columns:.9fr 1.1fr;gap:24px;margin-top:18px}.cad-preview svg{width:100%;height:440px;background:#fff;border:1px solid #dbe3ef;border-radius:10px}.cad-preview line,.cad-preview circle{fill:none;stroke:#111827;stroke-width:2;vector-effect:non-scaling-stroke}.actions,.document-result{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px}.document-result{padding-top:20px;border-top:1px solid #e5e7eb}.document-result h3,.document-result p{margin:0 0 6px}.document-result p{color:#64748b}@media(max-width:1100px){.parameter-grid{grid-template-columns:repeat(2,1fr)}}@media(max-width:950px){.workflow,.design-result{grid-template-columns:1fr}}@media(max-width:600px){.parameter-grid{grid-template-columns:1fr}.project-header{display:block}}
-.workflow-heading,.stage-title{display:flex;align-items:center;justify-content:space-between;gap:12px}.workflow-message,.stage-item p{color:#64748b}.stage-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}.stage-item{padding:15px;border:1px solid #e5e7eb;border-radius:12px;background:#f8fafc}.stage-item :deep(.el-progress){margin-top:14px}.stage-item p{min-height:42px;font-size:13px}@media(max-width:1100px){.stage-grid{grid-template-columns:repeat(2,1fr)}}@media(max-width:600px){.stage-grid{grid-template-columns:1fr}}
+.workspace{max-width:1450px;margin:auto;padding:30px 24px 70px}.hero,.panel-head{display:flex;justify-content:space-between;align-items:flex-start;gap:24px}.hero h1{font-size:36px;margin:10px 0}.hero p{color:#64748b}.eyebrow{display:block;margin-top:18px;color:#2563eb;font-weight:800;font-size:12px;letter-spacing:.16em}.steps{margin:34px 0}.grid{display:grid;grid-template-columns:.9fr 1.1fr;gap:20px}.grid .el-card,.panel{border-radius:18px}.full{width:100%;margin-top:14px}.generate{margin-left:0}.panel{margin-top:20px}.parameter-list{display:grid;gap:9px}.parameter-row{display:grid;grid-template-columns:1fr .75fr .55fr 1.5fr auto;gap:8px}.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px}.metrics div{padding:18px;border-radius:14px;background:#f4f7fb}.metrics span{display:block;color:#64748b}.metrics strong{font-size:28px}.artifact-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}.artifact{display:flex;justify-content:space-between;align-items:center;padding:16px;border:1px solid #e4e9f1;border-radius:12px}.artifact span{display:block;color:#64748b;font-size:12px;margin-top:5px}@media(max-width:1000px){.grid{grid-template-columns:1fr}.parameter-row{grid-template-columns:1fr 1fr}.metrics{grid-template-columns:repeat(2,1fr)}}@media(max-width:700px){.steps{display:none}.artifact-grid,.metrics{grid-template-columns:1fr}.hero{display:block}}
 </style>
