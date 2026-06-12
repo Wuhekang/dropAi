@@ -81,6 +81,7 @@
             <el-alert type="warning" title="当前CAD为方案级图纸，未经工程校核，不可直接用于加工。" :closable="false" />
             <artifact-list :items="groups.cad" @download="download" />
           </el-tab-pane>
+          <el-tab-pane label="方案展示图"><artifact-list :items="groups.showcase" @download="download" /></el-tab-pane>
           <el-tab-pane label="SolidWorks宏"><artifact-list :items="groups.macro" @download="download" /></el-tab-pane>
           <el-tab-pane label="论文与计算书"><artifact-list :items="groups.document" @download="download" /></el-tab-pane>
           <el-tab-pane label="成果包与参数"><artifact-list :items="groups.package" @download="download" /></el-tab-pane>
@@ -118,7 +119,8 @@ const successCount = computed(() => artifacts.value.filter(x => x.status === 'su
 const failedCount = computed(() => artifacts.value.filter(x => x.status === 'failed').length)
 const activeStep = computed(() => packageStatus.value === 'success' ? 10 : artifacts.value.length ? 8 : parameters.value.length ? 3 : fileList.value.length ? 1 : 0)
 const groups = computed(() => ({
-  cad: artifacts.value.filter(x => /\.(dxf|svg|png)$/i.test(x.fileName)),
+  cad: artifacts.value.filter(x => /\.dxf$/i.test(x.fileName) || /^cad_preview\.(svg|png)$/i.test(x.fileName)),
+  showcase: artifacts.value.filter(x => /^preview\.(svg|png)$/i.test(x.fileName)),
   macro: artifacts.value.filter(x => /\.(bas|txt)$/i.test(x.fileName)),
   document: artifacts.value.filter(x => /\.(docx|pdf)$/i.test(x.fileName)),
   package: artifacts.value.filter(x => /\.(zip|json)$/i.test(x.fileName))

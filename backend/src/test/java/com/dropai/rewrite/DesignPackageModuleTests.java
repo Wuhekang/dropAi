@@ -5,6 +5,7 @@ import com.dropai.rewrite.modules.drawingEngine.DrawingEngine;
 import com.dropai.rewrite.modules.model.DesignProject;
 import com.dropai.rewrite.modules.parameterEngine.ParameterEngine;
 import com.dropai.rewrite.modules.paperEngine.PaperEngine;
+import com.dropai.rewrite.modules.structureEngine.StructureEngine;
 import org.junit.jupiter.api.Test;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 
@@ -16,26 +17,30 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class DesignPackageModuleTests {
     @Test
     void calculationsWriteBackIntoSharedProjectModel() {
-        DesignProject project = new CalculationEngine().calculate(new ParameterEngine().normalize(new DesignProject()));
+        DesignProject project = structuredProject();
         assertTrue(project.getCalculations().size() >= 4);
         assertTrue(project.allParameters().stream().anyMatch(p -> "壳体板厚".equals(p.getName())));
     }
 
     @Test
     void assemblyDxfContainsEngineeringDrawingLayersAndAnnotations() {
-        DesignProject project = new CalculationEngine().calculate(new ParameterEngine().normalize(new DesignProject()));
+        DesignProject project = structuredProject();
         String dxf = new String(new DrawingEngine().drawAssemblyDrawing(project).get(0).content(), StandardCharsets.UTF_8);
         assertTrue(dxf.contains("2\nDIMENSION\n"));
         assertTrue(dxf.contains("2\nTITLE\n"));
+        assertTrue(dxf.contains("2\nBODY\n"));
+        assertTrue(dxf.contains("2\nSUPPORT\n"));
         assertTrue(dxf.contains("技术要求"));
         assertTrue(dxf.contains("总装图"));
         assertTrue(new DrawingEngine().drawAssemblyDrawing(project).stream()
                 .filter(file -> "cad_preview.png".equals(file.fileName())).findFirst().orElseThrow().content().length > 1000);
+        assertTrue(new DrawingEngine().drawAssemblyDrawing(project).stream()
+                .filter(file -> "preview.png".equals(file.fileName())).findFirst().orElseThrow().content().length > 1000);
     }
 
     @Test
     void fallbackPaperMeetsMinimumStructureAndLength() throws Exception {
-        DesignProject project = new CalculationEngine().calculate(new ParameterEngine().normalize(new DesignProject()));
+        DesignProject project = structuredProject();
         byte[] bytes = new PaperEngine().generatePaper(project);
         try (XWPFDocument document = new XWPFDocument(new ByteArrayInputStream(bytes))) {
             String text = document.getParagraphs().stream().map(p -> p.getText()).reduce("", (a, b) -> a + b);
@@ -44,5 +49,9 @@ class DesignPackageModuleTests {
             assertTrue(text.contains("参考文献"));
             assertTrue(text.replaceAll("\\s+", "").length() >= 8000);
         }
+    }
+
+    private DesignProject structuredProject() {
+        return new StructureEngine().design(new CalculationEngine().calculate(new ParameterEngine().normalize(new DesignProject())));
     }
 }

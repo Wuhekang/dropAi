@@ -54,6 +54,10 @@ public class PaperEngine {
 
         addChapter(b, project, "第1章 绪论", List.of("1.1 设计背景", "1.2 国内外研究现状", "1.3 设计目标", "1.4 主要研究内容"));
         addChapter(b, project, "第2章 总体方案设计", List.of("2.1 设计要求分析", "2.2 总体结构方案", "2.3 工作原理", "2.4 主要技术参数"));
+        b.add(new Block("表2-1 结构组成与功能分配", true));
+        project.getComponents().forEach(component -> b.add(new Block(
+                component.getSequence() + " " + component.getName() + "；功能：" + component.getFunction()
+                        + "；材料：" + component.getMaterial() + "；数量：" + component.getQuantity(), false)));
         b.add(new Block("表2-1 主要设计参数表", true));
         project.allParameters().forEach(p -> b.add(new Block(p.getName() + "：" + p.getValue() + " " + p.getUnit() + "；依据：" + source(p), false)));
         b.add(new Block("图2-1 总体结构方案图", false));
@@ -61,6 +65,10 @@ public class PaperEngine {
         b.add(new Block("第3章 主要结构设计与计算", true));
         addCalculationSections(b, project);
         addChapter(b, project, "第4章 主要零部件选型与对比", List.of("4.1 材料选型", "4.2 关键部件选型", "4.3 方案对比分析"));
+        b.add(new Block("表4-1 总装图零部件明细表（BOM）", true));
+        project.getBom().forEach(item -> b.add(new Block(
+                item.getSequence() + " " + item.getName() + "；材料：" + item.getMaterial()
+                        + "；数量：" + item.getQuantity() + "；备注：" + item.getRemark(), false)));
         addChapter(b, project, "第5章 CAD绘图与SolidWorks建模", List.of("5.1 CAD总装图绘制", "5.2 主要零件图绘制", "5.3 SolidWorks建模过程", "5.4 工程图说明"));
         b.add(new Block("图5-1 总装工程图；图5-2 壳体零件图；图5-3 底座零件图", false));
         addChapter(b, project, "第6章 结论与展望", List.of("6.1 结论", "6.2 展望"));
@@ -97,9 +105,11 @@ public class PaperEngine {
         String parameters = project.allParameters().stream().limit(8)
                 .map(p -> p.getName() + "=" + p.getValue() + p.getUnit()).collect(Collectors.joining("，"));
         String checks = String.join("、", project.getVerificationItems());
+        String structure = project.getComponents().stream().limit(8)
+                .map(DesignProject.Component::getName).collect(Collectors.joining("、"));
         String first = "本节围绕“" + section + "”展开。设计对象为" + project.getEquipmentName()
                 + "，统一参数表中的主要输入为" + parameters + "。方案阶段首先区分任务资料明确给出的参数、依据工程关系推导的参数和需要设计人员确认的建议参数，"
-                + "再将同一组数值用于结构计算、总装图、零件图和三维建模说明，避免论文描述与图纸尺寸不一致。";
+                + "再将同一组数值用于结构计算、总装图、零件图和三维建模说明，避免论文描述与图纸尺寸不一致。结构方案由" + structure + "组成。";
         String second = "在具体设计过程中，需要结合制造、装配、运输、使用和维护条件，对结构尺寸、材料、连接方式和安全裕量进行综合判断。"
                 + "当前成果用于本科毕业设计初稿和方案校核，重点复核项目包括" + checks + "。所有未经任务书或可靠资料确认的内容均应在正式定稿前完成工程复核，"
                 + "并将复核结论同步回写到参数表、计算书和CAD图纸。";

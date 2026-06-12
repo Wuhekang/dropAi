@@ -10,6 +10,7 @@ import com.dropai.rewrite.modules.model.DesignProject;
 import com.dropai.rewrite.modules.paperEngine.PaperEngine;
 import com.dropai.rewrite.modules.parameterEngine.ParameterEngine;
 import com.dropai.rewrite.modules.swMacroEngine.SwMacroEngine;
+import com.dropai.rewrite.modules.structureEngine.StructureEngine;
 import com.dropai.rewrite.service.DesignPackageService;
 import com.dropai.rewrite.vo.DesignPackageVO;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -33,7 +34,7 @@ class DesignPackageServiceTests {
         DocumentJobMapper mapper = mock(DocumentJobMapper.class);
         when(mapper.insert(any(DocumentJobRecord.class))).thenReturn(1);
         DesignPackageService service = new DesignPackageService(
-                new ParameterEngine(), new CalculationEngine(), new DrawingEngine(), new SwMacroEngine(),
+                new ParameterEngine(), new CalculationEngine(), new StructureEngine(), new DrawingEngine(), new SwMacroEngine(),
                 new PaperEngine(), new ExportEngine(new ObjectMapper()), mapper);
         AuthContext.setUserId(1L);
 
@@ -45,6 +46,8 @@ class DesignPackageServiceTests {
         assertTrue(result.getArtifacts().stream().anyMatch(item -> "paper.docx".equals(item.getName())));
         assertTrue(result.getArtifacts().stream().anyMatch(item -> "assembly.dxf".equals(item.getName())));
         assertTrue(result.getArtifacts().stream().anyMatch(item -> "cad_preview.png".equals(item.getName())));
+        assertTrue(result.getArtifacts().stream().anyMatch(item -> "preview.png".equals(item.getName())));
+        assertTrue(result.getProject().getBom().size() >= 5);
         assertTrue(result.getArtifacts().stream().anyMatch(item -> "project_package.zip".equals(item.getName())));
         ArgumentCaptor<DocumentJobRecord> captor = ArgumentCaptor.forClass(DocumentJobRecord.class);
         verify(mapper, org.mockito.Mockito.atLeastOnce()).insert(captor.capture());

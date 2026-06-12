@@ -11,6 +11,7 @@ import com.dropai.rewrite.modules.model.DesignProject;
 import com.dropai.rewrite.modules.paperEngine.PaperEngine;
 import com.dropai.rewrite.modules.parameterEngine.ParameterEngine;
 import com.dropai.rewrite.modules.swMacroEngine.SwMacroEngine;
+import com.dropai.rewrite.modules.structureEngine.StructureEngine;
 import com.dropai.rewrite.vo.DesignPackageVO;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,25 +28,25 @@ public class DesignPackageService {
     private static final Logger log = LoggerFactory.getLogger(DesignPackageService.class);
     private static final String DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
     private final ParameterEngine parameterEngine; private final CalculationEngine calculationEngine;
-    private final DrawingEngine drawingEngine; private final SwMacroEngine swMacroEngine;
+    private final StructureEngine structureEngine; private final DrawingEngine drawingEngine; private final SwMacroEngine swMacroEngine;
     private final PaperEngine paperEngine; private final ExportEngine exportEngine; private final DocumentJobMapper mapper;
 
-    public DesignPackageService(ParameterEngine parameterEngine, CalculationEngine calculationEngine, DrawingEngine drawingEngine,
+    public DesignPackageService(ParameterEngine parameterEngine, CalculationEngine calculationEngine, StructureEngine structureEngine, DrawingEngine drawingEngine,
                                 SwMacroEngine swMacroEngine, PaperEngine paperEngine, ExportEngine exportEngine, DocumentJobMapper mapper) {
-        this.parameterEngine = parameterEngine; this.calculationEngine = calculationEngine; this.drawingEngine = drawingEngine;
+        this.parameterEngine = parameterEngine; this.calculationEngine = calculationEngine; this.structureEngine = structureEngine; this.drawingEngine = drawingEngine;
         this.swMacroEngine = swMacroEngine; this.paperEngine = paperEngine; this.exportEngine = exportEngine; this.mapper = mapper;
     }
 
     public DesignPackageVO generate(DesignProject input) {
         Long userId = AuthContext.requireUserId();
-        DesignProject project = calculationEngine.calculate(parameterEngine.normalize(input == null ? new DesignProject() : input));
+        DesignProject project = structureEngine.design(calculationEngine.calculate(parameterEngine.normalize(input == null ? new DesignProject() : input)));
         log.info("开始生成成果包 title={} parameters={}", project.getProjectTitle(), project.allParameters().size());
         List<Generated> generated = new ArrayList<>();
         generated.add(generateOne("paper.docx", DOCX, () -> paperEngine.generatePaper(project)));
         generated.add(generateOne("design_calculation.docx", DOCX, () -> paperEngine.generateCalculationBook(project)));
         generated.add(generateOne("sw_modeling_steps.docx", DOCX, () -> paperEngine.generateModelingSteps(project)));
-        generated.addAll(generateGroup(List.of("assembly.dxf", "preview.svg", "cad_preview.png"), () -> drawingEngine.drawAssemblyDrawing(project)));
-        generated.addAll(generateGroup(List.of("part_shell.dxf", "part_base.dxf", "part_inlet.dxf", "part_connector.dxf"), () -> drawingEngine.drawPartDrawing(project)));
+        generated.addAll(generateGroup(List.of("assembly.dxf", "cad_preview.svg", "cad_preview.png", "preview.svg", "preview.png"), () -> drawingEngine.drawAssemblyDrawing(project)));
+        generated.addAll(generateGroup(List.of("part_01.dxf", "part_02.dxf", "part_03.dxf", "part_04.dxf"), () -> drawingEngine.drawPartDrawing(project)));
         generated.addAll(generateGroup(List.of("sw_macro_shell.bas", "sw_macro_base.bas", "sw_macro_inlet.bas", "sw_modeling_steps.txt"), () -> swMacroEngine.generate(project)));
         generated.addAll(generateGroup(List.of("design_parameters.json", "preview.pdf"),
                 () -> exportEngine.appendManifests(project, List.of())));
