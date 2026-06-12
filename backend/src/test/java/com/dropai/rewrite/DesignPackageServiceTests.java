@@ -21,6 +21,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verify;
+import org.mockito.ArgumentCaptor;
 
 class DesignPackageServiceTests {
     @AfterEach
@@ -44,5 +46,9 @@ class DesignPackageServiceTests {
         assertTrue(result.getArtifacts().stream().anyMatch(item -> "assembly.dxf".equals(item.getName())));
         assertTrue(result.getArtifacts().stream().anyMatch(item -> "cad_preview.png".equals(item.getName())));
         assertTrue(result.getArtifacts().stream().anyMatch(item -> "project_package.zip".equals(item.getName())));
+        ArgumentCaptor<DocumentJobRecord> captor = ArgumentCaptor.forClass(DocumentJobRecord.class);
+        verify(mapper, org.mockito.Mockito.atLeastOnce()).insert(captor.capture());
+        assertTrue(captor.getAllValues().stream().allMatch(record -> record.getMode() != null && record.getMode().length() <= 10));
+        assertTrue(captor.getAllValues().stream().filter(record -> record.getFileName().endsWith(".docx")).allMatch(record -> "docx".equals(record.getMode())));
     }
 }

@@ -115,7 +115,7 @@ public class DesignPackageService {
         String id = UUID.randomUUID().toString().replace("-", "");
         DocumentJobRecord record = new DocumentJobRecord();
         record.setJobId(id); record.setUserId(userId); record.setFileName(file.fileName()); record.setSourceFeature("DESIGN_PACKAGE");
-        record.setMode(file.mediaType()); record.setModeName("毕业设计成果包"); record.setPlatform("ENGINEERING"); record.setPlatformName("完整成果包");
+        record.setMode(fileType(file.fileName())); record.setModeName("毕业设计成果包"); record.setPlatform("ENGINEERING"); record.setPlatformName("完整成果包");
         record.setStatus("SUCCESS"); record.setTotalParagraphs(1); record.setProcessedParagraphs(1); record.setRewrittenParagraphs(1);
         record.setMessage(title + " 成果文件已生成，大小 " + file.content().length + " 字节"); record.setParagraphsJson("[]"); record.setOutputFile(file.content());
         record.setCreatedAt(LocalDateTime.now()); record.setUpdatedAt(LocalDateTime.now()); mapper.insert(record);
@@ -133,9 +133,16 @@ public class DesignPackageService {
         if (name.endsWith(".json")) return "application/json";
         return "text/plain";
     }
+    private String fileType(String name) {
+        int dot = name == null ? -1 : name.lastIndexOf('.');
+        return dot < 0 ? "file" : name.substring(dot + 1).toLowerCase();
+    }
     private String readable(Exception exception) {
         String message = exception.getMessage();
-        return message == null || message.isBlank() ? exception.getClass().getSimpleName() : message;
+        if (message == null || message.isBlank()) return exception.getClass().getSimpleName();
+        if (message.contains("Data too long for column")) return "数据库字段长度不足，文件保存失败";
+        int marker = message.indexOf("###");
+        return marker > 0 ? message.substring(0, marker).trim() : message;
     }
     private record Generated(DrawingArtifact artifact, String failureReason) {
         boolean success() { return failureReason == null && artifact.content() != null && artifact.content().length > 0; }

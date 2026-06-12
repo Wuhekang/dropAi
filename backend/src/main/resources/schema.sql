@@ -61,6 +61,11 @@ CREATE TABLE IF NOT EXISTS workflow_node (
   sort_order INT NOT NULL DEFAULT 0 COMMENT '执行顺序'
 ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+ALTER TABLE document_job MODIFY COLUMN mode VARCHAR(100);
+ALTER TABLE document_job MODIFY COLUMN mode_name VARCHAR(100);
+ALTER TABLE document_job MODIFY COLUMN platform VARCHAR(100);
+ALTER TABLE document_job MODIFY COLUMN platform_name VARCHAR(100);
+
 ALTER TABLE workflow_node CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 INSERT INTO workflow_node (node_name, node_type, prompt_template, input_key, output_key, sort_order)
