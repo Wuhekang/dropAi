@@ -29,4 +29,10 @@ public class DesignPackageController {
     public Result<DesignProject> analyze(@RequestParam(defaultValue = "") String title, @RequestParam("files") List<MultipartFile> files) {
         return Result.success(parameterEngine.normalize(designAnalyzer.analyze(title, documentParser.parse(files))));
     }
+
+    @ExceptionHandler(Exception.class)
+    public Result<Void> handleException(Exception exception) {
+        String message = exception.getMessage();
+        return Result.fail(message == null || message.isBlank() ? "成果生成失败，请稍后重试" : message);
+    }
 }
