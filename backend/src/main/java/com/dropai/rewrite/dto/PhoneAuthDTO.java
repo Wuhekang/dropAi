@@ -6,7 +6,7 @@ import jakarta.validation.constraints.Size;
 
 public class PhoneAuthDTO {
     @NotBlank
-    @Pattern(regexp = "^1[3-9]\\d{9}$", message = "请输入正确的中国大陆手机号")
+    @Pattern(regexp = "^\\d{11}$", message = "请输入11位账号")
     private String phone;
     @NotBlank
     @Size(min = 6, max = 72, message = "密码长度为 6-72 位")
