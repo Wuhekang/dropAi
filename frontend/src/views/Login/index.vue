@@ -36,8 +36,8 @@ async function submit() {
   loading.value = true
   try {
     const result = await (registering.value ? register(form) : login(form))
-    localStorage.setItem('dropai_token', result.token)
-    localStorage.setItem('dropai_username', result.username)
+    sessionStorage.setItem('dropai_token', result.token)
+    sessionStorage.setItem('dropai_username', result.username)
     router.replace('/dashboard')
   } finally { loading.value = false }
 }

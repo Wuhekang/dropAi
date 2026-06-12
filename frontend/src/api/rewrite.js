@@ -7,7 +7,7 @@ const request = axios.create({
 })
 
 request.interceptors.request.use((config) => {
-  const token = localStorage.getItem('dropai_token')
+  const token = sessionStorage.getItem('dropai_token')
   if (token) config.headers.Authorization = `Bearer ${token}`
   return config
 })
@@ -27,8 +27,8 @@ request.interceptors.response.use(
   },
   (error) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem('dropai_token')
-      localStorage.removeItem('dropai_username')
+      sessionStorage.removeItem('dropai_token')
+      sessionStorage.removeItem('dropai_username')
       if (window.location.pathname !== '/login') window.location.href = '/login'
     }
     const serverMessage = error.response?.data?.message

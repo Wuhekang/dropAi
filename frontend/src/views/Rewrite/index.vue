@@ -420,11 +420,11 @@ import {
 } from '../../api/rewrite'
 
 const router = useRouter()
-const username = localStorage.getItem('dropai_username') || '当前账号'
+const username = sessionStorage.getItem('dropai_username') || '当前账号'
 async function signOut() {
   try { await logout() } finally {
-    localStorage.removeItem('dropai_token')
-    localStorage.removeItem('dropai_username')
+    sessionStorage.removeItem('dropai_token')
+    sessionStorage.removeItem('dropai_username')
     router.replace('/login')
   }
 }

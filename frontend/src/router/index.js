@@ -35,7 +35,7 @@ const router = createRouter({
 })
 
 router.beforeEach((to) => {
-  const loggedIn = Boolean(localStorage.getItem('dropai_token'))
+  const loggedIn = Boolean(sessionStorage.getItem('dropai_token'))
   if (to.path !== '/login' && !loggedIn) return '/login'
   if (to.path === '/login' && loggedIn) return '/dashboard'
 })

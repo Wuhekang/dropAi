@@ -64,7 +64,7 @@ import { useRouter } from 'vue-router'
 import { downloadMyDocument, getMyDocuments, logout } from '../../api/rewrite'
 
 const router = useRouter()
-const username = localStorage.getItem('dropai_username') || '微信用户'
+const username = sessionStorage.getItem('dropai_username') || '当前账号'
 const documents = ref([])
 const loading = ref(false)
 
@@ -85,8 +85,8 @@ async function download(row) {
 }
 async function signOut() {
   try { await logout() } finally {
-    localStorage.removeItem('dropai_token')
-    localStorage.removeItem('dropai_username')
+    sessionStorage.removeItem('dropai_token')
+    sessionStorage.removeItem('dropai_username')
     router.replace('/login')
   }
 }
