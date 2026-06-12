@@ -10,10 +10,15 @@ spring:
     hikari:
       maximum-pool-size: 8
       minimum-idle: 1
+      connection-timeout: 10000
+      validation-timeout: 3000
+      initialization-fail-timeout: -1
+      keepalive-time: 30000
   sql:
     init:
-      mode: always
-      schema-locations: classpath:schema.sql
+      # Aiven schema is persistent. Re-running DDL on every Render restart makes
+      # a temporary database/network issue fatal to the whole web service.
+      mode: never
   servlet:
     multipart:
       max-file-size: 50MB
