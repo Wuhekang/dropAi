@@ -14,6 +14,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class MatrixDesignServiceTests {
     @Test
@@ -76,6 +78,33 @@ class MatrixDesignServiceTests {
 
             assertEquals("设计结果", service.generate("system prompt", "user prompt"));
             assertEquals(2, requests.get());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void retries429AndReturnsChineseLimitMessage() throws Exception {
+        ObjectMapper objectMapper = new ObjectMapper();
+        AtomicInteger requests = new AtomicInteger();
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/api/v1/chat/completions", exchange -> {
+            requests.incrementAndGet();
+            exchange.getRequestBody().readAllBytes();
+            byte[] response = "{\"error\":\"rate limited\"}".getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(429, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+        try {
+            MatrixDesignProperties properties = new MatrixDesignProperties();
+            properties.setApiKey("matrix-key");
+            properties.setEndpoint("http://localhost:" + server.getAddress().getPort() + "/api/v1/chat/completions");
+            MatrixDesignService service = new MatrixDesignService(properties, objectMapper, RestClient.builder());
+            IllegalStateException error = assertThrows(IllegalStateException.class, () -> service.generate("system", "user"));
+            assertEquals(3, requests.get());
+            assertTrue(error.getMessage().contains("请求受限"));
         } finally {
             server.stop(0);
         }

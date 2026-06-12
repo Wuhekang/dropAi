@@ -3,6 +3,8 @@ package com.dropai.rewrite.service;
 import com.dropai.rewrite.config.MatrixDesignProperties;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
@@ -18,6 +20,7 @@ import java.util.stream.StreamSupport;
 
 @Service
 public class MatrixDesignService {
+    private static final Logger log = LoggerFactory.getLogger(MatrixDesignService.class);
     private final MatrixDesignProperties properties;
     private final ObjectMapper objectMapper;
     private final RestClient restClient;
@@ -32,19 +35,19 @@ public class MatrixDesignService {
     }
 
     public String generate(String instructions, String input) {
-        if (!properties.isEnabled()) throw new IllegalStateException("设计生成的万量矩阵服务已关闭");
+        if (!properties.isEnabled()) throw new IllegalStateException("大模型设计生成服务已关闭");
         String apiKey = normalize(properties.getApiKey());
-        if (apiKey.isBlank()) throw new IllegalStateException("未配置 MATRIX_API_KEY，设计生成无法调用万量矩阵");
-        try {
-            Map<String, Object> body = Map.of(
-                    "model", properties.getModel(),
-                    "messages", List.of(
-                            Map.of("role", "system", "content", instructions),
-                            Map.of("role", "user", "content", input)
-                    )
-            );
-            String lastEmptyResponse = "";
-            for (int attempt = 1; attempt <= 3; attempt++) {
+        if (apiKey.isBlank()) throw new IllegalStateException("未配置 MATRIX_API_KEY，无法调用大模型服务");
+        Map<String, Object> body = Map.of(
+                "model", properties.getModel(),
+                "messages", List.of(
+                        Map.of("role", "system", "content", instructions),
+                        Map.of("role", "user", "content", input)
+                )
+        );
+        String lastError = "";
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            try {
                 byte[] response = restClient.post()
                         .uri(properties.getEndpoint())
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
@@ -53,25 +56,20 @@ public class MatrixDesignService {
                         .exchange((request, result) -> {
                             byte[] bytes = StreamUtils.copyToByteArray(result.getBody());
                             if (result.getStatusCode().isError()) {
-                                throw new IllegalStateException("万量矩阵设计生成失败：HTTP " + result.getStatusCode().value() + "，" + compact(new String(bytes, StandardCharsets.UTF_8)));
+                                throw new ModelRequestException(result.getStatusCode().value(), compact(new String(bytes, StandardCharsets.UTF_8)));
                             }
                             return bytes;
                         });
-                String responseText = response == null ? "" : new String(response, StandardCharsets.UTF_8);
-                String parsed = parseText(responseText);
+                String parsed = parseText(response == null ? "" : new String(response, StandardCharsets.UTF_8));
                 if (!parsed.isBlank()) return parsed;
-                lastEmptyResponse = responseText;
-                if (attempt < 3) Thread.sleep(800L * attempt);
+                lastError = "大模型连续返回空内容";
+            } catch (Exception exception) {
+                lastError = friendlyMessage(exception);
+                log.warn("大模型请求失败 attempt={}/3 endpoint={} reason={}", attempt, properties.getEndpoint(), lastError);
             }
-            throw new IllegalStateException("万量矩阵连续返回空内容：" + compact(lastEmptyResponse));
-        } catch (IllegalStateException exception) {
-            throw exception;
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("万量矩阵设计生成重试被中断", exception);
-        } catch (Exception exception) {
-            throw new IllegalStateException("万量矩阵设计生成失败：" + compact(exception.getMessage()), exception);
+            if (attempt < 3) sleep(attempt);
         }
+        throw new IllegalStateException(lastError.isBlank() ? "大模型接口请求失败，请稍后重试。" : lastError);
     }
 
     public boolean apiKeyConfigured() { return !normalize(properties.getApiKey()).isBlank(); }
@@ -82,20 +80,15 @@ public class MatrixDesignService {
         String apiKey = normalize(properties.getApiKey());
         if (apiKey.isBlank()) throw new IllegalStateException("未配置 MATRIX_API_KEY");
         try {
-            String modelsEndpoint = properties.getEndpoint().replaceFirst("/chat/completions/?$", "/models");
             String response = restClient.get()
-                    .uri(modelsEndpoint)
+                    .uri(properties.getEndpoint().replaceFirst("/chat/completions/?$", "/models"))
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
-                    .retrieve()
-                    .body(String.class);
+                    .retrieve().body(String.class);
             JsonNode root = objectMapper.readTree(response);
             return StreamSupport.stream(root.path("data").spliterator(), false)
-                    .map(model -> model.path("id").asText(""))
-                    .filter(id -> !id.isBlank())
-                    .sorted()
-                    .toList();
+                    .map(model -> model.path("id").asText("")).filter(id -> !id.isBlank()).sorted().toList();
         } catch (Exception exception) {
-            throw new IllegalStateException("读取万量矩阵模型列表失败：" + compact(exception.getMessage()), exception);
+            throw new IllegalStateException(friendlyMessage(exception), exception);
         }
     }
 
@@ -106,18 +99,36 @@ public class MatrixDesignService {
         StringBuilder result = new StringBuilder();
         for (JsonNode part : content) {
             String text = part.path("text").asText("");
-            if (!text.isBlank()) {
-                if (!result.isEmpty()) result.append('\n');
-                result.append(text);
-            }
+            if (!text.isBlank()) result.append(result.isEmpty() ? "" : "\n").append(text);
         }
         return result.toString().trim();
     }
 
+    private String friendlyMessage(Exception exception) {
+        if (exception instanceof ModelRequestException request && request.status == 429) {
+            return "大模型接口请求受限，请稍后重试或更换可用API Key。";
+        }
+        String message = compact(exception.getMessage());
+        if (message.contains("429")) return "大模型接口请求受限，请稍后重试或更换可用API Key。";
+        if (message.toLowerCase().contains("timeout") || message.contains("超时")) return "大模型接口请求超时，请稍后重试。";
+        return "大模型接口请求失败：" + message;
+    }
+
+    private void sleep(int attempt) {
+        try { Thread.sleep(1000L * attempt); }
+        catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("大模型请求重试被中断", exception);
+        }
+    }
     private String normalize(String value) { return value == null ? "" : value.replaceAll("[\\r\\n\\t ]", "").trim(); }
-    private String compact(String value) {
+    private static String compact(String value) {
         if (value == null || value.isBlank()) return "无详细信息";
         String result = value.replaceAll("\\s+", " ").trim();
         return result.length() > 500 ? result.substring(0, 500) + "..." : result;
+    }
+    private static class ModelRequestException extends RuntimeException {
+        private final int status;
+        private ModelRequestException(int status, String detail) { super("HTTP " + status + " " + detail); this.status = status; }
     }
 }

@@ -108,6 +108,9 @@ public class DesignWorkflowService {
         try {
             List<SectionResult> results = futures.stream().map(CompletableFuture::join).toList();
             List<SectionResult> successful = results.stream().filter(SectionResult::success).toList();
+            if (successful.size() != specs.size()) {
+                throw new IllegalStateException("论文章节未完整生成，已禁止导出半成品Word；请稍后重试或更换可用API Key");
+            }
             if (successful.isEmpty()) throw new IllegalStateException("所有文档章节均生成失败");
             byte[] docx = buildDocx(title, successful);
             DocumentJobRecord artifact = artifact(userId, title + "-设计说明初稿.docx", "DESIGN_DOCUMENT", "设计说明初稿");

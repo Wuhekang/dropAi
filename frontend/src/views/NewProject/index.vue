@@ -5,9 +5,9 @@
         <el-button text type="primary" @click="router.push('/dashboard')">返回工作台</el-button>
         <span class="eyebrow">GRADUATION DESIGN PACKAGE</span>
         <h1>完整毕业设计成果包</h1>
-        <p>资料解析、参数推导、工程计算、CAD工程图、SolidWorks宏与论文初稿共用一套设计参数。</p>
+        <p>所有文件均按后端真实生成状态展示，失败文件不会提供下载。</p>
       </div>
-      <el-tag size="large" type="success">通用机械类流程</el-tag>
+      <el-tag size="large" type="warning">方案级成果，需工程校核</el-tag>
     </header>
 
     <el-steps :active="activeStep" finish-status="success" class="steps" align-center>
@@ -21,12 +21,13 @@
           <el-form-item label="毕业设计题目"><el-input v-model="project.projectTitle" /></el-form-item>
           <el-form-item label="设备名称"><el-input v-model="project.equipmentName" /></el-form-item>
           <el-form-item label="设计类型"><el-input v-model="project.designType" /></el-form-item>
-          <el-upload drag multiple action="" :auto-upload="false" :file-list="fileList" :on-change="(_, files) => fileList = files" :on-remove="(_, files) => fileList = files"
+          <el-upload drag multiple action="" :auto-upload="false" :file-list="fileList"
+            :on-change="(_, files) => fileList = files" :on-remove="(_, files) => fileList = files"
             accept=".docx,.txt,.md,.pdf,.dxf,.dwg,.png,.jpg,.jpeg,.webp,.bmp">
-            <strong>拖入任务书、开题报告、论文模板、参考文献、图片或CAD参考图</strong>
-            <p>文档用于识别目标与明确参数，图片和CAD参考图作为结构方案依据。</p>
+            <strong>拖入任务书、开题报告、模板、文献、图片或CAD参考图</strong>
+            <p>上传内容用于识别设计目标与明确参数。</p>
           </el-upload>
-          <el-button class="full" type="primary" :loading="analyzing" :disabled="!fileList.length" @click="analyze">AI识别资料与参数</el-button>
+          <el-button class="full" type="primary" :loading="analyzing" :disabled="!fileList.length" @click="analyze">识别资料与参数</el-button>
         </el-form>
       </el-card>
 
@@ -38,19 +39,22 @@
           <el-tab-pane label="建议参数" name="suggested"><parameter-editor v-model="project.suggestedParameters" source-label="建议依据" /></el-tab-pane>
         </el-tabs>
         <el-button class="full" @click="addParameter">添加参数</el-button>
-        <el-button class="full generate" type="primary" size="large" :loading="generating" @click="generate">重新计算并生成全部成果</el-button>
+        <el-button class="full" type="primary" size="large" :loading="generating" @click="generate">重新计算并生成全部成果</el-button>
       </el-card>
     </section>
 
     <el-card class="panel" shadow="never">
-      <template #header><div class="panel-head"><strong>3-10. 成果包工作台</strong><el-tag :type="artifacts.length ? 'success' : 'info'">{{ artifacts.length ? `已生成 ${artifacts.length} 个文件` : '等待生成' }}</el-tag></div></template>
+      <template #header>
+        <div class="panel-head"><strong>3-10. 成果生成状态</strong><el-tag :type="statusType(packageStatus)">{{ statusText(packageStatus) }}</el-tag></div>
+      </template>
+      <el-alert v-if="packageMessage" :type="packageStatus === 'success' ? 'success' : 'warning'" :title="packageMessage" :closable="false" />
       <el-empty v-if="!artifacts.length" description="确认参数后生成完整成果包" />
       <template v-else>
         <div class="metrics">
-          <div><span>设计参数</span><strong>{{ allParameters.length }}</strong></div>
-          <div><span>设计计算</span><strong>{{ project.calculations.length }}</strong></div>
-          <div><span>CAD图纸</span><strong>{{ groups.cad.length }}</strong></div>
-          <div><span>交付文件</span><strong>{{ artifacts.length }}</strong></div>
+          <div><span>成功文件</span><strong>{{ successCount }}</strong></div>
+          <div><span>失败文件</span><strong>{{ failedCount }}</strong></div>
+          <div><span>CAD文件</span><strong>{{ groups.cad.length }}</strong></div>
+          <div><span>全部任务</span><strong>{{ artifacts.length }}</strong></div>
         </div>
         <el-tabs>
           <el-tab-pane label="设计计算预览">
@@ -60,10 +64,13 @@
               <el-table-column prop="conclusion" label="结论" min-width="180" />
             </el-table>
           </el-tab-pane>
-          <el-tab-pane label="CAD总装图与零件图"><artifact-list :items="groups.cad" @download="download" /></el-tab-pane>
+          <el-tab-pane label="CAD图纸与预览">
+            <el-alert type="warning" title="当前CAD为方案级图纸，未经工程校核，不可直接用于加工。" :closable="false" />
+            <artifact-list :items="groups.cad" @download="download" />
+          </el-tab-pane>
           <el-tab-pane label="SolidWorks宏"><artifact-list :items="groups.macro" @download="download" /></el-tab-pane>
           <el-tab-pane label="论文与计算书"><artifact-list :items="groups.document" @download="download" /></el-tab-pane>
-          <el-tab-pane label="成果包下载"><artifact-list :items="groups.package" @download="download" /></el-tab-pane>
+          <el-tab-pane label="成果包与参数"><artifact-list :items="groups.package" @download="download" /></el-tab-pane>
         </el-tabs>
       </template>
     </el-card>
@@ -73,8 +80,8 @@
 <script setup>
 import { computed, defineComponent, h, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElButton, ElInput, ElMessage } from 'element-plus'
-import { analyzeDesignPackage, downloadMyDocument, generateDesignPackage } from '../../api/rewrite'
+import { ElButton, ElInput, ElMessage, ElTag } from 'element-plus'
+import { analyzeDesignPackage, downloadArtifact, generateDesignPackage } from '../../api/rewrite'
 
 const ParameterEditor = defineComponent({
   props: { modelValue: Array, sourceLabel: String }, emits: ['update:modelValue'],
@@ -92,14 +99,28 @@ const ParameterEditor = defineComponent({
 })
 const ArtifactList = defineComponent({
   props: { items: Array }, emits: ['download'],
-  setup(props, { emit }) { return () => h('div', { class: 'artifact-grid' }, props.items.map(item => h('div', { class: 'artifact' }, [
-    h('div', [h('strong', item.fileName), h('span', item.mediaType)]), h(ElButton, { type: 'primary', onClick: () => emit('download', item) }, () => '下载')
-  ]))) }
+  setup(props, { emit }) {
+    return () => h('div', { class: 'artifact-grid' }, props.items.map(item => h('div', { class: 'artifact' }, [
+      h('div', [
+        h('strong', item.name || item.fileName),
+        h('span', item.status === 'success' ? `${item.type?.toUpperCase()} · ${formatSize(item.size)}` : `失败原因：${item.failureReason || '未返回失败原因'}`)
+      ]),
+      h('div', { class: 'artifact-action' }, [
+        h(ElTag, { type: statusType(item.status), size: 'small' }, () => statusText(item.status)),
+        h(ElButton, {
+          type: item.status === 'success' ? 'primary' : 'danger',
+          disabled: item.status !== 'success' || !item.downloadUrl || !item.size,
+          onClick: () => emit('download', item)
+        }, () => item.status === 'success' ? '下载' : '不可下载')
+      ])
+    ])))
+  }
 })
 
 const router = useRouter()
 const steps = ['上传资料','AI识别','参数确认','设计计算','总体方案','CAD总装图','零件图','SW宏','论文预览','成果包']
 const fileList = ref([]), analyzing = ref(false), generating = ref(false), parameterTab = ref('explicit'), artifacts = ref([])
+const packageStatus = ref('pending'), packageMessage = ref('等待生成')
 const project = reactive({
   projectTitle: '通用机械设备毕业设计', equipmentName: '机械设备', designType: '通用机械结构设计',
   explicitParameters: [], derivedParameters: [], suggestedParameters: [
@@ -109,9 +130,11 @@ const project = reactive({
   ], verificationItems: [], calculations: []
 })
 const allParameters = computed(() => [...project.explicitParameters, ...project.derivedParameters, ...project.suggestedParameters])
-const activeStep = computed(() => artifacts.value.length ? 10 : allParameters.value.length ? 3 : fileList.value.length ? 1 : 0)
+const successCount = computed(() => artifacts.value.filter(x => x.status === 'success').length)
+const failedCount = computed(() => artifacts.value.filter(x => x.status === 'failed').length)
+const activeStep = computed(() => packageStatus.value === 'success' ? 10 : artifacts.value.length ? 8 : allParameters.value.length ? 3 : fileList.value.length ? 1 : 0)
 const groups = computed(() => ({
-  cad: artifacts.value.filter(x => /\.(dxf|svg)$/i.test(x.fileName)),
+  cad: artifacts.value.filter(x => /\.(dxf|svg|png)$/i.test(x.fileName)),
   macro: artifacts.value.filter(x => /\.(bas|txt)$/i.test(x.fileName)),
   document: artifacts.value.filter(x => /\.(docx|pdf)$/i.test(x.fileName)),
   package: artifacts.value.filter(x => /\.(zip|json)$/i.test(x.fileName))
@@ -124,21 +147,39 @@ async function analyze() {
   analyzing.value = true
   try {
     const form = new FormData(); form.append('title', project.projectTitle); fileList.value.forEach(file => form.append('files', file.raw))
-    const result = await analyzeDesignPackage(form)
-    Object.assign(project, result)
-    ElMessage.success('资料识别完成，请确认参数后生成成果包')
+    Object.assign(project, await analyzeDesignPackage(form)); ElMessage.success('资料识别完成，请确认参数')
   } finally { analyzing.value = false }
 }
 async function generate() {
-  generating.value = true
-  try { const result = await generateDesignPackage(project); Object.assign(project, result.project); artifacts.value = result.artifacts || []; ElMessage.success('完整成果包已生成') }
-  finally { generating.value = false }
+  generating.value = true; packageStatus.value = 'running'; packageMessage.value = '正在生成并校验各项成果文件'
+  try {
+    const result = await generateDesignPackage(project)
+    Object.assign(project, result.project); artifacts.value = result.artifacts || []
+    packageStatus.value = result.status || 'failed'; packageMessage.value = result.message || '生成流程已结束'
+    packageStatus.value === 'success' ? ElMessage.success(packageMessage.value) : ElMessage.warning(packageMessage.value)
+  } catch (error) {
+    packageStatus.value = 'failed'; packageMessage.value = friendlyError(error); ElMessage.error(packageMessage.value)
+  } finally { generating.value = false }
 }
 async function download(item) {
-  const blob = await downloadMyDocument(item.jobId); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = item.fileName; a.click(); URL.revokeObjectURL(url)
+  if (item.status !== 'success' || !item.downloadUrl || !item.size) return ElMessage.error(item.failureReason || '文件未生成成功，无法下载')
+  try {
+    const blob = await downloadArtifact(item.downloadUrl)
+    if (!blob?.size) throw new Error('下载文件为空')
+    const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = item.name || item.fileName; a.click(); URL.revokeObjectURL(url)
+  } catch (error) { ElMessage.error(friendlyError(error)) }
 }
+function friendlyError(error) {
+  const message = error?.message || '请求失败'
+  if (message.includes('429') || message.includes('请求受限')) return '大模型接口请求频率受限，请稍后重试或更换可用API Key。'
+  if (message.toLowerCase().includes('timeout') || message.includes('超时')) return '请求处理超时，请稍后重试。'
+  return message
+}
+function formatSize(size) { return size >= 1024 * 1024 ? `${(size / 1024 / 1024).toFixed(2)} MB` : `${Math.max(1, Math.round(size / 1024))} KB` }
+function statusType(status) { return status === 'success' ? 'success' : status === 'failed' ? 'danger' : status === 'running' ? 'warning' : 'info' }
+function statusText(status) { return ({ pending:'等待中', running:'生成中', success:'成功', failed:'失败', partial_success:'部分成功' })[status] || status }
 </script>
 
 <style scoped>
-.workspace{max-width:1450px;margin:auto;padding:30px 24px 70px}.hero,.panel-head{display:flex;justify-content:space-between;align-items:flex-start;gap:24px}.hero h1{font-size:36px;margin:10px 0}.hero p{color:#64748b}.eyebrow{display:block;margin-top:18px;color:#2563eb;font-weight:800;font-size:12px;letter-spacing:.16em}.steps{margin:34px 0}.grid{display:grid;grid-template-columns:.9fr 1.1fr;gap:20px}.grid .el-card,.panel{border-radius:18px}.full{width:100%;margin-top:14px}.generate{margin-left:0}.panel{margin-top:20px}.parameter-list{display:grid;gap:9px}.parameter-row{display:grid;grid-template-columns:1fr .75fr .55fr 1.5fr auto;gap:8px}.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px}.metrics div{padding:18px;border-radius:14px;background:#f4f7fb}.metrics span{display:block;color:#64748b}.metrics strong{font-size:28px}.artifact-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}.artifact{display:flex;justify-content:space-between;align-items:center;padding:16px;border:1px solid #e4e9f1;border-radius:12px}.artifact span{display:block;color:#64748b;font-size:12px;margin-top:5px}@media(max-width:1000px){.grid{grid-template-columns:1fr}.parameter-row{grid-template-columns:1fr 1fr}.metrics{grid-template-columns:repeat(2,1fr)}}@media(max-width:700px){.steps{display:none}.artifact-grid,.metrics{grid-template-columns:1fr}.hero{display:block}}
+.workspace{max-width:1450px;margin:auto;padding:30px 24px 70px}.hero,.panel-head{display:flex;justify-content:space-between;align-items:flex-start;gap:24px}.hero h1{font-size:36px;margin:10px 0}.hero p{color:#64748b}.eyebrow{display:block;margin-top:18px;color:#2563eb;font-weight:800;font-size:12px;letter-spacing:.16em}.steps{margin:34px 0}.grid{display:grid;grid-template-columns:.9fr 1.1fr;gap:20px}.grid .el-card,.panel{border-radius:18px}.full{width:100%;margin:14px 0 0}.panel{margin-top:20px}.parameter-list{display:grid;gap:9px}.parameter-row{display:grid;grid-template-columns:1fr .75fr .55fr 1.5fr auto;gap:8px}.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:20px 0}.metrics div{padding:18px;border-radius:14px;background:#f4f7fb}.metrics span{display:block;color:#64748b}.metrics strong{font-size:28px}.artifact-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:14px}.artifact{display:flex;justify-content:space-between;align-items:center;padding:16px;border:1px solid #e4e9f1;border-radius:12px}.artifact span{display:block;color:#64748b;font-size:12px;margin-top:5px}.artifact-action{display:flex;align-items:center;gap:8px}@media(max-width:1000px){.grid{grid-template-columns:1fr}.parameter-row{grid-template-columns:1fr 1fr}.metrics{grid-template-columns:repeat(2,1fr)}}@media(max-width:700px){.steps{display:none}.artifact-grid,.metrics{grid-template-columns:1fr}.hero{display:block}}
 </style>

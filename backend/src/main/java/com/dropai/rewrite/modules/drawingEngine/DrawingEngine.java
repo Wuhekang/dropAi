@@ -4,6 +4,12 @@ import com.dropai.rewrite.modules.model.DesignProject;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
+import java.io.ByteArrayOutputStream;
+import java.awt.BasicStroke;
+import java.awt.Color;
+import java.awt.Graphics2D;
+import java.awt.image.BufferedImage;
+import javax.imageio.ImageIO;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -19,7 +25,8 @@ public class DrawingEngine {
         drawPartBalloon(c, 320, 190, "1"); drawPartBalloon(c, 500, 190, "2"); drawLeaderLabel(c, 610, 190, "3 进出口组件");
         drawParameterTable(c, project); drawTechnicalRequirements(c, project);
         return List.of(new DrawingArtifact("assembly.dxf", exportDXF(c), "application/dxf"),
-                new DrawingArtifact("preview.svg", exportSVGPreview(c), "image/svg+xml"));
+                new DrawingArtifact("preview.svg", exportSVGPreview(c), "image/svg+xml"),
+                new DrawingArtifact("cad_preview.png", exportPNGPreview(c), "image/png"));
     }
 
     public List<DrawingArtifact> drawPartDrawing(DesignProject project) {
@@ -73,6 +80,25 @@ public class DrawingEngine {
     }
     public byte[] exportDXF(Canvas c) { return c.dxf().getBytes(StandardCharsets.UTF_8); }
     public byte[] exportSVGPreview(Canvas c) { return c.svg().getBytes(StandardCharsets.UTF_8); }
+    public byte[] exportPNGPreview(Canvas c) {
+        try (ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            BufferedImage image = new BufferedImage(1680, 1180, BufferedImage.TYPE_INT_RGB);
+            Graphics2D g = image.createGraphics();
+            g.setColor(Color.WHITE); g.fillRect(0, 0, image.getWidth(), image.getHeight());
+            g.setColor(new Color(24, 34, 48)); g.setStroke(new BasicStroke(2f));
+            double scale = 2;
+            for (Shape shape : c.shapes) {
+                int x1 = (int) (shape.x1 * scale), y1 = (int) ((590 - shape.y1) * scale);
+                if ("LINE".equals(shape.type)) g.drawLine(x1, y1, (int) (shape.x2 * scale), (int) ((590 - shape.y2) * scale));
+                else if ("CIRCLE".equals(shape.type)) {
+                    int r = (int) (shape.size * scale); g.drawOval(x1 - r, y1 - r, r * 2, r * 2);
+                } else g.drawString(shape.text, x1, y1);
+            }
+            g.dispose();
+            ImageIO.write(image, "png", output);
+            return output.toByteArray();
+        } catch (Exception e) { throw new IllegalStateException("生成CAD PNG预览失败：" + e.getMessage(), e); }
+    }
     private String fmt(double value) { return String.format(Locale.ROOT, "%.0f", value); }
 
     public static class Canvas {

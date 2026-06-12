@@ -33,7 +33,9 @@ request.interceptors.response.use(
     }
     const serverMessage = error.response?.data?.message
     let message = serverMessage || error.message || '网络请求异常'
-    if (error.code === 'ECONNABORTED') {
+    if (error.response?.status === 429 || String(message).includes('429')) {
+      message = '大模型接口请求频率受限，请稍后重试或更换可用API Key。'
+    } else if (error.code === 'ECONNABORTED') {
       message = '处理时间超过 120 秒，请稍后查看任务进度或缩短文本'
     } else if (!error.response) {
       message = '无法连接后端服务，请确认服务已启动'
@@ -169,5 +171,14 @@ export function analyzeDesignPackage(data) {
   return request.post('/design-packages/analyze', data, {
     headers: { 'Content-Type': 'multipart/form-data' },
     timeout: 180000
+  })
+}
+
+export function downloadArtifact(downloadUrl) {
+  if (!downloadUrl) return Promise.reject(new Error('文件下载地址不存在'))
+  const url = downloadUrl.startsWith('/api/') ? downloadUrl.substring(4) : downloadUrl
+  return request.get(url, {
+    responseType: 'blob',
+    timeout: 120000
   })
 }
