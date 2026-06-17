@@ -22,6 +22,7 @@ public class DesignEnhancementEngine {
                         spec("INTERFACE", "进风口", "导入含尘气流并降低入口冲击", "Q235B", 1, "DUCT_X", true),
                         spec("BODY", "沉降腔", "提供低速沉降空间并形成主体承载结构", "Q235B", 1, "CHAMBER", true),
                         spec("FUNCTION", "导流板", "改善气流分布并降低局部涡流", "Q235B", 2, "PLATE", true),
+                        spec("FUNCTION", "布流板", "均匀分配入口气流并形成稳定沉降区", "Q235B", 1, "PERFORATED_PLATE", true),
                         spec("FUNCTION", "排灰斗", "收集沉降颗粒并导向卸灰口", "Q235B", 2, "HOPPER", true),
                         spec("MAINTENANCE", "检修门", "提供内部检查和清灰通道", "Q235B", 2, "DOOR", true),
                         spec("MAINTENANCE", "观察窗", "观察内部积灰与运行状态", "有机玻璃", 1, "WINDOW", false),
@@ -30,15 +31,28 @@ public class DesignEnhancementEngine {
                         spec("INTERFACE", "法兰", "与外部管道螺栓连接", "Q235B", 2, "FLANGE", true),
                         spec("STRUCTURE", "加强筋", "提高大面积板件刚度", "Q235B", 8, "RIB", false),
                         spec("FUNCTION", "卸灰口", "连接星型卸料器或灰桶", "Q235B", 2, "DUCT_Z", true),
-                        spec("LIFTING", "吊耳", "用于运输和安装吊装", "Q235B", 4, "LUG", false)
+                        spec("FUNCTION", "排灰阀", "控制灰斗排灰并保持密封", "标准件", 2, "VALVE", true),
+                        spec("SAFETY", "顶部护栏", "提供顶部检修安全防护", "Q235B", 1, "RAILING", false),
+                        spec("MAINTENANCE", "爬梯", "提供顶部检修通道", "Q235B", 1, "LADDER", false),
+                        spec("MOUNT", "底座板", "连接支腿和地脚螺栓", "Q235B", 4, "BASE_PLATE", false),
+                        spec("MOUNT", "地脚螺栓", "固定设备基础", "标准件", 8, "ANCHOR_BOLT", false),
+                        spec("LIFTING", "吊耳", "用于运输和安装吊装", "Q235B", 4, "LUG", false),
+                        spec("CONNECT", "焊缝标识", "标识箱体、灰斗和支撑焊接位置", "焊缝", 1, "WELD", false)
                 ),
                 List.of(
                         param("处理风量", 10000, "m3/h", "按工业除尘设备常用范围8000~12000m3/h取中值"),
                         param("设计风速", 0.8, "m/s", "按重力沉降室常用沉降风速0.5~1.2m/s确定"),
+                        param("停留时间", 3.3, "s", "按沉降室有效容积与处理风量估算"),
+                        param("有效容积", 18.1, "m3", "按箱体有效长宽高计算"),
+                        param("入口管径", "DN200", "", "按处理风量与入口风速校核建议"),
+                        param("出口管径", "DN200", "", "按出口阻力和连接标准建议"),
+                        param("法兰规格", "DN200 PN10", "", "按管口连接和密封要求建议"),
                         param("箱体材料", "Q235B", "", "焊接箱体常用碳素结构钢"),
-                        param("壳体板厚", 4, "mm", "按箱体尺寸和刚度要求取方案初值"),
+                        param("壳体板厚", 8, "mm", "按箱体尺寸和刚度要求取6~10mm方案值"),
                         param("灰斗角度", 60, "°", "按粉尘顺利下滑的常用结构角确定"),
                         param("检修门数量", 2, "个", "按沉降腔两侧维护需求设置"),
+                        param("观察窗数量", 1, "个", "按运行观察需求设置"),
+                        param("加强筋数量", 10, "道", "按大面积侧板刚度和焊接结构布置"),
                         param("支撑腿数量", 4, "组", "按箱体稳定支撑和基础安装设置"),
                         param("卸灰方式", "星型卸料器", "", "按连续排灰和密封要求建议")
                 )
@@ -125,6 +139,7 @@ public class DesignEnhancementEngine {
         applyFunctions(project, rule);
         applyParameters(project, rule);
         applyStructures(project, rule);
+        applyEngineeringLists(project, rule);
         applyTechnicalRequirements(project, rule);
         score(project);
         if (project.getDetailScore() < targetScore(project)) {
@@ -231,8 +246,8 @@ public class DesignEnhancementEngine {
     }
 
     private int scoreOf(List<DesignProject.Component> components, List<DesignProject.Parameter> parameters, List<String> requirements) {
-        int score = Math.min(40, components.size() * 3);
-        score += Math.min(25, featureCount(components, parameters, requirements));
+        int score = Math.min(35, components.size() * 2);
+        score += Math.min(30, featureCount(components, parameters, requirements));
         score += Math.min(20, parameters.size() * 2);
         score += Math.min(15, requirements.size() * 3);
         return Math.min(100, score);
@@ -248,9 +263,9 @@ public class DesignEnhancementEngine {
 
     private int targetScore(DesignProject project) {
         return switch (safe(project.getDesignDepth()).toLowerCase(Locale.ROOT)) {
-            case "engineering", "工程版" -> 78;
+            case "engineering", "工程版" -> 88;
             case "normal", "普通版" -> 45;
-            default -> 60;
+            default -> 80;
         };
     }
 
@@ -258,8 +273,32 @@ public class DesignEnhancementEngine {
         return switch (safe(project.getDesignDepth()).toLowerCase(Locale.ROOT)) {
             case "engineering", "工程版" -> 30;
             case "normal", "普通版" -> 8;
-            default -> 15;
+            default -> 18;
         };
+    }
+
+    private void applyEngineeringLists(DesignProject project, RuleSet rule) {
+        project.setEquipmentType(rule.category());
+        if (blank(project.getApplicationScenario())) {
+            project.setApplicationScenario(rule.equipmentName().contains("沉降") ? "工业通风除尘" : rule.category());
+        }
+        for (ComponentSpec spec : rule.components()) addUnique(project.getDetailFeatures(), spec.name());
+        for (ComponentSpec spec : genericDetails()) addUnique(project.getDetailFeatures(), spec.name());
+        for (String item : List.of("Q235B钢板", "45钢轴类件", "标准法兰", "8.8级螺栓", "焊缝", "有机玻璃观察窗")) {
+            addUnique(project.getMaterials(), item);
+        }
+        for (String item : List.of("法兰", "地脚螺栓", "排灰阀", "检修门铰链", "密封垫", "螺栓连接件")) {
+            addUnique(project.getStandardParts(), item);
+        }
+        for (String item : List.of("三维装配图", "主视图", "左视图", "俯视图", "A-A剖视图", "灰斗详图", "支座布置图", "管口法兰详图", "设备明细表", "材料汇总表")) {
+            addUnique(project.getDrawingViews(), item);
+        }
+        for (String item : List.of("总长", "总宽", "总高", "进出口管径", "检修门尺寸", "灰斗角度", "支腿跨距", "法兰螺栓孔", "板厚", "焊缝高度")) {
+            addUnique(project.getAnnotationList(), item);
+        }
+        for (String name : List.of("处理风量", "设计风速", "有效容积", "停留时间", "入口管径", "出口管径", "法兰规格", "壳体板厚", "支撑方式", "安装方式", "检修方式")) {
+            if (project.allParameters().stream().noneMatch(p -> name.equals(p.getName()))) addUnique(project.getMissingParameters(), name);
+        }
     }
 
     private String depthName(DesignProject project) {

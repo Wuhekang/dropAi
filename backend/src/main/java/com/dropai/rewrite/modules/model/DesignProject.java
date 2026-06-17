@@ -14,6 +14,14 @@ public class DesignProject {
     private int featureCount;
     private int detailScore;
     private List<String> enhancementNotes = new ArrayList<>();
+    private String equipmentType = "";
+    private String applicationScenario = "";
+    private List<String> missingParameters = new ArrayList<>();
+    private List<String> detailFeatures = new ArrayList<>();
+    private List<String> materials = new ArrayList<>();
+    private List<String> standardParts = new ArrayList<>();
+    private List<String> drawingViews = new ArrayList<>();
+    private List<String> annotationList = new ArrayList<>();
     private List<String> mainFunctions = new ArrayList<>();
     private List<String> mainStructures = new ArrayList<>();
     private List<Component> components = new ArrayList<>();
@@ -46,6 +54,22 @@ public class DesignProject {
     public void setDetailScore(int detailScore) { this.detailScore = detailScore; }
     public List<String> getEnhancementNotes() { return enhancementNotes; }
     public void setEnhancementNotes(List<String> value) { enhancementNotes = safe(value); }
+    public String getEquipmentType() { return equipmentType; }
+    public void setEquipmentType(String equipmentType) { this.equipmentType = equipmentType; }
+    public String getApplicationScenario() { return applicationScenario; }
+    public void setApplicationScenario(String applicationScenario) { this.applicationScenario = applicationScenario; }
+    public List<String> getMissingParameters() { return missingParameters; }
+    public void setMissingParameters(List<String> value) { missingParameters = safe(value); }
+    public List<String> getDetailFeatures() { return detailFeatures; }
+    public void setDetailFeatures(List<String> value) { detailFeatures = safe(value); }
+    public List<String> getMaterials() { return materials; }
+    public void setMaterials(List<String> value) { materials = safe(value); }
+    public List<String> getStandardParts() { return standardParts; }
+    public void setStandardParts(List<String> value) { standardParts = safe(value); }
+    public List<String> getDrawingViews() { return drawingViews; }
+    public void setDrawingViews(List<String> value) { drawingViews = safe(value); }
+    public List<String> getAnnotationList() { return annotationList; }
+    public void setAnnotationList(List<String> value) { annotationList = safe(value); }
     public List<String> getMainFunctions() { return mainFunctions; }
     public void setMainFunctions(List<String> value) { mainFunctions = safe(value); }
     public List<String> getMainStructures() { return mainStructures; }

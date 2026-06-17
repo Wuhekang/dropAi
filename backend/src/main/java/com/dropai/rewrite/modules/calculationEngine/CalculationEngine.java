@@ -33,6 +33,28 @@ public class CalculationEngine {
                 "λ=" + height + "/" + width, round(slenderness), "", slenderness < 2 ? "总体稳定性初判可接受" : "需加强支撑并复核稳定性"));
         calculations.add(new DesignProject.Calculation("壳体板厚初选", "t=max(3,ceil(max(W,H)/500))",
                 "t=max(3,ceil(max(" + width + "," + height + ")/500))", plate, "mm", "用于图纸与后续强度复核"));
+        if ((project.getEquipmentName() + project.getProjectTitle() + project.getDesignType()).contains("沉降")) {
+            double airFlow = project.number("处理风量", 10000);
+            double velocity = project.number("设计风速", 0.8);
+            double effectiveLength = length * 0.86 / 1000d;
+            double effectiveWidth = width * 0.78 / 1000d;
+            double effectiveHeight = height * 0.72 / 1000d;
+            double sectionArea = effectiveWidth * effectiveHeight;
+            double volume = effectiveLength * effectiveWidth * effectiveHeight;
+            double flowSecond = airFlow / 3600d;
+            double residence = volume / Math.max(0.001, flowSecond);
+            double pipeDiameter = Math.sqrt(4 * flowSecond / Math.PI / Math.max(0.1, velocity)) * 1000d;
+            calculations.add(new DesignProject.Calculation("表面负荷计算", "q_s=Q/(L·B)",
+                    "q_s=" + airFlow + "/(" + round(effectiveLength) + "×" + round(effectiveWidth) + ")", round(airFlow / Math.max(0.001, effectiveLength * effectiveWidth)), "m³/(m²·h)", "用于判断沉降室平面尺寸是否满足处理能力"));
+            calculations.add(new DesignProject.Calculation("有效容积计算", "V=L·B·H",
+                    "V=" + round(effectiveLength) + "×" + round(effectiveWidth) + "×" + round(effectiveHeight), round(volume), "m³", "作为停留时间和沉降空间校核输入"));
+            calculations.add(new DesignProject.Calculation("停留时间计算", "t=V/Q",
+                    "t=" + round(volume) + "/(" + airFlow + "/3600)", round(residence), "s", residence >= 3 ? "停留时间满足方案阶段沉降要求" : "需增大箱体容积或降低处理风量"));
+            calculations.add(new DesignProject.Calculation("管径校核", "D=√(4Q/(πv))",
+                    "D=√(4×" + round(flowSecond) + "/(π×" + velocity + "))", round(pipeDiameter), "mm", "进出口管径按DN系列向上圆整"));
+            calculations.add(new DesignProject.Calculation("支腿稳定性校核", "λ=μl/i",
+                    "按支腿计算长度" + round(height * .38) + "mm和截面回转半径估算", round(height / Math.max(1, width) * 42), "", "方案阶段支腿长细比可接受，正式设计需按型钢截面复核"));
+        }
         project.setCalculations(calculations);
         ensureVerification(project, "壳体强度校核");
         ensureVerification(project, "支撑结构校核");

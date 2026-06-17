@@ -12,6 +12,7 @@ import com.dropai.rewrite.modules.structureEngine.StructureEngine;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.junit.jupiter.api.Test;
 
+import javax.imageio.ImageIO;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -74,12 +75,33 @@ class DesignPackageModuleTests {
                 List.of(new DocumentParser.ParsedDocument("任务书.txt", "TASK_BOOK",
                         "题目：重力沉降室设计\n要求：完成结构设计\n绘制CAD图\n完成论文")));
         DesignProject project = new DesignEnhancementEngine().enhance(new ParameterEngine().normalize(analyzed));
-        assertTrue(project.getDetailScore() >= 60);
-        assertTrue(project.getComponents().size() >= 12);
+        assertTrue(project.getDetailScore() >= 80);
+        assertTrue(project.getComponents().size() >= 15);
+        assertTrue(project.getFeatureCount() >= 30);
         assertTrue(project.getComponents().stream().anyMatch(c -> "进风口".equals(c.getName())));
         assertTrue(project.getComponents().stream().anyMatch(c -> "导流板".equals(c.getName())));
+        assertTrue(project.getComponents().stream().anyMatch(c -> "顶部护栏".equals(c.getName())));
+        assertTrue(project.getComponents().stream().anyMatch(c -> "爬梯".equals(c.getName())));
         assertTrue(project.getComponents().stream().anyMatch(c -> "卸灰口".equals(c.getName())));
         assertTrue(project.allParameters().stream().anyMatch(p -> "处理风量".equals(p.getName())));
+        assertTrue(project.getDrawingViews().size() >= 8);
+        assertTrue(project.getAnnotationList().size() >= 8);
+    }
+
+    @Test
+    void sedimentationPreviewUsesDetailedEngineeringBoard() throws Exception {
+        DesignProject analyzed = new DesignAnalyzer().analyze("重力沉降室设计",
+                List.of(new DocumentParser.ParsedDocument("任务书.txt", "TASK_BOOK", "重力沉降室设计")));
+        DesignEnhancementEngine enhancementEngine = new DesignEnhancementEngine();
+        DesignProject project = enhancementEngine.enhance(new StructureEngine().design(
+                new CalculationEngine().calculate(enhancementEngine.enhance(new ParameterEngine().normalize(analyzed)))));
+        assertTrue(project.getCalculations().size() >= 8);
+        byte[] png = new DrawingEngine().drawAssemblyDrawing(project).stream()
+                .filter(file -> "preview.png".equals(file.fileName())).findFirst().orElseThrow().content();
+        assertTrue(png.length > 250000);
+        var image = ImageIO.read(new ByteArrayInputStream(png));
+        assertTrue(image.getWidth() >= 1700);
+        assertTrue(image.getHeight() >= 1200);
     }
 
     @Test
