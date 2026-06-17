@@ -5,6 +5,7 @@ import com.dropai.rewrite.entity.DocumentJobRecord;
 import com.dropai.rewrite.mapper.DocumentJobMapper;
 import com.dropai.rewrite.modules.calculationEngine.CalculationEngine;
 import com.dropai.rewrite.modules.designEnhancementEngine.DesignEnhancementEngine;
+import com.dropai.rewrite.modules.designPipeline.TaskDrivenDesignPipeline;
 import com.dropai.rewrite.modules.drawingEngine.DrawingArtifact;
 import com.dropai.rewrite.modules.drawingEngine.DrawingEngine;
 import com.dropai.rewrite.modules.exportEngine.ExportEngine;
@@ -31,19 +32,19 @@ public class DesignPackageService {
     private final ParameterEngine parameterEngine; private final CalculationEngine calculationEngine;
     private final DesignEnhancementEngine designEnhancementEngine; private final StructureEngine structureEngine; private final DrawingEngine drawingEngine; private final SwMacroEngine swMacroEngine;
     private final PaperEngine paperEngine; private final ExportEngine exportEngine; private final DocumentJobMapper mapper;
+    private final TaskDrivenDesignPipeline designPipeline;
 
     public DesignPackageService(ParameterEngine parameterEngine, CalculationEngine calculationEngine, DesignEnhancementEngine designEnhancementEngine, StructureEngine structureEngine, DrawingEngine drawingEngine,
-                                SwMacroEngine swMacroEngine, PaperEngine paperEngine, ExportEngine exportEngine, DocumentJobMapper mapper) {
+                                SwMacroEngine swMacroEngine, PaperEngine paperEngine, ExportEngine exportEngine, DocumentJobMapper mapper,
+                                TaskDrivenDesignPipeline designPipeline) {
         this.parameterEngine = parameterEngine; this.calculationEngine = calculationEngine; this.designEnhancementEngine = designEnhancementEngine; this.structureEngine = structureEngine; this.drawingEngine = drawingEngine;
         this.swMacroEngine = swMacroEngine; this.paperEngine = paperEngine; this.exportEngine = exportEngine; this.mapper = mapper;
+        this.designPipeline = designPipeline;
     }
 
     public DesignPackageVO generate(DesignProject input) {
         Long userId = AuthContext.requireUserId();
-        DesignProject normalized = parameterEngine.normalize(input == null ? new DesignProject() : input);
-        DesignProject enhancedInput = designEnhancementEngine.enhance(normalized);
-        DesignProject calculated = calculationEngine.calculate(enhancedInput);
-        DesignProject project = designEnhancementEngine.enhance(structureEngine.design(calculated));
+        DesignProject project = designPipeline.generateCurrentTask(input == null ? new DesignProject() : input);
         log.info("开始生成成果包 title={} parameters={}", project.getProjectTitle(), project.allParameters().size());
         List<Generated> generated = new ArrayList<>();
         generated.add(generateOne("paper.docx", DOCX, () -> paperEngine.generatePaper(project)));

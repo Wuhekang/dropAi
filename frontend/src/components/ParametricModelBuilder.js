@@ -249,6 +249,38 @@ function engineeringBracket(group, dims) {
   label(group, '工程化机械结构', [0, h * 0.5, 0])
 }
 
+function assemblyDrivenModel(group, dims, parts = []) {
+  const l = dims.length
+  const w = dims.width
+  const h = dims.height
+  parts.slice(0, 28).forEach((part, index) => {
+    const name = part.name || `部件${index + 1}`
+    const x = -l * 0.35 + (index % 5) * l * 0.18
+    const z = -w * 0.28 + (Math.floor(index / 5) % 4) * w * 0.18
+    const y = -0.45 + (index % 4) * h * 0.12
+    const color = part.partType === 'standard' ? 0x2563eb : 0xf97316
+    if (name.includes('轮') || name.includes('滚筒') || name.includes('刷')) {
+      cyl(group, name, h * 0.08, w * 0.16, [x, y, z], color, 'z', 1, 32)
+    } else if (name.includes('履带') || name.includes('带')) {
+      box(group, name, [l * 0.28, h * 0.08, w * 0.12], [x, y, z], 0x111827)
+      cyl(group, `${name}-端轮`, h * 0.055, w * 0.13, [x - l * 0.14, y, z], 0x64748b, 'z', 1, 24)
+      cyl(group, `${name}-端轮`, h * 0.055, w * 0.13, [x + l * 0.14, y, z], 0x64748b, 'z', 1, 24)
+    } else if (name.includes('磁') || name.includes('吸附')) {
+      box(group, name, [l * 0.12, h * 0.035, w * 0.1], [x, -0.66, z], 0x10b981)
+    } else if (name.includes('导轨') || name.includes('滑轨') || name.includes('检测')) {
+      box(group, name, [l * 0.18, h * 0.04, w * 0.08], [x, y + h * 0.25, z], 0x38bdf8)
+    } else if (name.includes('电机') || name.includes('减速器')) {
+      box(group, name, [l * 0.11, h * 0.11, w * 0.11], [x, y, z], 0x16a34a)
+    } else if (name.includes('外壳') || name.includes('防护')) {
+      box(group, name, [l * 0.24, h * 0.22, w * 0.22], [x, y + h * 0.18, z], 0x60a5fa, 0.76)
+    } else {
+      box(group, name, [l * 0.16, h * 0.08, w * 0.14], [x, y, z], color, 0.88)
+    }
+  })
+  box(group, '装配基准机架', [l * 0.72, h * 0.06, w * 0.62], [0, -0.52, 0], 0x475569)
+  label(group, '结构树驱动装配模型', [0, h * 0.45, 0])
+}
+
 export function buildParametricMechanicalModel(project = {}) {
   const group = new THREE.Group()
   const dims = {
@@ -257,7 +289,8 @@ export function buildParametricMechanicalModel(project = {}) {
     height: Math.max(1.6, Number(project.height || project.totalHeight || 3200) / 1200)
   }
   const type = `${project.designType || ''}${project.equipmentName || ''}${project.projectTitle || ''}`
-  if (type.includes('输送')) conveyor(group, dims)
+  if (Array.isArray(project.resolvedParts) && project.resolvedParts.length >= 4) assemblyDrivenModel(group, dims, project.resolvedParts)
+  else if (type.includes('输送')) conveyor(group, dims)
   else if (type.includes('爬壁') || type.includes('履带') || type.includes('磁吸附') || type.includes('油罐检测')) crawlerRobot(group, dims)
   else if (type.includes('机械手') || type.includes('机械臂')) manipulator(group, dims)
   else if (type.includes('沉降') || type.includes('除尘') || type.includes('分离')) detailedSedimentationChamber(group, dims)

@@ -274,7 +274,7 @@ const artifacts = ref([]), parameters = ref([])
 const functionsText = ref(''), structuresText = ref('')
 const previews = reactive({ scheme: '', cad: '' })
 const packageStatus = ref('pending'), packageMessage = ref('等待生成')
-const project = reactive({ projectId: '', projectTitle: '', equipmentName: '', designType: '', designDepth: 'graduation', projectCategory: '', mainFunctions: [], mainStructures: [], explicitParameters: [], derivedParameters: [], suggestedParameters: [], verificationItems: [], calculations: [], bom: [], technicalRequirements: [], materials: [], standardParts: [], detailFeatures: [], drawingViews: [], annotationList: [], partCount: 0, featureCount: 0, detailScore: 0, enhancementNotes: [] })
+const project = reactive({ projectId: '', projectTitle: '', equipmentName: '', designType: '', designDepth: 'graduation', projectCategory: '', mainFunctions: [], mainStructures: [], explicitParameters: [], derivedParameters: [], suggestedParameters: [], verificationItems: [], calculations: [], bom: [], technicalRequirements: [], materials: [], standardParts: [], detailFeatures: [], drawingViews: [], annotationList: [], structureTree: null, resolvedParts: [], assemblyTree: null, partCount: 0, featureCount: 0, detailScore: 0, enhancementNotes: [] })
 
 const uploadedFiles = computed(() => Object.values(files).filter(file => file?.raw))
 const successCount = computed(() => artifacts.value.filter(x => x.status === 'success').length)
@@ -295,7 +295,10 @@ const modelProject = computed(() => ({
   designType: project.designType,
   totalLength: findParameter('总长', 4200),
   totalWidth: findParameter('总宽', 1600),
-  totalHeight: findParameter('总高', 1800)
+  totalHeight: findParameter('总高', 1800),
+  structureTree: project.structureTree,
+  resolvedParts: project.resolvedParts || [],
+  assemblyTree: project.assemblyTree
 }))
 
 function selectFile(key, file) {
@@ -365,7 +368,7 @@ async function analyze() {
 }
 function resetProjectSession(clearTitle = true) {
   const depth = project.designDepth || 'graduation'
-  Object.assign(project, { projectId: '', projectTitle: clearTitle ? '' : project.projectTitle, equipmentName: '', designType: '', designDepth: depth, projectCategory: '', mainFunctions: [], mainStructures: [], explicitParameters: [], derivedParameters: [], suggestedParameters: [], verificationItems: [], calculations: [], bom: [], technicalRequirements: [], materials: [], standardParts: [], detailFeatures: [], drawingViews: [], annotationList: [], partCount: 0, featureCount: 0, detailScore: 0, enhancementNotes: [] })
+  Object.assign(project, { projectId: '', projectTitle: clearTitle ? '' : project.projectTitle, equipmentName: '', designType: '', designDepth: depth, projectCategory: '', mainFunctions: [], mainStructures: [], explicitParameters: [], derivedParameters: [], suggestedParameters: [], verificationItems: [], calculations: [], bom: [], technicalRequirements: [], materials: [], standardParts: [], detailFeatures: [], drawingViews: [], annotationList: [], structureTree: null, resolvedParts: [], assemblyTree: null, partCount: 0, featureCount: 0, detailScore: 0, enhancementNotes: [] })
   functionsText.value = ''
   structuresText.value = ''
   parameters.value = []

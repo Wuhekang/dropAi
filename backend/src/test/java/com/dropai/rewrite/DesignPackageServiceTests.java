@@ -4,14 +4,22 @@ import com.dropai.rewrite.auth.AuthContext;
 import com.dropai.rewrite.mapper.DocumentJobMapper;
 import com.dropai.rewrite.entity.DocumentJobRecord;
 import com.dropai.rewrite.modules.calculationEngine.CalculationEngine;
+import com.dropai.rewrite.modules.assemblyBuilder.AssemblyBuilder;
+import com.dropai.rewrite.modules.bomGenerator.BOMGenerator;
 import com.dropai.rewrite.modules.designEnhancementEngine.DesignEnhancementEngine;
+import com.dropai.rewrite.modules.designPipeline.TaskDrivenDesignPipeline;
 import com.dropai.rewrite.modules.drawingEngine.DrawingEngine;
 import com.dropai.rewrite.modules.exportEngine.ExportEngine;
 import com.dropai.rewrite.modules.model.DesignProject;
 import com.dropai.rewrite.modules.paperEngine.PaperEngine;
 import com.dropai.rewrite.modules.parameterEngine.ParameterEngine;
+import com.dropai.rewrite.modules.projectAnalyzer.ProjectAnalyzer;
+import com.dropai.rewrite.modules.projectSessionReset.ProjectSessionReset;
+import com.dropai.rewrite.modules.standardPartLibrary.StandardPartLibrary;
 import com.dropai.rewrite.modules.swMacroEngine.SwMacroEngine;
 import com.dropai.rewrite.modules.structureEngine.StructureEngine;
+import com.dropai.rewrite.modules.structureTreeBuilder.StructureTreeBuilder;
+import com.dropai.rewrite.modules.unknownPartResolver.UnknownPartResolver;
 import com.dropai.rewrite.service.DesignPackageService;
 import com.dropai.rewrite.vo.DesignPackageVO;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -34,9 +42,14 @@ class DesignPackageServiceTests {
     void successfulArtifactsHaveRealDownloadMetadata() {
         DocumentJobMapper mapper = mock(DocumentJobMapper.class);
         when(mapper.insert(any(DocumentJobRecord.class))).thenReturn(1);
+        ParameterEngine parameterEngine = new ParameterEngine();
+        CalculationEngine calculationEngine = new CalculationEngine();
+        TaskDrivenDesignPipeline pipeline = new TaskDrivenDesignPipeline(new ProjectSessionReset(), parameterEngine,
+                new ProjectAnalyzer(), new StructureTreeBuilder(), new StandardPartLibrary(), new UnknownPartResolver(),
+                new AssemblyBuilder(), new BOMGenerator(), calculationEngine);
         DesignPackageService service = new DesignPackageService(
-                new ParameterEngine(), new CalculationEngine(), new DesignEnhancementEngine(), new StructureEngine(), new DrawingEngine(), new SwMacroEngine(),
-                new PaperEngine(), new ExportEngine(new ObjectMapper()), mapper);
+                parameterEngine, calculationEngine, new DesignEnhancementEngine(), new StructureEngine(), new DrawingEngine(), new SwMacroEngine(),
+                new PaperEngine(), new ExportEngine(new ObjectMapper()), mapper, pipeline);
         AuthContext.setUserId(1L);
 
         DesignPackageVO result = service.generate(new DesignProject());
@@ -49,6 +62,8 @@ class DesignPackageServiceTests {
         assertTrue(result.getArtifacts().stream().anyMatch(item -> "cad_preview.png".equals(item.getName())));
         assertTrue(result.getArtifacts().stream().anyMatch(item -> "preview.png".equals(item.getName())));
         assertTrue(result.getProject().getBom().size() >= 5);
+        assertTrue(result.getProject().getStructureTree().getChildren().size() >= 3);
+        assertTrue(result.getProject().getAssemblyTree().getChildren().size() >= 3);
         assertTrue(result.getArtifacts().stream().anyMatch(item -> "project_package.zip".equals(item.getName())));
         ArgumentCaptor<DocumentJobRecord> captor = ArgumentCaptor.forClass(DocumentJobRecord.class);
         verify(mapper, org.mockito.Mockito.atLeastOnce()).insert(captor.capture());

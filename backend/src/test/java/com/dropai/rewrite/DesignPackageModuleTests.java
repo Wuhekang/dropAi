@@ -1,14 +1,22 @@
 package com.dropai.rewrite;
 
 import com.dropai.rewrite.modules.calculationEngine.CalculationEngine;
+import com.dropai.rewrite.modules.assemblyBuilder.AssemblyBuilder;
+import com.dropai.rewrite.modules.bomGenerator.BOMGenerator;
 import com.dropai.rewrite.modules.designAnalyzer.DesignAnalyzer;
 import com.dropai.rewrite.modules.designEnhancementEngine.DesignEnhancementEngine;
+import com.dropai.rewrite.modules.designPipeline.TaskDrivenDesignPipeline;
 import com.dropai.rewrite.modules.documentParser.DocumentParser;
 import com.dropai.rewrite.modules.drawingEngine.DrawingEngine;
 import com.dropai.rewrite.modules.model.DesignProject;
 import com.dropai.rewrite.modules.paperEngine.PaperEngine;
 import com.dropai.rewrite.modules.parameterEngine.ParameterEngine;
+import com.dropai.rewrite.modules.projectAnalyzer.ProjectAnalyzer;
+import com.dropai.rewrite.modules.projectSessionReset.ProjectSessionReset;
+import com.dropai.rewrite.modules.standardPartLibrary.StandardPartLibrary;
 import com.dropai.rewrite.modules.structureEngine.StructureEngine;
+import com.dropai.rewrite.modules.structureTreeBuilder.StructureTreeBuilder;
+import com.dropai.rewrite.modules.unknownPartResolver.UnknownPartResolver;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.junit.jupiter.api.Test;
 
@@ -136,6 +144,23 @@ class DesignPackageModuleTests {
         assertTrue(project.getCalculations().stream().anyMatch(item -> item.getName().contains("吸附力")));
     }
 
+    @Test
+    void taskDrivenPipelineBuildsUnknownFixtureFromStructureTree() {
+        DesignProject input = new DesignProject();
+        input.setProjectTitle("自动翻转夹具结构设计");
+        input.setEquipmentName("自动翻转夹具");
+        input.setDesignType("机械结构设计 / 机电一体化设计");
+        input.setMainFunctions(List.of("工件夹紧定位", "自动翻转", "角度限位", "快速维护"));
+        input.setMainStructures(List.of("夹紧机构", "翻转机构", "驱动电机", "减速器", "传动轴", "定位销", "机架", "防护罩"));
+        DesignProject project = pipeline().analyzeNewTask(input);
+        assertTrue(project.getStructureTree().getChildren().size() >= 3);
+        assertTrue(project.getResolvedParts().stream().anyMatch(p -> "standard".equals(p.getPartType()) && p.getName().contains("电机")));
+        assertTrue(project.getResolvedParts().stream().anyMatch(p -> "non_standard".equals(p.getPartType()) && p.getName().contains("夹紧")));
+        assertTrue(project.getAssemblyTree().getChildren().size() >= 3);
+        assertTrue(project.getBom().size() == project.getComponents().size());
+        assertTrue(project.getDetailScore() >= 70);
+    }
+
     private void assertArchitecture(String title, String architecture, String componentName, String geometry) {
         DesignProject analyzed = new DesignAnalyzer().analyze(title,
                 List.of(new DocumentParser.ParsedDocument("任务书.txt", "TASK_BOOK", title)));
@@ -150,5 +175,13 @@ class DesignPackageModuleTests {
         DesignEnhancementEngine enhancementEngine = new DesignEnhancementEngine();
         DesignProject enhanced = enhancementEngine.enhance(new ParameterEngine().normalize(new DesignProject()));
         return enhancementEngine.enhance(new StructureEngine().design(new CalculationEngine().calculate(enhanced)));
+    }
+
+    private TaskDrivenDesignPipeline pipeline() {
+        ParameterEngine parameterEngine = new ParameterEngine();
+        CalculationEngine calculationEngine = new CalculationEngine();
+        return new TaskDrivenDesignPipeline(new ProjectSessionReset(), parameterEngine, new ProjectAnalyzer(),
+                new StructureTreeBuilder(), new StandardPartLibrary(), new UnknownPartResolver(),
+                new AssemblyBuilder(), new BOMGenerator(), calculationEngine);
     }
 }

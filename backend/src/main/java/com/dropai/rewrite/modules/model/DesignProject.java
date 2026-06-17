@@ -34,6 +34,10 @@ public class DesignProject {
     private List<Parameter> suggestedParameters = new ArrayList<>();
     private List<String> verificationItems = new ArrayList<>();
     private List<Calculation> calculations = new ArrayList<>();
+    private ProjectAnalysis projectAnalysis = new ProjectAnalysis();
+    private StructureNode structureTree = new StructureNode("整机", "root", "system", 1.0);
+    private List<DesignPart> resolvedParts = new ArrayList<>();
+    private AssemblyNode assemblyTree = new AssemblyNode("整机", "root");
 
     public String getProjectId() { return projectId; }
     public void setProjectId(String projectId) { this.projectId = projectId; }
@@ -95,6 +99,14 @@ public class DesignProject {
     public void setVerificationItems(List<String> value) { verificationItems = safe(value); }
     public List<Calculation> getCalculations() { return calculations; }
     public void setCalculations(List<Calculation> value) { calculations = safe(value); }
+    public ProjectAnalysis getProjectAnalysis() { return projectAnalysis; }
+    public void setProjectAnalysis(ProjectAnalysis value) { projectAnalysis = value == null ? new ProjectAnalysis() : value; }
+    public StructureNode getStructureTree() { return structureTree; }
+    public void setStructureTree(StructureNode value) { structureTree = value == null ? new StructureNode("整机", "root", "system", 1.0) : value; }
+    public List<DesignPart> getResolvedParts() { return resolvedParts; }
+    public void setResolvedParts(List<DesignPart> value) { resolvedParts = safe(value); }
+    public AssemblyNode getAssemblyTree() { return assemblyTree; }
+    public void setAssemblyTree(AssemblyNode value) { assemblyTree = value == null ? new AssemblyNode("整机", "root") : value; }
 
     public List<Parameter> allParameters() {
         List<Parameter> result = new ArrayList<>();
@@ -230,5 +242,71 @@ public class DesignProject {
         public double getValue() { return value; } public void setValue(double v) { value = v; }
         public String getUnit() { return unit; } public void setUnit(String v) { unit = v; }
         public String getRelatedComponent() { return relatedComponent; } public void setRelatedComponent(String v) { relatedComponent = v; }
+    }
+
+    public static class ProjectAnalysis {
+        private String title = "";
+        private String equipmentName = "";
+        private String projectType = "";
+        private List<String> functions = new ArrayList<>();
+        private List<String> requirements = new ArrayList<>();
+        private List<String> deliverables = new ArrayList<>();
+        public String getTitle() { return title; } public void setTitle(String v) { title = v; }
+        public String getEquipmentName() { return equipmentName; } public void setEquipmentName(String v) { equipmentName = v; }
+        public String getProjectType() { return projectType; } public void setProjectType(String v) { projectType = v; }
+        public List<String> getFunctions() { return functions; } public void setFunctions(List<String> v) { functions = safe(v); }
+        public List<String> getRequirements() { return requirements; } public void setRequirements(List<String> v) { requirements = safe(v); }
+        public List<String> getDeliverables() { return deliverables; } public void setDeliverables(List<String> v) { deliverables = safe(v); }
+    }
+
+    public static class StructureNode {
+        private String name = "";
+        private String type = "";
+        private String source = "";
+        private double confidence;
+        private List<StructureNode> children = new ArrayList<>();
+        public StructureNode() {}
+        public StructureNode(String name, String type, String source, double confidence) {
+            this.name = name; this.type = type; this.source = source; this.confidence = confidence;
+        }
+        public String getName() { return name; } public void setName(String v) { name = v; }
+        public String getType() { return type; } public void setType(String v) { type = v; }
+        public String getSource() { return source; } public void setSource(String v) { source = v; }
+        public double getConfidence() { return confidence; } public void setConfidence(double v) { confidence = v; }
+        public List<StructureNode> getChildren() { return children; } public void setChildren(List<StructureNode> v) { children = safe(v); }
+    }
+
+    public static class DesignPart {
+        private String partType = "non_standard";
+        private String name = "";
+        private String model = "";
+        private String source = "";
+        private String generatedBy = "";
+        private List<String> geometryFeatures = new ArrayList<>();
+        private String material = "";
+        private String process = "";
+        private int quantity = 1;
+        private String parentStructure = "";
+        public String getPartType() { return partType; } public void setPartType(String v) { partType = v; }
+        public String getName() { return name; } public void setName(String v) { name = v; }
+        public String getModel() { return model; } public void setModel(String v) { model = v; }
+        public String getSource() { return source; } public void setSource(String v) { source = v; }
+        public String getGeneratedBy() { return generatedBy; } public void setGeneratedBy(String v) { generatedBy = v; }
+        public List<String> getGeometryFeatures() { return geometryFeatures; } public void setGeometryFeatures(List<String> v) { geometryFeatures = safe(v); }
+        public String getMaterial() { return material; } public void setMaterial(String v) { material = v; }
+        public String getProcess() { return process; } public void setProcess(String v) { process = v; }
+        public int getQuantity() { return quantity; } public void setQuantity(int v) { quantity = v; }
+        public String getParentStructure() { return parentStructure; } public void setParentStructure(String v) { parentStructure = v; }
+    }
+
+    public static class AssemblyNode {
+        private String name = "";
+        private String relation = "";
+        private List<AssemblyNode> children = new ArrayList<>();
+        public AssemblyNode() {}
+        public AssemblyNode(String name, String relation) { this.name = name; this.relation = relation; }
+        public String getName() { return name; } public void setName(String v) { name = v; }
+        public String getRelation() { return relation; } public void setRelation(String v) { relation = v; }
+        public List<AssemblyNode> getChildren() { return children; } public void setChildren(List<AssemblyNode> v) { children = safe(v); }
     }
 }
