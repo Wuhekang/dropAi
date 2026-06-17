@@ -33,6 +33,22 @@ public class CalculationEngine {
                 "λ=" + height + "/" + width, round(slenderness), "", slenderness < 2 ? "总体稳定性初判可接受" : "需加强支撑并复核稳定性"));
         calculations.add(new DesignProject.Calculation("壳体板厚初选", "t=max(3,ceil(max(W,H)/500))",
                 "t=max(3,ceil(max(" + width + "," + height + ")/500))", plate, "mm", "用于图纸与后续强度复核"));
+        double power = project.number("电机功率", project.number("输入功率", project.number("功率", 3.0)));
+        double speed = project.number("输入转速", project.number("转速", 960));
+        double torque = 9550 * power / Math.max(1, speed);
+        double sectionModulus = Math.max(1, width * plate * plate / 6d);
+        double bendingMoment = designForce * length / 8000d;
+        double bendingStress = bendingMoment * 1000d / sectionModulus;
+        calculations.add(new DesignProject.Calculation("外形尺寸校核", "L×B×H",
+                "L×B×H=" + length + "×" + width + "×" + height, round(length * width * height / 1_000_000_000d), "m³", "用于判断设备布置空间和运输安装空间"));
+        calculations.add(new DesignProject.Calculation("功率计算", "P=F·v/η",
+                "按方案阶段载荷、运行速度和效率估算，P取" + power, round(power), "kW", "用于电机或动力源选型"));
+        calculations.add(new DesignProject.Calculation("扭矩计算", "T=9550P/n",
+                "T=9550×" + power + "/" + speed, round(torque), "N·m", "用于传动轴、联轴器或驱动件选型"));
+        calculations.add(new DesignProject.Calculation("弯曲强度计算", "σ=M/W",
+                "σ=" + round(bendingMoment) + "×1000/" + round(sectionModulus), round(bendingStress), "MPa", bendingStress < 160 ? "方案阶段弯曲强度满足Q235B许用应力要求" : "需增大截面或增加加强筋"));
+        calculations.add(new DesignProject.Calculation("标准件选型计算", "S=F/F_allow",
+                "按设计载荷力" + round(designForce) + "N选择螺栓、轴承、法兰或阀门标准件", round(safety), "", "标准件按计算载荷和安全系数向上选型"));
         if ((project.getEquipmentName() + project.getProjectTitle() + project.getDesignType()).contains("沉降")) {
             double airFlow = project.number("处理风量", 10000);
             double velocity = project.number("设计风速", 0.8);

@@ -170,6 +170,58 @@
               <el-table-column prop="conclusion" label="结论" min-width="180" />
             </el-table>
           </el-tab-pane>
+          <el-tab-pane label="设计参数表">
+            <el-table :data="parameters">
+              <el-table-column prop="name" label="参数" />
+              <el-table-column prop="value" label="数值" />
+              <el-table-column prop="unit" label="单位" />
+              <el-table-column prop="category" label="来源类型" />
+              <el-table-column prop="note" label="依据" min-width="220" />
+            </el-table>
+          </el-tab-pane>
+          <el-tab-pane label="材料与BOM">
+            <div class="list-panel">
+              <div>
+                <h3>材料汇总表</h3>
+                <el-tag v-for="item in project.materials || []" :key="item" class="list-tag">{{ item }}</el-tag>
+              </div>
+              <div>
+                <h3>标准件</h3>
+                <el-tag v-for="item in project.standardParts || []" :key="item" class="list-tag" type="success">{{ item }}</el-tag>
+              </div>
+            </div>
+            <el-table :data="project.bom || []">
+              <el-table-column prop="sequence" label="序号" width="80" />
+              <el-table-column prop="name" label="名称" />
+              <el-table-column prop="material" label="材料" />
+              <el-table-column prop="quantity" label="数量" />
+              <el-table-column prop="remark" label="备注" min-width="180" />
+            </el-table>
+          </el-tab-pane>
+          <el-tab-pane label="技术说明">
+            <div class="list-panel">
+              <div>
+                <h3>工程细节</h3>
+                <el-tag v-for="item in project.detailFeatures || []" :key="item" class="list-tag">{{ item }}</el-tag>
+              </div>
+              <div>
+                <h3>技术要求</h3>
+                <p v-for="item in project.technicalRequirements || []" :key="item" class="note-line">{{ item }}</p>
+              </div>
+            </div>
+          </el-tab-pane>
+          <el-tab-pane label="论文插图清单">
+            <div class="list-panel">
+              <div>
+                <h3>图纸视图</h3>
+                <el-tag v-for="item in project.drawingViews || []" :key="item" class="list-tag" type="warning">{{ item }}</el-tag>
+              </div>
+              <div>
+                <h3>标注清单</h3>
+                <el-tag v-for="item in project.annotationList || []" :key="item" class="list-tag" type="info">{{ item }}</el-tag>
+              </div>
+            </div>
+          </el-tab-pane>
           <el-tab-pane label="CAD图纸与预览">
             <el-alert type="warning" title="当前CAD为方案级图纸，未经过完整工程校核，不可直接用于加工。" :closable="false" />
             <artifact-list :items="groups.cad" @download="download" />
@@ -222,7 +274,7 @@ const artifacts = ref([]), parameters = ref([])
 const functionsText = ref(''), structuresText = ref('')
 const previews = reactive({ scheme: '', cad: '' })
 const packageStatus = ref('pending'), packageMessage = ref('等待生成')
-const project = reactive({ projectTitle: '', equipmentName: '', designType: '', designDepth: 'graduation', projectCategory: '', mainFunctions: [], mainStructures: [], explicitParameters: [], derivedParameters: [], suggestedParameters: [], verificationItems: [], calculations: [], partCount: 0, featureCount: 0, detailScore: 0, enhancementNotes: [] })
+const project = reactive({ projectTitle: '', equipmentName: '', designType: '', designDepth: 'graduation', projectCategory: '', mainFunctions: [], mainStructures: [], explicitParameters: [], derivedParameters: [], suggestedParameters: [], verificationItems: [], calculations: [], bom: [], technicalRequirements: [], materials: [], standardParts: [], detailFeatures: [], drawingViews: [], annotationList: [], partCount: 0, featureCount: 0, detailScore: 0, enhancementNotes: [] })
 
 const uploadedFiles = computed(() => Object.values(files).filter(file => file?.raw))
 const successCount = computed(() => artifacts.value.filter(x => x.status === 'success').length)
@@ -376,5 +428,5 @@ function statusText(status) { return ({ pending:'等待中', running:'生成中'
 </script>
 
 <style scoped>
-.workspace{max-width:1500px;margin:auto;padding:30px 24px 70px}.hero,.panel-head{display:flex;justify-content:space-between;align-items:flex-start;gap:24px}.hero h1{font-size:36px;margin:10px 0}.hero p{color:#64748b}.eyebrow{display:block;margin-top:18px;color:#2563eb;font-weight:800;font-size:12px;letter-spacing:.16em}.steps{margin:34px 0}.grid{display:grid;grid-template-columns:.9fr 1.1fr;gap:20px}.step-one{display:grid;gap:20px}.grid .el-card,.panel{border-radius:18px}.full{width:100%;margin:14px 0 0}.panel{margin-top:20px}.upload-slots{display:grid;gap:12px}.upload-slot{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;padding:14px;border:1px solid #e4e9f1;border-radius:14px;background:#f8fafc}.slot-main span{display:block;color:#64748b;font-size:12px;margin-top:4px}.file-status{grid-column:1/-1;color:#64748b;font-size:12px}.file-status b{display:block;color:#0f172a;margin-bottom:3px}.file-status.success span{color:#059669}.file-status.failed span{color:#dc2626}.file-status.running span{color:#d97706}.inline-alert{margin-top:14px}.recognition-form{margin-top:8px}.field-tip{margin:8px 0 0;color:#64748b;font-size:12px;line-height:1.6}.recognized-params{display:flex;flex-wrap:wrap;gap:8px}.muted{color:#94a3b8}.parameter-table{margin-top:16px;overflow:auto}.parameter-header,.parameter-row{display:grid;grid-template-columns:1fr .75fr .5fr .8fr 1.45fr 60px;gap:8px;align-items:center;min-width:850px}.parameter-header{padding:8px 0;color:#64748b;font-size:13px;font-weight:700}.parameter-row{padding:8px 0;border-top:1px solid #edf1f6}.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:20px 0}.metrics div{padding:18px;border-radius:14px;background:#f4f7fb}.metrics span{display:block;color:#64748b}.metrics strong{font-size:28px}.preview-stage{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin:20px 0}.preview-card{border:1px solid #e4e9f1;border-radius:16px;padding:14px;background:#f8fafc}.preview-card div{display:flex;justify-content:space-between;gap:12px;margin-bottom:10px}.preview-card span{color:#64748b;font-size:12px}.preview-card img{display:block;width:100%;height:360px;object-fit:contain;background:white;border-radius:10px}.model-card{grid-column:1/-1}.model-card :deep(.model-viewer){height:430px;min-height:430px}.artifact-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:14px}.artifact{display:flex;justify-content:space-between;align-items:center;padding:16px;border:1px solid #e4e9f1;border-radius:12px}.artifact span{display:block;color:#64748b;font-size:12px;margin-top:5px}.artifact-action{display:flex;align-items:center;gap:8px}@media(max-width:1050px){.grid,.preview-stage{grid-template-columns:1fr}.metrics{grid-template-columns:repeat(2,1fr)}}@media(max-width:700px){.steps{display:none}.artifact-grid,.metrics{grid-template-columns:1fr}.hero{display:block}.upload-slot{grid-template-columns:1fr}}
+.workspace{max-width:1500px;margin:auto;padding:30px 24px 70px}.hero,.panel-head{display:flex;justify-content:space-between;align-items:flex-start;gap:24px}.hero h1{font-size:36px;margin:10px 0}.hero p{color:#64748b}.eyebrow{display:block;margin-top:18px;color:#2563eb;font-weight:800;font-size:12px;letter-spacing:.16em}.steps{margin:34px 0}.grid{display:grid;grid-template-columns:.9fr 1.1fr;gap:20px}.step-one{display:grid;gap:20px}.grid .el-card,.panel{border-radius:18px}.full{width:100%;margin:14px 0 0}.panel{margin-top:20px}.upload-slots{display:grid;gap:12px}.upload-slot{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;padding:14px;border:1px solid #e4e9f1;border-radius:14px;background:#f8fafc}.slot-main span{display:block;color:#64748b;font-size:12px;margin-top:4px}.file-status{grid-column:1/-1;color:#64748b;font-size:12px}.file-status b{display:block;color:#0f172a;margin-bottom:3px}.file-status.success span{color:#059669}.file-status.failed span{color:#dc2626}.file-status.running span{color:#d97706}.inline-alert{margin-top:14px}.recognition-form{margin-top:8px}.field-tip{margin:8px 0 0;color:#64748b;font-size:12px;line-height:1.6}.recognized-params{display:flex;flex-wrap:wrap;gap:8px}.muted{color:#94a3b8}.parameter-table{margin-top:16px;overflow:auto}.parameter-header,.parameter-row{display:grid;grid-template-columns:1fr .75fr .5fr .8fr 1.45fr 60px;gap:8px;align-items:center;min-width:850px}.parameter-header{padding:8px 0;color:#64748b;font-size:13px;font-weight:700}.parameter-row{padding:8px 0;border-top:1px solid #edf1f6}.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:20px 0}.metrics div{padding:18px;border-radius:14px;background:#f4f7fb}.metrics span{display:block;color:#64748b}.metrics strong{font-size:28px}.preview-stage{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin:20px 0}.preview-card{border:1px solid #e4e9f1;border-radius:16px;padding:14px;background:#f8fafc}.preview-card div{display:flex;justify-content:space-between;gap:12px;margin-bottom:10px}.preview-card span{color:#64748b;font-size:12px}.preview-card img{display:block;width:100%;height:360px;object-fit:contain;background:white;border-radius:10px}.model-card{grid-column:1/-1}.model-card :deep(.model-viewer){height:430px;min-height:430px}.list-panel{display:grid;grid-template-columns:repeat(2,1fr);gap:18px;margin:10px 0 18px}.list-panel>div{padding:16px;border:1px solid #e4e9f1;border-radius:14px;background:#f8fafc}.list-panel h3{margin:0 0 12px}.list-tag{margin:0 8px 8px 0}.note-line{margin:0 0 8px;color:#334155;line-height:1.7}.artifact-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:14px}.artifact{display:flex;justify-content:space-between;align-items:center;padding:16px;border:1px solid #e4e9f1;border-radius:12px}.artifact span{display:block;color:#64748b;font-size:12px;margin-top:5px}.artifact-action{display:flex;align-items:center;gap:8px}@media(max-width:1050px){.grid,.preview-stage,.list-panel{grid-template-columns:1fr}.metrics{grid-template-columns:repeat(2,1fr)}}@media(max-width:700px){.steps{display:none}.artifact-grid,.metrics{grid-template-columns:1fr}.hero{display:block}.upload-slot{grid-template-columns:1fr}}
 </style>

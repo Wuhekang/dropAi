@@ -8,6 +8,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.stream.Stream;
 
 @Service
 public class DesignEnhancementEngine {
@@ -142,14 +143,13 @@ public class DesignEnhancementEngine {
         applyEngineeringLists(project, rule);
         applyTechnicalRequirements(project, rule);
         score(project);
-        if (project.getDetailScore() < targetScore(project)) {
+        if (!standardSatisfied(project)) {
             project.getEnhancementNotes().add("结构细节分低于目标值，已按" + depthName(project) + "继续补充标准件、检修件、连接件和制造特征。");
             addUniversalDetails(project);
+            applyEngineeringLists(project, rule);
             score(project);
         }
-        if (project.getDetailScore() < targetScore(project)) {
-            throw new IllegalStateException("设计细节不足，禁止生成只有方块和圆柱的CAD图纸；请补充任务书参数或提高设计深度。当前detailScore=" + project.getDetailScore());
-        }
+        validateStandard(project);
         return project;
     }
 
@@ -204,10 +204,35 @@ public class DesignEnhancementEngine {
                 components.add(toComponent(components.size() + 1, spec, project, components.size()));
             }
         }
+        ensureMandatoryCategories(project, components);
         resequence(components);
         project.setComponents(components);
         project.setBom(components.stream().map(p -> new DesignProject.BomItem(
                 p.getSequence(), p.getName(), p.getMaterial(), p.getQuantity(), p.getFunction())).toList());
+    }
+
+    private void ensureMandatoryCategories(DesignProject project, List<DesignProject.Component> components) {
+        addIfMissingRole(project, components, "CONNECT",
+                spec("CONNECT", "法兰连接件", "连接外部设备或可拆卸部件", "Q235B", 2, "FLANGE", false));
+        addIfMissingRole(project, components, "STRUCTURE",
+                spec("STRUCTURE", "加强筋", "提高薄板和支撑结构刚度", "Q235B", 6, "RIB", false));
+        addIfMissingRole(project, components, "MAINTENANCE",
+                spec("MAINTENANCE", "检修门", "提供检查和维护空间", "Q235B", 1, "DOOR", false));
+        addIfMissingRole(project, components, "MOUNT",
+                spec("MOUNT", "地脚螺栓", "固定设备与基础", "标准件", 8, "ANCHOR_BOLT", false));
+        if (components.stream().map(DesignProject.Component::getGeometry)
+                .noneMatch(g -> List.of("WELD", "FILLET", "SEAL_GROOVE").contains(g))) {
+            components.add(toComponent(components.size() + 1,
+                    spec("STRUCTURE", "焊缝标识", "标识关键焊接位置", "焊缝", 1, "WELD", false),
+                    project, components.size()));
+        }
+    }
+
+    private void addIfMissingRole(DesignProject project, List<DesignProject.Component> components,
+                                  String role, ComponentSpec fallback) {
+        if (components.stream().noneMatch(item -> role.equals(item.getRole()))) {
+            components.add(toComponent(components.size() + 1, fallback, project, components.size()));
+        }
     }
 
     private void applyTechnicalRequirements(DesignProject project, RuleSet rule) {
@@ -218,6 +243,8 @@ public class DesignEnhancementEngine {
         addUnique(project.getTechnicalRequirements(), rule.equipmentName() + "的BOM零件必须能在总装图、零件图和论文结构图中找到对应编号。");
         addUnique(project.getTechnicalRequirements(), "焊接件完成后清理焊渣和毛刺，关键安装面校正后加工。");
         addUnique(project.getTechnicalRequirements(), "检修门、观察窗、安装孔、法兰、加强筋和支撑结构应在三视图中表达清楚。");
+        addUnique(project.getTechnicalRequirements(), "图纸必须包含主视图、左视图、右视图、俯视图、仰视图中的至少三张视图，复杂设备补充剖视图、局部详图和装配图。");
+        addUnique(project.getTechnicalRequirements(), "禁止以底板、立柱、横梁或单纯长方体圆柱体作为最终结构，缺少连接、加强、检修、安装和工艺结构时判定失败。");
     }
 
     private void addUniversalDetails(DesignProject project) {
@@ -243,6 +270,52 @@ public class DesignEnhancementEngine {
         project.getEnhancementNotes().add("设计深化评分：partCount=" + project.getPartCount()
                 + "，featureCount=" + project.getFeatureCount() + "，detailScore=" + project.getDetailScore()
                 + "，设计深度=" + depthName(project));
+    }
+
+    private boolean standardSatisfied(DesignProject project) {
+        return project.getDetailScore() >= targetScore(project)
+                && project.getComponents().size() >= 15
+                && project.getFeatureCount() >= 30
+                && project.getDetailFeatures().size() >= 20
+                && hasRole(project, "CONNECT")
+                && hasRole(project, "STRUCTURE")
+                && hasRole(project, "MAINTENANCE")
+                && hasRole(project, "MOUNT")
+                && hasAnyGeometry(project, "WELD", "FILLET", "SEAL_GROOVE")
+                && project.getDrawingViews().size() >= 5;
+    }
+
+    private void validateStandard(DesignProject project) {
+        List<String> reasons = new ArrayList<>();
+        if (project.getDetailScore() < targetScore(project)) reasons.add("detailScore低于" + targetScore(project));
+        if (project.getComponents().size() < 15) reasons.add("零件数量少于15");
+        if (project.getFeatureCount() < 30) reasons.add("建模特征少于30");
+        if (project.getDetailFeatures().size() < 20) reasons.add("工程细节少于20");
+        if (!hasRole(project, "CONNECT")) reasons.add("缺少连接结构");
+        if (!hasRole(project, "STRUCTURE")) reasons.add("缺少加强结构");
+        if (!hasRole(project, "MAINTENANCE")) reasons.add("缺少检修结构");
+        if (!hasRole(project, "MOUNT")) reasons.add("缺少安装结构");
+        if (!hasAnyGeometry(project, "WELD", "FILLET", "SEAL_GROOVE")) reasons.add("缺少工艺结构");
+        if (project.getDrawingViews().stream().filter(v -> v.contains("视图") || v.contains("图")).count() < 5) reasons.add("图纸视图不足");
+        if (isPrimitiveOnly(project)) reasons.add("主体结构仍接近底板、立柱、横梁或简单几何堆叠");
+        if (!reasons.isEmpty()) {
+            throw new IllegalStateException("机械设计深化未达到DropAI Mechanical Design Standard v1.0，禁止生成CAD：" + String.join("；", reasons));
+        }
+    }
+
+    private boolean hasRole(DesignProject project, String role) {
+        return project.getComponents().stream().anyMatch(c -> role.equals(c.getRole()));
+    }
+
+    private boolean hasAnyGeometry(DesignProject project, String... geometries) {
+        return project.getComponents().stream().map(DesignProject.Component::getGeometry)
+                .anyMatch(g -> Stream.of(geometries).anyMatch(item -> item.equals(g)));
+    }
+
+    private boolean isPrimitiveOnly(DesignProject project) {
+        long geometryKinds = project.getComponents().stream().map(DesignProject.Component::getGeometry).distinct().count();
+        boolean hasOnlyBasicRoles = project.getComponents().stream().allMatch(c -> List.of("BODY", "SUPPORT", "BASE").contains(c.getRole()));
+        return geometryKinds <= 3 && hasOnlyBasicRoles;
     }
 
     private int scoreOf(List<DesignProject.Component> components, List<DesignProject.Parameter> parameters, List<String> requirements) {
@@ -272,7 +345,7 @@ public class DesignEnhancementEngine {
     private int targetParts(DesignProject project) {
         return switch (safe(project.getDesignDepth()).toLowerCase(Locale.ROOT)) {
             case "engineering", "工程版" -> 30;
-            case "normal", "普通版" -> 8;
+            case "normal", "普通版" -> 15;
             default -> 18;
         };
     }
@@ -284,13 +357,13 @@ public class DesignEnhancementEngine {
         }
         for (ComponentSpec spec : rule.components()) addUnique(project.getDetailFeatures(), spec.name());
         for (ComponentSpec spec : genericDetails()) addUnique(project.getDetailFeatures(), spec.name());
-        for (String item : List.of("Q235B钢板", "45钢轴类件", "标准法兰", "8.8级螺栓", "焊缝", "有机玻璃观察窗")) {
+        for (String item : List.of("Q235B钢板", "45钢轴类件", "标准法兰", "8.8级螺栓", "焊缝", "有机玻璃观察窗", "密封垫", "轴承座材料")) {
             addUnique(project.getMaterials(), item);
         }
         for (String item : List.of("法兰", "地脚螺栓", "排灰阀", "检修门铰链", "密封垫", "螺栓连接件")) {
             addUnique(project.getStandardParts(), item);
         }
-        for (String item : List.of("三维装配图", "主视图", "左视图", "俯视图", "A-A剖视图", "灰斗详图", "支座布置图", "管口法兰详图", "设备明细表", "材料汇总表")) {
+        for (String item : List.of("三维装配图", "主视图", "左视图", "右视图", "俯视图", "仰视图", "A-A剖视图", "局部详图", "爆炸图", "装配图", "灰斗详图", "支座布置图", "管口法兰详图", "设备明细表", "材料汇总表")) {
             addUnique(project.getDrawingViews(), item);
         }
         for (String item : List.of("总长", "总宽", "总高", "进出口管径", "检修门尺寸", "灰斗角度", "支腿跨距", "法兰螺栓孔", "板厚", "焊缝高度")) {
@@ -393,7 +466,18 @@ public class DesignEnhancementEngine {
                 spec("MOUNT", "定位销", "保证装配定位精度", "标准件", 2, "PIN", false),
                 spec("SAFETY", "防护罩", "隔离运动或高温部位", "Q235B", 1, "COVER", false),
                 spec("MOUNT", "地脚板", "扩大支撑接触面积", "Q235B", 4, "BASE_PLATE", false),
-                spec("STRUCTURE", "倒角圆角", "降低应力集中并改善制造质量", "结构特征", 1, "FILLET", false)
+                spec("STRUCTURE", "倒角圆角", "降低应力集中并改善制造质量", "结构特征", 1, "FILLET", false),
+                spec("CONNECT", "法兰", "连接外部管路或相邻设备", "Q235B", 2, "FLANGE", false),
+                spec("CONNECT", "螺栓孔", "提供标准件连接位置", "标准特征", 12, "HOLE", false),
+                spec("CONNECT", "键槽", "传递轴类零件扭矩", "标准特征", 1, "KEYWAY", false),
+                spec("MAINTENANCE", "观察窗", "观察内部运行状态", "有机玻璃", 1, "WINDOW", false),
+                spec("MAINTENANCE", "检修孔", "提供内部检修入口", "Q235B", 1, "MANHOLE", false),
+                spec("STRUCTURE", "加强板", "提高局部连接区域刚度", "Q235B", 4, "GUSSET", false),
+                spec("STRUCTURE", "支撑肋", "提高支撑和大跨板件稳定性", "Q235B", 4, "RIB", false),
+                spec("MOUNT", "底座", "形成设备安装基准", "Q235B", 1, "BASE_PLATE", false),
+                spec("MOUNT", "支腿", "将整机载荷传递至基础", "Q235B", 4, "FRAME", false),
+                spec("MOUNT", "地脚螺栓", "固定设备与基础", "标准件", 8, "ANCHOR_BOLT", false),
+                spec("STRUCTURE", "密封结构", "保证接口或箱体密封", "密封垫", 1, "SEAL_GROOVE", false)
         );
     }
 
