@@ -13,6 +13,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -45,11 +46,13 @@ public class DesignAnalyzer {
                 project.getVerificationItems().add("AI识别增强失败，当前结果由本地规则从任务书中提取：" + compact(exception.getMessage()));
             }
         }
+        enforceLocalSemanticGuards(project, title + "\n" + sourceText);
         return project;
     }
 
     private DesignProject analyzeByRules(String title, String sourceText, List<DocumentParser.ParsedDocument> documents) {
         DesignProject project = new DesignProject();
+        project.setProjectId("dp-" + UUID.randomUUID());
         String textTitle = firstNonBlank(title, detectTitle(sourceText));
         project.setProjectTitle(textTitle);
         String evidence = textTitle + "\n" + sourceText;
@@ -92,8 +95,9 @@ public class DesignAnalyzer {
     }
 
     private String detectDesignType(String evidence) {
+        if (containsAny(evidence, "爬壁", "履带", "磁吸附", "油罐检测", "壁面检测", "清扫刷")) return "机械结构设计 / 机器人结构设计 / 机电一体化设计";
         if (containsAny(evidence, "PLC", "控制系统", "梯形图", "传感器", "自动控制")) return "PLC控制设计";
-        if (containsAny(evidence, "机械手", "机器人", "夹爪", "气缸", "伺服")) return "自动化设备设计";
+        if (containsAny(evidence, "机械手", "夹爪", "气缸", "伺服", "机械臂")) return "自动化设备设计";
         if (containsAny(evidence, "输送机", "输送带", "滚筒", "托辊")) return "输送设备设计";
         if (containsAny(evidence, "除尘", "沉降", "过滤", "废气", "环保")) return "环保设备结构设计";
         if (containsAny(evidence, "齿轮", "链传动", "带传动", "减速器", "轴系")) return "机械传动设计";
@@ -112,6 +116,11 @@ public class DesignAnalyzer {
         aliases.put("输送速度", "输送速度|带速|运行速度");
         aliases.put("输送量", "输送量|生产率|运输量");
         aliases.put("功率", "功率|电机功率|驱动功率");
+        aliases.put("爬行速度", "爬行速度|行走速度|运行速度");
+        aliases.put("吸附力", "吸附力|磁吸力|附着力");
+        aliases.put("清扫效率", "清扫效率");
+        aliases.put("检测精度", "检测精度|检测误差");
+        aliases.put("续航时间", "续航时间|工作时间");
         for (DocumentParser.ParsedDocument document : documents) {
             if (!document.textReadable()) continue;
             aliases.forEach((name, alias) -> extractNumber(document, name, alias, project));
@@ -135,6 +144,11 @@ public class DesignAnalyzer {
         if ("处理风量".equals(name)) return "m3/h";
         if ("输送速度".equals(name)) return "m/s";
         if ("功率".equals(name)) return "kW";
+        if ("爬行速度".equals(name)) return "m/min";
+        if ("吸附力".equals(name)) return "N";
+        if ("清扫效率".equals(name)) return "%";
+        if ("检测精度".equals(name)) return "mm";
+        if ("续航时间".equals(name)) return "h";
         return "";
     }
 
@@ -145,6 +159,11 @@ public class DesignAnalyzer {
         vocabulary.put("连续输送物料", List.of("输送", "运输", "带式", "托辊"));
         vocabulary.put("动力传递", List.of("驱动", "传动", "电机", "减速"));
         vocabulary.put("工件抓取与释放", List.of("机械手", "夹爪", "抓取", "搬运"));
+        vocabulary.put("油罐壁面爬行", List.of("爬壁", "履带", "壁面", "油罐"));
+        vocabulary.put("磁吸附稳定附着", List.of("磁吸附", "永磁", "吸附力", "附着"));
+        vocabulary.put("表面清扫", List.of("清扫", "圆盘刷", "刷盘"));
+        vocabulary.put("壁面缺陷检测", List.of("检测", "传感器", "缺陷"));
+        vocabulary.put("模块化维护", List.of("模块化", "快拆", "维护"));
         vocabulary.put("设备检修维护", List.of("检修", "维护", "观察窗", "检修门"));
         vocabulary.put("定位安装与支撑", List.of("支撑", "机架", "底座", "安装"));
         List<String> functions = new ArrayList<>();
@@ -156,13 +175,18 @@ public class DesignAnalyzer {
     }
 
     private List<String> detectStructures(String evidence, String equipment, String designType) {
+        if (containsAny(evidence + equipment + designType, "爬壁", "履带", "磁吸附", "油罐检测", "清扫刷", "壁面检测")) {
+            return List.of("履带行走机构", "驱动轮", "从动轮", "支重轮", "履带", "永磁吸附机构", "磁吸附模块",
+                    "圆盘清扫刷", "清扫驱动电机", "检测传感器安装架", "滑轨调节机构", "快拆结构", "机架",
+                    "防护外壳", "驱动电机", "减速器", "电池/控制模块安装舱");
+        }
         if (containsAny(evidence + equipment + designType, "沉降室", "除尘", "灰斗")) {
             return List.of("壳体", "进风口", "沉降腔", "排灰斗", "检修门", "出风口", "支撑架");
         }
         if (containsAny(evidence + equipment + designType, "输送机", "输送带", "滚筒")) {
             return List.of("驱动滚筒", "从动滚筒", "输送带", "机架", "电机减速机", "支腿");
         }
-        if (containsAny(evidence + equipment + designType, "机械手", "夹爪", "机器人")) {
+        if (containsAny(evidence + equipment + designType, "机械手", "夹爪", "机械臂")) {
             return List.of("底座", "立柱", "大臂", "小臂", "关节驱动组件", "夹爪");
         }
         return List.of("主体结构", "支撑结构", "连接结构", "安装结构", "功能结构", "检修结构", "接口结构");
@@ -176,6 +200,7 @@ public class DesignAnalyzer {
 
     private Map<String, List<String>> equipmentVocabulary() {
         Map<String, List<String>> catalog = new LinkedHashMap<>();
+        catalog.put("油罐检测爬壁机器人", List.of("油罐检测爬壁机器人", "爬壁机器人", "油罐检测", "磁吸附", "履带行走", "清扫刷"));
         catalog.put("重力沉降室", List.of("重力沉降室", "沉降室", "沉降腔", "排灰斗", "除尘"));
         catalog.put("带式输送机", List.of("带式输送机", "输送机", "输送带", "驱动滚筒", "从动滚筒"));
         catalog.put("机械手", List.of("机械手", "夹爪", "大臂", "小臂", "末端执行器"));
@@ -198,6 +223,23 @@ public class DesignAnalyzer {
                 Object value = node.path("value").isNumber() ? node.path("value").numberValue() : node.path("value").asText("");
                 project.getExplicitParameters().add(new DesignProject.Parameter(
                         name, value, node.path("unit").asText(""), node.path("source").asText("AI识别"), null));
+            }
+        }
+    }
+
+    private void enforceLocalSemanticGuards(DesignProject project, String evidence) {
+        if (containsAny(evidence, "爬壁", "履带", "磁吸附", "油罐检测", "清扫刷", "壁面检测")) {
+            project.setEquipmentName("油罐检测爬壁机器人");
+            project.setDesignType("机械结构设计 / 机器人结构设计 / 机电一体化设计");
+            project.getMainFunctions().removeIf(item -> containsAny(item, "含尘", "沉降", "颗粒物", "排灰"));
+            project.getMainStructures().removeIf(item -> containsAny(item, "沉降", "进风", "出风", "排灰斗", "灰斗", "沉降腔"));
+            for (String item : List.of("油罐壁面爬行", "磁吸附稳定附着", "表面清扫", "检测模块安装", "壁面缺陷检测", "模块化维护")) {
+                if (!project.getMainFunctions().contains(item)) project.getMainFunctions().add(item);
+            }
+            for (String item : List.of("履带行走机构", "驱动轮", "从动轮", "支重轮", "履带", "永磁吸附机构", "磁吸附模块",
+                    "圆盘清扫刷", "清扫驱动电机", "检测传感器安装架", "滑轨调节机构", "快拆结构", "机架", "防护外壳",
+                    "驱动电机", "减速器", "电池/控制模块安装舱")) {
+                if (!project.getMainStructures().contains(item)) project.getMainStructures().add(item);
             }
         }
     }

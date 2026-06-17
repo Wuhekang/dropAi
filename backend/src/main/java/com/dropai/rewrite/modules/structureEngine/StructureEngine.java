@@ -17,13 +17,7 @@ public class StructureEngine {
         project.setComponents(parts);
         project.setBom(parts.stream().map(p -> new DesignProject.BomItem(
                 p.getSequence(), p.getName(), p.getMaterial(), p.getQuantity(), p.getFunction())).toList());
-        project.setDimensionChains(List.of(
-                new DesignProject.DimensionChain("总长", l, "mm", "整机"),
-                new DesignProject.DimensionChain("总宽", w, "mm", "整机"),
-                new DesignProject.DimensionChain("总高", h, "mm", "整机"),
-                new DesignProject.DimensionChain("安装中心距", l * .72, "mm", "安装结构"),
-                new DesignProject.DimensionChain("功能中心高度", h * .55, "mm", "功能结构"),
-                new DesignProject.DimensionChain("支撑跨距", l * .64, "mm", "支撑结构")));
+        project.setDimensionChains(dimensionChains(project, l, w, h));
         project.setTechnicalRequirements(List.of(
                 "图纸尺寸与统一设计参数表保持一致，修改参数后须重新校核。",
                 "各功能部件按总装图空间关系定位，装配后检查运动与维护空间。",
@@ -35,10 +29,60 @@ public class StructureEngine {
     private List<DesignProject.Component> chooseScheme(DesignProject project, double l, double w, double h, String material) {
         String signature = String.join(" ", safe(project.getProjectTitle()), safe(project.getEquipmentName()),
                 safe(project.getDesignType()), String.join(" ", project.getMainStructures()));
+        if (containsAny(signature, "爬壁", "履带", "磁吸附", "油罐检测", "清扫刷", "壁面检测")) return wallCrawlerRobot(l, w, h, material);
         if (containsAny(signature, "沉降", "除尘", "排灰斗")) return sedimentation(l, w, h, material);
         if (containsAny(signature, "输送机", "输送带", "滚筒")) return conveyor(l, w, h, material);
         if (containsAny(signature, "机械手", "夹爪", "机器人")) return manipulator(l, w, h, material);
         return functionalScheme(project, l, w, h, material);
+    }
+
+    private List<DesignProject.DimensionChain> dimensionChains(DesignProject project, double l, double w, double h) {
+        String signature = String.join(" ", safe(project.getProjectTitle()), safe(project.getEquipmentName()),
+                safe(project.getDesignType()), String.join(" ", project.getMainStructures()));
+        if (containsAny(signature, "爬壁", "履带", "磁吸附", "油罐检测", "清扫刷")) {
+            return List.of(
+                    new DesignProject.DimensionChain("整机长度", l, "mm", "整机"),
+                    new DesignProject.DimensionChain("整机宽度", w, "mm", "整机"),
+                    new DesignProject.DimensionChain("整机高度", h, "mm", "整机"),
+                    new DesignProject.DimensionChain("履带长度", project.number("履带长度", l * .86), "mm", "履带行走机构"),
+                    new DesignProject.DimensionChain("履带宽度", project.number("履带宽度", w * .17), "mm", "履带"),
+                    new DesignProject.DimensionChain("轮径", project.number("轮径", h * .46), "mm", "驱动轮/从动轮"),
+                    new DesignProject.DimensionChain("轮距", project.number("轮距", w * .82), "mm", "左右履带"),
+                    new DesignProject.DimensionChain("磁吸附模块安装间距", project.number("磁吸附模块安装间距", 90), "mm", "磁吸附模块"),
+                    new DesignProject.DimensionChain("清扫刷直径", project.number("清扫刷直径", 180), "mm", "圆盘清扫刷"),
+                    new DesignProject.DimensionChain("检测模块安装高度", project.number("检测模块安装高度", 130), "mm", "检测传感器安装架"),
+                    new DesignProject.DimensionChain("机架板厚", project.number("机架板厚", 6), "mm", "机架"));
+        }
+        return List.of(
+                new DesignProject.DimensionChain("总长", l, "mm", "整机"),
+                new DesignProject.DimensionChain("总宽", w, "mm", "整机"),
+                new DesignProject.DimensionChain("总高", h, "mm", "整机"),
+                new DesignProject.DimensionChain("安装中心距", l * .72, "mm", "安装结构"),
+                new DesignProject.DimensionChain("功能中心高度", h * .55, "mm", "功能结构"),
+                new DesignProject.DimensionChain("支撑跨距", l * .64, "mm", "支撑结构"));
+    }
+
+    private List<DesignProject.Component> wallCrawlerRobot(double l, double w, double h, String m) {
+        List<DesignProject.Component> p = new ArrayList<>();
+        add(p, "FUNCTION", "左侧履带组件", "左侧壁面爬行与承载", "橡胶复合材料", 1, "TRACK", .06, .08, .08, .82, .16, .22, true, l, w, h);
+        add(p, "FUNCTION", "右侧履带组件", "右侧壁面爬行与承载", "橡胶复合材料", 1, "TRACK", .06, .76, .08, .82, .16, .22, true, l, w, h);
+        add(p, "FUNCTION", "驱动轮", "驱动左右履带运行", "45钢包胶", 2, "WHEEL", .12, .10, .11, .14, .14, .14, true, l, w, h);
+        add(p, "FUNCTION", "从动轮", "支撑履带回转并保持张紧", "45钢包胶", 2, "WHEEL", .74, .10, .11, .14, .14, .14, true, l, w, h);
+        add(p, "FUNCTION", "支重轮", "提高履带接触稳定性", "45钢包胶", 8, "SMALL_WHEEL", .30, .10, .09, .08, .08, .08, false, l, w, h);
+        add(p, "MOUNT", "磁吸附模块", "提供壁面吸附力", "钕铁硼磁钢", 8, "MAGNET_BLOCK", .18, .28, .02, .09, .08, .04, true, l, w, h);
+        add(p, "MOUNT", "永磁吸附机构", "分段安装磁吸模块并控制离壁间隙", "Q235B", 1, "MAGNET_ARRAY", .12, .24, .02, .72, .52, .05, true, l, w, h);
+        add(p, "SUPPORT", "机架", "承载行走、清扫、检测与电控模块", "6061铝合金", 1, "FRAME", .14, .24, .20, .68, .52, .08, true, l, w, h);
+        add(p, "SAFETY", "防护外壳", "保护电池、控制器和传动部件", "ABS+铝板", 1, "COVER", .22, .30, .45, .48, .40, .28, true, l, w, h);
+        add(p, "BODY", "电池/控制模块安装舱", "安装电池、控制器和通信模块", "6061铝合金", 1, "BATTERY_BOX", .36, .34, .36, .28, .30, .18, true, l, w, h);
+        add(p, "DRIVE", "驱动电机", "为左右履带提供动力", "标准件", 2, "MOTOR", .08, .30, .28, .12, .14, .14, true, l, w, h);
+        add(p, "DRIVE", "减速器", "降低转速并提高输出扭矩", "标准件", 2, "GEARBOX", .18, .30, .28, .12, .14, .14, true, l, w, h);
+        add(p, "FUNCTION", "圆盘清扫刷", "清理检测区域表面", "尼龙刷丝", 1, "BRUSH", .86, .40, .12, .18, .20, .12, true, l, w, h);
+        add(p, "DRIVE", "清扫驱动电机", "驱动圆盘刷旋转", "标准件", 1, "MOTOR", .78, .42, .25, .12, .12, .12, true, l, w, h);
+        add(p, "FUNCTION", "检测传感器安装架", "安装检测传感器并保持检测距离", "6061铝合金", 1, "SENSOR_RAIL", .78, .30, .40, .18, .40, .10, true, l, w, h);
+        add(p, "FUNCTION", "滑轨调节机构", "调节检测模块高度和前后位置", "标准直线滑轨", 1, "SLIDER", .70, .30, .36, .22, .40, .08, true, l, w, h);
+        add(p, "CONNECT", "快拆结构", "快速拆装清扫和检测模块", "不锈钢", 2, "QUICK_RELEASE", .76, .24, .34, .08, .08, .08, false, l, w, h);
+        add(p, "CONNECT", "螺栓连接组", "连接外壳、机架和模块支架", "8.8级螺栓", 16, "BOLT_GROUP", .28, .26, .44, .04, .04, .04, false, l, w, h);
+        return p;
     }
 
     private List<DesignProject.Component> sedimentation(double l, double w, double h, String m) {

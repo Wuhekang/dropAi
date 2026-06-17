@@ -75,7 +75,32 @@ public class DrawingEngine {
                 || ("CYLINDER_Z".equals(geometry) && "TOP".equals(view))
                 || ("DUCT_X".equals(geometry) && "SIDE".equals(view))
                 || "JOINT".equals(geometry) || "ROTOR".equals(geometry);
-        if (circle) {
+        if ("TRACK".equals(geometry) || ("BELT".equals(geometry) && "TOP".equals(view))) {
+            c.rect(layer, x, y, w, h);
+            c.circle(layer, x + Math.min(w, h) / 2, y + h / 2, Math.min(w, h) / 2);
+            c.circle(layer, x + w - Math.min(w, h) / 2, y + h / 2, Math.min(w, h) / 2);
+            c.line("CENTER", x + w * .18, y + h / 2, x + w * .82, y + h / 2);
+        } else if ("WHEEL".equals(geometry) || "SMALL_WHEEL".equals(geometry) || "BRUSH".equals(geometry)) {
+            c.circle(layer, x + w / 2, y + h / 2, Math.max(4, Math.min(w, h) / 2));
+            c.line("CENTER", x + w / 2 - 7, y + h / 2, x + w / 2 + 7, y + h / 2);
+            c.line("CENTER", x + w / 2, y + h / 2 - 7, x + w / 2, y + h / 2 + 7);
+            if ("BRUSH".equals(geometry)) {
+                for (int i = 0; i < 8; i++) {
+                    double a = Math.PI * 2 * i / 8;
+                    c.line("STRUCTURE", x + w / 2, y + h / 2,
+                            x + w / 2 + Math.cos(a) * Math.min(w, h) / 2,
+                            y + h / 2 + Math.sin(a) * Math.min(w, h) / 2);
+                }
+            }
+        } else if ("MAGNET_ARRAY".equals(geometry) || "MAGNET_BLOCK".equals(geometry)) {
+            c.rect("STRUCTURE", x, y, w, h);
+            c.line("CENTER", x, y, x + w, y + h);
+            c.line("CENTER", x, y + h, x + w, y);
+        } else if ("SENSOR_RAIL".equals(geometry) || "SLIDER".equals(geometry)) {
+            c.rect(layer, x, y, w, h);
+            c.line("CENTER", x, y + h / 2, x + w, y + h / 2);
+            c.circle("ANNOTATION", x + w * .78, y + h / 2, 3);
+        } else if (circle) {
             c.circle(layer, x + w / 2, y + h / 2, Math.max(4, Math.min(w, h) / 2));
             c.line("CENTER", x + w / 2 - 5, y + h / 2, x + w / 2 + 5, y + h / 2);
             c.line("CENTER", x + w / 2, y + h / 2 - 5, x + w / 2, y + h / 2 + 5);
@@ -141,6 +166,10 @@ public class DrawingEngine {
     }
     private byte[] renderCad(Canvas c) {
         try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            if (c.title != null && isWallCrawler(c.title)) {
+                ImageIO.write(wallCrawlerBoard(null, false), "png", out);
+                return out.toByteArray();
+            }
             if (c.title != null && (c.title.contains("沉降") || c.title.contains("除尘"))) {
                 ImageIO.write(sedimentationBoard(null, false), "png", out);
                 return out.toByteArray();
@@ -158,6 +187,10 @@ public class DrawingEngine {
 
     private byte[] renderShowcase(DesignProject p) {
         try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            if (isWallCrawler(p.getEquipmentName() + p.getProjectTitle() + p.getDesignType())) {
+                ImageIO.write(wallCrawlerBoard(p, true), "png", out);
+                return out.toByteArray();
+            }
             if ((p.getEquipmentName() + p.getProjectTitle()).contains("沉降") || (p.getEquipmentName() + p.getProjectTitle()).contains("除尘")) {
                 ImageIO.write(sedimentationBoard(p, true), "png", out);
                 return out.toByteArray();
@@ -168,6 +201,173 @@ public class DrawingEngine {
             for (Shape shape : showcaseCanvas(p).shapes) draw(g, shape, 2, false);
             g.dispose();ImageIO.write(image,"png",out);return out.toByteArray();
         }catch(Exception e){throw new IllegalStateException("生成方案展示图失败："+e.getMessage(),e);}
+    }
+
+    private boolean isWallCrawler(String text) {
+        return text != null && (text.contains("爬壁") || text.contains("履带") || text.contains("磁吸附") || text.contains("油罐检测"));
+    }
+
+    private BufferedImage wallCrawlerBoard(DesignProject p, boolean showcase) {
+        BufferedImage image = new BufferedImage(1800, 1280, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = image.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+        g.setColor(Color.WHITE);
+        g.fillRect(0, 0, image.getWidth(), image.getHeight());
+        g.setColor(new Color(24, 34, 48));
+        g.setStroke(new BasicStroke(2f));
+        g.setFont(font().deriveFont(Font.BOLD, 34f));
+        g.drawString("油罐检测爬壁机器人结构设计", 42, 54);
+        drawCrawlerIso(g, 70, 115);
+        drawCrawlerViews(g, 820, 95);
+        drawCrawlerDimensionTable(g, p, 42, 690);
+        drawCrawlerBom(g, 42, 980);
+        drawCrawlerDetails(g, 760, 720);
+        drawCrawlerNotes(g, 1270, 760);
+        g.dispose();
+        return image;
+    }
+
+    private void drawCrawlerIso(Graphics2D g, int x, int y) {
+        g.setFont(font().deriveFont(Font.BOLD, 20f));
+        g.drawString("一、三维结构示意图", x, y - 18);
+        g.setColor(new Color(62, 72, 86));
+        g.fillRoundRect(x + 105, y + 175, 520, 210, 26, 26);
+        g.setColor(new Color(28, 35, 46));
+        g.fillRoundRect(x + 70, y + 330, 610, 78, 38, 38);
+        g.fillRoundRect(x + 70, y + 95, 610, 78, 38, 38);
+        g.setColor(new Color(85, 96, 112));
+        for (int i = 0; i < 5; i++) {
+            g.fillOval(x + 120 + i * 115, y + 105, 58, 58);
+            g.fillOval(x + 120 + i * 115, y + 340, 58, 58);
+        }
+        g.setColor(new Color(37, 99, 235));
+        g.fillRoundRect(x + 230, y + 205, 260, 130, 24, 24);
+        g.setColor(new Color(14, 165, 233));
+        g.fillRect(x + 470, y + 180, 180, 34);
+        g.fillRect(x + 470, y + 325, 180, 34);
+        g.setColor(new Color(249, 115, 22));
+        g.fillOval(x + 675, y + 225, 150, 150);
+        g.setColor(new Color(15, 23, 42));
+        for (int i = 0; i < 12; i++) {
+            double a = Math.PI * 2 * i / 12;
+            int cx = x + 750, cy = y + 300;
+            g.drawLine(cx, cy, (int) (cx + Math.cos(a) * 75), (int) (cy + Math.sin(a) * 75));
+        }
+        g.setColor(new Color(16, 185, 129));
+        for (int i = 0; i < 6; i++) g.fillRect(x + 150 + i * 75, y + 425, 46, 22);
+        g.setFont(font().deriveFont(Font.PLAIN, 15f));
+        drawLeader(g, x + 95, y + 128, "1 左右履带");
+        drawLeader(g, x + 145, y + 360, "2 驱动/从动轮");
+        drawLeader(g, x + 360, y + 250, "3 防护外壳");
+        drawLeader(g, x + 710, y + 255, "4 圆盘清扫刷");
+        drawLeader(g, x + 520, y + 180, "5 检测传感器滑轨");
+        drawLeader(g, x + 245, y + 430, "6 磁吸附模块");
+    }
+
+    private void drawCrawlerViews(Graphics2D g, int x, int y) {
+        g.setColor(new Color(24, 34, 48));
+        g.setFont(font().deriveFont(Font.BOLD, 20f));
+        g.drawString("二、CAD三视图与局部表达（单位：mm）", x, y - 20);
+        g.setFont(font().deriveFont(Font.BOLD, 16f));
+        g.drawString("主视图", x + 85, y + 18);
+        drawCrawlerFront(g, x, y + 35, 520, 190);
+        g.drawString("俯视图", x + 85, y + 300);
+        drawCrawlerTop(g, x, y + 320, 520, 190);
+        g.drawString("侧视图", x + 620, y + 18);
+        drawCrawlerSide(g, x + 570, y + 35, 330, 245);
+        g.drawString("A-A磁吸模块局部放大", x + 590, y + 335);
+        g.drawRect(x + 590, y + 355, 260, 120);
+        for (int i = 0; i < 4; i++) g.drawRect(x + 610 + i * 55, y + 395, 35, 35);
+        g.drawString("永磁体", x + 650, y + 455);
+        dimension(g, x + 20, y + 240, x + 500, y + 240, "整机长度 ≤800");
+        dimension(g, x + 570, y + 295, x + 900, y + 295, "整机高度 ≤300");
+    }
+
+    private void drawCrawlerFront(Graphics2D g, int x, int y, int w, int h) {
+        g.drawRoundRect(x + 20, y + 80, w - 40, 72, 36, 36);
+        g.drawRoundRect(x + 20, y + 15, w - 40, 72, 36, 36);
+        for (int i = 0; i < 5; i++) {
+            g.drawOval(x + 60 + i * 92, y + 25, 45, 45);
+            g.drawOval(x + 60 + i * 92, y + 92, 45, 45);
+        }
+        g.drawRect(x + 155, y + 52, 210, 52);
+        g.drawRect(x + 365, y + 42, 90, 20);
+        g.drawOval(x + 445, y + 52, 70, 70);
+    }
+
+    private void drawCrawlerTop(Graphics2D g, int x, int y, int w, int h) {
+        g.drawRoundRect(x + 20, y + 20, w - 40, 48, 24, 24);
+        g.drawRoundRect(x + 20, y + 120, w - 40, 48, 24, 24);
+        g.drawRect(x + 160, y + 78, 205, 60);
+        g.drawRect(x + 385, y + 78, 85, 60);
+        g.drawOval(x + 455, y + 65, 86, 86);
+        for (int i = 0; i < 6; i++) g.drawRect(x + 80 + i * 65, y + 86, 28, 18);
+    }
+
+    private void drawCrawlerSide(Graphics2D g, int x, int y, int w, int h) {
+        g.drawRoundRect(x + 25, y + 130, w - 50, 55, 28, 28);
+        for (int i = 0; i < 4; i++) g.drawOval(x + 55 + i * 62, y + 137, 38, 38);
+        g.drawRect(x + 75, y + 85, 170, 58);
+        g.drawRect(x + 115, y + 45, 110, 50);
+        g.drawRect(x + 225, y + 92, 70, 18);
+        g.drawOval(x + 280, y + 96, 54, 54);
+        for (int i = 0; i < 5; i++) g.drawRect(x + 60 + i * 45, y + 190, 28, 14);
+    }
+
+    private void drawCrawlerDimensionTable(Graphics2D g, DesignProject p, int x, int y) {
+        String[][] rows = {
+                {"整机尺寸", "≤800×600×300", "mm", "任务书约束"},
+                {"爬行速度", "0.1～0.5", "m/min", "低速检测"},
+                {"吸附力", "≥200", "N", "磁吸附稳定"},
+                {"清扫效率", "≥95", "%", "圆盘刷清扫"},
+                {"检测精度", "≤±0.1", "mm", "传感器指标"},
+                {"防护等级", "IP65", "", "油罐现场环境"}
+        };
+        drawTable(g, x, y, 570, 240, "二、主要技术指标表", new String[]{"参数", "数值", "单位", "说明"}, rows);
+    }
+
+    private void drawCrawlerBom(Graphics2D g, int x, int y) {
+        String[][] rows = {
+                {"1", "履带组件", "橡胶复合材料", "2"},
+                {"2", "驱动轮/从动轮", "45钢包胶", "4"},
+                {"3", "支重轮", "45钢包胶", "8"},
+                {"4", "磁吸附模块", "钕铁硼", "8"},
+                {"5", "圆盘刷", "尼龙刷丝", "1"},
+                {"6", "检测传感器安装架", "6061铝合金", "1"},
+                {"7", "防护外壳", "ABS+铝板", "1"},
+                {"8", "驱动电机/减速器", "标准件", "2"}
+        };
+        drawTable(g, x, y, 570, 255, "五、BOM明细表", new String[]{"序号", "名称", "材料", "数量"}, rows);
+    }
+
+    private void drawCrawlerDetails(Graphics2D g, int x, int y) {
+        g.setColor(new Color(24, 34, 48));
+        g.setFont(font().deriveFont(Font.BOLD, 20f));
+        g.drawString("三、关键结构局部详图", x, y - 18);
+        g.setFont(font().deriveFont(Font.PLAIN, 15f));
+        g.drawString("1. 履带轮系", x, y + 20);
+        drawCrawlerFront(g, x, y + 35, 360, 130);
+        g.drawString("2. 检测滑轨与清扫模块", x + 410, y + 20);
+        g.drawRect(x + 430, y + 70, 180, 30);
+        g.drawOval(x + 620, y + 42, 95, 95);
+        g.drawString("3. 磁吸附模块", x, y + 220);
+        for (int i = 0; i < 6; i++) g.drawRect(x + 30 + i * 55, y + 245, 36, 28);
+    }
+
+    private void drawCrawlerNotes(Graphics2D g, int x, int y) {
+        g.setColor(new Color(24, 34, 48));
+        g.setFont(font().deriveFont(Font.BOLD, 20f));
+        g.drawString("四、技术要求", x, y - 18);
+        g.setFont(font().deriveFont(Font.PLAIN, 15f));
+        String[] notes = {
+                "1. 左右履带对称布置，轮系中心线保持平行。",
+                "2. 磁吸附模块沿履带内侧均布，吸附力不小于200N。",
+                "3. 清扫刷位于检测模块前方，保证检测前表面清洁。",
+                "4. 检测传感器安装架采用滑轨调节并设置快拆结构。",
+                "5. 电池和控制模块安装舱满足IP65防护要求。"
+        };
+        for (int i = 0; i < notes.length; i++) g.drawString(notes[i], x, y + 18 + i * 34);
     }
 
     private BufferedImage sedimentationBoard(DesignProject p, boolean showcase) {

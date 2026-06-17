@@ -82,8 +82,56 @@ public class DesignEnhancementEngine {
                         param("电机功率", 3, "kW", "按输送阻力和功率储备建议")
                 )
         ));
+        RULES.put("wallCrawlerRobot", new RuleSet(
+                List.of("油罐检测爬壁机器人", "爬壁机器人", "爬壁", "履带", "磁吸附", "油罐检测", "清扫刷", "壁面检测"),
+                "油罐检测爬壁机器人", "机械结构设计 / 机器人结构设计 / 机电一体化设计", "磁吸附履带式检测机器人",
+                List.of("油罐壁面爬行", "磁吸附稳定附着", "表面清扫", "检测模块安装", "壁面缺陷检测", "模块化维护"),
+                List.of(
+                        spec("FUNCTION", "履带行走机构", "实现机器人沿油罐壁面低速稳定爬行", "橡胶复合材料", 2, "TRACK", true),
+                        spec("FUNCTION", "驱动轮", "驱动履带并传递电机输出扭矩", "45钢包胶", 2, "WHEEL", true),
+                        spec("FUNCTION", "从动轮", "支撑履带回转并保持张紧", "45钢包胶", 2, "WHEEL", true),
+                        spec("FUNCTION", "支重轮", "分担机体载荷并稳定履带接触", "45钢包胶", 8, "SMALL_WHEEL", false),
+                        spec("FUNCTION", "履带", "提供壁面接触和行走牵引", "耐磨橡胶", 2, "BELT", true),
+                        spec("MOUNT", "永磁吸附机构", "提供持续吸附力并保持壁面附着", "钕铁硼磁钢+Q235B", 1, "MAGNET_ARRAY", true),
+                        spec("MOUNT", "磁吸附模块", "按履带内侧分段布置磁吸单元", "钕铁硼磁钢", 8, "MAGNET_BLOCK", true),
+                        spec("FUNCTION", "圆盘清扫刷", "清理检测区域表面浮尘和附着物", "尼龙刷丝", 1, "BRUSH", true),
+                        spec("DRIVE", "清扫驱动电机", "驱动圆盘刷旋转清扫", "标准件", 1, "MOTOR", true),
+                        spec("FUNCTION", "检测传感器安装架", "安装检测探头并保持检测距离", "6061铝合金", 1, "SENSOR_RAIL", true),
+                        spec("FUNCTION", "滑轨调节机构", "调节检测模块高度和前后位置", "标准直线滑轨", 1, "SLIDER", true),
+                        spec("CONNECT", "快拆结构", "便于清扫刷和检测模块快速维护", "不锈钢", 2, "QUICK_RELEASE", false),
+                        spec("SUPPORT", "机架", "承载履带、磁吸、检测和清扫模块", "6061铝合金", 1, "FRAME", true),
+                        spec("SAFETY", "防护外壳", "保护电气舱和传动部件", "ABS+铝板", 1, "COVER", true),
+                        spec("DRIVE", "驱动电机", "为左右履带提供动力", "标准件", 2, "MOTOR", true),
+                        spec("DRIVE", "减速器", "降低转速并提高履带输出扭矩", "标准件", 2, "GEARBOX", true),
+                        spec("BODY", "电池/控制模块安装舱", "安装电池、控制器和通信模块", "6061铝合金", 1, "BATTERY_BOX", true),
+                        spec("CONNECT", "螺栓连接组", "连接外壳、机架和功能模块", "8.8级螺栓", 16, "BOLT_GROUP", false),
+                        spec("STRUCTURE", "加强筋", "提高机架和传感器支架刚度", "6061铝合金", 6, "RIB", false),
+                        spec("MAINTENANCE", "模块检修盖", "提供电池和控制模块维护入口", "ABS", 1, "DOOR", false)
+                ),
+                List.of(
+                        param("适用壁面", "碳钢、不锈钢", "", "任务书技术指标"),
+                        param("爬行速度", "0.1～0.5", "m/min", "任务书技术指标"),
+                        param("吸附力", 220, "N", "按任务书≥200N并留有安全裕量"),
+                        param("清扫效率", 95, "%", "任务书技术指标"),
+                        param("检测精度", 0.1, "mm", "任务书技术指标≤±0.1mm"),
+                        param("续航时间", 4, "h", "任务书技术指标≥4h"),
+                        param("工作温度", "-20℃～60℃", "", "任务书技术指标"),
+                        param("防护等级", "IP65", "", "任务书技术指标"),
+                        param("总长", 780, "mm", "按整机尺寸≤800×600×300mm确定"),
+                        param("总宽", 560, "mm", "按整机尺寸≤800×600×300mm确定"),
+                        param("总高", 260, "mm", "按整机尺寸≤800×600×300mm确定"),
+                        param("履带长度", 680, "mm", "按整机长度和前后轮布置确定"),
+                        param("履带宽度", 95, "mm", "按壁面附着面积和结构紧凑性确定"),
+                        param("轮径", 120, "mm", "按履带回转半径和越障裕量确定"),
+                        param("轮距", 460, "mm", "按左右履带布置和机架宽度确定"),
+                        param("磁吸附模块安装间距", 90, "mm", "按磁块沿履带内侧均布确定"),
+                        param("清扫刷直径", 180, "mm", "按检测前清扫覆盖宽度确定"),
+                        param("检测模块安装高度", 130, "mm", "按传感器工作距离和调节范围确定"),
+                        param("机架板厚", 6, "mm", "按铝合金机架刚度和轻量化要求确定")
+                )
+        ));
         RULES.put("manipulator", new RuleSet(
-                List.of("机械手", "机器人", "夹爪", "机械臂"),
+                List.of("机械手", "夹爪", "机械臂", "末端执行器"),
                 "机械手", "自动化设备设计", "机电一体化设备",
                 List.of("工件抓取", "姿态调整", "搬运定位", "夹持释放", "限位保护"),
                 List.of(
@@ -163,6 +211,10 @@ public class DesignEnhancementEngine {
     }
 
     private void applyIdentity(DesignProject project, RuleSet rule) {
+        if (strongRuleMatch(project, rule)) {
+            project.setEquipmentName(rule.equipmentName());
+            project.setDesignType(rule.designType());
+        }
         if (blank(project.getProjectTitle())) project.setProjectTitle(rule.equipmentName() + "设计");
         if (blank(project.getEquipmentName()) || project.getEquipmentName().contains("通用")) project.setEquipmentName(rule.equipmentName());
         if (blank(project.getDesignType()) || project.getDesignType().contains("通用")) project.setDesignType(rule.designType());
@@ -174,8 +226,26 @@ public class DesignEnhancementEngine {
     }
 
     private void applyFunctions(DesignProject project, RuleSet rule) {
+        removeIncompatibleStructures(project, rule);
         for (String function : rule.functions()) addUnique(project.getMainFunctions(), function);
         for (ComponentSpec component : rule.components()) addUnique(project.getMainStructures(), component.name());
+    }
+
+    private boolean strongRuleMatch(DesignProject project, RuleSet rule) {
+        String currentTask = safe(project.getProjectTitle()) + " " + String.join(" ", project.getMainStructures()) + " "
+                + String.join(" ", project.getMainFunctions());
+        return rule.keywords().stream().anyMatch(currentTask::contains);
+    }
+
+    private void removeIncompatibleStructures(DesignProject project, RuleSet rule) {
+        String equipment = rule.equipmentName();
+        if (equipment.contains("爬壁机器人")) {
+            project.getMainStructures().removeIf(item -> containsAny(item, "沉降", "排灰", "进风", "出风", "灰斗", "箱体", "沉降腔"));
+            project.getMainFunctions().removeIf(item -> containsAny(item, "含尘", "颗粒物", "卸灰", "沉降"));
+        } else if (equipment.contains("沉降室")) {
+            project.getMainStructures().removeIf(item -> containsAny(item, "履带", "磁吸", "圆盘刷", "传感器", "滑轨", "清扫"));
+            project.getMainFunctions().removeIf(item -> containsAny(item, "壁面", "爬行", "清扫", "缺陷检测", "磁吸"));
+        }
     }
 
     private void applyParameters(DesignProject project, RuleSet rule) {
@@ -491,6 +561,11 @@ public class DesignEnhancementEngine {
 
     private static boolean blank(String value) { return value == null || value.isBlank(); }
     private static String safe(String value) { return value == null ? "" : value; }
+    private static boolean containsAny(String value, String... words) {
+        if (value == null) return false;
+        for (String word : words) if (value.contains(word)) return true;
+        return false;
+    }
 
     private record RuleSet(List<String> keywords, String equipmentName, String designType, String category,
                            List<String> functions, List<ComponentSpec> components, List<ParameterSpec> parameters) {}

@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class DesignProject {
+    private String projectId = "";
     private String projectTitle = "";
     private String equipmentName = "";
     private String designType = "";
@@ -34,6 +35,8 @@ public class DesignProject {
     private List<String> verificationItems = new ArrayList<>();
     private List<Calculation> calculations = new ArrayList<>();
 
+    public String getProjectId() { return projectId; }
+    public void setProjectId(String projectId) { this.projectId = projectId; }
     public String getProjectTitle() { return projectTitle; }
     public void setProjectTitle(String projectTitle) { this.projectTitle = projectTitle; }
     public String getEquipmentName() { return equipmentName; }

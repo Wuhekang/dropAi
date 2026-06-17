@@ -17,6 +17,7 @@ import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DesignPackageModuleTests {
@@ -109,6 +110,30 @@ class DesignPackageModuleTests {
         assertArchitecture("重力沉降室设计", "环保设备结构设计", "排灰斗", "HOPPER");
         assertArchitecture("带式输送机设计", "输送设备设计", "输送带", "BELT");
         assertArchitecture("六自由度机械手设计", "自动化设备设计", "夹爪", "CLAW");
+    }
+
+    @Test
+    void wallCrawlerRobotTaskDoesNotReuseSedimentationStructures() {
+        String task = """
+                课题名称：油罐检测爬壁机器人结构设计
+                主要功能：油罐壁面爬行、磁吸附稳定附着、表面清扫、检测模块安装、壁面缺陷检测、模块化维护
+                技术指标：适用壁面为碳钢、不锈钢；爬行速度0.1～0.5 m/min；吸附力≥200 N；清扫效率≥95%；检测精度≤±0.1 mm；续航时间≥4 h；防护等级IP65；整机尺寸≤800×600×300 mm。
+                """;
+        DesignProject analyzed = new DesignAnalyzer().analyze("",
+                List.of(new DocumentParser.ParsedDocument("任务书.txt", "TASK_BOOK", task)));
+        DesignEnhancementEngine enhancementEngine = new DesignEnhancementEngine();
+        DesignProject project = enhancementEngine.enhance(new StructureEngine().design(
+                new CalculationEngine().calculate(enhancementEngine.enhance(new ParameterEngine().normalize(analyzed)))));
+        assertTrue(project.getProjectId().startsWith("dp-"));
+        assertTrue(project.getProjectTitle().contains("油罐检测爬壁机器人结构设计"));
+        assertTrue(project.getEquipmentName().contains("油罐检测爬壁机器人"));
+        assertTrue(project.getDesignType().contains("机器人结构设计"));
+        assertTrue(project.getComponents().stream().anyMatch(c -> "履带行走机构".equals(c.getName()) || "左侧履带组件".equals(c.getName())));
+        assertTrue(project.getComponents().stream().anyMatch(c -> c.getName().contains("磁吸附")));
+        assertTrue(project.getComponents().stream().anyMatch(c -> c.getName().contains("圆盘清扫刷")));
+        assertTrue(project.getComponents().stream().anyMatch(c -> c.getName().contains("检测传感器安装架")));
+        assertFalse(project.getBom().stream().anyMatch(item -> item.getName().contains("进风口") || item.getName().contains("出风口") || item.getName().contains("排灰斗")));
+        assertTrue(project.getCalculations().stream().anyMatch(item -> item.getName().contains("吸附力")));
     }
 
     private void assertArchitecture(String title, String architecture, String componentName, String geometry) {

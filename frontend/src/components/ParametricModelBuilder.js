@@ -196,6 +196,43 @@ function manipulator(group, dims) {
   label(group, '机械手臂', [dims.length * 0.35, 0.9, 0])
 }
 
+function crawlerRobot(group, dims) {
+  const l = dims.length
+  const w = dims.width
+  const h = dims.height
+  const trackY = -0.42
+  const trackZ = w * 0.34
+  for (const z of [-trackZ, trackZ]) {
+    box(group, '履带外轮廓', [l * 0.86, 0.16, w * 0.16], [0, trackY, z], 0x111827)
+    box(group, '履带接地段', [l * 0.74, 0.06, w * 0.18], [0, trackY - 0.08, z], 0x020617)
+    cyl(group, '驱动轮', h * 0.16, w * 0.18, [-l * 0.36, trackY, z], 0x64748b, 'z', 1, 40)
+    cyl(group, '从动轮', h * 0.16, w * 0.18, [l * 0.36, trackY, z], 0x64748b, 'z', 1, 40)
+    for (let i = -2; i <= 2; i += 1) cyl(group, '支重轮', h * 0.075, w * 0.17, [i * l * 0.14, trackY - 0.02, z], 0x94a3b8, 'z', 1, 24)
+  }
+  box(group, '铝合金机架', [l * 0.68, 0.1, w * 0.48], [0, -0.2, 0], 0x475569)
+  box(group, '防护外壳', [l * 0.48, h * 0.34, w * 0.38], [-l * 0.04, 0.02, 0], 0x2563eb, 0.86)
+  box(group, '电池/控制模块安装舱', [l * 0.24, h * 0.22, w * 0.28], [-l * 0.02, 0.05, 0], 0x1d4ed8)
+  for (let i = -3; i <= 3; i += 1) {
+    box(group, '磁吸附模块', [l * 0.075, 0.035, w * 0.12], [i * l * 0.095, trackY - 0.18, 0], 0x10b981)
+  }
+  box(group, '检测传感器滑轨', [l * 0.28, 0.045, w * 0.12], [l * 0.34, 0.12, 0], 0x38bdf8)
+  box(group, '检测传感器安装架', [l * 0.12, h * 0.18, w * 0.12], [l * 0.43, 0.02, 0], 0x0ea5e9)
+  cyl(group, '圆盘清扫刷', h * 0.16, 0.06, [l * 0.52, -0.2, 0], 0xf97316, 'y', 1, 56)
+  for (let i = 0; i < 12; i += 1) {
+    const a = Math.PI * 2 * i / 12
+    line(group, '清扫刷刷丝', [[l * 0.52, -0.2, 0], [l * 0.52 + Math.cos(a) * h * 0.2, -0.2, Math.sin(a) * h * 0.2]], 0xf59e0b)
+  }
+  for (const z of [-w * 0.18, w * 0.18]) {
+    box(group, '驱动电机', [l * 0.12, h * 0.14, w * 0.1], [-l * 0.32, -0.08, z], 0x16a34a)
+    box(group, '减速器', [l * 0.1, h * 0.12, w * 0.1], [-l * 0.22, -0.08, z], 0x15803d)
+  }
+  for (const x of [-l * 0.25, 0, l * 0.25]) for (const z of [-w * 0.18, w * 0.18]) cyl(group, '螺栓连接细节', 0.018, 0.04, [x, 0.12, z], 0x0f172a, 'y', 1, 12)
+  label(group, '左右履带行走机构', [0, -0.02, w * 0.62])
+  label(group, '磁吸附模块', [-l * 0.08, -0.72, 0])
+  label(group, '清扫刷/检测安装架', [l * 0.42, 0.42, 0])
+  label(group, '电池与控制舱', [-l * 0.08, 0.42, 0])
+}
+
 function engineeringBracket(group, dims) {
   const l = dims.length
   const w = dims.width
@@ -221,6 +258,7 @@ export function buildParametricMechanicalModel(project = {}) {
   }
   const type = `${project.designType || ''}${project.equipmentName || ''}${project.projectTitle || ''}`
   if (type.includes('输送')) conveyor(group, dims)
+  else if (type.includes('爬壁') || type.includes('履带') || type.includes('磁吸附') || type.includes('油罐检测')) crawlerRobot(group, dims)
   else if (type.includes('机械手') || type.includes('机械臂')) manipulator(group, dims)
   else if (type.includes('沉降') || type.includes('除尘') || type.includes('分离')) detailedSedimentationChamber(group, dims)
   else engineeringBracket(group, dims)

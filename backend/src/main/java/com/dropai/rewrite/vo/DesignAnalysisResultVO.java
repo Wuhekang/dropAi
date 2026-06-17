@@ -6,6 +6,7 @@ import com.dropai.rewrite.modules.model.DesignProject;
 import java.util.List;
 
 public class DesignAnalysisResultVO {
+    private String projectId;
     private String title;
     private String equipmentName;
     private String designType;
@@ -21,6 +22,7 @@ public class DesignAnalysisResultVO {
     public static DesignAnalysisResultVO of(DesignProject project, List<DocumentParser.ParsedDocument> documents) {
         DesignAnalysisResultVO vo = new DesignAnalysisResultVO();
         vo.project = project;
+        vo.projectId = project.getProjectId();
         vo.title = project.getProjectTitle();
         vo.equipmentName = project.getEquipmentName();
         vo.designType = project.getDesignType();
@@ -36,6 +38,8 @@ public class DesignAnalysisResultVO {
         return vo;
     }
 
+    public String getProjectId() { return projectId; }
+    public void setProjectId(String projectId) { this.projectId = projectId; }
     public String getTitle() { return title; }
     public void setTitle(String title) { this.title = title; }
     public String getEquipmentName() { return equipmentName; }

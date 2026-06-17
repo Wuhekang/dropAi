@@ -274,7 +274,7 @@ const artifacts = ref([]), parameters = ref([])
 const functionsText = ref(''), structuresText = ref('')
 const previews = reactive({ scheme: '', cad: '' })
 const packageStatus = ref('pending'), packageMessage = ref('等待生成')
-const project = reactive({ projectTitle: '', equipmentName: '', designType: '', designDepth: 'graduation', projectCategory: '', mainFunctions: [], mainStructures: [], explicitParameters: [], derivedParameters: [], suggestedParameters: [], verificationItems: [], calculations: [], bom: [], technicalRequirements: [], materials: [], standardParts: [], detailFeatures: [], drawingViews: [], annotationList: [], partCount: 0, featureCount: 0, detailScore: 0, enhancementNotes: [] })
+const project = reactive({ projectId: '', projectTitle: '', equipmentName: '', designType: '', designDepth: 'graduation', projectCategory: '', mainFunctions: [], mainStructures: [], explicitParameters: [], derivedParameters: [], suggestedParameters: [], verificationItems: [], calculations: [], bom: [], technicalRequirements: [], materials: [], standardParts: [], detailFeatures: [], drawingViews: [], annotationList: [], partCount: 0, featureCount: 0, detailScore: 0, enhancementNotes: [] })
 
 const uploadedFiles = computed(() => Object.values(files).filter(file => file?.raw))
 const successCount = computed(() => artifacts.value.filter(x => x.status === 'success').length)
@@ -299,12 +299,13 @@ const modelProject = computed(() => ({
 }))
 
 function selectFile(key, file) {
+  resetProjectSession()
   files[key] = { raw: file.raw, name: file.name, type: uploadSlots.find(item => item.key === key)?.type, status: 'pending', textReadable: false, failureReason: '' }
   analysisStatus.value = 'pending'
   targetConfirmed.value = false
   parseMessage.value = '资料已选择，点击“第一步：自动识别设计目标”后开始解析。'
 }
-function removeFile(key) { delete files[key] }
+function removeFile(key) { delete files[key]; resetProjectSession(false) }
 function fileState(key) { return files[key] || {} }
 function typeText(type) {
   return ({ TASK_BOOK: '任务书', PROPOSAL: '开题报告', THESIS_TEMPLATE: '论文模板', REFERENCE: '参考文献', IMAGE_REFERENCE: '图片参考图', CAD_REFERENCE: 'CAD参考图', DOCUMENT: '文档资料' })[type] || '资料'
@@ -342,6 +343,7 @@ function addParameter() { parameters.value.push({ id: Date.now(), name: '', valu
 function removeParameter(index) { parameters.value.splice(index, 1) }
 function splitList(value) { return String(value || '').split(/[、,，\n]/).map(item => item.trim()).filter(Boolean) }
 async function analyze() {
+  clearGeneratedState()
   analyzing.value = true
   analysisStatus.value = 'running'
   parseMessage.value = '正在解析资料'
@@ -360,6 +362,24 @@ async function analyze() {
     parseMessage.value = friendlyError(error)
     ElMessage.error(parseMessage.value)
   } finally { analyzing.value = false }
+}
+function resetProjectSession(clearTitle = true) {
+  const depth = project.designDepth || 'graduation'
+  Object.assign(project, { projectId: '', projectTitle: clearTitle ? '' : project.projectTitle, equipmentName: '', designType: '', designDepth: depth, projectCategory: '', mainFunctions: [], mainStructures: [], explicitParameters: [], derivedParameters: [], suggestedParameters: [], verificationItems: [], calculations: [], bom: [], technicalRequirements: [], materials: [], standardParts: [], detailFeatures: [], drawingViews: [], annotationList: [], partCount: 0, featureCount: 0, detailScore: 0, enhancementNotes: [] })
+  functionsText.value = ''
+  structuresText.value = ''
+  parameters.value = []
+  targetConfirmed.value = false
+  clearGeneratedState()
+}
+function clearGeneratedState() {
+  artifacts.value = []
+  packageStatus.value = 'pending'
+  packageMessage.value = '等待生成'
+  for (const key of ['scheme', 'cad']) {
+    if (previews[key]) URL.revokeObjectURL(previews[key])
+    previews[key] = ''
+  }
 }
 function applyAnalysisResult(result) {
   ;(result.documents || []).forEach(doc => {
