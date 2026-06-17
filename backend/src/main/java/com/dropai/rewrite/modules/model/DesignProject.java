@@ -4,11 +4,13 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class DesignProject {
-    private String projectTitle = "通用机械类毕业设计";
-    private String equipmentName = "机械设备";
-    private String designType = "通用机械结构设计";
-    private String workingPrinciple = "物料或载荷通过设备主体、功能单元和接口单元完成预定机械过程";
+    private String projectTitle = "";
+    private String equipmentName = "";
+    private String designType = "";
+    private String projectCategory = "";
+    private String workingPrinciple = "";
     private List<String> mainFunctions = new ArrayList<>();
+    private List<String> mainStructures = new ArrayList<>();
     private List<Component> components = new ArrayList<>();
     private List<BomItem> bom = new ArrayList<>();
     private List<DimensionChain> dimensionChains = new ArrayList<>();
@@ -25,10 +27,14 @@ public class DesignProject {
     public void setEquipmentName(String equipmentName) { this.equipmentName = equipmentName; }
     public String getDesignType() { return designType; }
     public void setDesignType(String designType) { this.designType = designType; }
+    public String getProjectCategory() { return projectCategory; }
+    public void setProjectCategory(String projectCategory) { this.projectCategory = projectCategory; }
     public String getWorkingPrinciple() { return workingPrinciple; }
     public void setWorkingPrinciple(String workingPrinciple) { this.workingPrinciple = workingPrinciple; }
     public List<String> getMainFunctions() { return mainFunctions; }
     public void setMainFunctions(List<String> value) { mainFunctions = safe(value); }
+    public List<String> getMainStructures() { return mainStructures; }
+    public void setMainStructures(List<String> value) { mainStructures = safe(value); }
     public List<Component> getComponents() { return components; }
     public void setComponents(List<Component> value) { components = safe(value); }
     public List<BomItem> getBom() { return bom; }

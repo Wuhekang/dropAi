@@ -5,6 +5,7 @@ import com.dropai.rewrite.modules.documentParser.DocumentParser;
 import com.dropai.rewrite.modules.designAnalyzer.DesignAnalyzer;
 import com.dropai.rewrite.modules.parameterEngine.ParameterEngine;
 import com.dropai.rewrite.service.DesignPackageService;
+import com.dropai.rewrite.vo.DesignAnalysisResultVO;
 import com.dropai.rewrite.vo.DesignPackageVO;
 import com.dropai.rewrite.vo.Result;
 import org.springframework.web.bind.annotation.*;
@@ -26,8 +27,10 @@ public class DesignPackageController {
     public Result<DesignPackageVO> generate(@RequestBody DesignProject project) { return Result.success(service.generate(project)); }
 
     @PostMapping("/analyze")
-    public Result<DesignProject> analyze(@RequestParam(defaultValue = "") String title, @RequestParam("files") List<MultipartFile> files) {
-        return Result.success(parameterEngine.normalize(designAnalyzer.analyze(title, documentParser.parse(files))));
+    public Result<DesignAnalysisResultVO> analyze(@RequestParam(defaultValue = "") String title, @RequestParam("files") List<MultipartFile> files) {
+        List<DocumentParser.ParsedDocument> documents = documentParser.parse(files);
+        DesignProject project = parameterEngine.normalize(designAnalyzer.analyze(title, documents));
+        return Result.success(DesignAnalysisResultVO.of(project, documents));
     }
 
     @ExceptionHandler(Exception.class)
