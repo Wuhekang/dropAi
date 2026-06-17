@@ -4,12 +4,12 @@ import com.dropai.rewrite.modules.assemblyBuilder.AssemblyBuilder;
 import com.dropai.rewrite.modules.bomGenerator.BOMGenerator;
 import com.dropai.rewrite.modules.calculationEngine.CalculationEngine;
 import com.dropai.rewrite.modules.model.DesignProject;
+import com.dropai.rewrite.modules.nonStandardPartGenerator.NonStandardPartGenerator;
 import com.dropai.rewrite.modules.parameterEngine.ParameterEngine;
 import com.dropai.rewrite.modules.projectAnalyzer.ProjectAnalyzer;
 import com.dropai.rewrite.modules.projectSessionReset.ProjectSessionReset;
-import com.dropai.rewrite.modules.standardPartLibrary.StandardPartLibrary;
+import com.dropai.rewrite.modules.standardPartSelector.StandardPartSelector;
 import com.dropai.rewrite.modules.structureTreeBuilder.StructureTreeBuilder;
-import com.dropai.rewrite.modules.unknownPartResolver.UnknownPartResolver;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -18,23 +18,23 @@ public class TaskDrivenDesignPipeline {
     private final ParameterEngine parameterEngine;
     private final ProjectAnalyzer projectAnalyzer;
     private final StructureTreeBuilder structureTreeBuilder;
-    private final StandardPartLibrary standardPartLibrary;
-    private final UnknownPartResolver unknownPartResolver;
+    private final StandardPartSelector standardPartSelector;
+    private final NonStandardPartGenerator nonStandardPartGenerator;
     private final AssemblyBuilder assemblyBuilder;
     private final BOMGenerator bomGenerator;
     private final CalculationEngine calculationEngine;
 
     public TaskDrivenDesignPipeline(ProjectSessionReset sessionReset, ParameterEngine parameterEngine,
                                     ProjectAnalyzer projectAnalyzer, StructureTreeBuilder structureTreeBuilder,
-                                    StandardPartLibrary standardPartLibrary, UnknownPartResolver unknownPartResolver,
+                                    StandardPartSelector standardPartSelector, NonStandardPartGenerator nonStandardPartGenerator,
                                     AssemblyBuilder assemblyBuilder, BOMGenerator bomGenerator,
                                     CalculationEngine calculationEngine) {
         this.sessionReset = sessionReset;
         this.parameterEngine = parameterEngine;
         this.projectAnalyzer = projectAnalyzer;
         this.structureTreeBuilder = structureTreeBuilder;
-        this.standardPartLibrary = standardPartLibrary;
-        this.unknownPartResolver = unknownPartResolver;
+        this.standardPartSelector = standardPartSelector;
+        this.nonStandardPartGenerator = nonStandardPartGenerator;
         this.assemblyBuilder = assemblyBuilder;
         this.bomGenerator = bomGenerator;
         this.calculationEngine = calculationEngine;
@@ -53,15 +53,15 @@ public class TaskDrivenDesignPipeline {
         ensureMinimumParameters(project);
         project = projectAnalyzer.analyze(project);
         project = structureTreeBuilder.build(project);
-        project = standardPartLibrary.resolve(project);
-        project = unknownPartResolver.resolve(project);
+        project = standardPartSelector.select(project);
+        project = nonStandardPartGenerator.generate(project);
         project = assemblyBuilder.build(project);
         project = bomGenerator.generate(project);
         project = calculationEngine.calculate(project);
         project = bomGenerator.generate(project);
         score(project);
         project.getEnhancementNotes().removeIf(item -> item != null && item.contains("任务书驱动结构树流水线"));
-        project.getEnhancementNotes().add("任务书驱动结构树流水线：StructureTree + StandardPartLibrary + UnknownPartResolver + AssemblyTree 已生成当前项目专属结构。");
+        project.getEnhancementNotes().add("任务书驱动结构树流水线：StructureTree + StandardPartSelector + NonStandardPartGenerator + AssemblyTree 已生成当前项目专属结构。");
         return project;
     }
 

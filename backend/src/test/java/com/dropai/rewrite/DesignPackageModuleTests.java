@@ -9,11 +9,12 @@ import com.dropai.rewrite.modules.designPipeline.TaskDrivenDesignPipeline;
 import com.dropai.rewrite.modules.documentParser.DocumentParser;
 import com.dropai.rewrite.modules.drawingEngine.DrawingEngine;
 import com.dropai.rewrite.modules.model.DesignProject;
+import com.dropai.rewrite.modules.nonStandardPartGenerator.NonStandardPartGenerator;
 import com.dropai.rewrite.modules.paperEngine.PaperEngine;
 import com.dropai.rewrite.modules.parameterEngine.ParameterEngine;
 import com.dropai.rewrite.modules.projectAnalyzer.ProjectAnalyzer;
 import com.dropai.rewrite.modules.projectSessionReset.ProjectSessionReset;
-import com.dropai.rewrite.modules.standardPartLibrary.StandardPartLibrary;
+import com.dropai.rewrite.modules.standardPartSelector.StandardPartSelector;
 import com.dropai.rewrite.modules.structureEngine.StructureEngine;
 import com.dropai.rewrite.modules.structureTreeBuilder.StructureTreeBuilder;
 import com.dropai.rewrite.modules.unknownPartResolver.UnknownPartResolver;
@@ -156,6 +157,10 @@ class DesignPackageModuleTests {
         assertTrue(project.getStructureTree().getChildren().size() >= 3);
         assertTrue(project.getResolvedParts().stream().anyMatch(p -> "standard".equals(p.getPartType()) && p.getName().contains("电机")));
         assertTrue(project.getResolvedParts().stream().anyMatch(p -> "non_standard".equals(p.getPartType()) && p.getName().contains("夹紧")));
+        assertTrue(project.getResolvedParts().stream().filter(p -> "standard".equals(p.getPartType()))
+                .anyMatch(p -> p.getSource().contains("GB/T") || p.getSource().contains("公开")));
+        assertTrue(project.getResolvedParts().stream().filter(p -> "non_standard".equals(p.getPartType()))
+                .allMatch(p -> "NonStandardPartGenerator".equals(p.getGeneratedBy()) && p.getGeometryFeatures().size() >= 4));
         assertTrue(project.getAssemblyTree().getChildren().size() >= 3);
         assertTrue(project.getBom().size() == project.getComponents().size());
         assertTrue(project.getDetailScore() >= 70);
@@ -181,7 +186,7 @@ class DesignPackageModuleTests {
         ParameterEngine parameterEngine = new ParameterEngine();
         CalculationEngine calculationEngine = new CalculationEngine();
         return new TaskDrivenDesignPipeline(new ProjectSessionReset(), parameterEngine, new ProjectAnalyzer(),
-                new StructureTreeBuilder(), new StandardPartLibrary(), new UnknownPartResolver(),
+                new StructureTreeBuilder(), new StandardPartSelector(), new NonStandardPartGenerator(new UnknownPartResolver()),
                 new AssemblyBuilder(), new BOMGenerator(), calculationEngine);
     }
 }

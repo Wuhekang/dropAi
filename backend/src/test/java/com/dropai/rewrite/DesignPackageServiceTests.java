@@ -11,11 +11,12 @@ import com.dropai.rewrite.modules.designPipeline.TaskDrivenDesignPipeline;
 import com.dropai.rewrite.modules.drawingEngine.DrawingEngine;
 import com.dropai.rewrite.modules.exportEngine.ExportEngine;
 import com.dropai.rewrite.modules.model.DesignProject;
+import com.dropai.rewrite.modules.nonStandardPartGenerator.NonStandardPartGenerator;
 import com.dropai.rewrite.modules.paperEngine.PaperEngine;
 import com.dropai.rewrite.modules.parameterEngine.ParameterEngine;
 import com.dropai.rewrite.modules.projectAnalyzer.ProjectAnalyzer;
 import com.dropai.rewrite.modules.projectSessionReset.ProjectSessionReset;
-import com.dropai.rewrite.modules.standardPartLibrary.StandardPartLibrary;
+import com.dropai.rewrite.modules.standardPartSelector.StandardPartSelector;
 import com.dropai.rewrite.modules.swMacroEngine.SwMacroEngine;
 import com.dropai.rewrite.modules.structureEngine.StructureEngine;
 import com.dropai.rewrite.modules.structureTreeBuilder.StructureTreeBuilder;
@@ -45,7 +46,7 @@ class DesignPackageServiceTests {
         ParameterEngine parameterEngine = new ParameterEngine();
         CalculationEngine calculationEngine = new CalculationEngine();
         TaskDrivenDesignPipeline pipeline = new TaskDrivenDesignPipeline(new ProjectSessionReset(), parameterEngine,
-                new ProjectAnalyzer(), new StructureTreeBuilder(), new StandardPartLibrary(), new UnknownPartResolver(),
+                new ProjectAnalyzer(), new StructureTreeBuilder(), new StandardPartSelector(), new NonStandardPartGenerator(new UnknownPartResolver()),
                 new AssemblyBuilder(), new BOMGenerator(), calculationEngine);
         DesignPackageService service = new DesignPackageService(
                 parameterEngine, calculationEngine, new DesignEnhancementEngine(), new StructureEngine(), new DrawingEngine(), new SwMacroEngine(),
