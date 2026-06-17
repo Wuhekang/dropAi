@@ -54,8 +54,15 @@ class DesignPackageModuleTests {
         DesignProject project = structuredProject();
         byte[] bytes = new PaperEngine().generatePaper(project);
         try (XWPFDocument document = new XWPFDocument(new ByteArrayInputStream(bytes))) {
-            String text = document.getParagraphs().stream().map(p -> p.getText()).reduce("", (a, b) -> a + b);
-            assertTrue(text.replaceAll("\\s+", "").length() >= 8000);
+            StringBuilder builder = new StringBuilder();
+            document.getParagraphs().forEach(paragraph -> builder.append(paragraph.getText()));
+            document.getTables().forEach(table -> table.getRows().forEach(row -> row.getTableCells()
+                    .forEach(cell -> cell.getParagraphs().forEach(paragraph -> builder.append(paragraph.getText())))));
+            String text = builder.toString();
+            assertTrue(text.replaceAll("\\s+", "").length() >= 20000);
+            assertTrue(text.contains("第三章 主要零件的计算"));
+            assertTrue(text.contains("（3-1）"));
+            assertTrue(text.contains("此处插入图3-1"));
         }
     }
 
