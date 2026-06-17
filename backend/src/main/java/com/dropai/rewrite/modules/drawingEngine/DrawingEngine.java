@@ -14,10 +14,17 @@ import java.util.List;
 @Service
 public class DrawingEngine {
     private static final List<String> FONTS = List.of("Noto Sans CJK SC", "Microsoft YaHei", "SimHei", "Dialog");
+    private final DimensionEngine dimensionEngine = new DimensionEngine();
+    private final SectionViewEngine sectionViewEngine = new SectionViewEngine();
+    private final IsometricViewEngine isometricViewEngine = new IsometricViewEngine();
+    private final AnnotationEngine annotationEngine = new AnnotationEngine();
+    private final PartDrawingEngine partDrawingEngine = new PartDrawingEngine();
 
     public List<DrawingArtifact> drawAssemblyDrawing(DesignProject project) {
         Canvas c = new Canvas(project.getProjectTitle(), "总装图", "ZD-00");
-        frame(c); title(c); componentViews(c, project); dimensions(c, project); bom(c, project); requirements(c, project);
+        frame(c); title(c); componentViews(c, project); dimensionEngine.drawAssemblyDimensions(c, project);
+        sectionViewEngine.drawSections(c, project); isometricViewEngine.drawIsometric(c, project);
+        annotationEngine.drawAssemblyAnnotations(c, project); bom(c, project); requirements(c, project);
         return List.of(
                 new DrawingArtifact("assembly.dxf", c.dxf().getBytes(StandardCharsets.UTF_8), "application/dxf"),
                 new DrawingArtifact("cad_preview.svg", c.svg().getBytes(StandardCharsets.UTF_8), "image/svg+xml"),
@@ -27,23 +34,7 @@ public class DrawingEngine {
     }
 
     public List<DrawingArtifact> drawPartDrawing(DesignProject project) {
-        List<DesignProject.Component> keyParts = project.getComponents().stream().filter(DesignProject.Component::isKeyPart).limit(4).toList();
-        List<DrawingArtifact> result = new ArrayList<>();
-        for (int i = 0; i < keyParts.size(); i++) {
-            DesignProject.Component p = keyParts.get(i);
-            Canvas c = new Canvas(project.getProjectTitle(), p.getName() + "零件图", "LJ-%02d".formatted(i + 1));
-            frame(c); title(c);
-            c.rect("OUTLINE", 160, 230, 360, 190); c.rect("STRUCTURE", 195, 265, 290, 120);
-            drawPartFeatures(c, p);
-            c.text("TEXT", 180, 440, 4, "零件：" + p.getName());
-            c.text("TEXT", 180, 420, 3.5, "材料：" + p.getMaterial());
-            c.text("TEXT", 180, 400, 3.5, "功能：" + p.getFunction());
-            dimension(c, 160, 205, 520, 205, "长度 " + fmt(p.getLength()) + " mm");
-            dimension(c, 140, 230, 140, 420, "高度 " + fmt(p.getHeight()) + " mm");
-            requirements(c, project);
-            result.add(new DrawingArtifact("part_%02d.dxf".formatted(i + 1), c.dxf().getBytes(StandardCharsets.UTF_8), "application/dxf"));
-        }
-        return result;
+        return partDrawingEngine.drawPartDrawing(project);
     }
 
     private void componentViews(Canvas c, DesignProject p) {
@@ -122,35 +113,6 @@ public class DrawingEngine {
         }
     }
 
-    private void drawPartFeatures(Canvas c, DesignProject.Component part) {
-        if ("INTERFACE".equals(part.getRole()) || "FUNCTION".equals(part.getRole())) {
-            c.circle("STRUCTURE", 340, 325, 48);
-            c.circle("CENTER", 340, 325, 22);
-        } else if ("BASE".equals(part.getRole()) || "SUPPORT".equals(part.getRole())) {
-            for (double x : List.of(215d, 465d)) {
-                c.circle("CENTER", x, 290, 10);
-                c.circle("CENTER", x, 360, 10);
-            }
-            c.line("STRUCTURE", 195, 265, 485, 385);
-            c.line("STRUCTURE", 195, 385, 485, 265);
-        } else {
-            c.rect("STRUCTURE", 245, 290, 190, 70);
-            c.circle("CENTER", 270, 325, 8);
-            c.circle("CENTER", 410, 325, 8);
-        }
-    }
-
-    private void dimensions(Canvas c, DesignProject p) {
-        int i = 0;
-        for (DesignProject.DimensionChain d : p.getDimensionChains()) {
-            if (i >= 6) break;
-            c.text("DIMENSION", 690, 350 - i * 20, 3.2, d.getName() + "：" + fmt(d.getValue()) + " " + d.getUnit());
-            i++;
-        }
-        dimension(c, 70, 285, 470, 285, "总长 " + fmt(p.number("总长", 4200)));
-        dimension(c, 55, 300, 55, 460, "总高 " + fmt(p.number("总高", 1800)));
-    }
-
     private void bom(Canvas c, DesignProject p) {
         double x = 510, y = 390, w = 300, h = 155;
         c.rect("TABLE", x, y, w, h); c.text("TABLE", x + 8, y + h - 14, 4, "零件明细表（BOM）");
@@ -177,11 +139,6 @@ public class DrawingEngine {
         c.text("TEXT", 580, 82, 5, c.name); c.text("TEXT", 710, 82, 4, "图号 " + c.no);
         c.text("TEXT", 580, 42, 3.5, trim(c.title, 15)); c.text("TEXT", 710, 42, 3.5, "比例 1:10");
     }
-    private void dimension(Canvas c, double x1, double y1, double x2, double y2, String label) {
-        c.line("DIMENSION", x1, y1, x2, y2); c.line("DIMENSION", x1 - 4, y1 - 4, x1 + 4, y1 + 4);
-        c.line("DIMENSION", x2 - 4, y2 - 4, x2 + 4, y2 + 4); c.text("DIMENSION", (x1+x2)/2, (y1+y2)/2+8, 3.2, label);
-    }
-
     private byte[] renderCad(Canvas c) {
         try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             BufferedImage image = new BufferedImage(1680, 1180, BufferedImage.TYPE_INT_RGB);
@@ -229,7 +186,7 @@ public class DrawingEngine {
     private void draw(Graphics2D g,Shape s,double scale,boolean fill){int x=(int)(s.x1*scale),y=(int)((590-s.y1)*scale);if("LINE".equals(s.type))g.drawLine(x,y,(int)(s.x2*scale),(int)((590-s.y2)*scale));else if("CIRCLE".equals(s.type)){int r=(int)(s.size*scale);g.drawOval(x-r,y-r,2*r,2*r);}else{g.setFont(font().deriveFont(Math.max(12f,(float)(s.size*scale))));g.drawString(s.text,x,y);}}
     private Font font(){for(String n:FONTS){Font f=new Font(n,Font.PLAIN,14);if(f.canDisplay('中'))return f;}return new Font("Dialog",Font.PLAIN,14);}
     private String layer(DesignProject.Component c){return switch(c.getRole()){case "BODY"->"BODY";case "SUPPORT","BASE"->"SUPPORT";case "INTERFACE"->"INTERFACE";case "FUNCTION"->"FUNCTION";default->"STRUCTURE";};}
-    private String fmt(double v){return "%.0f".formatted(v);} private String trim(String v,int n){return v==null?"":v.length()>n?v.substring(0,n)+"…":v;} private String escape(String v){return v.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;");}
+    private String trim(String v,int n){return v==null?"":v.length()>n?v.substring(0,n)+"…":v;} private String escape(String v){return v.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;");}
 
     static class Canvas {
         final String title,name,no; final List<Shape> shapes=new ArrayList<>();
@@ -239,7 +196,7 @@ public class DrawingEngine {
         void circle(String l,double x,double y,double r){shapes.add(new Shape("CIRCLE",l,x,y,0,0,r,""));}
         void poly(String l,double... points){for(int i=0;i<points.length;i+=2){int n=(i+2)%points.length;line(l,points[i],points[i+1],points[n],points[n+1]);}}
         void text(String l,double x,double y,double s,String t){shapes.add(new Shape("TEXT",l,x,y,0,0,s,t));}
-        String dxf(){StringBuilder b=new StringBuilder("0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1027\n0\nENDSEC\n0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLAYER\n70\n13\n");for(String l:List.of("FRAME","TITLE","BODY","SUPPORT","INTERFACE","FUNCTION","STRUCTURE","CENTER","DIMENSION","ANNOTATION","TABLE","TEXT"))b.append("0\nLAYER\n2\n").append(l).append("\n70\n0\n62\n7\n6\nCONTINUOUS\n");b.append("0\nENDTAB\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n");shapes.forEach(s->s.dxf(b));return b.append("0\nENDSEC\n0\nEOF\n").toString();}
+        String dxf(){StringBuilder b=new StringBuilder("0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1027\n0\nENDSEC\n0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLAYER\n70\n20\n");for(String l:List.of("FRAME","TITLE","BODY","SUPPORT","INTERFACE","FUNCTION","STRUCTURE","OUTLINE","CENTER","DIMENSION","ANNOTATION","TABLE","TEXT","SECTION","HATCH","CUTTING","TOLERANCE","JOINT"))b.append("0\nLAYER\n2\n").append(l).append("\n70\n0\n62\n7\n6\nCONTINUOUS\n");b.append("0\nENDTAB\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n");shapes.forEach(s->s.dxf(b));return b.append("0\nENDSEC\n0\nEOF\n").toString();}
         String svg(){StringBuilder b=new StringBuilder("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 840 590\"><rect width=\"840\" height=\"590\" fill=\"white\"/>");shapes.forEach(s->s.svg(b));return b.append("</svg>").toString();}
     }
     record Shape(String type,String layer,double x1,double y1,double x2,double y2,double size,String text){

@@ -33,6 +33,16 @@ class DesignPackageModuleTests {
         assertTrue(dxf.contains("2\nTITLE\n"));
         assertTrue(dxf.contains("2\nBODY\n"));
         assertTrue(dxf.contains("2\nSUPPORT\n"));
+        assertTrue(dxf.contains("2\nSECTION\n"));
+        assertTrue(dxf.contains("2\nHATCH\n"));
+        assertTrue(dxf.contains("2\nCUTTING\n"));
+        assertTrue(dxf.contains("2\nTOLERANCE\n"));
+        assertTrue(dxf.contains("2\nJOINT\n"));
+        assertTrue(dxf.contains("A-A\u5256\u9762"));
+        assertTrue(dxf.contains("B-B\u5256\u9762"));
+        assertTrue(dxf.contains("\u8f74\u6d4b\u8f85\u52a9\u56fe"));
+        assertTrue(dxf.contains("\u5b89\u88c5\u5b54"));
+        assertTrue(dxf.contains("\u7c97\u7cd9\u5ea6"));
         assertTrue(dxf.contains("技术要求"));
         assertTrue(dxf.contains("总装图"));
         assertTrue(new DrawingEngine().drawAssemblyDrawing(project).stream()

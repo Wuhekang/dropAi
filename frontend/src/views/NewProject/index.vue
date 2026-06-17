@@ -70,6 +70,10 @@
           <div><span>全部任务</span><strong>{{ artifacts.length }}</strong></div>
         </div>
         <section v-if="previews.scheme || previews.cad" class="preview-stage">
+          <div class="preview-card model-card">
+            <div><strong>参数化3D方案模型</strong><span>随总长、总宽、总高和设备类型变化</span></div>
+            <ModelViewer3D :project="modelProject" />
+          </div>
           <div v-if="previews.scheme" class="preview-card">
             <div><strong>设备结构示意图</strong><span>{{ project.designType }} · {{ project.equipmentName }}</span></div>
             <img :src="previews.scheme" alt="设备结构示意图" />
@@ -106,6 +110,7 @@ import { computed, defineComponent, h, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElButton, ElMessage, ElTag } from 'element-plus'
 import { analyzeDesignPackage, downloadArtifact, generateDesignPackage } from '../../api/rewrite'
+import ModelViewer3D from '../../components/ModelViewer3D.vue'
 
 const ArtifactList = defineComponent({
   props: { items: Array }, emits: ['download'],
@@ -136,6 +141,14 @@ const groups = computed(() => ({
   document: artifacts.value.filter(x => /\.(docx|pdf)$/i.test(x.fileName)),
   package: artifacts.value.filter(x => /\.(zip|json)$/i.test(x.fileName))
 }))
+const modelProject = computed(() => ({
+  projectTitle: project.projectTitle,
+  equipmentName: project.equipmentName,
+  designType: project.designType,
+  totalLength: findParameter('总长', 4200),
+  totalWidth: findParameter('总宽', 1600),
+  totalHeight: findParameter('总高', 1800)
+}))
 function flattenParameters(source) {
   let id = Date.now()
   return [
@@ -153,6 +166,10 @@ function syncProjectParameters() {
   project.explicitParameters = map('explicit'); project.derivedParameters = map('derived'); project.suggestedParameters = map('suggested')
 }
 function normalizeValue(value) { return value !== '' && Number.isFinite(Number(value)) ? Number(value) : value }
+function findParameter(name, fallback) {
+  const row = parameters.value.find(item => item.name === name)
+  return Number.isFinite(Number(row?.value)) ? Number(row.value) : fallback
+}
 function addParameter() { parameters.value.push({ id: Date.now(), name: '', value: '', unit: '', category: 'suggested', note: '用户新增参数' }) }
 function removeParameter(index) { parameters.value.splice(index, 1) }
 async function analyze() {
@@ -205,5 +222,5 @@ function statusText(status) { return ({ pending:'等待中', running:'生成中'
 </script>
 
 <style scoped>
-.workspace{max-width:1500px;margin:auto;padding:30px 24px 70px}.hero,.panel-head{display:flex;justify-content:space-between;align-items:flex-start;gap:24px}.hero h1{font-size:36px;margin:10px 0}.hero p{color:#64748b}.eyebrow{display:block;margin-top:18px;color:#2563eb;font-weight:800;font-size:12px;letter-spacing:.16em}.steps{margin:34px 0}.grid{display:grid;grid-template-columns:.72fr 1.28fr;gap:20px}.grid .el-card,.panel{border-radius:18px}.full{width:100%;margin:14px 0 0}.panel{margin-top:20px}.parameter-table{margin-top:16px;overflow:auto}.parameter-header,.parameter-row{display:grid;grid-template-columns:1fr .75fr .5fr .8fr 1.45fr 60px;gap:8px;align-items:center;min-width:850px}.parameter-header{padding:8px 0;color:#64748b;font-size:13px;font-weight:700}.parameter-row{padding:8px 0;border-top:1px solid #edf1f6}.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:20px 0}.metrics div{padding:18px;border-radius:14px;background:#f4f7fb}.metrics span{display:block;color:#64748b}.metrics strong{font-size:28px}.preview-stage{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin:20px 0}.preview-card{border:1px solid #e4e9f1;border-radius:16px;padding:14px;background:#f8fafc}.preview-card div{display:flex;justify-content:space-between;gap:12px;margin-bottom:10px}.preview-card span{color:#64748b;font-size:12px}.preview-card img{display:block;width:100%;height:360px;object-fit:contain;background:white;border-radius:10px}.artifact-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:14px}.artifact{display:flex;justify-content:space-between;align-items:center;padding:16px;border:1px solid #e4e9f1;border-radius:12px}.artifact span{display:block;color:#64748b;font-size:12px;margin-top:5px}.artifact-action{display:flex;align-items:center;gap:8px}@media(max-width:1050px){.grid,.preview-stage{grid-template-columns:1fr}.metrics{grid-template-columns:repeat(2,1fr)}}@media(max-width:700px){.steps{display:none}.artifact-grid,.metrics{grid-template-columns:1fr}.hero{display:block}}
+.workspace{max-width:1500px;margin:auto;padding:30px 24px 70px}.hero,.panel-head{display:flex;justify-content:space-between;align-items:flex-start;gap:24px}.hero h1{font-size:36px;margin:10px 0}.hero p{color:#64748b}.eyebrow{display:block;margin-top:18px;color:#2563eb;font-weight:800;font-size:12px;letter-spacing:.16em}.steps{margin:34px 0}.grid{display:grid;grid-template-columns:.72fr 1.28fr;gap:20px}.grid .el-card,.panel{border-radius:18px}.full{width:100%;margin:14px 0 0}.panel{margin-top:20px}.parameter-table{margin-top:16px;overflow:auto}.parameter-header,.parameter-row{display:grid;grid-template-columns:1fr .75fr .5fr .8fr 1.45fr 60px;gap:8px;align-items:center;min-width:850px}.parameter-header{padding:8px 0;color:#64748b;font-size:13px;font-weight:700}.parameter-row{padding:8px 0;border-top:1px solid #edf1f6}.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:20px 0}.metrics div{padding:18px;border-radius:14px;background:#f4f7fb}.metrics span{display:block;color:#64748b}.metrics strong{font-size:28px}.preview-stage{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin:20px 0}.preview-card{border:1px solid #e4e9f1;border-radius:16px;padding:14px;background:#f8fafc}.preview-card div{display:flex;justify-content:space-between;gap:12px;margin-bottom:10px}.preview-card span{color:#64748b;font-size:12px}.preview-card img{display:block;width:100%;height:360px;object-fit:contain;background:white;border-radius:10px}.model-card{grid-column:1/-1}.model-card :deep(.model-viewer){height:430px;min-height:430px}.artifact-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:14px}.artifact{display:flex;justify-content:space-between;align-items:center;padding:16px;border:1px solid #e4e9f1;border-radius:12px}.artifact span{display:block;color:#64748b;font-size:12px;margin-top:5px}.artifact-action{display:flex;align-items:center;gap:8px}@media(max-width:1050px){.grid,.preview-stage{grid-template-columns:1fr}.metrics{grid-template-columns:repeat(2,1fr)}}@media(max-width:700px){.steps{display:none}.artifact-grid,.metrics{grid-template-columns:1fr}.hero{display:block}}
 </style>
