@@ -9,6 +9,11 @@ public class DesignProject {
     private String designType = "";
     private String projectCategory = "";
     private String workingPrinciple = "";
+    private String designDepth = "graduation";
+    private int partCount;
+    private int featureCount;
+    private int detailScore;
+    private List<String> enhancementNotes = new ArrayList<>();
     private List<String> mainFunctions = new ArrayList<>();
     private List<String> mainStructures = new ArrayList<>();
     private List<Component> components = new ArrayList<>();
@@ -31,6 +36,16 @@ public class DesignProject {
     public void setProjectCategory(String projectCategory) { this.projectCategory = projectCategory; }
     public String getWorkingPrinciple() { return workingPrinciple; }
     public void setWorkingPrinciple(String workingPrinciple) { this.workingPrinciple = workingPrinciple; }
+    public String getDesignDepth() { return designDepth; }
+    public void setDesignDepth(String designDepth) { this.designDepth = designDepth; }
+    public int getPartCount() { return partCount; }
+    public void setPartCount(int partCount) { this.partCount = partCount; }
+    public int getFeatureCount() { return featureCount; }
+    public void setFeatureCount(int featureCount) { this.featureCount = featureCount; }
+    public int getDetailScore() { return detailScore; }
+    public void setDetailScore(int detailScore) { this.detailScore = detailScore; }
+    public List<String> getEnhancementNotes() { return enhancementNotes; }
+    public void setEnhancementNotes(List<String> value) { enhancementNotes = safe(value); }
     public List<String> getMainFunctions() { return mainFunctions; }
     public void setMainFunctions(List<String> value) { mainFunctions = safe(value); }
     public List<String> getMainStructures() { return mainStructures; }

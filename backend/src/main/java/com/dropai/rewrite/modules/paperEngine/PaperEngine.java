@@ -8,12 +8,21 @@ import org.apache.poi.xwpf.usermodel.XWPFRun;
 import org.apache.poi.xwpf.usermodel.XWPFTable;
 import org.apache.poi.xwpf.usermodel.XWPFTableCell;
 import org.apache.poi.xwpf.usermodel.XWPFTableRow;
+import org.apache.poi.util.Units;
 import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTTcPr;
 import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTTblPr;
 import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTTblWidth;
 import org.openxmlformats.schemas.wordprocessingml.x2006.main.STTblWidth;
 import org.springframework.stereotype.Service;
 
+import javax.imageio.ImageIO;
+import java.awt.BasicStroke;
+import java.awt.Color;
+import java.awt.Font;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.math.BigInteger;
 import java.util.ArrayList;
@@ -28,12 +37,12 @@ public class PaperEngine {
     public byte[] generatePaper(DesignProject project) {
         PaperDraft draft = buildMechanicalThesis(project);
         validatePaper(draft);
-        return write(draft.title(), draft.blocks());
+        return write(draft.title(), draft.blocks(), project);
     }
 
     public byte[] generateCalculationBook(DesignProject project) {
         PaperDraft draft = buildCalculationBook(project);
-        return write(draft.title(), draft.blocks());
+        return write(draft.title(), draft.blocks(), null);
     }
 
     public byte[] generateModelingSteps(DesignProject project) {
@@ -51,7 +60,7 @@ public class PaperEngine {
         p(blocks, "以主体结构为固定件，接口结构与主体端面重合，支撑结构与底部安装基准重合，传动或功能结构按照中心线、轴线和安装面建立同轴、重合、距离或角度配合。装配完成后进行干涉检查，并核对检修空间、拆装空间和运动间隙。");
         h(blocks, "四、工程图输出", 2);
         p(blocks, "由装配体生成CAD工程图时，必须包含左视图、右视图、仰视图，结构复杂时补充主视图、俯视图、剖视图、局部放大图和装配爆炸图。工程图中应标注尺寸、孔位、轴线、中心线、倒角、圆角、螺栓孔、键槽、安装座、加强筋、焊接位置、剖面线、装配间隙、技术要求和零件序号。");
-        return write(title + " SolidWorks辅助建模步骤说明", blocks);
+        return write(title + " SolidWorks辅助建模步骤说明", blocks, null);
     }
 
     private PaperDraft buildMechanicalThesis(DesignProject project) {
@@ -428,7 +437,7 @@ public class PaperEngine {
         if (figures < 12) throw new IllegalStateException("图纸和示意图占位不足，禁止导出半成品文档");
     }
 
-    private byte[] write(String title, List<Block> blocks) {
+    private byte[] write(String title, List<Block> blocks, DesignProject project) {
         try (XWPFDocument doc = new XWPFDocument(); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
             title(doc, title);
             for (Block block : blocks) {
@@ -436,7 +445,7 @@ public class PaperEngine {
                     case HEADING -> heading(doc, block.text(), block.level());
                     case TABLE -> writeTable(doc, block.caption(), block.headers(), block.rows());
                     case FORMULA -> formulaParagraph(doc, block.text(), block.number());
-                    case FIGURE -> figure(doc, block.text(), block.detail());
+                    case FIGURE -> figure(doc, block.text(), block.detail(), project);
                     default -> paragraph(doc, block.text(), false);
                 }
             }
@@ -472,10 +481,162 @@ public class PaperEngine {
         r.setFontFamily("SimSun"); r.setFontSize(11); r.setText(text);
     }
 
-    private void figure(XWPFDocument doc, String caption, String detail) {
+    private void figure(XWPFDocument doc, String caption, String detail, DesignProject project) {
+        insertGeneratedFigure(doc, caption, detail, project);
         paragraph(doc, caption, true);
         paragraph(doc, "插图要求：" + detail, true);
-        paragraph(doc, caption.replace("此处插入", ""), true);
+    }
+
+    private void insertGeneratedFigure(XWPFDocument doc, String caption, String detail, DesignProject project) {
+        try {
+            byte[] image = generatedFigure(caption, detail, project);
+            XWPFParagraph p = doc.createParagraph();
+            p.setAlignment(ParagraphAlignment.CENTER);
+            XWPFRun run = p.createRun();
+            run.addPicture(new ByteArrayInputStream(image), XWPFDocument.PICTURE_TYPE_PNG,
+                    caption.replaceAll("\\s+", "_") + ".png", Units.toEMU(420), Units.toEMU(210));
+        } catch (Exception e) {
+            paragraph(doc, "自动插图生成失败：" + e.getMessage(), true);
+        }
+    }
+
+    private byte[] generatedFigure(String caption, String detail, DesignProject project) throws Exception {
+        int width = 1100, height = 520;
+        BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = image.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+        g.setColor(Color.WHITE);
+        g.fillRect(0, 0, width, height);
+        g.setColor(new Color(20, 30, 45));
+        g.setStroke(new BasicStroke(3f));
+        g.setFont(new Font("Microsoft YaHei", Font.PLAIN, 22));
+        g.drawString(caption.replace("此处插入", ""), 40, 44);
+        g.setFont(new Font("Microsoft YaHei", Font.PLAIN, 18));
+        String equipment = project == null ? "机械设备" : clean(project.getEquipmentName(), "机械设备");
+        g.drawString("设备：" + equipment, 40, 78);
+        if (caption.contains("受力") || caption.contains("计算") || caption.contains("校核") || caption.contains("弯矩")) {
+            drawForceFigure(g, width, height);
+        } else if (caption.contains("工程图") || caption.contains("二维") || caption.contains("剖视") || caption.contains("CAD")) {
+            drawDrawingFigure(g, project);
+        } else if (caption.contains("三维") || caption.contains("装配") || caption.contains("爆炸")) {
+            drawAssemblyFigure(g, project);
+        } else {
+            drawStructureFigure(g, project);
+        }
+        g.setFont(new Font("Microsoft YaHei", Font.PLAIN, 16));
+        g.drawString(trim(detail, 58), 40, 490);
+        g.dispose();
+        try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            ImageIO.write(image, "png", out);
+            return out.toByteArray();
+        }
+    }
+
+    private void drawStructureFigure(Graphics2D g, DesignProject project) {
+        int x = 110, y = 160, w = 620, h = 210;
+        g.drawRect(x, y, w, h);
+        g.drawLine(x + w / 3, y, x + w / 3, y + h);
+        g.drawLine(x + w * 2 / 3, y, x + w * 2 / 3, y + h);
+        g.drawPolygon(new int[]{x + 180, x + 310, x + 270, x + 220}, new int[]{y + h, y + h, y + h + 90, y + h + 90}, 4);
+        g.drawPolygon(new int[]{x + 380, x + 510, x + 470, x + 420}, new int[]{y + h, y + h, y + h + 90, y + h + 90}, 4);
+        g.drawRect(x - 95, y + 62, 95, 70);
+        g.drawRect(x + w, y + 62, 95, 70);
+        g.drawRect(x + 275, y + 55, 105, 85);
+        g.drawLine(x + 40, y + h, x + 40, y + h + 75);
+        g.drawLine(x + w - 40, y + h, x + w - 40, y + h + 75);
+        annotate(g, x - 50, y + 42, "进/出口");
+        annotate(g, x + 250, y - 18, firstComponent(project, "主体结构"));
+        annotate(g, x + 320, y + 44, "检修门");
+        annotate(g, x + 235, y + h + 118, "功能/排料结构");
+        annotate(g, x + w - 95, y + h + 96, "支撑结构");
+        drawComponentList(g, project, 820, 145);
+    }
+
+    private void drawForceFigure(Graphics2D g, int width, int height) {
+        int x = 170, y = 300, w = 640;
+        g.drawLine(x, y, x + w, y);
+        g.drawLine(x + 40, y, x + 40, y + 75);
+        g.drawLine(x + w - 40, y, x + w - 40, y + 75);
+        for (int i = 0; i < 5; i++) {
+            int px = x + 120 + i * 90;
+            g.drawLine(px, y - 90, px, y - 12);
+            g.drawLine(px, y - 12, px - 12, y - 28);
+            g.drawLine(px, y - 12, px + 12, y - 28);
+        }
+        g.drawString("F", x + 102, y - 100);
+        g.drawString("RA", x + 20, y + 105);
+        g.drawString("RB", x + w - 68, y + 105);
+        g.drawString("L", x + w / 2 - 10, y + 42);
+        g.drawRect(840, 145, 180, 120);
+        g.drawString("弯矩图", 890, 175);
+        g.drawLine(860, 235, 930, 190);
+        g.drawLine(930, 190, 1000, 235);
+    }
+
+    private void drawDrawingFigure(Graphics2D g, DesignProject project) {
+        int x = 75, y = 125;
+        drawViewBox(g, x, y, 380, 120, "俯视图");
+        drawViewBox(g, x, y + 170, 380, 145, "主视图");
+        drawViewBox(g, x + 480, y + 105, 190, 210, "侧视图");
+        g.drawLine(x, y + 345, x + 380, y + 345);
+        g.drawString("总长 L", x + 155, y + 367);
+        g.drawLine(x + 480, y + 335, x + 670, y + 335);
+        g.drawString("总高 H", x + 536, y + 357);
+        drawComponentList(g, project, 820, 135);
+    }
+
+    private void drawAssemblyFigure(Graphics2D g, DesignProject project) {
+        int x = 130, y = 140;
+        g.drawRect(x, y + 90, 500, 150);
+        g.drawRect(x - 85, y + 130, 85, 70);
+        g.drawRect(x + 500, y + 130, 85, 70);
+        g.drawLine(x + 90, y + 240, x + 40, y + 330);
+        g.drawLine(x + 410, y + 240, x + 455, y + 330);
+        g.drawRect(x + 190, y + 15, 120, 70);
+        g.drawLine(x + 250, y + 85, x + 250, y + 90);
+        annotate(g, x + 210, y + 4, "爆炸/装配关系");
+        annotate(g, x + 30, y + 380, "支撑与安装");
+        annotate(g, x + 560, y + 125, "接口结构");
+        drawComponentList(g, project, 790, 130);
+    }
+
+    private void drawViewBox(Graphics2D g, int x, int y, int w, int h, String name) {
+        g.drawRect(x, y, w, h);
+        g.drawLine(x + w / 3, y, x + w / 3, y + h);
+        g.drawLine(x + w * 2 / 3, y, x + w * 2 / 3, y + h);
+        g.drawOval(x + w / 2 - 28, y + h / 2 - 28, 56, 56);
+        g.drawString(name, x + 10, y - 10);
+        g.drawLine(x + 18, y + h / 2, x + w - 18, y + h / 2);
+    }
+
+    private void annotate(Graphics2D g, int x, int y, String text) {
+        g.drawString(text, x, y);
+        g.drawLine(x + 8, y + 8, x - 35, y + 38);
+    }
+
+    private void drawComponentList(Graphics2D g, DesignProject project, int x, int y) {
+        g.drawRect(x, y, 230, 260);
+        g.drawString("结构编号", x + 18, y + 30);
+        if (project == null || project.getComponents().isEmpty()) {
+            g.drawString("1 主体结构", x + 18, y + 68);
+            g.drawString("2 支撑结构", x + 18, y + 100);
+            g.drawString("3 接口结构", x + 18, y + 132);
+            return;
+        }
+        int row = 0;
+        for (DesignProject.Component c : project.getComponents().stream().limit(7).toList()) {
+            g.drawString(c.getSequence() + " " + trim(c.getName(), 10), x + 18, y + 68 + row++ * 28);
+        }
+    }
+
+    private String firstComponent(DesignProject project, String fallback) {
+        return project == null || project.getComponents().isEmpty() ? fallback : project.getComponents().get(0).getName();
+    }
+
+    private String trim(String value, int max) {
+        if (value == null) return "";
+        return value.length() > max ? value.substring(0, max) : value;
     }
 
     private void formulaParagraph(XWPFDocument doc, String formula, String number) {

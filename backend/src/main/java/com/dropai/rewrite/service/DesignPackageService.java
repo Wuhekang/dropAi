@@ -4,6 +4,7 @@ import com.dropai.rewrite.auth.AuthContext;
 import com.dropai.rewrite.entity.DocumentJobRecord;
 import com.dropai.rewrite.mapper.DocumentJobMapper;
 import com.dropai.rewrite.modules.calculationEngine.CalculationEngine;
+import com.dropai.rewrite.modules.designEnhancementEngine.DesignEnhancementEngine;
 import com.dropai.rewrite.modules.drawingEngine.DrawingArtifact;
 import com.dropai.rewrite.modules.drawingEngine.DrawingEngine;
 import com.dropai.rewrite.modules.exportEngine.ExportEngine;
@@ -28,18 +29,21 @@ public class DesignPackageService {
     private static final Logger log = LoggerFactory.getLogger(DesignPackageService.class);
     private static final String DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
     private final ParameterEngine parameterEngine; private final CalculationEngine calculationEngine;
-    private final StructureEngine structureEngine; private final DrawingEngine drawingEngine; private final SwMacroEngine swMacroEngine;
+    private final DesignEnhancementEngine designEnhancementEngine; private final StructureEngine structureEngine; private final DrawingEngine drawingEngine; private final SwMacroEngine swMacroEngine;
     private final PaperEngine paperEngine; private final ExportEngine exportEngine; private final DocumentJobMapper mapper;
 
-    public DesignPackageService(ParameterEngine parameterEngine, CalculationEngine calculationEngine, StructureEngine structureEngine, DrawingEngine drawingEngine,
+    public DesignPackageService(ParameterEngine parameterEngine, CalculationEngine calculationEngine, DesignEnhancementEngine designEnhancementEngine, StructureEngine structureEngine, DrawingEngine drawingEngine,
                                 SwMacroEngine swMacroEngine, PaperEngine paperEngine, ExportEngine exportEngine, DocumentJobMapper mapper) {
-        this.parameterEngine = parameterEngine; this.calculationEngine = calculationEngine; this.structureEngine = structureEngine; this.drawingEngine = drawingEngine;
+        this.parameterEngine = parameterEngine; this.calculationEngine = calculationEngine; this.designEnhancementEngine = designEnhancementEngine; this.structureEngine = structureEngine; this.drawingEngine = drawingEngine;
         this.swMacroEngine = swMacroEngine; this.paperEngine = paperEngine; this.exportEngine = exportEngine; this.mapper = mapper;
     }
 
     public DesignPackageVO generate(DesignProject input) {
         Long userId = AuthContext.requireUserId();
-        DesignProject project = structureEngine.design(calculationEngine.calculate(parameterEngine.normalize(input == null ? new DesignProject() : input)));
+        DesignProject normalized = parameterEngine.normalize(input == null ? new DesignProject() : input);
+        DesignProject enhancedInput = designEnhancementEngine.enhance(normalized);
+        DesignProject calculated = calculationEngine.calculate(enhancedInput);
+        DesignProject project = designEnhancementEngine.enhance(structureEngine.design(calculated));
         log.info("开始生成成果包 title={} parameters={}", project.getProjectTitle(), project.allParameters().size());
         List<Generated> generated = new ArrayList<>();
         generated.add(generateOne("paper.docx", DOCX, () -> paperEngine.generatePaper(project)));

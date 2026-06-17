@@ -2,6 +2,7 @@ package com.dropai.rewrite;
 
 import com.dropai.rewrite.modules.calculationEngine.CalculationEngine;
 import com.dropai.rewrite.modules.designAnalyzer.DesignAnalyzer;
+import com.dropai.rewrite.modules.designEnhancementEngine.DesignEnhancementEngine;
 import com.dropai.rewrite.modules.documentParser.DocumentParser;
 import com.dropai.rewrite.modules.drawingEngine.DrawingEngine;
 import com.dropai.rewrite.modules.model.DesignProject;
@@ -63,7 +64,22 @@ class DesignPackageModuleTests {
             assertTrue(text.contains("第三章 主要零件的计算"));
             assertTrue(text.contains("（3-1）"));
             assertTrue(text.contains("此处插入图3-1"));
+            assertTrue(document.getAllPictures().size() >= 8);
         }
+    }
+
+    @Test
+    void sparseTaskBookIsEnhancedBeforeDrawing() {
+        DesignProject analyzed = new DesignAnalyzer().analyze("重力沉降室设计",
+                List.of(new DocumentParser.ParsedDocument("任务书.txt", "TASK_BOOK",
+                        "题目：重力沉降室设计\n要求：完成结构设计\n绘制CAD图\n完成论文")));
+        DesignProject project = new DesignEnhancementEngine().enhance(new ParameterEngine().normalize(analyzed));
+        assertTrue(project.getDetailScore() >= 60);
+        assertTrue(project.getComponents().size() >= 12);
+        assertTrue(project.getComponents().stream().anyMatch(c -> "进风口".equals(c.getName())));
+        assertTrue(project.getComponents().stream().anyMatch(c -> "导流板".equals(c.getName())));
+        assertTrue(project.getComponents().stream().anyMatch(c -> "卸灰口".equals(c.getName())));
+        assertTrue(project.allParameters().stream().anyMatch(p -> "处理风量".equals(p.getName())));
     }
 
     @Test
@@ -76,13 +92,16 @@ class DesignPackageModuleTests {
     private void assertArchitecture(String title, String architecture, String componentName, String geometry) {
         DesignProject analyzed = new DesignAnalyzer().analyze(title,
                 List.of(new DocumentParser.ParsedDocument("任务书.txt", "TASK_BOOK", title)));
-        DesignProject project = new StructureEngine().design(new ParameterEngine().normalize(analyzed));
+        DesignProject project = new DesignEnhancementEngine().enhance(new StructureEngine().design(
+                new DesignEnhancementEngine().enhance(new ParameterEngine().normalize(analyzed))));
         assertTrue(project.getDesignType().contains(architecture));
         assertTrue(project.getComponents().stream().anyMatch(c -> componentName.equals(c.getName()) && geometry.equals(c.getGeometry())));
         assertTrue(project.getBom().stream().anyMatch(item -> componentName.equals(item.getName())));
     }
 
     private DesignProject structuredProject() {
-        return new StructureEngine().design(new CalculationEngine().calculate(new ParameterEngine().normalize(new DesignProject())));
+        DesignEnhancementEngine enhancementEngine = new DesignEnhancementEngine();
+        DesignProject enhanced = enhancementEngine.enhance(new ParameterEngine().normalize(new DesignProject()));
+        return enhancementEngine.enhance(new StructureEngine().design(new CalculationEngine().calculate(enhanced)));
     }
 }

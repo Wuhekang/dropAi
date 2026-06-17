@@ -4,6 +4,7 @@ import com.dropai.rewrite.auth.AuthContext;
 import com.dropai.rewrite.mapper.DocumentJobMapper;
 import com.dropai.rewrite.entity.DocumentJobRecord;
 import com.dropai.rewrite.modules.calculationEngine.CalculationEngine;
+import com.dropai.rewrite.modules.designEnhancementEngine.DesignEnhancementEngine;
 import com.dropai.rewrite.modules.drawingEngine.DrawingEngine;
 import com.dropai.rewrite.modules.exportEngine.ExportEngine;
 import com.dropai.rewrite.modules.model.DesignProject;
@@ -34,7 +35,7 @@ class DesignPackageServiceTests {
         DocumentJobMapper mapper = mock(DocumentJobMapper.class);
         when(mapper.insert(any(DocumentJobRecord.class))).thenReturn(1);
         DesignPackageService service = new DesignPackageService(
-                new ParameterEngine(), new CalculationEngine(), new StructureEngine(), new DrawingEngine(), new SwMacroEngine(),
+                new ParameterEngine(), new CalculationEngine(), new DesignEnhancementEngine(), new StructureEngine(), new DrawingEngine(), new SwMacroEngine(),
                 new PaperEngine(), new ExportEngine(new ObjectMapper()), mapper);
         AuthContext.setUserId(1L);
 

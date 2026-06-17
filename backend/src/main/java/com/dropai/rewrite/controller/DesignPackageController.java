@@ -3,6 +3,7 @@ package com.dropai.rewrite.controller;
 import com.dropai.rewrite.modules.model.DesignProject;
 import com.dropai.rewrite.modules.documentParser.DocumentParser;
 import com.dropai.rewrite.modules.designAnalyzer.DesignAnalyzer;
+import com.dropai.rewrite.modules.designEnhancementEngine.DesignEnhancementEngine;
 import com.dropai.rewrite.modules.parameterEngine.ParameterEngine;
 import com.dropai.rewrite.service.DesignPackageService;
 import com.dropai.rewrite.vo.DesignAnalysisResultVO;
@@ -18,9 +19,12 @@ public class DesignPackageController {
     private final DesignPackageService service;
     private final DocumentParser documentParser;
     private final DesignAnalyzer designAnalyzer;
+    private final DesignEnhancementEngine designEnhancementEngine;
     private final ParameterEngine parameterEngine;
-    public DesignPackageController(DesignPackageService service, DocumentParser documentParser, DesignAnalyzer designAnalyzer, ParameterEngine parameterEngine) {
-        this.service = service; this.documentParser = documentParser; this.designAnalyzer = designAnalyzer; this.parameterEngine = parameterEngine;
+    public DesignPackageController(DesignPackageService service, DocumentParser documentParser, DesignAnalyzer designAnalyzer,
+                                   DesignEnhancementEngine designEnhancementEngine, ParameterEngine parameterEngine) {
+        this.service = service; this.documentParser = documentParser; this.designAnalyzer = designAnalyzer;
+        this.designEnhancementEngine = designEnhancementEngine; this.parameterEngine = parameterEngine;
     }
 
     @PostMapping("/generate")
@@ -29,7 +33,7 @@ public class DesignPackageController {
     @PostMapping("/analyze")
     public Result<DesignAnalysisResultVO> analyze(@RequestParam(defaultValue = "") String title, @RequestParam("files") List<MultipartFile> files) {
         List<DocumentParser.ParsedDocument> documents = documentParser.parse(files);
-        DesignProject project = parameterEngine.normalize(designAnalyzer.analyze(title, documents));
+        DesignProject project = designEnhancementEngine.enhance(parameterEngine.normalize(designAnalyzer.analyze(title, documents)));
         return Result.success(DesignAnalysisResultVO.of(project, documents));
     }
 
