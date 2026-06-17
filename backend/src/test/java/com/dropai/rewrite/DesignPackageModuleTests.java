@@ -14,10 +14,13 @@ import com.dropai.rewrite.modules.paperEngine.PaperEngine;
 import com.dropai.rewrite.modules.parameterEngine.ParameterEngine;
 import com.dropai.rewrite.modules.projectAnalyzer.ProjectAnalyzer;
 import com.dropai.rewrite.modules.projectSessionReset.ProjectSessionReset;
+import com.dropai.rewrite.modules.standardPartSelector.MockOnlineStandardPartProvider;
+import com.dropai.rewrite.modules.standardPartSelector.StandardPartCache;
 import com.dropai.rewrite.modules.standardPartSelector.StandardPartSelector;
 import com.dropai.rewrite.modules.structureEngine.StructureEngine;
 import com.dropai.rewrite.modules.structureTreeBuilder.StructureTreeBuilder;
 import com.dropai.rewrite.modules.unknownPartResolver.UnknownPartResolver;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.junit.jupiter.api.Test;
 
@@ -158,7 +161,9 @@ class DesignPackageModuleTests {
         assertTrue(project.getResolvedParts().stream().anyMatch(p -> "standard".equals(p.getPartType()) && p.getName().contains("电机")));
         assertTrue(project.getResolvedParts().stream().anyMatch(p -> "non_standard".equals(p.getPartType()) && p.getName().contains("夹紧")));
         assertTrue(project.getResolvedParts().stream().filter(p -> "standard".equals(p.getPartType()))
-                .anyMatch(p -> p.getSource().contains("GB/T") || p.getSource().contains("公开")));
+                .anyMatch(p -> p.getSource().contains("mock_provider_pending_real_api") || p.getSource().contains("local_cache")));
+        assertTrue(project.getResolvedParts().stream().filter(p -> "standard".equals(p.getPartType()))
+                .allMatch(p -> !p.getAvailableFormats().isEmpty() && p.getConfidence() > 0));
         assertTrue(project.getResolvedParts().stream().filter(p -> "non_standard".equals(p.getPartType()))
                 .allMatch(p -> "NonStandardPartGenerator".equals(p.getGeneratedBy()) && p.getGeometryFeatures().size() >= 4));
         assertTrue(project.getAssemblyTree().getChildren().size() >= 3);
@@ -185,8 +190,9 @@ class DesignPackageModuleTests {
     private TaskDrivenDesignPipeline pipeline() {
         ParameterEngine parameterEngine = new ParameterEngine();
         CalculationEngine calculationEngine = new CalculationEngine();
+        StandardPartCache cache = new StandardPartCache(new ObjectMapper());
         return new TaskDrivenDesignPipeline(new ProjectSessionReset(), parameterEngine, new ProjectAnalyzer(),
-                new StructureTreeBuilder(), new StandardPartSelector(), new NonStandardPartGenerator(new UnknownPartResolver()),
+                new StructureTreeBuilder(), new StandardPartSelector(cache, new MockOnlineStandardPartProvider(cache)), new NonStandardPartGenerator(new UnknownPartResolver()),
                 new AssemblyBuilder(), new BOMGenerator(), calculationEngine);
     }
 }

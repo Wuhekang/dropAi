@@ -249,6 +249,62 @@ function engineeringBracket(group, dims) {
   label(group, '工程化机械结构', [0, h * 0.5, 0])
 }
 
+function errorModel(group, message) {
+  label(group, message, [0, 0.2, 0])
+}
+
+function componentAssemblyModel(group, dims, project = {}) {
+  const components = Array.isArray(project.components) ? project.components : []
+  const constraints = Array.isArray(project.assemblyConstraints) ? project.assemblyConstraints : []
+  if (!components.length || constraints.length < components.length) {
+    errorModel(group, '装配约束缺失，模型未生成。')
+    return
+  }
+  const totalL = Number(project.totalLength || project.length || 4200)
+  const totalW = Number(project.totalWidth || project.width || 1600)
+  const totalH = Number(project.totalHeight || project.height || 1800)
+  for (const part of components) {
+    if (!part.partId || !part.parentAssembly || !part.constraintType) {
+      errorModel(group, '装配约束缺失，模型未生成。')
+      return
+    }
+    const name = part.name || part.partName || '零件'
+    const sx = Math.max(0.04, Number(part.length || 80) / totalL * dims.length)
+    const sy = Math.max(0.04, Number(part.height || 40) / totalH * dims.height)
+    const sz = Math.max(0.04, Number(part.width || 60) / totalW * dims.width)
+    const x = (Number(part.x || 0) + Number(part.length || 0) / 2) / totalL * dims.length - dims.length / 2
+    const y = (Number(part.z || 0) + Number(part.height || 0) / 2) / totalH * dims.height - dims.height / 2
+    const z = (Number(part.y || 0) + Number(part.width || 0) / 2) / totalW * dims.width - dims.width / 2
+    const color = part.material === '标准件' || part.role === 'DRIVE' || part.role === 'CONNECT' ? 0x2563eb : 0xf97316
+    drawNamedPart(group, name, part.geometry || '', [sx, sy, sz], [x, y, z], color)
+  }
+  label(group, '装配约束驱动整机模型', [0, dims.height * 0.35, 0])
+}
+
+function drawNamedPart(group, name, geometry, size, position, color) {
+  const [sx, sy, sz] = size
+  if (['WHEEL', 'BRUSH'].includes(geometry) || name.includes('轮') || name.includes('刷')) {
+    cyl(group, name, Math.max(sy, sz) / 2, sx, position, color, 'x', 1, 40)
+  } else if (geometry === 'TRACK' || name.includes('履带')) {
+    box(group, name, [sx, sy * 0.65, sz], position, 0x111827)
+    cyl(group, `${name}-端轮`, Math.max(sy, sz) * 0.35, sz, [position[0] - sx / 2, position[1], position[2]], 0x64748b, 'z', 1, 24)
+    cyl(group, `${name}-端轮`, Math.max(sy, sz) * 0.35, sz, [position[0] + sx / 2, position[1], position[2]], 0x64748b, 'z', 1, 24)
+  } else if (geometry === 'MAGNET_BLOCK' || name.includes('磁')) {
+    box(group, name, [sx, sy * 0.5, sz], position, 0x10b981)
+  } else if (geometry === 'SENSOR_RAIL' || name.includes('导轨') || name.includes('检测')) {
+    box(group, name, [sx, Math.max(0.035, sy * 0.4), sz], position, 0x38bdf8)
+  } else if (geometry === 'MOTOR' || name.includes('电机')) {
+    box(group, name, [sx, sy, sz], position, 0x16a34a)
+    cyl(group, `${name}-输出轴`, Math.min(sy, sz) * 0.18, sx * 0.35, [position[0] + sx * 0.58, position[1], position[2]], 0x0f172a, 'x', 1, 16)
+  } else if (geometry === 'GEARBOX' || name.includes('减速')) {
+    box(group, name, [sx, sy, sz], position, 0x15803d)
+  } else if (geometry === 'COVER' || name.includes('外壳') || name.includes('防护')) {
+    box(group, name, [sx, sy, sz], position, 0x60a5fa, 0.72)
+  } else {
+    box(group, name, [sx, sy, sz], position, color, 0.88)
+  }
+}
+
 function assemblyDrivenModel(group, dims, parts = []) {
   const l = dims.length
   const w = dims.width
@@ -289,7 +345,8 @@ export function buildParametricMechanicalModel(project = {}) {
     height: Math.max(1.6, Number(project.height || project.totalHeight || 3200) / 1200)
   }
   const type = `${project.designType || ''}${project.equipmentName || ''}${project.projectTitle || ''}`
-  if (Array.isArray(project.resolvedParts) && project.resolvedParts.length >= 4) assemblyDrivenModel(group, dims, project.resolvedParts)
+  if (Array.isArray(project.components) && project.components.length >= 4) componentAssemblyModel(group, dims, project)
+  else if (Array.isArray(project.resolvedParts) && project.resolvedParts.length >= 4) assemblyDrivenModel(group, dims, project.resolvedParts)
   else if (type.includes('输送')) conveyor(group, dims)
   else if (type.includes('爬壁') || type.includes('履带') || type.includes('磁吸附') || type.includes('油罐检测')) crawlerRobot(group, dims)
   else if (type.includes('机械手') || type.includes('机械臂')) manipulator(group, dims)

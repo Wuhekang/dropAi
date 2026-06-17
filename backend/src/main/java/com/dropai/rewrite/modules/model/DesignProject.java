@@ -38,6 +38,8 @@ public class DesignProject {
     private StructureNode structureTree = new StructureNode("整机", "root", "system", 1.0);
     private List<DesignPart> resolvedParts = new ArrayList<>();
     private AssemblyNode assemblyTree = new AssemblyNode("整机", "root");
+    private List<AssemblyConstraint> assemblyConstraints = new ArrayList<>();
+    private DrawingPlan drawingPlan = new DrawingPlan();
 
     public String getProjectId() { return projectId; }
     public void setProjectId(String projectId) { this.projectId = projectId; }
@@ -107,6 +109,10 @@ public class DesignProject {
     public void setResolvedParts(List<DesignPart> value) { resolvedParts = safe(value); }
     public AssemblyNode getAssemblyTree() { return assemblyTree; }
     public void setAssemblyTree(AssemblyNode value) { assemblyTree = value == null ? new AssemblyNode("整机", "root") : value; }
+    public List<AssemblyConstraint> getAssemblyConstraints() { return assemblyConstraints; }
+    public void setAssemblyConstraints(List<AssemblyConstraint> value) { assemblyConstraints = safe(value); }
+    public DrawingPlan getDrawingPlan() { return drawingPlan; }
+    public void setDrawingPlan(DrawingPlan value) { drawingPlan = value == null ? new DrawingPlan() : value; }
 
     public List<Parameter> allParameters() {
         List<Parameter> result = new ArrayList<>();
@@ -189,6 +195,12 @@ public class DesignProject {
         private double width;
         private double height;
         private boolean keyPart;
+        private String partId = "";
+        private String parentAssembly = "";
+        private String mountTo = "";
+        private String constraintType = "";
+        private List<String> mateReferences = new ArrayList<>();
+        private Rotation rotation = new Rotation();
 
         public Component() {}
         public Component(int sequence, String role, String name, String function, String material, int quantity,
@@ -210,6 +222,12 @@ public class DesignProject {
         public double getWidth() { return width; } public void setWidth(double v) { width = v; }
         public double getHeight() { return height; } public void setHeight(double v) { height = v; }
         public boolean isKeyPart() { return keyPart; } public void setKeyPart(boolean v) { keyPart = v; }
+        public String getPartId() { return partId; } public void setPartId(String v) { partId = v; }
+        public String getParentAssembly() { return parentAssembly; } public void setParentAssembly(String v) { parentAssembly = v; }
+        public String getMountTo() { return mountTo; } public void setMountTo(String v) { mountTo = v; }
+        public String getConstraintType() { return constraintType; } public void setConstraintType(String v) { constraintType = v; }
+        public List<String> getMateReferences() { return mateReferences; } public void setMateReferences(List<String> v) { mateReferences = safe(v); }
+        public Rotation getRotation() { return rotation; } public void setRotation(Rotation v) { rotation = v == null ? new Rotation() : v; }
     }
 
     public static class BomItem {
@@ -278,9 +296,16 @@ public class DesignProject {
 
     public static class DesignPart {
         private String partType = "non_standard";
+        private String category = "";
         private String name = "";
         private String model = "";
+        private String brand = "";
         private String source = "";
+        private String sourceUrl = "";
+        private String reason = "";
+        private List<String> availableFormats = new ArrayList<>();
+        private double confidence;
+        private java.util.Map<String, Object> dimensions = new java.util.LinkedHashMap<>();
         private String generatedBy = "";
         private List<String> geometryFeatures = new ArrayList<>();
         private String material = "";
@@ -288,9 +313,16 @@ public class DesignProject {
         private int quantity = 1;
         private String parentStructure = "";
         public String getPartType() { return partType; } public void setPartType(String v) { partType = v; }
+        public String getCategory() { return category; } public void setCategory(String v) { category = v; }
         public String getName() { return name; } public void setName(String v) { name = v; }
         public String getModel() { return model; } public void setModel(String v) { model = v; }
+        public String getBrand() { return brand; } public void setBrand(String v) { brand = v; }
         public String getSource() { return source; } public void setSource(String v) { source = v; }
+        public String getSourceUrl() { return sourceUrl; } public void setSourceUrl(String v) { sourceUrl = v; }
+        public String getReason() { return reason; } public void setReason(String v) { reason = v; }
+        public List<String> getAvailableFormats() { return availableFormats; } public void setAvailableFormats(List<String> v) { availableFormats = safe(v); }
+        public double getConfidence() { return confidence; } public void setConfidence(double v) { confidence = v; }
+        public java.util.Map<String, Object> getDimensions() { return dimensions; } public void setDimensions(java.util.Map<String, Object> v) { dimensions = v == null ? new java.util.LinkedHashMap<>() : new java.util.LinkedHashMap<>(v); }
         public String getGeneratedBy() { return generatedBy; } public void setGeneratedBy(String v) { generatedBy = v; }
         public List<String> getGeometryFeatures() { return geometryFeatures; } public void setGeometryFeatures(List<String> v) { geometryFeatures = safe(v); }
         public String getMaterial() { return material; } public void setMaterial(String v) { material = v; }
@@ -302,11 +334,65 @@ public class DesignProject {
     public static class AssemblyNode {
         private String name = "";
         private String relation = "";
+        private String assemblyName = "";
+        private String basePart = "";
+        private java.util.Map<String, String> coordinateSystem = new java.util.LinkedHashMap<>();
         private List<AssemblyNode> children = new ArrayList<>();
         public AssemblyNode() {}
         public AssemblyNode(String name, String relation) { this.name = name; this.relation = relation; }
         public String getName() { return name; } public void setName(String v) { name = v; }
         public String getRelation() { return relation; } public void setRelation(String v) { relation = v; }
+        public String getAssemblyName() { return assemblyName; } public void setAssemblyName(String v) { assemblyName = v; }
+        public String getBasePart() { return basePart; } public void setBasePart(String v) { basePart = v; }
+        public java.util.Map<String, String> getCoordinateSystem() { return coordinateSystem; } public void setCoordinateSystem(java.util.Map<String, String> v) { coordinateSystem = v == null ? new java.util.LinkedHashMap<>() : new java.util.LinkedHashMap<>(v); }
         public List<AssemblyNode> getChildren() { return children; } public void setChildren(List<AssemblyNode> v) { children = safe(v); }
+    }
+
+    public static class Rotation {
+        private double x; private double y; private double z;
+        public double getX() { return x; } public void setX(double v) { x = v; }
+        public double getY() { return y; } public void setY(double v) { y = v; }
+        public double getZ() { return z; } public void setZ(double v) { z = v; }
+    }
+
+    public static class AssemblyConstraint {
+        private String partId = "";
+        private String partName = "";
+        private String parentAssembly = "";
+        private String mountTo = "";
+        private String constraintType = "fixed";
+        private List<String> mateReferences = new ArrayList<>();
+        public String getPartId() { return partId; } public void setPartId(String v) { partId = v; }
+        public String getPartName() { return partName; } public void setPartName(String v) { partName = v; }
+        public String getParentAssembly() { return parentAssembly; } public void setParentAssembly(String v) { parentAssembly = v; }
+        public String getMountTo() { return mountTo; } public void setMountTo(String v) { mountTo = v; }
+        public String getConstraintType() { return constraintType; } public void setConstraintType(String v) { constraintType = v; }
+        public List<String> getMateReferences() { return mateReferences; } public void setMateReferences(List<String> v) { mateReferences = safe(v); }
+    }
+
+    public static class DrawingPlan {
+        private DrawingViewPlan mainView = new DrawingViewPlan("mainView");
+        private DrawingViewPlan topView = new DrawingViewPlan("topView");
+        private DrawingViewPlan sideView = new DrawingViewPlan("sideView");
+        private List<DrawingViewPlan> sectionViews = new ArrayList<>();
+        private List<DrawingViewPlan> detailViews = new ArrayList<>();
+        public DrawingViewPlan getMainView() { return mainView; } public void setMainView(DrawingViewPlan v) { mainView = v == null ? new DrawingViewPlan("mainView") : v; }
+        public DrawingViewPlan getTopView() { return topView; } public void setTopView(DrawingViewPlan v) { topView = v == null ? new DrawingViewPlan("topView") : v; }
+        public DrawingViewPlan getSideView() { return sideView; } public void setSideView(DrawingViewPlan v) { sideView = v == null ? new DrawingViewPlan("sideView") : v; }
+        public List<DrawingViewPlan> getSectionViews() { return sectionViews; } public void setSectionViews(List<DrawingViewPlan> v) { sectionViews = safe(v); }
+        public List<DrawingViewPlan> getDetailViews() { return detailViews; } public void setDetailViews(List<DrawingViewPlan> v) { detailViews = safe(v); }
+    }
+
+    public static class DrawingViewPlan {
+        private String name = "";
+        private List<String> visibleParts = new ArrayList<>();
+        private List<DimensionChain> dimensions = new ArrayList<>();
+        private List<String> labels = new ArrayList<>();
+        public DrawingViewPlan() {}
+        public DrawingViewPlan(String name) { this.name = name; }
+        public String getName() { return name; } public void setName(String v) { name = v; }
+        public List<String> getVisibleParts() { return visibleParts; } public void setVisibleParts(List<String> v) { visibleParts = safe(v); }
+        public List<DimensionChain> getDimensions() { return dimensions; } public void setDimensions(List<DimensionChain> v) { dimensions = safe(v); }
+        public List<String> getLabels() { return labels; } public void setLabels(List<String> v) { labels = safe(v); }
     }
 }

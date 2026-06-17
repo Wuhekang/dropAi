@@ -16,6 +16,8 @@ import com.dropai.rewrite.modules.paperEngine.PaperEngine;
 import com.dropai.rewrite.modules.parameterEngine.ParameterEngine;
 import com.dropai.rewrite.modules.projectAnalyzer.ProjectAnalyzer;
 import com.dropai.rewrite.modules.projectSessionReset.ProjectSessionReset;
+import com.dropai.rewrite.modules.standardPartSelector.MockOnlineStandardPartProvider;
+import com.dropai.rewrite.modules.standardPartSelector.StandardPartCache;
 import com.dropai.rewrite.modules.standardPartSelector.StandardPartSelector;
 import com.dropai.rewrite.modules.swMacroEngine.SwMacroEngine;
 import com.dropai.rewrite.modules.structureEngine.StructureEngine;
@@ -45,8 +47,9 @@ class DesignPackageServiceTests {
         when(mapper.insert(any(DocumentJobRecord.class))).thenReturn(1);
         ParameterEngine parameterEngine = new ParameterEngine();
         CalculationEngine calculationEngine = new CalculationEngine();
+        StandardPartCache cache = new StandardPartCache(new ObjectMapper());
         TaskDrivenDesignPipeline pipeline = new TaskDrivenDesignPipeline(new ProjectSessionReset(), parameterEngine,
-                new ProjectAnalyzer(), new StructureTreeBuilder(), new StandardPartSelector(), new NonStandardPartGenerator(new UnknownPartResolver()),
+                new ProjectAnalyzer(), new StructureTreeBuilder(), new StandardPartSelector(cache, new MockOnlineStandardPartProvider(cache)), new NonStandardPartGenerator(new UnknownPartResolver()),
                 new AssemblyBuilder(), new BOMGenerator(), calculationEngine);
         DesignPackageService service = new DesignPackageService(
                 parameterEngine, calculationEngine, new DesignEnhancementEngine(), new StructureEngine(), new DrawingEngine(), new SwMacroEngine(),

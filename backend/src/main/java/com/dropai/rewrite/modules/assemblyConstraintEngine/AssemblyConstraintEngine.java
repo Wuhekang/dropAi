@@ -1,0 +1,118 @@
+package com.dropai.rewrite.modules.assemblyConstraintEngine;
+
+import com.dropai.rewrite.modules.model.DesignProject;
+import org.springframework.stereotype.Service;
+
+import java.util.ArrayList;
+import java.util.List;
+
+@Service
+public class AssemblyConstraintEngine {
+    public AssemblyResult solve(DesignProject project) {
+        double l = project.number("总长", project.number("整机长度", 800));
+        double w = project.number("总宽", project.number("整机宽度", 600));
+        double h = project.number("总高", project.number("整机高度", 300));
+        String signature = project.getProjectTitle() + project.getEquipmentName() + project.getDesignType() + String.join("", project.getMainStructures());
+        List<DesignProject.Component> components = new ArrayList<>();
+        List<DesignProject.AssemblyConstraint> constraints = new ArrayList<>();
+        boolean crawler = containsAny(signature, "爬壁", "履带", "磁吸附", "油罐检测");
+        int index = 0;
+        for (DesignProject.DesignPart part : project.getResolvedParts()) {
+            Layout layout = crawler ? crawlerLayout(part.getName(), index, l, w, h) : genericLayout(part.getName(), index, l, w, h);
+            DesignProject.Component component = new DesignProject.Component(index + 1, role(part), part.getName(),
+                    function(part), part.getMaterial(), Math.max(1, part.getQuantity()),
+                    layout.x(), layout.y(), layout.z(), layout.sx(), layout.sy(), layout.sz(), index < 16);
+            component.setGeometry(geometry(part));
+            component.setPartId("P%03d".formatted(index + 1));
+            component.setParentAssembly(parentAssembly(part));
+            component.setMountTo(layout.mountTo());
+            component.setConstraintType(layout.constraintType());
+            component.setMateReferences(layout.refs());
+            components.add(component);
+
+            DesignProject.AssemblyConstraint constraint = new DesignProject.AssemblyConstraint();
+            constraint.setPartId(component.getPartId());
+            constraint.setPartName(component.getName());
+            constraint.setParentAssembly(component.getParentAssembly());
+            constraint.setMountTo(component.getMountTo());
+            constraint.setConstraintType(component.getConstraintType());
+            constraint.setMateReferences(component.getMateReferences());
+            constraints.add(constraint);
+            index++;
+        }
+        return new AssemblyResult(components, constraints);
+    }
+
+    private Layout crawlerLayout(String name, int index, double l, double w, double h) {
+        if (containsAny(name, "机架")) return layout(l * .18, w * .22, h * .24, l * .64, w * .56, h * .12, "整机坐标系", "fixed", "机架基准面", "整机中心面");
+        if (containsAny(name, "左侧履带", "左履带")) return layout(l * .08, w * .05, h * .06, l * .78, w * .16, h * .18, "机架", "parallel", "左侧安装面", "履带中心线");
+        if (containsAny(name, "右侧履带", "右履带")) return layout(l * .08, w * .79, h * .06, l * .78, w * .16, h * .18, "机架", "parallel", "右侧安装面", "履带中心线");
+        if (containsAny(name, "履带")) return layout(l * .08, w * .05, h * .06, l * .78, w * .90, h * .18, "机架", "symmetric", "左右履带中心面");
+        if (containsAny(name, "驱动轮")) return layout(l * .10, w * .08, h * .08, l * .12, w * .84, h * .16, "履带", "coaxial", "驱动轮轴线", "履带端部圆弧");
+        if (containsAny(name, "从动轮")) return layout(l * .78, w * .08, h * .08, l * .12, w * .84, h * .16, "履带", "coaxial", "从动轮轴线", "履带端部圆弧");
+        if (containsAny(name, "支重轮", "滚轮")) return layout(l * (.25 + (index % 4) * .12), w * .08, h * .07, l * .08, w * .84, h * .12, "履带", "contact", "支重轮外圆", "履带内侧接触面");
+        if (containsAny(name, "磁", "吸附")) return layout(l * (.15 + (index % 6) * .1), w * .30, h * .01, l * .08, w * .40, h * .05, "机架", "offset", "底部安装孔", "磁吸附安装间距");
+        if (containsAny(name, "清扫", "刷")) return layout(l * .86, w * .38, h * .04, l * .16, w * .24, h * .16, "机架", "coaxial", "清扫电机轴", "刷盘中心孔");
+        if (containsAny(name, "检测", "传感", "导轨", "滑轨")) return layout(l * .70, w * .28, h * .42, l * .24, w * .44, h * .12, "机架", "parallel", "滑轨安装面", "检测模块调节方向");
+        if (containsAny(name, "电机")) return layout(l * .12, w * .32, h * .30, l * .13, w * .15, h * .16, "驱动轮", "coaxial", "电机输出轴", "驱动轮轴线");
+        if (containsAny(name, "减速")) return layout(l * .24, w * .32, h * .30, l * .12, w * .15, h * .15, "电机", "coaxial", "减速器输入轴", "电机输出轴");
+        if (containsAny(name, "外壳", "防护", "电池", "控制")) return layout(l * .32, w * .28, h * .48, l * .34, w * .42, h * .30, "机架", "fixed", "外壳安装孔", "机架上平面");
+        return genericLayout(name, index, l, w, h);
+    }
+
+    private Layout genericLayout(String name, int index, double l, double w, double h) {
+        if (containsAny(name, "机架", "主体", "底座", "支撑")) return layout(l * .18, w * .18, h * .12, l * .64, w * .64, h * .16, "整机坐标系", "fixed", "基准安装面");
+        if (containsAny(name, "电机", "减速", "轴", "轮", "带")) return layout(l * .16 + (index % 3) * l * .18, w * .20, h * .36, l * .16, w * .18, h * .16, "机架", "coaxial", "传动轴线", "安装孔");
+        if (containsAny(name, "检测", "导轨", "滑轨", "传感")) return layout(l * .62, w * .32, h * .42, l * .22, w * .36, h * .12, "机架", "parallel", "导轨面", "调节方向");
+        if (containsAny(name, "外壳", "防护", "罩")) return layout(l * .28, w * .25, h * .48, l * .44, w * .50, h * .28, "机架", "fixed", "罩壳安装边");
+        return layout(l * (.18 + (index % 4) * .15), w * (.24 + (index % 3) * .15), h * (.24 + (index % 2) * .18), l * .14, w * .14, h * .12, "机架", "fixed", "安装孔");
+    }
+
+    private Layout layout(double x, double y, double z, double sx, double sy, double sz, String mountTo, String type, String... refs) {
+        return new Layout(x, y, z, sx, sy, sz, mountTo, type, List.of(refs));
+    }
+
+    private String role(DesignProject.DesignPart part) {
+        String name = part.getName();
+        if ("standard".equals(part.getPartType())) return containsAny(name, "电机", "减速", "轴", "轮", "带") ? "DRIVE" : "CONNECT";
+        if (containsAny(name, "机架", "支撑", "底座")) return "SUPPORT";
+        if (containsAny(name, "外壳", "防护")) return "SAFETY";
+        if (containsAny(name, "检修", "维护", "快拆")) return "MAINTENANCE";
+        if (containsAny(name, "安装", "吸附", "磁")) return "MOUNT";
+        return "FUNCTION";
+    }
+
+    private String geometry(DesignProject.DesignPart part) {
+        String name = part.getName();
+        if (containsAny(name, "履带", "带")) return "TRACK";
+        if (containsAny(name, "轮", "滚筒")) return "WHEEL";
+        if (containsAny(name, "电机")) return "MOTOR";
+        if (containsAny(name, "减速")) return "GEARBOX";
+        if (containsAny(name, "刷")) return "BRUSH";
+        if (containsAny(name, "磁", "吸附")) return "MAGNET_BLOCK";
+        if (containsAny(name, "导轨", "滑轨", "检测")) return "SENSOR_RAIL";
+        if (containsAny(name, "机架", "支架")) return "FRAME";
+        if (containsAny(name, "外壳", "防护", "盖")) return "COVER";
+        if (containsAny(name, "螺栓", "孔")) return "BOLT_GROUP";
+        if (containsAny(name, "法兰")) return "FLANGE";
+        return "PLATE";
+    }
+
+    private String function(DesignProject.DesignPart part) {
+        if ("standard".equals(part.getPartType())) return "标准件：" + part.getModel() + "；来源：" + part.getSource();
+        return "非标件：" + String.join("、", part.getGeometryFeatures());
+    }
+
+    private String parentAssembly(DesignProject.DesignPart part) {
+        return part.getParentStructure() == null || part.getParentStructure().isBlank() ? "整机装配" : part.getParentStructure();
+    }
+
+    private boolean containsAny(String value, String... words) {
+        if (value == null) return false;
+        for (String word : words) if (value.contains(word)) return true;
+        return false;
+    }
+
+    public record AssemblyResult(List<DesignProject.Component> components, List<DesignProject.AssemblyConstraint> constraints) {}
+    private record Layout(double x, double y, double z, double sx, double sy, double sz, String mountTo, String constraintType, List<String> refs) {}
+}
