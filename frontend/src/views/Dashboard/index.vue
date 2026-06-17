@@ -80,12 +80,12 @@ const username = sessionStorage.getItem('dropai_username') || '当前账号'
 const documents = ref([])
 const loading = ref(false)
 const heroProject = {
-  projectTitle: '参数化机械设备设计展示',
-  equipmentName: '带式输送设备',
-  designType: '带式输送设备',
+  projectTitle: '重力沉降室详细设计展示',
+  equipmentName: '重力沉降室',
+  designType: '环保设备结构设计',
   totalLength: 4200,
-  totalWidth: 1600,
-  totalHeight: 1800
+  totalWidth: 2000,
+  totalHeight: 3200
 }
 
 async function loadDocuments() {
