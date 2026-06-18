@@ -6,6 +6,7 @@ import com.dropai.rewrite.modules.calculationEngine.CalculationEngine;
 import com.dropai.rewrite.modules.drawingPlanBuilder.DrawingPlanBuilder;
 import com.dropai.rewrite.modules.model.DesignProject;
 import com.dropai.rewrite.modules.nonStandardPartGenerator.NonStandardPartGenerator;
+import com.dropai.rewrite.modules.partResolver.PartResolver;
 import com.dropai.rewrite.modules.parameterEngine.ParameterEngine;
 import com.dropai.rewrite.modules.projectAnalyzer.ProjectAnalyzer;
 import com.dropai.rewrite.modules.projectSessionReset.ProjectSessionReset;
@@ -19,8 +20,7 @@ public class TaskDrivenDesignPipeline {
     private final ParameterEngine parameterEngine;
     private final ProjectAnalyzer projectAnalyzer;
     private final StructureTreeBuilder structureTreeBuilder;
-    private final StandardPartSelector standardPartSelector;
-    private final NonStandardPartGenerator nonStandardPartGenerator;
+    private final PartResolver partResolver;
     private final AssemblyBuilder assemblyBuilder;
     private final BOMGenerator bomGenerator;
     private final CalculationEngine calculationEngine;
@@ -35,8 +35,7 @@ public class TaskDrivenDesignPipeline {
         this.parameterEngine = parameterEngine;
         this.projectAnalyzer = projectAnalyzer;
         this.structureTreeBuilder = structureTreeBuilder;
-        this.standardPartSelector = standardPartSelector;
-        this.nonStandardPartGenerator = nonStandardPartGenerator;
+        this.partResolver = new PartResolver(standardPartSelector, nonStandardPartGenerator);
         this.assemblyBuilder = assemblyBuilder;
         this.bomGenerator = bomGenerator;
         this.calculationEngine = calculationEngine;
@@ -56,8 +55,7 @@ public class TaskDrivenDesignPipeline {
         ensureMinimumParameters(project);
         project = projectAnalyzer.analyze(project);
         project = structureTreeBuilder.build(project);
-        project = standardPartSelector.select(project);
-        project = nonStandardPartGenerator.generate(project);
+        project = partResolver.resolve(project);
         project = assemblyBuilder.build(project);
         project = bomGenerator.generate(project);
         project = calculationEngine.calculate(project);

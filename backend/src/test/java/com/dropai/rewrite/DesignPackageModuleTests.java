@@ -172,6 +172,12 @@ class DesignPackageModuleTests {
                 .anyMatch(p -> p.getSource().contains("mock_provider_pending_real_api") || p.getSource().contains("local_cache")));
         assertTrue(project.getResolvedParts().stream().filter(p -> "standard".equals(p.getPartType()))
                 .allMatch(p -> !p.getAvailableFormats().isEmpty() && p.getConfidence() > 0));
+        assertTrue(project.getResolvedParts().stream().filter(p -> "standard".equals(p.getPartType()))
+                .allMatch(p -> !p.getSourcePlatform().isBlank()
+                        && !p.getRetrievalStatus().isBlank()
+                        && !p.getAvailableModelFormats().isEmpty()
+                        && !p.getTechnicalParams().isEmpty()));
+        assertTrue(project.getBom().stream().anyMatch(item -> item.getRemark().contains("平台：") || item.getRemark().contains("状态：")));
         assertTrue(project.getResolvedParts().stream().filter(p -> "non_standard".equals(p.getPartType()))
                 .allMatch(p -> "NonStandardPartGenerator".equals(p.getGeneratedBy()) && p.getGeometryFeatures().size() >= 4));
         assertTrue(project.getAssemblyTree().getChildren().size() >= 3);

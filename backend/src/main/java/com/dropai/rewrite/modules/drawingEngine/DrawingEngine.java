@@ -153,14 +153,46 @@ public class DrawingEngine {
             c.line("HIDDEN", x + 4, y + 4, x + w - 4, y + h - 4);
             c.line("HIDDEN", x + 4, y + h - 4, x + w - 4, y + 4);
             c.text("ANNOTATION", x + 3, y + h / 2, 2.5, "磁");
+        } else if (geometry.contains("BEARING")) {
+            double r = Math.max(5, Math.min(w, h) / 2);
+            c.circle(layer, x + w / 2, y + h / 2, r);
+            c.circle(layer, x + w / 2, y + h / 2, r * .55);
+            c.line("CENTER", x + w / 2 - r, y + h / 2, x + w / 2 + r, y + h / 2);
+            c.line("HATCH", x + w / 2 - r * .65, y + h / 2 - r * .65, x + w / 2 + r * .65, y + h / 2 + r * .65);
         } else if (geometry.contains("MOTOR") || name.contains("motor") || name.contains("电机")) {
             c.rect(layer, x, y, w, h);
+            c.circle(layer, x + w * .18, y + h / 2, Math.min(w, h) * .28);
             c.circle("STRUCTURE", x + w * .76, y + h / 2, Math.min(w, h) * .24);
             c.text("ANNOTATION", x + 3, y + h / 2, 2.5, "电机");
         } else if (geometry.contains("GEAR") || name.contains("reducer") || name.contains("减速")) {
             c.rect(layer, x, y, w, h);
             c.line("STRUCTURE", x, y, x + w, y + h);
             c.line("STRUCTURE", x, y + h, x + w, y);
+            c.line("CENTER", x - 8, y + h / 2, x + w + 8, y + h / 2);
+        } else if (geometry.contains("RAIL")) {
+            c.rect(layer, x, y + h * .35, w, h * .3);
+            c.rect("STRUCTURE", x + w * .25, y + h * .18, w * .5, h * .64);
+            for (int i = 0; i < 3; i++) c.circle("CENTER", x + w * (.2 + i * .3), y + h / 2, 2.5);
+        } else if (geometry.contains("COUPLING")) {
+            c.circle(layer, x + w * .33, y + h / 2, Math.min(w, h) * .25);
+            c.circle(layer, x + w * .67, y + h / 2, Math.min(w, h) * .25);
+            c.line("CENTER", x, y + h / 2, x + w, y + h / 2);
+            c.circle("CENTER", x + w * .5, y + h * .25, 2.5);
+        } else if (geometry.contains("BOLT")) {
+            for (int i = 0; i < 4; i++) {
+                double bx = x + w * (.2 + (i % 2) * .6);
+                double by = y + h * (.25 + (i / 2) * .5);
+                c.circle(layer, bx, by, Math.max(2.5, Math.min(w, h) * .08));
+                c.line("CENTER", bx - 4, by, bx + 4, by);
+            }
+        } else if (geometry.contains("FLANGE")) {
+            double r = Math.max(6, Math.min(w, h) / 2);
+            c.circle(layer, x + w / 2, y + h / 2, r);
+            c.circle(layer, x + w / 2, y + h / 2, r * .45);
+            for (int i = 0; i < 6; i++) {
+                double a = Math.PI * 2 * i / 6;
+                c.circle("CENTER", x + w / 2 + Math.cos(a) * r * .72, y + h / 2 + Math.sin(a) * r * .72, 2.2);
+            }
         } else if (geometry.contains("SENSOR") || name.contains("sensor") || name.contains("检测") || name.contains("传感")) {
             c.rect(layer, x, y, w, h);
             c.line("CENTER", x, y + h / 2, x + w, y + h / 2);
@@ -184,11 +216,11 @@ public class DrawingEngine {
         double h = 140;
         c.rect("TABLE", x, y, w, h);
         c.text("TABLE", x + 8, y + h - 12, 4, "BOM明细表");
-        c.text("TABLE", x + 8, y + h - 28, 3, "序号  名称              材料       数量");
+        c.text("TABLE", x + 8, y + h - 28, 3, "序号  名称              材料       数量/型号来源");
         int row = 0;
         for (DesignProject.BomItem item : p.getDrawingPlan().getBomTable().stream().limit(6).toList()) {
             c.text("TABLE", x + 8, y + h - 45 - row * 15, 2.8,
-                    "%02d    %-12s  %-8s  %d".formatted(item.getSequence(), trim(item.getName(), 10), trim(item.getMaterial(), 6), item.getQuantity()));
+                    "%02d    %-12s  %-8s  %d %s".formatted(item.getSequence(), trim(item.getName(), 10), trim(item.getMaterial(), 6), item.getQuantity(), trim(item.getRemark(), 14)));
             row++;
         }
     }

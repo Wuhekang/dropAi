@@ -306,9 +306,15 @@ public class DesignProject {
         private String model = "";
         private String brand = "";
         private String source = "";
+        private String sourcePlatform = "";
         private String sourceUrl = "";
         private String reason = "";
         private List<String> availableFormats = new ArrayList<>();
+        private List<String> availableModelFormats = new ArrayList<>();
+        private java.util.Map<String, Object> technicalParams = new java.util.LinkedHashMap<>();
+        private String modelDownloadUrl = "";
+        private String cachedModelPath = "";
+        private String retrievalStatus = "";
         private double confidence;
         private java.util.Map<String, Object> dimensions = new java.util.LinkedHashMap<>();
         private String generatedBy = "";
@@ -323,9 +329,15 @@ public class DesignProject {
         public String getModel() { return model; } public void setModel(String v) { model = v; }
         public String getBrand() { return brand; } public void setBrand(String v) { brand = v; }
         public String getSource() { return source; } public void setSource(String v) { source = v; }
+        public String getSourcePlatform() { return sourcePlatform; } public void setSourcePlatform(String v) { sourcePlatform = v; }
         public String getSourceUrl() { return sourceUrl; } public void setSourceUrl(String v) { sourceUrl = v; }
         public String getReason() { return reason; } public void setReason(String v) { reason = v; }
         public List<String> getAvailableFormats() { return availableFormats; } public void setAvailableFormats(List<String> v) { availableFormats = safe(v); }
+        public List<String> getAvailableModelFormats() { return availableModelFormats; } public void setAvailableModelFormats(List<String> v) { availableModelFormats = safe(v); }
+        public java.util.Map<String, Object> getTechnicalParams() { return technicalParams; } public void setTechnicalParams(java.util.Map<String, Object> v) { technicalParams = v == null ? new java.util.LinkedHashMap<>() : new java.util.LinkedHashMap<>(v); }
+        public String getModelDownloadUrl() { return modelDownloadUrl; } public void setModelDownloadUrl(String v) { modelDownloadUrl = v; }
+        public String getCachedModelPath() { return cachedModelPath; } public void setCachedModelPath(String v) { cachedModelPath = v; }
+        public String getRetrievalStatus() { return retrievalStatus; } public void setRetrievalStatus(String v) { retrievalStatus = v; }
         public double getConfidence() { return confidence; } public void setConfidence(double v) { confidence = v; }
         public java.util.Map<String, Object> getDimensions() { return dimensions; } public void setDimensions(java.util.Map<String, Object> v) { dimensions = v == null ? new java.util.LinkedHashMap<>() : new java.util.LinkedHashMap<>(v); }
         public String getGeneratedBy() { return generatedBy; } public void setGeneratedBy(String v) { generatedBy = v; }
