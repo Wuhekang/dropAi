@@ -9,6 +9,7 @@ import com.dropai.rewrite.modules.bomGenerator.BOMGenerator;
 import com.dropai.rewrite.modules.designEnhancementEngine.DesignEnhancementEngine;
 import com.dropai.rewrite.modules.designPipeline.TaskDrivenDesignPipeline;
 import com.dropai.rewrite.modules.drawingEngine.DrawingEngine;
+import com.dropai.rewrite.modules.drawingPlanBuilder.DrawingPlanBuilder;
 import com.dropai.rewrite.modules.exportEngine.ExportEngine;
 import com.dropai.rewrite.modules.model.DesignProject;
 import com.dropai.rewrite.modules.nonStandardPartGenerator.NonStandardPartGenerator;
@@ -50,7 +51,7 @@ class DesignPackageServiceTests {
         StandardPartCache cache = new StandardPartCache(new ObjectMapper());
         TaskDrivenDesignPipeline pipeline = new TaskDrivenDesignPipeline(new ProjectSessionReset(), parameterEngine,
                 new ProjectAnalyzer(), new StructureTreeBuilder(), new StandardPartSelector(cache, new MockOnlineStandardPartProvider(cache)), new NonStandardPartGenerator(new UnknownPartResolver()),
-                new AssemblyBuilder(), new BOMGenerator(), calculationEngine);
+                new AssemblyBuilder(), new BOMGenerator(), calculationEngine, new DrawingPlanBuilder());
         DesignPackageService service = new DesignPackageService(
                 parameterEngine, calculationEngine, new DesignEnhancementEngine(), new StructureEngine(), new DrawingEngine(), new SwMacroEngine(),
                 new PaperEngine(), new ExportEngine(new ObjectMapper()), mapper, pipeline);

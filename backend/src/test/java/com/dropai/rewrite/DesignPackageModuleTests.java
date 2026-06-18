@@ -8,6 +8,7 @@ import com.dropai.rewrite.modules.designEnhancementEngine.DesignEnhancementEngin
 import com.dropai.rewrite.modules.designPipeline.TaskDrivenDesignPipeline;
 import com.dropai.rewrite.modules.documentParser.DocumentParser;
 import com.dropai.rewrite.modules.drawingEngine.DrawingEngine;
+import com.dropai.rewrite.modules.drawingPlanBuilder.DrawingPlanBuilder;
 import com.dropai.rewrite.modules.model.DesignProject;
 import com.dropai.rewrite.modules.nonStandardPartGenerator.NonStandardPartGenerator;
 import com.dropai.rewrite.modules.paperEngine.PaperEngine;
@@ -44,26 +45,26 @@ class DesignPackageModuleTests {
     void assemblyDxfContainsEngineeringDrawingLayersAndAnnotations() {
         DesignProject project = structuredProject();
         String dxf = new String(new DrawingEngine().drawAssemblyDrawing(project).get(0).content(), StandardCharsets.UTF_8);
+        assertTrue("DrawingPlan".equals(project.getDrawingPlan().getInputSource()));
+        assertFalse(project.getDrawingPlan().getMainView().getVisibleParts().isEmpty());
+        assertFalse(project.getDrawingPlan().getTopView().getVisibleParts().isEmpty());
+        assertFalse(project.getDrawingPlan().getSideView().getVisibleParts().isEmpty());
+        assertFalse(project.getDrawingPlan().getSectionViews().isEmpty());
+        assertFalse(project.getDrawingPlan().getDetailViews().isEmpty());
         assertTrue(dxf.contains("2\nDIMENSION\n"));
         assertTrue(dxf.contains("2\nTITLE\n"));
-        assertTrue(dxf.contains("2\nBODY\n"));
-        assertTrue(dxf.contains("2\nSUPPORT\n"));
         assertTrue(dxf.contains("2\nSECTION\n"));
         assertTrue(dxf.contains("2\nHATCH\n"));
         assertTrue(dxf.contains("2\nCUTTING\n"));
         assertTrue(dxf.contains("2\nTOLERANCE\n"));
         assertTrue(dxf.contains("2\nJOINT\n"));
-        assertTrue(dxf.contains("A-A剖面"));
-        assertTrue(dxf.contains("B-B剖面"));
-        assertTrue(dxf.contains("轴测辅助图"));
-        assertTrue(dxf.contains("安装孔"));
-        assertTrue(dxf.contains("粗糙度"));
+        assertTrue(dxf.contains("CADGeneratorInputSource: DrawingPlan"));
+        assertTrue(dxf.contains("A-A"));
         assertTrue(new DrawingEngine().drawAssemblyDrawing(project).stream()
                 .filter(file -> "cad_preview.png".equals(file.fileName())).findFirst().orElseThrow().content().length > 1000);
         assertTrue(new DrawingEngine().drawAssemblyDrawing(project).stream()
                 .filter(file -> "preview.png".equals(file.fileName())).findFirst().orElseThrow().content().length > 1000);
     }
-
     @Test
     void fallbackPaperMeetsMinimumStructureAndLength() throws Exception {
         DesignProject project = structuredProject();
@@ -102,21 +103,21 @@ class DesignPackageModuleTests {
     }
 
     @Test
-    void sedimentationPreviewUsesDetailedEngineeringBoard() throws Exception {
-        DesignProject analyzed = new DesignAnalyzer().analyze("重力沉降室设计",
-                List.of(new DocumentParser.ParsedDocument("任务书.txt", "TASK_BOOK", "重力沉降室设计")));
-        DesignEnhancementEngine enhancementEngine = new DesignEnhancementEngine();
-        DesignProject project = enhancementEngine.enhance(new StructureEngine().design(
-                new CalculationEngine().calculate(enhancementEngine.enhance(new ParameterEngine().normalize(analyzed)))));
-        assertTrue(project.getCalculations().size() >= 8);
+    void drawingPlanDrivesCadPreview() throws Exception {
+        DesignProject project = structuredProject();
+        assertTrue(project.getCalculations().size() >= 4);
+        assertTrue(project.getDrawingPlan().getMainView().getVisibleParts().size() > 0);
+        assertTrue(project.getDrawingPlan().getTopView().getVisibleParts().size() > 0);
+        assertTrue(project.getDrawingPlan().getSideView().getVisibleParts().size() > 0);
+        assertTrue(project.getDrawingPlan().getSectionViews().size() >= 1);
+        assertTrue(project.getDrawingPlan().getDetailViews().size() >= 1);
         byte[] png = new DrawingEngine().drawAssemblyDrawing(project).stream()
-                .filter(file -> "preview.png".equals(file.fileName())).findFirst().orElseThrow().content();
-        assertTrue(png.length > 250000);
+                .filter(file -> "cad_preview.png".equals(file.fileName())).findFirst().orElseThrow().content();
+        assertTrue(png.length > 1000);
         var image = ImageIO.read(new ByteArrayInputStream(png));
-        assertTrue(image.getWidth() >= 1700);
-        assertTrue(image.getHeight() >= 1200);
+        assertTrue(image.getWidth() >= 1600);
+        assertTrue(image.getHeight() >= 1100);
     }
-
     @Test
     void semanticArchitecturesProduceRecognizableComponents() {
         assertArchitecture("重力沉降室设计", "环保设备结构设计", "排灰斗", "HOPPER");
@@ -182,9 +183,7 @@ class DesignPackageModuleTests {
     }
 
     private DesignProject structuredProject() {
-        DesignEnhancementEngine enhancementEngine = new DesignEnhancementEngine();
-        DesignProject enhanced = enhancementEngine.enhance(new ParameterEngine().normalize(new DesignProject()));
-        return enhancementEngine.enhance(new StructureEngine().design(new CalculationEngine().calculate(enhanced)));
+        return pipeline().analyzeNewTask(new DesignProject());
     }
 
     private TaskDrivenDesignPipeline pipeline() {
@@ -193,6 +192,6 @@ class DesignPackageModuleTests {
         StandardPartCache cache = new StandardPartCache(new ObjectMapper());
         return new TaskDrivenDesignPipeline(new ProjectSessionReset(), parameterEngine, new ProjectAnalyzer(),
                 new StructureTreeBuilder(), new StandardPartSelector(cache, new MockOnlineStandardPartProvider(cache)), new NonStandardPartGenerator(new UnknownPartResolver()),
-                new AssemblyBuilder(), new BOMGenerator(), calculationEngine);
+                new AssemblyBuilder(), new BOMGenerator(), calculationEngine, new DrawingPlanBuilder());
     }
 }

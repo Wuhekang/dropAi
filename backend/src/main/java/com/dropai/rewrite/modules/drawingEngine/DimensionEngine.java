@@ -20,6 +20,35 @@ public class DimensionEngine {
         c.text("DIMENSION", 690, 280, 3.2, "关键结构尺寸与参数表联动");
     }
 
+    public void drawPlanDimensions(DrawingEngine.Canvas c, DesignProject p) {
+        drawViewDimensions(c, p.getDrawingPlan().getMainView(), 70, 285, 55, 300);
+        drawViewDimensions(c, p.getDrawingPlan().getTopView(), 70, 88, 55, 105);
+        drawViewDimensions(c, p.getDrawingPlan().getSideView(), 520, 190, 675, 205);
+        int row = 0;
+        for (DesignProject.DrawingViewPlan view : p.getDrawingPlan().getSectionViews()) {
+            for (DesignProject.DimensionChain item : view.getDimensions()) {
+                c.text("DIMENSION", 690, 340 - row * 18, 3.2,
+                        item.getName() + "=" + fmt(item.getValue()) + item.getUnit() + " [" + trim(item.getSource(), 18) + "]");
+                row++;
+            }
+        }
+    }
+
+    private void drawViewDimensions(DrawingEngine.Canvas c, DesignProject.DrawingViewPlan view, double hx, double hy, double vx, double vy) {
+        int index = 0;
+        for (DesignProject.DimensionChain item : view.getDimensions().stream().limit(4).toList()) {
+            if (index % 2 == 0) {
+                dim(c, hx, hy - index * 10, hx + 360, hy - index * 10,
+                        item.getName() + " " + fmt(item.getValue()) + item.getUnit());
+            } else {
+                dim(c, vx - index * 8, vy, vx - index * 8, vy + 150,
+                        item.getName() + " " + fmt(item.getValue()) + item.getUnit());
+            }
+            c.text("DIMENSION", hx + 15, hy - 48 - index * 12, 2.8, "source: " + trim(item.getSource(), 34));
+            index++;
+        }
+    }
+
     public void drawPartDimensions(DrawingEngine.Canvas c, DesignProject.Component p, double thickness) {
         dim(c, 160, 205, 520, 205, "L=" + fmt(p.getLength()));
         dim(c, 140, 230, 140, 420, "H=" + fmt(p.getHeight()));
@@ -37,4 +66,5 @@ public class DimensionEngine {
     }
 
     private String fmt(double v) { return "%.0f".formatted(v); }
+    private String trim(String v, int n) { return v == null ? "" : v.length() > n ? v.substring(0, n) : v; }
 }

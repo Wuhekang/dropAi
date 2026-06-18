@@ -3,6 +3,7 @@ package com.dropai.rewrite.modules.designPipeline;
 import com.dropai.rewrite.modules.assemblyBuilder.AssemblyBuilder;
 import com.dropai.rewrite.modules.bomGenerator.BOMGenerator;
 import com.dropai.rewrite.modules.calculationEngine.CalculationEngine;
+import com.dropai.rewrite.modules.drawingPlanBuilder.DrawingPlanBuilder;
 import com.dropai.rewrite.modules.model.DesignProject;
 import com.dropai.rewrite.modules.nonStandardPartGenerator.NonStandardPartGenerator;
 import com.dropai.rewrite.modules.parameterEngine.ParameterEngine;
@@ -23,12 +24,13 @@ public class TaskDrivenDesignPipeline {
     private final AssemblyBuilder assemblyBuilder;
     private final BOMGenerator bomGenerator;
     private final CalculationEngine calculationEngine;
+    private final DrawingPlanBuilder drawingPlanBuilder;
 
     public TaskDrivenDesignPipeline(ProjectSessionReset sessionReset, ParameterEngine parameterEngine,
                                     ProjectAnalyzer projectAnalyzer, StructureTreeBuilder structureTreeBuilder,
                                     StandardPartSelector standardPartSelector, NonStandardPartGenerator nonStandardPartGenerator,
                                     AssemblyBuilder assemblyBuilder, BOMGenerator bomGenerator,
-                                    CalculationEngine calculationEngine) {
+                                    CalculationEngine calculationEngine, DrawingPlanBuilder drawingPlanBuilder) {
         this.sessionReset = sessionReset;
         this.parameterEngine = parameterEngine;
         this.projectAnalyzer = projectAnalyzer;
@@ -38,6 +40,7 @@ public class TaskDrivenDesignPipeline {
         this.assemblyBuilder = assemblyBuilder;
         this.bomGenerator = bomGenerator;
         this.calculationEngine = calculationEngine;
+        this.drawingPlanBuilder = drawingPlanBuilder;
     }
 
     public DesignProject analyzeNewTask(DesignProject project) {
@@ -59,6 +62,7 @@ public class TaskDrivenDesignPipeline {
         project = bomGenerator.generate(project);
         project = calculationEngine.calculate(project);
         project = bomGenerator.generate(project);
+        project = drawingPlanBuilder.build(project);
         score(project);
         project.getEnhancementNotes().removeIf(item -> item != null && item.contains("任务书驱动结构树流水线"));
         project.getEnhancementNotes().add("任务书驱动结构树流水线：StructureTree + StandardPartSelector + NonStandardPartGenerator + AssemblyTree 已生成当前项目专属结构。");

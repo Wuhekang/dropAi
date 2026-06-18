@@ -252,14 +252,19 @@ public class DesignProject {
         private double value;
         private String unit;
         private String relatedComponent;
+        private String source = "";
         public DimensionChain() {}
         public DimensionChain(String name, double value, String unit, String relatedComponent) {
             this.name = name; this.value = value; this.unit = unit; this.relatedComponent = relatedComponent;
+        }
+        public DimensionChain(String name, double value, String unit, String relatedComponent, String source) {
+            this.name = name; this.value = value; this.unit = unit; this.relatedComponent = relatedComponent; this.source = source;
         }
         public String getName() { return name; } public void setName(String v) { name = v; }
         public double getValue() { return value; } public void setValue(double v) { value = v; }
         public String getUnit() { return unit; } public void setUnit(String v) { unit = v; }
         public String getRelatedComponent() { return relatedComponent; } public void setRelatedComponent(String v) { relatedComponent = v; }
+        public String getSource() { return source; } public void setSource(String v) { source = v; }
     }
 
     public static class ProjectAnalysis {
@@ -371,28 +376,46 @@ public class DesignProject {
     }
 
     public static class DrawingPlan {
+        private String inputSource = "";
         private DrawingViewPlan mainView = new DrawingViewPlan("mainView");
         private DrawingViewPlan topView = new DrawingViewPlan("topView");
         private DrawingViewPlan sideView = new DrawingViewPlan("sideView");
         private List<DrawingViewPlan> sectionViews = new ArrayList<>();
         private List<DrawingViewPlan> detailViews = new ArrayList<>();
+        private DrawingViewPlan isometricView = new DrawingViewPlan("isometricView");
+        private List<BomItem> bomTable = new ArrayList<>();
+        private List<String> technicalRequirements = new ArrayList<>();
+        private java.util.Map<String, String> titleBlock = new java.util.LinkedHashMap<>();
+        private List<Parameter> parameterTable = new ArrayList<>();
+        public String getInputSource() { return inputSource; } public void setInputSource(String v) { inputSource = v; }
         public DrawingViewPlan getMainView() { return mainView; } public void setMainView(DrawingViewPlan v) { mainView = v == null ? new DrawingViewPlan("mainView") : v; }
         public DrawingViewPlan getTopView() { return topView; } public void setTopView(DrawingViewPlan v) { topView = v == null ? new DrawingViewPlan("topView") : v; }
         public DrawingViewPlan getSideView() { return sideView; } public void setSideView(DrawingViewPlan v) { sideView = v == null ? new DrawingViewPlan("sideView") : v; }
         public List<DrawingViewPlan> getSectionViews() { return sectionViews; } public void setSectionViews(List<DrawingViewPlan> v) { sectionViews = safe(v); }
         public List<DrawingViewPlan> getDetailViews() { return detailViews; } public void setDetailViews(List<DrawingViewPlan> v) { detailViews = safe(v); }
+        public DrawingViewPlan getIsometricView() { return isometricView; } public void setIsometricView(DrawingViewPlan v) { isometricView = v == null ? new DrawingViewPlan("isometricView") : v; }
+        public List<BomItem> getBomTable() { return bomTable; } public void setBomTable(List<BomItem> v) { bomTable = safe(v); }
+        public List<String> getTechnicalRequirements() { return technicalRequirements; } public void setTechnicalRequirements(List<String> v) { technicalRequirements = safe(v); }
+        public java.util.Map<String, String> getTitleBlock() { return titleBlock; } public void setTitleBlock(java.util.Map<String, String> v) { titleBlock = v == null ? new java.util.LinkedHashMap<>() : new java.util.LinkedHashMap<>(v); }
+        public List<Parameter> getParameterTable() { return parameterTable; } public void setParameterTable(List<Parameter> v) { parameterTable = safe(v); }
     }
 
     public static class DrawingViewPlan {
         private String name = "";
         private List<String> visibleParts = new ArrayList<>();
+        private List<String> hiddenParts = new ArrayList<>();
         private List<DimensionChain> dimensions = new ArrayList<>();
         private List<String> labels = new ArrayList<>();
+        private List<String> centerLines = new ArrayList<>();
+        private List<String> sectionMarkers = new ArrayList<>();
         public DrawingViewPlan() {}
         public DrawingViewPlan(String name) { this.name = name; }
         public String getName() { return name; } public void setName(String v) { name = v; }
         public List<String> getVisibleParts() { return visibleParts; } public void setVisibleParts(List<String> v) { visibleParts = safe(v); }
+        public List<String> getHiddenParts() { return hiddenParts; } public void setHiddenParts(List<String> v) { hiddenParts = safe(v); }
         public List<DimensionChain> getDimensions() { return dimensions; } public void setDimensions(List<DimensionChain> v) { dimensions = safe(v); }
         public List<String> getLabels() { return labels; } public void setLabels(List<String> v) { labels = safe(v); }
+        public List<String> getCenterLines() { return centerLines; } public void setCenterLines(List<String> v) { centerLines = safe(v); }
+        public List<String> getSectionMarkers() { return sectionMarkers; } public void setSectionMarkers(List<String> v) { sectionMarkers = safe(v); }
     }
 }
