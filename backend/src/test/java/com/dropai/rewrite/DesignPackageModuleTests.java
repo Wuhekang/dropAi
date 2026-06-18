@@ -105,6 +105,10 @@ class DesignPackageModuleTests {
             StringBuilder text = new StringBuilder();
             document.getParagraphs().forEach(p -> text.append(p.getText()));
             assertTrue(text.length() > 1000);
+            assertFalse(text.toString().contains("第1段说明"));
+            assertFalse(text.toString().contains("该段落需要围绕"));
+            assertFalse(text.toString().contains("进一步展开"));
+            assertFalse(text.toString().contains("定稿时可根据"));
         }
     }
 
