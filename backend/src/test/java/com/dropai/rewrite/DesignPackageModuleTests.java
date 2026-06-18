@@ -58,8 +58,12 @@ class DesignPackageModuleTests {
         assertTrue(dxf.contains("2\nCUTTING\n"));
         assertTrue(dxf.contains("2\nTOLERANCE\n"));
         assertTrue(dxf.contains("2\nJOINT\n"));
-        assertTrue(dxf.contains("CADGeneratorInputSource: DrawingPlan"));
+        assertTrue(dxf.contains("CAD input: DrawingPlan"));
         assertTrue(dxf.contains("A-A"));
+        assertTrue(project.getDrawingPlan().getMainView().getVisibleParts().size() <= 12);
+        assertTrue(project.getDrawingPlan().getTopView().getVisibleParts().size() <= 10);
+        assertTrue(project.getDrawingPlan().getSideView().getVisibleParts().size() <= 10);
+        assertTrue(project.getDrawingPlan().getQualityScore() >= 70);
         assertTrue(new DrawingEngine().drawAssemblyDrawing(project).stream()
                 .filter(file -> "cad_preview.png".equals(file.fileName())).findFirst().orElseThrow().content().length > 1000);
         assertTrue(new DrawingEngine().drawAssemblyDrawing(project).stream()

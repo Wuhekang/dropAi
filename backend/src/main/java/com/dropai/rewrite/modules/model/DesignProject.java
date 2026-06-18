@@ -377,6 +377,8 @@ public class DesignProject {
 
     public static class DrawingPlan {
         private String inputSource = "";
+        private int qualityScore;
+        private List<String> qualityNotes = new ArrayList<>();
         private DrawingViewPlan mainView = new DrawingViewPlan("mainView");
         private DrawingViewPlan topView = new DrawingViewPlan("topView");
         private DrawingViewPlan sideView = new DrawingViewPlan("sideView");
@@ -388,6 +390,8 @@ public class DesignProject {
         private java.util.Map<String, String> titleBlock = new java.util.LinkedHashMap<>();
         private List<Parameter> parameterTable = new ArrayList<>();
         public String getInputSource() { return inputSource; } public void setInputSource(String v) { inputSource = v; }
+        public int getQualityScore() { return qualityScore; } public void setQualityScore(int v) { qualityScore = v; }
+        public List<String> getQualityNotes() { return qualityNotes; } public void setQualityNotes(List<String> v) { qualityNotes = safe(v); }
         public DrawingViewPlan getMainView() { return mainView; } public void setMainView(DrawingViewPlan v) { mainView = v == null ? new DrawingViewPlan("mainView") : v; }
         public DrawingViewPlan getTopView() { return topView; } public void setTopView(DrawingViewPlan v) { topView = v == null ? new DrawingViewPlan("topView") : v; }
         public DrawingViewPlan getSideView() { return sideView; } public void setSideView(DrawingViewPlan v) { sideView = v == null ? new DrawingViewPlan("sideView") : v; }
@@ -402,6 +406,9 @@ public class DesignProject {
 
     public static class DrawingViewPlan {
         private String name = "";
+        private String purpose = "";
+        private String levelOfDetail = "engineering_simplified";
+        private java.util.Map<String, Double> viewport = new java.util.LinkedHashMap<>();
         private List<String> visibleParts = new ArrayList<>();
         private List<String> hiddenParts = new ArrayList<>();
         private List<DimensionChain> dimensions = new ArrayList<>();
@@ -411,6 +418,9 @@ public class DesignProject {
         public DrawingViewPlan() {}
         public DrawingViewPlan(String name) { this.name = name; }
         public String getName() { return name; } public void setName(String v) { name = v; }
+        public String getPurpose() { return purpose; } public void setPurpose(String v) { purpose = v; }
+        public String getLevelOfDetail() { return levelOfDetail; } public void setLevelOfDetail(String v) { levelOfDetail = v; }
+        public java.util.Map<String, Double> getViewport() { return viewport; } public void setViewport(java.util.Map<String, Double> v) { viewport = v == null ? new java.util.LinkedHashMap<>() : new java.util.LinkedHashMap<>(v); }
         public List<String> getVisibleParts() { return visibleParts; } public void setVisibleParts(List<String> v) { visibleParts = safe(v); }
         public List<String> getHiddenParts() { return hiddenParts; } public void setHiddenParts(List<String> v) { hiddenParts = safe(v); }
         public List<DimensionChain> getDimensions() { return dimensions; } public void setDimensions(List<DimensionChain> v) { dimensions = safe(v); }
