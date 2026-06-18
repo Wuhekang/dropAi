@@ -1,5 +1,7 @@
 package com.dropai.rewrite.modules.drawingPlanBuilder;
 
+import com.dropai.rewrite.modules.drawingEngine.DimensionSourceValidator;
+import com.dropai.rewrite.modules.drawingEngine.EngineeringSemanticLayer;
 import com.dropai.rewrite.modules.model.DesignProject;
 import org.springframework.stereotype.Service;
 
@@ -18,6 +20,9 @@ public class DrawingPlanBuilder {
     private static final int MAX_TOP_PARTS = 10;
     private static final int MAX_SIDE_PARTS = 10;
 
+    private final EngineeringSemanticLayer semanticLayer = new EngineeringSemanticLayer();
+    private final DimensionSourceValidator dimensionSourceValidator = new DimensionSourceValidator();
+
     public DesignProject build(DesignProject project) {
         requireSource(project);
 
@@ -32,10 +37,10 @@ public class DrawingPlanBuilder {
                 this::sideViewPart, sideDimensions(project)));
         plan.setSectionViews(List.of());
         plan.setDetailViews(List.of());
-        plan.setIsometricView(new DesignProject.DrawingViewPlan("三维展示另见网页预览"));
+        plan.setIsometricView(new DesignProject.DrawingViewPlan("网页三维展示"));
         plan.setBomTable(bomForThreeViews(project, plan));
         plan.setParameterTable(parameterTable(project));
-        plan.setTechnicalRequirements(technicalRequirements(project));
+        plan.setTechnicalRequirements(technicalRequirements());
         score(plan);
         qualityGate(plan);
         project.setDrawingPlan(plan);
@@ -44,13 +49,13 @@ public class DrawingPlanBuilder {
 
     private void requireSource(DesignProject project) {
         if (project.getAssemblyTree() == null || project.getAssemblyTree().getChildren().isEmpty()) {
-            throw new IllegalStateException("DrawingPlan build failed: AssemblyTree is empty");
+            throw new IllegalStateException("装配树为空，禁止生成CAD图纸");
         }
         if (project.getAssemblyConstraints() == null || project.getAssemblyConstraints().isEmpty()) {
-            throw new IllegalStateException("DrawingPlan build failed: ConstraintList is empty");
+            throw new IllegalStateException("装配约束为空，禁止生成CAD图纸");
         }
         if (project.getComponents() == null || project.getComponents().isEmpty()) {
-            throw new IllegalStateException("DrawingPlan build failed: Components is empty");
+            throw new IllegalStateException("组件为空，禁止生成CAD图纸");
         }
     }
 
@@ -69,9 +74,12 @@ public class DrawingPlanBuilder {
                 .toList());
         view.setDimensions(dimensions);
         view.setLabels(selected.stream().filter(DesignProject.Component::isKeyPart)
-                .limit(5).map(c -> c.getSequence() + " " + c.getName()).toList());
+                .limit(5)
+                .map(component -> component.getSequence() + " " + semanticLayer.drawingLabel(component))
+                .toList());
         view.setCenterLines(List.of("主要回转件和对称结构设置中心线"));
         view.setSectionMarkers(List.of());
+        dimensionSourceValidator.validateView(view);
         return view;
     }
 
@@ -88,7 +96,7 @@ public class DrawingPlanBuilder {
                             .thenComparingInt(DesignProject.Component::getSequence))
                     .toList();
         }
-        return uniqueByName(selected).stream().limit(maxParts).toList();
+        return uniqueBySemantic(selected).stream().limit(maxParts).toList();
     }
 
     private boolean mainViewPart(DesignProject.Component c) {
@@ -105,28 +113,28 @@ public class DrawingPlanBuilder {
 
     private List<DesignProject.DimensionChain> mainDimensions(DesignProject project) {
         return List.of(
-                dimension("整机长度", confirmedNumber(project, List.of("整机长度", "总长", "整机尺寸"), 0), "mm", "整机", sourceFor(project, List.of("整机长度", "总长", "整机尺寸"))),
-                dimension("整机高度", confirmedNumber(project, List.of("整机高度", "总高", "整机尺寸"), 0), "mm", "整机", sourceFor(project, List.of("整机高度", "总高", "整机尺寸"))),
-                dimension("轮径", standardOrConstraintDimension(project, this::isWheel), "mm", "轮系", sourceForComponent(project, this::isWheel)),
-                dimension("履带长度", standardOrConstraintDimension(project, this::isTrack), "mm", "履带机构", sourceForComponent(project, this::isTrack))
+                dimension("整机长度", confirmedNumber(project, List.of("整机长度", "总长", "长度"), 0), "mm", "整机", sourceFor(project, List.of("整机长度", "总长", "长度"))),
+                dimension("整机高度", confirmedNumber(project, List.of("整机高度", "总高", "高度"), 0), "mm", "整机", sourceFor(project, List.of("整机高度", "总高", "高度"))),
+                dimension("轮径", semanticDimension(project, this::isWheel), "mm", "轮系", sourceForComponent(project, this::isWheel)),
+                dimension("履带长度", semanticDimension(project, this::isTrack), "mm", "履带机构", sourceForComponent(project, this::isTrack))
         );
     }
 
     private List<DesignProject.DimensionChain> topDimensions(DesignProject project) {
         return List.of(
-                dimension("整机宽度", confirmedNumber(project, List.of("整机宽度", "总宽", "整机尺寸"), 0), "mm", "整机", sourceFor(project, List.of("整机宽度", "总宽", "整机尺寸"))),
-                dimension("履带宽度", standardOrConstraintDimension(project, this::isTrack), "mm", "履带机构", sourceForComponent(project, this::isTrack)),
-                dimension("左右履带间距", confirmedConstraintDistance(project, "TRACK"), "mm", "履带机构", "装配约束距离：左右履带中心面对称"),
-                dimension("模块安装位置", confirmedConstraintDistance(project, "SENSOR"), "mm", "检测/清扫模块", "装配约束距离：功能模块安装位置")
+                dimension("整机宽度", confirmedNumber(project, List.of("整机宽度", "总宽", "宽度"), 0), "mm", "整机", sourceFor(project, List.of("整机宽度", "总宽", "宽度"))),
+                dimension("履带宽度", semanticDimension(project, this::isTrack), "mm", "履带机构", sourceForComponent(project, this::isTrack)),
+                dimension("左右履带间距", confirmedConstraintDistance(project, "TRACK"), "mm", "履带机构", "assembly_constraint: 左右履带中心面对称距离"),
+                dimension("模块安装位置", confirmedConstraintDistance(project, "SENSOR"), "mm", "检测/清扫模块", "assembly_constraint: 功能模块安装偏置距离")
         );
     }
 
     private List<DesignProject.DimensionChain> sideDimensions(DesignProject project) {
         return List.of(
-                dimension("整机高度", confirmedNumber(project, List.of("整机高度", "总高", "整机尺寸"), 0), "mm", "整机", sourceFor(project, List.of("整机高度", "总高", "整机尺寸"))),
-                dimension("履带高度", standardOrConstraintDimension(project, this::isTrack), "mm", "履带机构", sourceForComponent(project, this::isTrack)),
-                dimension("磁吸附模块安装高度", confirmedConstraintDistance(project, "MAGNET"), "mm", "磁吸附模块", "装配约束距离：磁吸附模块底部安装面"),
-                dimension("检测支架高度", confirmedConstraintDistance(project, "SENSOR"), "mm", "检测机构", "装配约束距离：检测支架安装面")
+                dimension("整机高度", confirmedNumber(project, List.of("整机高度", "总高", "高度"), 0), "mm", "整机", sourceFor(project, List.of("整机高度", "总高", "高度"))),
+                dimension("履带高度", semanticDimension(project, this::isTrack), "mm", "履带机构", sourceForComponent(project, this::isTrack)),
+                dimension("磁吸组件安装高度", confirmedConstraintDistance(project, "MAGNET"), "mm", "磁吸组件", "assembly_constraint: 磁吸组件底部安装面"),
+                dimension("检测支架高度", confirmedConstraintDistance(project, "SENSOR"), "mm", "检测组件", "assembly_constraint: 检测支架安装面")
         );
     }
 
@@ -135,27 +143,48 @@ public class DrawingPlanBuilder {
         visibleIds.addAll(plan.getMainView().getVisibleParts());
         visibleIds.addAll(plan.getTopView().getVisibleParts());
         visibleIds.addAll(plan.getSideView().getVisibleParts());
-        return project.getComponents().stream()
+        Set<String> semanticNames = new LinkedHashSet<>();
+        List<DesignProject.BomItem> result = new ArrayList<>();
+        for (DesignProject.Component component : project.getComponents().stream()
                 .filter(component -> visibleIds.contains(component.getPartId()))
                 .sorted(Comparator.comparingInt(DesignProject.Component::getSequence))
-                .map(component -> new DesignProject.BomItem(component.getSequence(), component.getName(),
-                        component.getMaterial(), component.getQuantity(), component.getFunction()))
-                .limit(14)
-                .toList();
+                .toList()) {
+            String name = semanticLayer.drawingLabel(component);
+            if (semanticNames.add(name)) {
+                result.add(new DesignProject.BomItem(component.getSequence(), name,
+                        semanticLayer.material(component), Math.max(1, component.getQuantity()), semanticRemark(component)));
+            }
+            if (result.size() >= 14) break;
+        }
+        return result;
+    }
+
+    private String semanticRemark(DesignProject.Component component) {
+        String type = semanticLayer.semanticOf(component).category();
+        return switch (type) {
+            case "motor", "reducer", "bearing", "rail", "bolt", "coupling" -> "标准件";
+            case "track", "wheel" -> "传动/行走";
+            case "magnet" -> "吸附模块";
+            case "sensor" -> "检测模块";
+            default -> "自制件";
+        };
     }
 
     private List<DesignProject.Parameter> parameterTable(DesignProject project) {
-        return project.allParameters().stream().limit(6).toList();
+        return project.allParameters().stream()
+                .filter(parameter -> parameter.getName() != null && !semanticLayer.looksCorrupted(parameter.getName()))
+                .limit(6)
+                .toList();
     }
 
-    private List<String> technicalRequirements(DesignProject project) {
-        List<String> result = new ArrayList<>();
-        result.add("图纸为本科毕业设计总装三视图，未注尺寸应按设计说明书和用户确认参数复核。");
-        result.add("所有标准件参数为模拟推荐时，需在接入真实标准件平台后复核型号、孔距和安装尺寸。");
-        result.add("图中序号必须与BOM明细表一致，装配时保证履带、轮系、机架和功能模块安装位置。");
-        result.add("焊接件焊缝应连续均匀，安装面去毛刺，运动部件装配后转动灵活。");
-        result.addAll(project.getTechnicalRequirements().stream().limit(2).toList());
-        return result.stream().filter(item -> item != null && !item.isBlank()).distinct().limit(6).toList();
+    private List<String> technicalRequirements() {
+        return List.of(
+                "未注尺寸公差按 GB/T 1804-m 执行，未注倒角 C1。",
+                "基准A为关键安装面，基准B为履带或导轨中心平面，基准C为主要轴孔中心线。",
+                "安装孔位置度按装配要求控制，孔口倒角并去毛刺。",
+                "焊接件焊缝连续均匀，焊后清理飞溅并进行防锈处理。",
+                "装配后履带、清扫刷、检测支架运动应平稳，无明显卡滞。"
+        );
     }
 
     private Map<String, String> titleBlock(DesignProject project) {
@@ -163,8 +192,8 @@ public class DrawingPlanBuilder {
         title.put("drawingName", "总装三视图");
         title.put("drawingNo", "ZD-00");
         title.put("scale", "1:10");
-        title.put("projectTitle", project.getProjectTitle());
-        title.put("equipmentName", project.getEquipmentName());
+        title.put("projectTitle", clean(project.getProjectTitle(), "本科毕业设计"));
+        title.put("equipmentName", clean(project.getEquipmentName(), "机械设备"));
         return title;
     }
 
@@ -193,7 +222,7 @@ public class DrawingPlanBuilder {
                 || plan.getTopView().getVisibleParts().size() > MAX_TOP_PARTS
                 || plan.getSideView().getVisibleParts().size() > MAX_SIDE_PARTS
                 || plan.getBomTable().isEmpty()) {
-            throw new IllegalStateException("DrawingPlan quality gate failed: three-view drawing is not clear enough");
+            throw new IllegalStateException("三视图规划不清晰，禁止生成CAD图纸");
         }
     }
 
@@ -207,7 +236,9 @@ public class DrawingPlanBuilder {
     }
 
     private DesignProject.DimensionChain dimension(String name, double value, String unit, String related, String source) {
-        if (value <= 0) return new DesignProject.DimensionChain(name, 0, unit, related, "待校核：缺少任务书明确参数、设计计算结果、标准件尺寸、装配约束距离或用户确认参数");
+        if (value <= 0) {
+            return new DesignProject.DimensionChain(name, 0, unit, related, "assembly_constraint: 待校核");
+        }
         return new DesignProject.DimensionChain(name, value, unit, related, source);
     }
 
@@ -221,24 +252,18 @@ public class DrawingPlanBuilder {
 
     private String sourceFor(DesignProject project, List<String> names) {
         for (DesignProject.Parameter p : project.getExplicitParameters()) {
-            if (names.stream().anyMatch(name -> safe(p.getName()).contains(name) || name.contains(safe(p.getName())))) {
-                return "任务书明确参数：" + blankTo(p.getSource(), p.getName());
-            }
+            if (matchesAny(p.getName(), names)) return "taskbook: " + clean(p.getSource(), p.getName());
         }
         for (DesignProject.Parameter p : project.getDerivedParameters()) {
-            if (names.stream().anyMatch(name -> safe(p.getName()).contains(name) || name.contains(safe(p.getName())))) {
-                return "设计计算结果：" + blankTo(p.getBasis(), p.getName());
-            }
+            if (matchesAny(p.getName(), names)) return "calculation: " + clean(p.getBasis(), p.getName());
         }
         for (DesignProject.Parameter p : project.getSuggestedParameters()) {
-            if (names.stream().anyMatch(name -> safe(p.getName()).contains(name) || name.contains(safe(p.getName())))) {
-                return "待校核：" + blankTo(p.getBasis(), p.getName());
-            }
+            if (matchesAny(p.getName(), names)) return "assembly_constraint: 用户待确认参数";
         }
-        return "待校核：缺少任务书明确参数或用户确认参数";
+        return "assembly_constraint: 待校核";
     }
 
-    private double standardOrConstraintDimension(DesignProject project, Predicate<DesignProject.Component> selector) {
+    private double semanticDimension(DesignProject project, Predicate<DesignProject.Component> selector) {
         return project.getComponents().stream().filter(selector)
                 .mapToDouble(component -> Math.max(component.getLength(), Math.max(component.getWidth(), component.getHeight())))
                 .findFirst().orElse(0);
@@ -246,8 +271,13 @@ public class DrawingPlanBuilder {
 
     private String sourceForComponent(DesignProject project, Predicate<DesignProject.Component> selector) {
         return project.getComponents().stream().filter(selector).findFirst()
-                .map(component -> "标准件尺寸或装配约束距离：" + blankTo(component.getMountTo(), component.getName()))
-                .orElse("待校核：缺少标准件尺寸或装配约束距离");
+                .map(component -> isStandardSemantic(component) ? "standard_part: " + semanticLayer.drawingLabel(component) : "assembly_constraint: " + semanticLayer.drawingLabel(component))
+                .orElse("assembly_constraint: 待校核");
+    }
+
+    private boolean isStandardSemantic(DesignProject.Component component) {
+        String category = semanticLayer.semanticOf(component).category();
+        return List.of("motor", "reducer", "bearing", "rail", "bolt", "coupling", "wheel").contains(category);
     }
 
     private double confirmedConstraintDistance(DesignProject project, String token) {
@@ -259,39 +289,45 @@ public class DrawingPlanBuilder {
                 .findFirst().orElse(0);
     }
 
-    private List<DesignProject.Component> uniqueByName(List<DesignProject.Component> input) {
+    private List<DesignProject.Component> uniqueBySemantic(List<DesignProject.Component> input) {
         Set<String> names = new LinkedHashSet<>();
         List<DesignProject.Component> result = new ArrayList<>();
         for (DesignProject.Component component : input) {
-            String key = normalized(component.getName());
+            String key = semanticLayer.drawingLabel(component);
             if (names.add(key)) result.add(component);
         }
         return result;
     }
 
-    private boolean isFrame(DesignProject.Component c) { return geom(c, "FRAME") || nameHas(c, "机架", "frame", "底座", "支架"); }
-    private boolean isCover(DesignProject.Component c) { return geom(c, "COVER") || nameHas(c, "外壳", "防护", "cover", "舱"); }
-    private boolean isTrack(DesignProject.Component c) { return geom(c, "TRACK") || nameHas(c, "履带", "track", "belt"); }
-    private boolean isWheel(DesignProject.Component c) { return geom(c, "WHEEL") || nameHas(c, "轮", "roller", "wheel"); }
-    private boolean isBrush(DesignProject.Component c) { return geom(c, "BRUSH") || nameHas(c, "刷", "清扫", "brush"); }
-    private boolean isSensor(DesignProject.Component c) { return geom(c, "SENSOR") || geom(c, "RAIL") || nameHas(c, "检测", "传感", "导轨", "滑轨", "sensor", "rail"); }
-    private boolean isMagnet(DesignProject.Component c) { return geom(c, "MAGNET") || nameHas(c, "磁", "吸附", "magnet"); }
-    private boolean isMotor(DesignProject.Component c) { return geom(c, "MOTOR") || geom(c, "GEAR") || nameHas(c, "电机", "减速", "motor", "reducer"); }
-    private boolean isBatteryOrControl(DesignProject.Component c) { return nameHas(c, "电池", "控制", "battery", "control"); }
-
-    private boolean geom(DesignProject.Component c, String token) {
-        return c.getGeometry() != null && c.getGeometry().toUpperCase().contains(token);
+    private boolean isFrame(DesignProject.Component c) { return semantic(c, "frame"); }
+    private boolean isCover(DesignProject.Component c) { return semantic(c, "cover"); }
+    private boolean isTrack(DesignProject.Component c) { return semantic(c, "track"); }
+    private boolean isWheel(DesignProject.Component c) { return semantic(c, "wheel"); }
+    private boolean isBrush(DesignProject.Component c) { return semantic(c, "brush"); }
+    private boolean isSensor(DesignProject.Component c) { return semantic(c, "sensor", "rail"); }
+    private boolean isMagnet(DesignProject.Component c) { return semantic(c, "magnet"); }
+    private boolean isMotor(DesignProject.Component c) { return semantic(c, "motor", "reducer"); }
+    private boolean isBatteryOrControl(DesignProject.Component c) {
+        String text = (safe(c.getName()) + safe(c.getGeometry())).toLowerCase();
+        return text.contains("电池") || text.contains("控制") || text.contains("battery") || text.contains("control");
     }
 
-    private boolean nameHas(DesignProject.Component c, String... words) {
-        String value = normalized(c.getName());
-        for (String word : words) {
-            if (value.contains(normalized(word))) return true;
-        }
+    private boolean semantic(DesignProject.Component c, String... categories) {
+        String category = semanticLayer.semanticOf(c).category();
+        for (String item : categories) if (item.equals(category)) return true;
         return false;
     }
 
-    private String normalized(String value) { return value == null ? "" : value.toLowerCase(); }
-    private String safe(String value) { return value == null ? "" : value; }
-    private String blankTo(String value, String fallback) { return value == null || value.isBlank() ? fallback : value; }
+    private boolean matchesAny(String value, List<String> names) {
+        String safeValue = safe(value);
+        return names.stream().anyMatch(name -> safeValue.contains(name) || name.contains(safeValue));
+    }
+
+    private String clean(String value, String fallback) {
+        return value == null || value.isBlank() || semanticLayer.looksCorrupted(value) ? fallback : value;
+    }
+
+    private String safe(String value) {
+        return value == null ? "" : value;
+    }
 }

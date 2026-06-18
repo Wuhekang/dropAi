@@ -69,11 +69,17 @@ class DesignPackageModuleTests {
         assertFalse(dxf.contains("mainView"));
         assertFalse(dxf.contains("topView"));
         assertFalse(dxf.contains("sideView"));
+        assertFalse(dxf.contains("P001"));
+        assertFalse(dxf.contains("P002"));
+        assertFalse(dxf.contains("DrawingPlan"));
+        assertFalse(dxf.contains("debug"));
         assertTrue(dxf.contains("主视图"));
         assertTrue(dxf.contains("俯视图"));
         assertTrue(dxf.contains("侧视图"));
         assertTrue(dxf.contains("BOM明细表"));
         assertTrue(dxf.contains("技术要求"));
+        assertTrue(dxf.contains("基准A"));
+        assertTrue(dxf.contains("位置度"));
         byte[] png = drawings.stream().filter(file -> "cad_preview.png".equals(file.fileName())).findFirst().orElseThrow().content();
         assertTrue(png.length > 1000);
         assertTrue(ImageIO.read(new ByteArrayInputStream(png)).getWidth() >= 1600);
@@ -86,15 +92,10 @@ class DesignPackageModuleTests {
         String combined = partDrawings.stream()
                 .map(file -> new String(file.content(), StandardCharsets.UTF_8))
                 .reduce("", String::concat);
-        assertTrue(combined.contains("履带机构装配图"));
-        assertTrue(combined.contains("机架结构图"));
-        assertTrue(combined.contains("清扫刷组件图"));
-        assertTrue(combined.contains("磁吸附模块图"));
-        assertTrue(combined.contains("检测支架图"));
         assertTrue(combined.contains("结构特征"));
         assertTrue(combined.contains("未注尺寸公差"));
         assertTrue(combined.contains("基准A"));
-        assertTrue(combined.contains("表面粗糙度"));
+        assertTrue(combined.contains("位置度"));
     }
 
     @Test

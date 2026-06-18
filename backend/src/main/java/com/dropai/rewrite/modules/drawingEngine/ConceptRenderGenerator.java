@@ -9,14 +9,14 @@ import java.util.Set;
 
 class ConceptRenderGenerator {
     DrawingEngine.Canvas draw(DesignProject project) {
-        DrawingEngine.Canvas c = new DrawingEngine.Canvas(project.getProjectTitle(), "Concept structure preview", "FA-01");
+        DrawingEngine.Canvas c = new DrawingEngine.Canvas(project.getProjectTitle(), "结构方案展示图", "FA-01");
         c.text("TEXT", 50, 548, 9, project.getProjectTitle());
-        c.text("TEXT", 50, 524, 4.5, "Concept preview from AssemblyTree + DrawingPlan; CAD drawings are generated separately.");
+        c.text("TEXT", 50, 524, 4.5, "结构方案展示图用于论文和网页预览，正式工程图见CAD总装三视图。");
 
         List<DesignProject.Component> parts = conceptParts(project);
         Bounds b = bounds(parts.isEmpty() ? project.getComponents() : parts);
         c.rect("OUTLINE", 45, 122, 570, 360);
-        c.text("TEXT", 55, 466, 5, "Main structure schematic");
+        c.text("TEXT", 55, 466, 5, "主要结构示意图");
         for (DesignProject.Component part : parts.stream().limit(16).toList()) {
             Projection pr = front(part, b, 68, 150, 515, 280);
             drawConceptSymbol(c, part, pr.x(), pr.y(), pr.w(), pr.h());
@@ -24,7 +24,7 @@ class ConceptRenderGenerator {
         }
 
         c.rect("TABLE", 640, 122, 170, 360);
-        c.text("TABLE", 654, 454, 5, "Structure list");
+        c.text("TABLE", 654, 454, 5, "结构清单");
         int row = 0;
         for (DesignProject.BomItem item : project.getDrawingPlan().getBomTable().stream().limit(10).toList()) {
             c.text("TABLE", 654, 430 - row++ * 27, 3.4,
@@ -32,9 +32,9 @@ class ConceptRenderGenerator {
         }
 
         c.rect("TABLE", 45, 42, 570, 58);
-        c.text("TABLE", 58, 82, 4, "Function zones: drive / support / functional module / interface / mounting structure");
-        c.text("TABLE", 58, 62, 3.6, "Quality score: " + project.getDrawingPlan().getQualityScore()
-                + " | visible key parts only, not a full component projection");
+        c.text("TABLE", 58, 82, 4, "功能区域：驱动、支撑、功能模块、接口、安装结构");
+        c.text("TABLE", 58, 62, 3.6, "图纸清晰度评分：" + project.getDrawingPlan().getQualityScore()
+                + "；仅展示关键结构，非完整零件投影");
         parameterSummary(c, project);
         return c;
     }

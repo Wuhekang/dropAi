@@ -14,7 +14,6 @@ import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Locale;
 
 @Service
 public class DrawingEngine {
@@ -24,12 +23,14 @@ public class DrawingEngine {
     private final PartDrawingEngine partDrawingEngine = new PartDrawingEngine();
     private final ConceptRenderGenerator conceptRenderGenerator = new ConceptRenderGenerator();
     private final ToleranceGenerator toleranceGenerator = new ToleranceGenerator();
+    private final EngineeringSemanticLayer semanticLayer = new EngineeringSemanticLayer();
+    private final DimensionSourceValidator dimensionSourceValidator = new DimensionSourceValidator();
 
     public List<DrawingArtifact> drawAssemblyDrawing(DesignProject project) {
         validateDrawingPlan(project);
-        Canvas canvas = new Canvas(project.getProjectTitle(), "总装三视图", "ZD-00");
+        Canvas canvas = new Canvas(clean(project.getProjectTitle(), "本科毕业设计"), "总装三视图", "ZD-00");
         frame(canvas);
-        title(canvas, project);
+        titleBlock(canvas, project);
         planViews(canvas, project);
         dimensionEngine.drawPlanDimensions(canvas, project);
         bom(canvas, project);
@@ -57,48 +58,53 @@ public class DrawingEngine {
                 || plan.getTopView().getVisibleParts().isEmpty()
                 || plan.getSideView().getVisibleParts().isEmpty()
                 || plan.getQualityScore() < 70) {
-            throw new IllegalStateException("DrawingPlan is empty or below engineering quality gate; CAD generation is blocked.");
+            throw new IllegalStateException("图纸规划为空或低于工程图质量门禁，禁止生成CAD。");
         }
+        dimensionSourceValidator.validateView(plan.getMainView());
+        dimensionSourceValidator.validateView(plan.getTopView());
+        dimensionSourceValidator.validateView(plan.getSideView());
     }
 
-    private void frame(Canvas canvas) {
-        canvas.rect("FRAME", 20, 20, 800, 550);
-        canvas.rect("FRAME", 30, 30, 780, 530);
+    private void frame(Canvas c) {
+        c.rect("FRAME", 20, 20, 800, 550);
+        c.rect("FRAME", 30, 30, 780, 530);
     }
 
-    private void title(Canvas canvas, DesignProject project) {
-        String drawingName = project.getDrawingPlan().getTitleBlock().getOrDefault("drawingName", canvas.name);
-        String drawingNo = project.getDrawingPlan().getTitleBlock().getOrDefault("drawingNo", canvas.no);
+    private void titleBlock(Canvas c, DesignProject project) {
+        String drawingName = project.getDrawingPlan().getTitleBlock().getOrDefault("drawingName", c.name);
+        String drawingNo = project.getDrawingPlan().getTitleBlock().getOrDefault("drawingNo", c.no);
         String scale = project.getDrawingPlan().getTitleBlock().getOrDefault("scale", "1:10");
-        canvas.rect("TITLE", 570, 30, 240, 75);
-        canvas.line("TITLE", 570, 55, 810, 55);
-        canvas.line("TITLE", 700, 30, 700, 105);
-        canvas.text("TEXT", 580, 82, 5, drawingName);
-        canvas.text("TEXT", 710, 82, 4, "图号 " + drawingNo);
-        canvas.text("TEXT", 580, 66, 3, "本科毕业设计总装图");
-        canvas.text("TEXT", 580, 42, 3.5, trim(canvas.title, 22));
-        canvas.text("TEXT", 710, 42, 3.5, "比例 " + scale);
+        c.rect("TITLE", 570, 30, 240, 75);
+        c.line("TITLE", 570, 55, 810, 55);
+        c.line("TITLE", 700, 30, 700, 105);
+        c.text("TEXT", 580, 82, 5, clean(drawingName, "总装三视图"));
+        c.text("TEXT", 710, 82, 4, "图号 " + drawingNo);
+        c.text("TEXT", 580, 66, 3, "本科毕业设计总装图");
+        c.text("TEXT", 580, 42, 3.5, trim(clean(project.getProjectTitle(), c.title), 22));
+        c.text("TEXT", 710, 42, 3.5, "比例 " + scale);
     }
 
-    private void planViews(Canvas canvas, DesignProject project) {
+    private void planViews(Canvas c, DesignProject project) {
         Bounds bounds = bounds(project.getComponents());
-        drawPlanView(canvas, project, project.getDrawingPlan().getMainView(), "FRONT", "主视图", bounds);
-        drawPlanView(canvas, project, project.getDrawingPlan().getTopView(), "TOP", "俯视图", bounds);
-        drawPlanView(canvas, project, project.getDrawingPlan().getSideView(), "SIDE", "侧视图", bounds);
+        drawPlanView(c, project, project.getDrawingPlan().getMainView(), "FRONT", "主视图", bounds);
+        drawPlanView(c, project, project.getDrawingPlan().getTopView(), "TOP", "俯视图", bounds);
+        drawPlanView(c, project, project.getDrawingPlan().getSideView(), "SIDE", "侧视图", bounds);
     }
 
-    private void drawPlanView(Canvas canvas, DesignProject project, DesignProject.DrawingViewPlan view,
+    private void drawPlanView(Canvas c, DesignProject project, DesignProject.DrawingViewPlan view,
                               String orientation, String title, Bounds bounds) {
         double ox = vp(view, "x", 60);
         double oy = vp(view, "y", 300);
         double vw = vp(view, "width", 400);
         double vh = vp(view, "height", 150);
-        canvas.text("TEXT", ox, oy + vh + 13, 4.2, title);
-        canvas.rect("OUTLINE", ox, oy, vw, vh);
+        c.text("TEXT", ox, oy + vh + 13, 4.2, title);
+        c.rect("OUTLINE", ox, oy, vw, vh);
         for (DesignProject.Component part : parts(project, view)) {
             Projection projection = project(part, orientation, ox, oy, vw, vh, bounds);
-            drawLodSymbol(canvas, part, projection.x(), projection.y(), projection.w(), projection.h());
-            if (part.isKeyPart()) balloon(canvas, part, projection.x() + projection.w() / 2, projection.y() + projection.h() / 2);
+            drawEngineeringSymbol(c, part, projection.x(), projection.y(), projection.w(), projection.h());
+            if (part.isKeyPart()) {
+                balloon(c, part, projection.x() + projection.w() / 2, projection.y() + projection.h() / 2);
+            }
         }
     }
 
@@ -126,129 +132,170 @@ public class DrawingEngine {
         return new Projection(px, py, Math.min(pw, vw - pad), Math.min(ph, vh - pad));
     }
 
-    private void drawLodSymbol(Canvas canvas, DesignProject.Component part, double x, double y, double w, double h) {
-        String geometry = safe(part.getGeometry()).toUpperCase(Locale.ROOT);
-        String name = safe(part.getName()).toLowerCase(Locale.ROOT);
-        String layer = layer(part);
-        if (geometry.contains("TRACK") || name.contains("履带") || name.contains("track")) {
-            canvas.rect(layer, x, y, w, h);
-            double r = Math.min(w, h) / 2;
-            canvas.circle(layer, x + r, y + h / 2, r);
-            canvas.circle(layer, x + w - r, y + h / 2, r);
-            for (int i = 0; i < 6; i++) canvas.line("STRUCTURE", x + w * (.18 + i * .11), y, x + w * (.14 + i * .11), y + h);
-            canvas.line("CENTER", x + w * .12, y + h / 2, x + w * .88, y + h / 2);
-        } else if (geometry.contains("WHEEL") || name.contains("轮") || name.contains("wheel")) {
-            double r = Math.max(4, Math.min(w, h) / 2);
-            canvas.circle(layer, x + w / 2, y + h / 2, r);
-            canvas.circle("CENTER", x + w / 2, y + h / 2, r * .42);
-            for (int i = 0; i < 6; i++) {
-                double a = Math.PI * 2 * i / 6;
-                canvas.line("CENTER", x + w / 2, y + h / 2, x + w / 2 + Math.cos(a) * r * .8, y + h / 2 + Math.sin(a) * r * .8);
-            }
-        } else if (geometry.contains("BRUSH") || name.contains("刷") || name.contains("brush")) {
-            double r = Math.max(6, Math.min(w, h) / 2);
-            canvas.circle(layer, x + w / 2, y + h / 2, r);
-            canvas.circle("CENTER", x + w / 2, y + h / 2, r * .25);
-            for (int i = 0; i < 14; i++) {
-                double a = Math.PI * 2 * i / 14;
-                canvas.line(layer, x + w / 2, y + h / 2, x + w / 2 + Math.cos(a) * r, y + h / 2 + Math.sin(a) * r);
-            }
-        } else if (geometry.contains("MAGNET") || name.contains("磁") || name.contains("magnet")) {
-            canvas.rect(layer, x, y, w, h);
-            for (int i = 0; i < 4; i++) canvas.rect("FUNCTION", x + w * (.1 + i * .22), y + h * .25, w * .13, h * .5);
-            canvas.text("ANNOTATION", x + 3, y + h / 2, 2.5, "磁吸附");
-        } else if (geometry.contains("BEARING")) {
-            double r = Math.max(5, Math.min(w, h) / 2);
-            canvas.circle(layer, x + w / 2, y + h / 2, r);
-            canvas.circle(layer, x + w / 2, y + h / 2, r * .55);
-            canvas.line("CENTER", x + w / 2 - r, y + h / 2, x + w / 2 + r, y + h / 2);
-            canvas.line("HATCH", x + w / 2 - r * .65, y + h / 2 - r * .65, x + w / 2 + r * .65, y + h / 2 + r * .65);
-        } else if (geometry.contains("MOTOR") || name.contains("电机") || name.contains("motor")) {
-            canvas.rect(layer, x, y, w, h);
-            canvas.circle(layer, x + w * .18, y + h / 2, Math.min(w, h) * .28);
-            canvas.circle("STRUCTURE", x + w * .76, y + h / 2, Math.min(w, h) * .24);
-            canvas.rect("STRUCTURE", x + w * .45, y + h * .74, w * .22, h * .18);
-            canvas.text("ANNOTATION", x + 3, y + h / 2, 2.5, "电机");
-        } else if (geometry.contains("GEAR") || name.contains("减速") || name.contains("reducer")) {
-            canvas.rect(layer, x, y, w, h);
-            canvas.line("STRUCTURE", x, y, x + w, y + h);
-            canvas.line("STRUCTURE", x, y + h, x + w, y);
-            canvas.line("CENTER", x - 8, y + h / 2, x + w + 8, y + h / 2);
-        } else if (geometry.contains("RAIL") || name.contains("导轨") || name.contains("滑轨") || name.contains("rail")) {
-            canvas.rect(layer, x, y + h * .35, w, h * .3);
-            canvas.rect("STRUCTURE", x + w * .25, y + h * .18, w * .5, h * .64);
-            for (int i = 0; i < 3; i++) canvas.circle("CENTER", x + w * (.2 + i * .3), y + h / 2, 2.5);
-        } else if (geometry.contains("COUPLING")) {
-            canvas.circle(layer, x + w * .33, y + h / 2, Math.min(w, h) * .25);
-            canvas.circle(layer, x + w * .67, y + h / 2, Math.min(w, h) * .25);
-            canvas.line("CENTER", x, y + h / 2, x + w, y + h / 2);
-            canvas.circle("CENTER", x + w * .5, y + h * .25, 2.5);
-        } else if (geometry.contains("BOLT")) {
-            for (int i = 0; i < 4; i++) {
-                double bx = x + w * (.2 + (i % 2) * .6);
-                double by = y + h * (.25 + (i / 2) * .5);
-                canvas.circle(layer, bx, by, Math.max(2.5, Math.min(w, h) * .08));
-                canvas.line("CENTER", bx - 4, by, bx + 4, by);
-            }
-        } else if (geometry.contains("FLANGE")) {
-            double r = Math.max(6, Math.min(w, h) / 2);
-            canvas.circle(layer, x + w / 2, y + h / 2, r);
-            canvas.circle(layer, x + w / 2, y + h / 2, r * .45);
-            for (int i = 0; i < 6; i++) {
-                double a = Math.PI * 2 * i / 6;
-                canvas.circle("CENTER", x + w / 2 + Math.cos(a) * r * .72, y + h / 2 + Math.sin(a) * r * .72, 2.2);
-            }
-        } else if (geometry.contains("SENSOR") || name.contains("检测") || name.contains("传感") || name.contains("sensor")) {
-            canvas.rect(layer, x, y, w, h);
-            canvas.line("CENTER", x, y + h / 2, x + w, y + h / 2);
-            canvas.circle("ANNOTATION", x + w * .76, y + h / 2, 3);
-        } else if (geometry.contains("FRAME") || name.contains("机架") || name.contains("frame")) {
-            canvas.rect(layer, x, y, w, h);
-            canvas.line("STRUCTURE", x, y, x + w, y + h);
-            canvas.line("STRUCTURE", x, y + h, x + w, y);
-        } else if (geometry.contains("COVER") || name.contains("外壳") || name.contains("cover")) {
-            canvas.rect(layer, x, y, w, h);
-            canvas.line("HIDDEN", x + w * .1, y + h * .5, x + w * .9, y + h * .5);
-        } else {
-            canvas.rect(layer, x, y, w, h);
+    private void drawEngineeringSymbol(Canvas c, DesignProject.Component part, double x, double y, double w, double h) {
+        EngineeringSemanticLayer.SemanticPart semantic = semanticLayer.semanticOf(part);
+        String layer = semantic.layer();
+        switch (semantic.category()) {
+            case "track" -> drawTrack(c, layer, x, y, w, h);
+            case "wheel" -> drawWheel(c, layer, x, y, w, h);
+            case "brush" -> drawBrush(c, layer, x, y, w, h);
+            case "magnet" -> drawMagnet(c, layer, x, y, w, h);
+            case "bearing" -> drawBearing(c, layer, x, y, w, h);
+            case "motor" -> drawMotor(c, layer, x, y, w, h);
+            case "reducer" -> drawReducer(c, layer, x, y, w, h);
+            case "rail" -> drawRail(c, layer, x, y, w, h);
+            case "coupling" -> drawCoupling(c, layer, x, y, w, h);
+            case "bolt" -> drawBoltPattern(c, layer, x, y, w, h);
+            case "flange" -> drawFlange(c, layer, x, y, w, h);
+            case "sensor" -> drawSensor(c, layer, x, y, w, h);
+            case "frame" -> drawFrameSymbol(c, layer, x, y, w, h);
+            case "cover" -> drawCover(c, layer, x, y, w, h);
+            default -> c.rect(layer, x, y, w, h);
         }
     }
 
-    private void bom(Canvas canvas, DesignProject project) {
+    private void drawTrack(Canvas c, String layer, double x, double y, double w, double h) {
+        c.rect(layer, x, y, w, h);
+        double r = Math.min(w, h) / 2;
+        c.circle(layer, x + r, y + h / 2, r);
+        c.circle(layer, x + w - r, y + h / 2, r);
+        for (int i = 0; i < 7; i++) c.line("STRUCTURE", x + w * (.12 + i * .12), y, x + w * (.08 + i * .12), y + h);
+        c.line("CENTER", x + w * .12, y + h / 2, x + w * .88, y + h / 2);
+    }
+
+    private void drawWheel(Canvas c, String layer, double x, double y, double w, double h) {
+        double r = Math.max(4, Math.min(w, h) / 2);
+        c.circle(layer, x + w / 2, y + h / 2, r);
+        c.circle("CENTER", x + w / 2, y + h / 2, r * .42);
+        for (int i = 0; i < 6; i++) {
+            double a = Math.PI * 2 * i / 6;
+            c.line("CENTER", x + w / 2, y + h / 2, x + w / 2 + Math.cos(a) * r * .8, y + h / 2 + Math.sin(a) * r * .8);
+        }
+    }
+
+    private void drawBrush(Canvas c, String layer, double x, double y, double w, double h) {
+        double r = Math.max(6, Math.min(w, h) / 2);
+        c.circle(layer, x + w / 2, y + h / 2, r);
+        c.circle("CENTER", x + w / 2, y + h / 2, r * .25);
+        for (int i = 0; i < 16; i++) {
+            double a = Math.PI * 2 * i / 16;
+            c.line(layer, x + w / 2, y + h / 2, x + w / 2 + Math.cos(a) * r, y + h / 2 + Math.sin(a) * r);
+        }
+    }
+
+    private void drawMagnet(Canvas c, String layer, double x, double y, double w, double h) {
+        c.rect(layer, x, y, w, h);
+        for (int i = 0; i < 4; i++) c.rect("FUNCTION", x + w * (.1 + i * .22), y + h * .25, w * .13, h * .5);
+        c.text("ANNOTATION", x + 3, y + h / 2, 2.5, "磁吸");
+    }
+
+    private void drawBearing(Canvas c, String layer, double x, double y, double w, double h) {
+        double r = Math.max(5, Math.min(w, h) / 2);
+        c.circle(layer, x + w / 2, y + h / 2, r);
+        c.circle(layer, x + w / 2, y + h / 2, r * .55);
+        c.line("CENTER", x + w / 2 - r, y + h / 2, x + w / 2 + r, y + h / 2);
+        c.line("HATCH", x + w / 2 - r * .65, y + h / 2 - r * .65, x + w / 2 + r * .65, y + h / 2 + r * .65);
+    }
+
+    private void drawMotor(Canvas c, String layer, double x, double y, double w, double h) {
+        c.rect(layer, x, y, w, h);
+        c.circle(layer, x + w * .18, y + h / 2, Math.min(w, h) * .28);
+        c.circle("STRUCTURE", x + w * .76, y + h / 2, Math.min(w, h) * .24);
+        c.rect("STRUCTURE", x + w * .45, y + h * .74, w * .22, h * .18);
+        c.text("ANNOTATION", x + 3, y + h / 2, 2.5, "电机");
+    }
+
+    private void drawReducer(Canvas c, String layer, double x, double y, double w, double h) {
+        c.rect(layer, x, y, w, h);
+        c.line("STRUCTURE", x, y, x + w, y + h);
+        c.line("STRUCTURE", x, y + h, x + w, y);
+        c.line("CENTER", x - 8, y + h / 2, x + w + 8, y + h / 2);
+    }
+
+    private void drawRail(Canvas c, String layer, double x, double y, double w, double h) {
+        c.rect(layer, x, y + h * .35, w, h * .3);
+        c.rect("STRUCTURE", x + w * .25, y + h * .18, w * .5, h * .64);
+        for (int i = 0; i < 3; i++) c.circle("CENTER", x + w * (.2 + i * .3), y + h / 2, 2.5);
+    }
+
+    private void drawCoupling(Canvas c, String layer, double x, double y, double w, double h) {
+        c.circle(layer, x + w * .33, y + h / 2, Math.min(w, h) * .25);
+        c.circle(layer, x + w * .67, y + h / 2, Math.min(w, h) * .25);
+        c.line("CENTER", x, y + h / 2, x + w, y + h / 2);
+        c.circle("CENTER", x + w * .5, y + h * .25, 2.5);
+    }
+
+    private void drawBoltPattern(Canvas c, String layer, double x, double y, double w, double h) {
+        for (int i = 0; i < 4; i++) {
+            double bx = x + w * (.2 + (i % 2) * .6);
+            double by = y + h * (.25 + (i / 2) * .5);
+            c.circle(layer, bx, by, Math.max(2.5, Math.min(w, h) * .08));
+            c.line("CENTER", bx - 4, by, bx + 4, by);
+        }
+    }
+
+    private void drawFlange(Canvas c, String layer, double x, double y, double w, double h) {
+        double r = Math.max(6, Math.min(w, h) / 2);
+        c.circle(layer, x + w / 2, y + h / 2, r);
+        c.circle(layer, x + w / 2, y + h / 2, r * .45);
+        for (int i = 0; i < 6; i++) {
+            double a = Math.PI * 2 * i / 6;
+            c.circle("CENTER", x + w / 2 + Math.cos(a) * r * .72, y + h / 2 + Math.sin(a) * r * .72, 2.2);
+        }
+    }
+
+    private void drawSensor(Canvas c, String layer, double x, double y, double w, double h) {
+        c.rect(layer, x, y, w, h);
+        c.line("CENTER", x, y + h / 2, x + w, y + h / 2);
+        c.circle("ANNOTATION", x + w * .76, y + h / 2, 3);
+    }
+
+    private void drawFrameSymbol(Canvas c, String layer, double x, double y, double w, double h) {
+        c.rect(layer, x, y, w, h);
+        c.line("STRUCTURE", x, y, x + w, y + h);
+        c.line("STRUCTURE", x, y + h, x + w, y);
+    }
+
+    private void drawCover(Canvas c, String layer, double x, double y, double w, double h) {
+        c.rect(layer, x, y, w, h);
+        c.line("HIDDEN", x + w * .1, y + h * .5, x + w * .9, y + h * .5);
+    }
+
+    private void bom(Canvas c, DesignProject project) {
         double x = 515, y = 405, w = 295, h = 140;
-        canvas.rect("TABLE", x, y, w, h);
-        canvas.text("TABLE", x + 8, y + h - 12, 4, "BOM明细表");
-        canvas.text("TABLE", x + 8, y + h - 28, 3, "序号  名称              材料       数量/来源");
+        c.rect("TABLE", x, y, w, h);
+        c.text("TABLE", x + 8, y + h - 12, 4, "BOM明细表");
+        c.text("TABLE", x + 8, y + h - 28, 3, "序号  名称              材料       数量/备注");
         int row = 0;
         for (DesignProject.BomItem item : project.getDrawingPlan().getBomTable().stream().limit(6).toList()) {
-            canvas.text("TABLE", x + 8, y + h - 45 - row * 15, 2.8,
-                    "%02d    %-12s  %-8s  %d %s".formatted(item.getSequence(), trim(item.getName(), 10), trim(item.getMaterial(), 6), item.getQuantity(), trim(item.getRemark(), 14)));
+            c.text("TABLE", x + 8, y + h - 45 - row * 15, 2.8,
+                    "%02d    %-12s  %-8s  %d %s".formatted(item.getSequence(), trim(clean(item.getName(), "零件"), 10), trim(clean(item.getMaterial(), "Q235B"), 6), item.getQuantity(), trim(clean(item.getRemark(), ""), 14)));
             row++;
         }
     }
 
-    private void parameterTable(Canvas canvas, DesignProject project) {
+    private void parameterTable(Canvas c, DesignProject project) {
         double x = 690, y = 112, w = 120, h = 96;
-        canvas.rect("TABLE", x, y, w, h);
-        canvas.text("TABLE", x + 6, y + h - 12, 3.6, "主要参数表");
+        c.rect("TABLE", x, y, w, h);
+        c.text("TABLE", x + 6, y + h - 12, 3.6, "主要参数表");
         int row = 0;
         for (DesignProject.Parameter parameter : project.getDrawingPlan().getParameterTable().stream().limit(4).toList()) {
-            canvas.text("TABLE", x + 6, y + h - 30 - row++ * 16, 2.7,
-                    trim(parameter.getName(), 8) + "=" + trim(String.valueOf(parameter.getValue()), 8) + parameter.getUnit());
+            c.text("TABLE", x + 6, y + h - 30 - row++ * 16, 2.7,
+                    trim(clean(parameter.getName(), "参数"), 8) + "=" + trim(String.valueOf(parameter.getValue()), 8) + parameter.getUnit());
         }
     }
 
-    private void requirements(Canvas canvas, DesignProject project) {
+    private void requirements(Canvas c, DesignProject project) {
         List<String> requirements = project.getDrawingPlan().getTechnicalRequirements().isEmpty()
                 ? toleranceGenerator.assemblyRequirements(project)
                 : project.getDrawingPlan().getTechnicalRequirements();
-        toleranceGenerator.drawToleranceBlock(canvas, 510, 122, requirements);
-        toleranceGenerator.drawDatumAndGdt(canvas, 510, 97);
+        toleranceGenerator.drawToleranceBlock(c, 510, 122, requirements);
+        toleranceGenerator.drawDatumAndGdt(c, 510, 97);
     }
 
-    private void balloon(Canvas canvas, DesignProject.Component part, double x, double y) {
-        canvas.circle("ANNOTATION", x, y, 6);
-        canvas.text("ANNOTATION", x - 2.5, y - 2.5, 3, String.valueOf(part.getSequence()));
+    private void balloon(Canvas c, DesignProject.Component part, double x, double y) {
+        c.circle("ANNOTATION", x, y, 6);
+        c.text("ANNOTATION", x - 2.5, y - 2.5, 3, String.valueOf(part.getSequence()));
     }
 
     private List<DesignProject.Component> parts(DesignProject project, DesignProject.DrawingViewPlan view) {
@@ -277,7 +324,7 @@ public class DrawingEngine {
             ImageIO.write(image, "png", out);
             return out.toByteArray();
         } catch (Exception e) {
-            throw new IllegalStateException("Drawing preview generation failed: " + e.getMessage(), e);
+            throw new IllegalStateException("图纸预览生成失败：" + e.getMessage(), e);
         }
     }
 
@@ -324,21 +371,9 @@ public class DrawingEngine {
     private Font font() {
         for (String name : FONTS) {
             Font font = new Font(name, Font.PLAIN, 14);
-            if (font.canDisplay('中')) return font;
+            if (font.canDisplay('主')) return font;
         }
         return new Font("Dialog", Font.PLAIN, 14);
-    }
-
-    private String layer(DesignProject.Component component) {
-        return switch (component.getRole()) {
-            case "BODY" -> "BODY";
-            case "SUPPORT", "BASE" -> "SUPPORT";
-            case "INTERFACE" -> "INTERFACE";
-            case "FUNCTION" -> "FUNCTION";
-            case "DRIVE" -> "JOINT";
-            case "MOUNT" -> "STRUCTURE";
-            default -> "STRUCTURE";
-        };
     }
 
     private double vp(DesignProject.DrawingViewPlan view, String key, double fallback) {
@@ -346,8 +381,13 @@ public class DrawingEngine {
         return view.getViewport().getOrDefault(key, fallback);
     }
 
-    private String safe(String value) { return value == null ? "" : value; }
-    private String trim(String value, int length) { return value == null ? "" : value.length() > length ? value.substring(0, length) + "..." : value; }
+    private String clean(String value, String fallback) {
+        return value == null || value.isBlank() || semanticLayer.looksCorrupted(value) ? fallback : value;
+    }
+
+    private String trim(String value, int length) {
+        return value == null ? "" : value.length() > length ? value.substring(0, length) + "..." : value;
+    }
 
     record Projection(double x, double y, double w, double h) {}
     record Bounds(double minX, double minY, double minZ, double maxX, double maxY, double maxZ) {}

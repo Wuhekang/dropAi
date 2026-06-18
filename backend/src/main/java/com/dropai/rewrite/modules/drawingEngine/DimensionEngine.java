@@ -5,6 +5,8 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class DimensionEngine {
+    private final DimensionSourceValidator sourceValidator = new DimensionSourceValidator();
+
     public void drawPlanDimensions(DrawingEngine.Canvas c, DesignProject project) {
         drawViewDimensions(c, project.getDrawingPlan().getMainView(), "front");
         drawViewDimensions(c, project.getDrawingPlan().getTopView(), "top");
@@ -18,6 +20,9 @@ public class DimensionEngine {
         double h = vp(view, "height", 150);
         int index = 0;
         for (DesignProject.DimensionChain item : view.getDimensions().stream().limit(4).toList()) {
+            if (!sourceValidator.isValid(item)) {
+                continue;
+            }
             String label = label(item);
             if ("side".equals(type)) {
                 double xx = x + w + 12 + index * 11;
