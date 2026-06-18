@@ -33,16 +33,22 @@ public class DesignPackageService {
     private final DesignEnhancementEngine designEnhancementEngine; private final StructureEngine structureEngine; private final DrawingEngine drawingEngine; private final SwMacroEngine swMacroEngine;
     private final PaperEngine paperEngine; private final ExportEngine exportEngine; private final DocumentJobMapper mapper;
     private final TaskDrivenDesignPipeline designPipeline;
+    private final PointService pointService;
 
     public DesignPackageService(ParameterEngine parameterEngine, CalculationEngine calculationEngine, DesignEnhancementEngine designEnhancementEngine, StructureEngine structureEngine, DrawingEngine drawingEngine,
                                 SwMacroEngine swMacroEngine, PaperEngine paperEngine, ExportEngine exportEngine, DocumentJobMapper mapper,
-                                TaskDrivenDesignPipeline designPipeline) {
+                                TaskDrivenDesignPipeline designPipeline, PointService pointService) {
         this.parameterEngine = parameterEngine; this.calculationEngine = calculationEngine; this.designEnhancementEngine = designEnhancementEngine; this.structureEngine = structureEngine; this.drawingEngine = drawingEngine;
         this.swMacroEngine = swMacroEngine; this.paperEngine = paperEngine; this.exportEngine = exportEngine; this.mapper = mapper;
         this.designPipeline = designPipeline;
+        this.pointService = pointService;
     }
 
     public DesignPackageVO generate(DesignProject input) {
+        return pointService.chargeAfterSuccess(PointService.DESIGN_GENERATE, "生成毕业设计成果包", () -> doGenerate(input));
+    }
+
+    private DesignPackageVO doGenerate(DesignProject input) {
         Long userId = AuthContext.requireUserId();
         DesignProject project = designPipeline.generateCurrentTask(input == null ? new DesignProject() : input);
         log.info("开始生成成果包 title={} parameters={}", project.getProjectTitle(), project.allParameters().size());

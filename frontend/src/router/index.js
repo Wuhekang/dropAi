@@ -4,6 +4,7 @@ import LoginIndex from '../views/Login/index.vue'
 import DashboardIndex from '../views/Dashboard/index.vue'
 import NewProjectIndex from '../views/NewProject/index.vue'
 import ExistingTech from '../views/ExistingTech.vue'
+import PointsAdmin from '../views/PointsAdmin.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -36,6 +37,11 @@ const router = createRouter({
       path: '/existing-tech',
       name: 'ExistingTech',
       component: ExistingTech
+    },
+    {
+      path: '/points-admin',
+      name: 'PointsAdmin',
+      component: PointsAdmin
     }
   ]
 })

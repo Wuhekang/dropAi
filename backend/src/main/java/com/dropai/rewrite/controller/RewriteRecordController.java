@@ -3,6 +3,8 @@ package com.dropai.rewrite.controller;
 import com.dropai.rewrite.dto.AnalyzeTextDTO;
 import com.dropai.rewrite.dto.RewriteSubmitDTO;
 import com.dropai.rewrite.service.AiRewriteService;
+import com.dropai.rewrite.service.PointService;
+import com.dropai.rewrite.service.PointsNotEnoughException;
 import com.dropai.rewrite.service.RewriteRecordService;
 import com.dropai.rewrite.vo.AiAnalyzeVO;
 import com.dropai.rewrite.vo.AiProviderStatusVO;
@@ -29,15 +31,18 @@ public class RewriteRecordController {
 
     private final RewriteRecordService rewriteRecordService;
     private final AiRewriteService aiRewriteService;
+    private final PointService pointService;
 
-    public RewriteRecordController(RewriteRecordService rewriteRecordService, AiRewriteService aiRewriteService) {
+    public RewriteRecordController(RewriteRecordService rewriteRecordService, AiRewriteService aiRewriteService, PointService pointService) {
         this.rewriteRecordService = rewriteRecordService;
         this.aiRewriteService = aiRewriteService;
+        this.pointService = pointService;
     }
 
     @PostMapping("/submit")
     public Result<RewriteResultVO> submit(@Valid @RequestBody RewriteSubmitDTO dto) {
-        return Result.success(rewriteRecordService.submit(dto));
+        return Result.success(pointService.chargeAfterSuccess(PointService.DOCX_GENERATE,
+                "文本改写/降AI", () -> rewriteRecordService.submit(dto)));
     }
 
     @PostMapping("/analyze")
@@ -101,6 +106,11 @@ public class RewriteRecordController {
     @ExceptionHandler(Exception.class)
     public Result<Void> handleException(Exception exception) {
         return Result.fail(exception.getMessage());
+    }
+
+    @ExceptionHandler(PointsNotEnoughException.class)
+    public Result<Void> pointsNotEnough(PointsNotEnoughException exception) {
+        return Result.fail("POINTS_NOT_ENOUGH", exception.getMessage());
     }
 
     private String preview(String text) {

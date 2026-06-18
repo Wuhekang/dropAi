@@ -4,6 +4,8 @@ import com.dropai.rewrite.service.EngineeringWritingService;
 import com.dropai.rewrite.service.DesignWorkflowService;
 import com.dropai.rewrite.service.MatrixDesignService;
 import com.dropai.rewrite.service.ParametricDxfService;
+import com.dropai.rewrite.service.PointService;
+import com.dropai.rewrite.service.PointsNotEnoughException;
 import com.dropai.rewrite.vo.AiProviderStatusVO;
 import com.dropai.rewrite.vo.DesignAnalysisVO;
 import com.dropai.rewrite.vo.DocumentRewriteJobVO;
@@ -25,12 +27,14 @@ public class EngineeringWritingController {
     private final MatrixDesignService matrixDesignService;
     private final ParametricDxfService dxfService;
     private final DesignWorkflowService workflowService;
+    private final PointService pointService;
     public EngineeringWritingController(EngineeringWritingService service, MatrixDesignService matrixDesignService, ParametricDxfService dxfService,
-                                        DesignWorkflowService workflowService) {
+                                        DesignWorkflowService workflowService, PointService pointService) {
         this.service = service;
         this.matrixDesignService = matrixDesignService;
         this.dxfService = dxfService;
         this.workflowService = workflowService;
+        this.pointService = pointService;
     }
 
     @GetMapping("/ai/status")
@@ -76,7 +80,8 @@ public class EngineeringWritingController {
             @RequestParam(value = "requirements", defaultValue = "") String requirements,
             @RequestParam(value = "files", required = false) List<MultipartFile> files
     ) {
-        return Result.success(service.generate(title, outputType, requirements, files == null ? List.of() : files));
+        return Result.success(pointService.chargeAfterSuccess(PointService.DOCX_GENERATE,
+                "工程写作文档生成", () -> service.generate(title, outputType, requirements, files == null ? List.of() : files)));
     }
 
     @PostMapping("/workflows")
@@ -91,8 +96,9 @@ public class EngineeringWritingController {
             @RequestParam double wheelbase,
             @RequestParam double wheelDiameter
     ) {
-        return Result.success(workflowService.submit(title, outputType, requirements, files == null ? List.of() : files,
-                length, width, height, wheelbase, wheelDiameter));
+        return Result.success(pointService.chargeAfterSuccess(PointService.MODEL_GENERATE,
+                "工程设计工作流生成", () -> workflowService.submit(title, outputType, requirements, files == null ? List.of() : files,
+                        length, width, height, wheelbase, wheelDiameter)));
     }
 
     @GetMapping("/workflows/{workflowId}")
@@ -109,7 +115,8 @@ public class EngineeringWritingController {
             @RequestParam double wheelbase,
             @RequestParam double wheelDiameter
     ) {
-        byte[] dxf = dxfService.generate(length, width, height, wheelbase, wheelDiameter);
+        byte[] dxf = pointService.chargeAfterSuccess(PointService.CAD_GENERATE,
+                "CAD DXF图纸生成", () -> dxfService.generate(length, width, height, wheelbase, wheelDiameter));
         String safeTitle = title.replaceAll("[\\\\/:*?\"<>|]", "-");
         String fileName = URLEncoder.encode(safeTitle + "-总装方案图.dxf", StandardCharsets.UTF_8).replace("+", "%20");
         return ResponseEntity.ok()
@@ -117,6 +124,11 @@ public class EngineeringWritingController {
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename*=UTF-8''" + fileName)
                 .contentLength(dxf.length)
                 .body(dxf);
+    }
+
+    @ExceptionHandler(PointsNotEnoughException.class)
+    public Result<Void> pointsNotEnough(PointsNotEnoughException exception) {
+        return Result.fail("POINTS_NOT_ENOUGH", exception.getMessage());
     }
 
     @ExceptionHandler(Exception.class)

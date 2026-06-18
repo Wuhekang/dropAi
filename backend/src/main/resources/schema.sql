@@ -18,9 +18,19 @@ CREATE TABLE IF NOT EXISTS user_account (
   phone VARCHAR(20) NOT NULL UNIQUE,
   password_hash VARCHAR(100) NOT NULL,
   role VARCHAR(20) NOT NULL DEFAULT 'USER',
+  points INT NOT NULL DEFAULT 1000,
+  total_points INT NOT NULL DEFAULT 1000,
+  used_points INT NOT NULL DEFAULT 0,
   created_at DATETIME NOT NULL,
   updated_at DATETIME NOT NULL
 ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+ALTER TABLE user_account ADD COLUMN IF NOT EXISTS points INT NOT NULL DEFAULT 1000;
+ALTER TABLE user_account ADD COLUMN IF NOT EXISTS total_points INT NOT NULL DEFAULT 1000;
+ALTER TABLE user_account ADD COLUMN IF NOT EXISTS used_points INT NOT NULL DEFAULT 0;
+UPDATE user_account SET points = 1000 WHERE points IS NULL;
+UPDATE user_account SET total_points = 1000 WHERE total_points IS NULL;
+UPDATE user_account SET used_points = 0 WHERE used_points IS NULL;
 
 CREATE TABLE IF NOT EXISTS user_session (
   token VARCHAR(64) PRIMARY KEY,
@@ -48,6 +58,43 @@ CREATE TABLE IF NOT EXISTS document_job (
   updated_at DATETIME NOT NULL,
   INDEX idx_document_user_created (user_id, created_at)
 ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS point_transactions (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  user_id BIGINT NOT NULL,
+  feature_code VARCHAR(50) NOT NULL,
+  feature_name VARCHAR(100) NOT NULL,
+  points_change INT NOT NULL,
+  balance_after INT NOT NULL,
+  remark VARCHAR(255),
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_point_tx_user_created (user_id, created_at),
+  INDEX idx_point_tx_feature (feature_code)
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS feature_pricing (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  feature_code VARCHAR(50) NOT NULL UNIQUE,
+  feature_name VARCHAR(100) NOT NULL,
+  cost_points INT NOT NULL,
+  enabled TINYINT(1) NOT NULL DEFAULT 1
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT INTO feature_pricing (feature_code, feature_name, cost_points, enabled)
+SELECT 'DESIGN_GENERATE', '毕业设计成果包生成', 100, 1
+WHERE NOT EXISTS (SELECT 1 FROM feature_pricing WHERE feature_code = 'DESIGN_GENERATE');
+INSERT INTO feature_pricing (feature_code, feature_name, cost_points, enabled)
+SELECT 'CAD_GENERATE', 'CAD图纸生成', 50, 1
+WHERE NOT EXISTS (SELECT 1 FROM feature_pricing WHERE feature_code = 'CAD_GENERATE');
+INSERT INTO feature_pricing (feature_code, feature_name, cost_points, enabled)
+SELECT 'MODEL_GENERATE', '三维模型生成', 50, 1
+WHERE NOT EXISTS (SELECT 1 FROM feature_pricing WHERE feature_code = 'MODEL_GENERATE');
+INSERT INTO feature_pricing (feature_code, feature_name, cost_points, enabled)
+SELECT 'DOCX_GENERATE', '文档生成', 30, 1
+WHERE NOT EXISTS (SELECT 1 FROM feature_pricing WHERE feature_code = 'DOCX_GENERATE');
+INSERT INTO feature_pricing (feature_code, feature_name, cost_points, enabled)
+SELECT 'ZIP_EXPORT', '成果包导出', 20, 1
+WHERE NOT EXISTS (SELECT 1 FROM feature_pricing WHERE feature_code = 'ZIP_EXPORT');
 
 ALTER TABLE rewrite_record CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 

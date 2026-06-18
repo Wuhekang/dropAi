@@ -1,6 +1,8 @@
 package com.dropai.rewrite.controller;
 
 import com.dropai.rewrite.service.ExistingTechService;
+import com.dropai.rewrite.service.PointService;
+import com.dropai.rewrite.service.PointsNotEnoughException;
 import com.dropai.rewrite.vo.Result;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
@@ -22,9 +24,11 @@ import java.util.Map;
 @RequestMapping("/api/existing-tech")
 public class ExistingTechController {
     private final ExistingTechService service;
+    private final PointService pointService;
 
-    public ExistingTechController(ExistingTechService service) {
+    public ExistingTechController(ExistingTechService service, PointService pointService) {
         this.service = service;
+        this.pointService = pointService;
     }
 
     @PostMapping("/upload")
@@ -34,7 +38,8 @@ public class ExistingTechController {
 
     @PostMapping("/task")
     public Result<ExistingTechService.ExistingTechTask> submitTask(@RequestBody Map<String, Object> params) {
-        return Result.success(service.submit(params));
+        return Result.success(pointService.chargeAfterSuccess(PointService.DOCX_GENERATE,
+                "现有技术文本处理", () -> service.submit(params)));
     }
 
     @GetMapping("/task/{taskId}")
@@ -56,5 +61,10 @@ public class ExistingTechController {
                         .filename("existing-tech-result.txt", StandardCharsets.UTF_8).build().toString())
                 .contentLength(bytes.length)
                 .body(bytes);
+    }
+
+    @org.springframework.web.bind.annotation.ExceptionHandler(PointsNotEnoughException.class)
+    public Result<Void> pointsNotEnough(PointsNotEnoughException exception) {
+        return Result.fail("POINTS_NOT_ENOUGH", exception.getMessage());
     }
 }

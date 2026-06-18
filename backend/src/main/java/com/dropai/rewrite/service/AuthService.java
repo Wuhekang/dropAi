@@ -9,6 +9,7 @@ import com.dropai.rewrite.mapper.UserSessionMapper;
 import com.dropai.rewrite.vo.AuthVO;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
+
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -17,6 +18,7 @@ public class AuthService {
     private final UserAccountMapper accountMapper;
     private final UserSessionMapper sessionMapper;
     private final BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
+
     public AuthService(UserAccountMapper accountMapper, UserSessionMapper sessionMapper) {
         this.accountMapper = accountMapper;
         this.sessionMapper = sessionMapper;
@@ -28,6 +30,9 @@ public class AuthService {
         account.setPhone(dto.getPhone());
         account.setPasswordHash(encoder.encode(dto.getPassword()));
         account.setRole("USER");
+        account.setPoints(1000);
+        account.setTotalPoints(1000);
+        account.setUsedPoints(0);
         account.setCreatedAt(LocalDateTime.now());
         account.setUpdatedAt(LocalDateTime.now());
         accountMapper.insert(account);
@@ -53,9 +58,11 @@ public class AuthService {
     public void logout(String token) {
         if (token != null && !token.isBlank()) sessionMapper.deleteById(token);
     }
+
     private UserAccount findByPhone(String phone) {
         return accountMapper.selectOne(new LambdaQueryWrapper<UserAccount>().eq(UserAccount::getPhone, phone));
     }
+
     private AuthVO createSession(UserAccount account) {
         UserSession session = new UserSession();
         session.setToken(UUID.randomUUID().toString().replace("-", ""));
@@ -63,7 +70,10 @@ public class AuthService {
         session.setCreatedAt(LocalDateTime.now());
         session.setExpiresAt(LocalDateTime.now().plusDays(30));
         sessionMapper.insert(session);
-        return new AuthVO(account.getId(), mask(account.getPhone()), session.getToken());
+        return new AuthVO(account.getId(), mask(account.getPhone()), session.getToken(), account.getRole());
     }
-    private String mask(String phone) { return phone.substring(0, 3) + "****" + phone.substring(7); }
+
+    private String mask(String phone) {
+        return phone == null || phone.length() < 11 ? "当前账号" : phone.substring(0, 3) + "****" + phone.substring(7);
+    }
 }

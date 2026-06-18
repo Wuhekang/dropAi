@@ -57,6 +57,22 @@ export function logout() {
   return request.post('/auth/logout')
 }
 
+export function getPointAccount() {
+  return request.get('/points/me')
+}
+
+export function getPointTransactions() {
+  return request.get('/points/transactions')
+}
+
+export function getFeaturePricing() {
+  return request.get('/points/pricing')
+}
+
+export function updateFeaturePricing(featureCode, data) {
+  return request.put(`/points/pricing/${featureCode}`, data)
+}
+
 export function submitRewrite(data) {
   return request.post('/rewrite/submit', data)
 }

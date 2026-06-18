@@ -14,7 +14,7 @@ public class CorsConfig implements WebMvcConfigurer {
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(authInterceptor)
-                .addPathPatterns("/api/rewrite/**", "/api/document/**", "/api/documents/**", "/api/engineering-writing/**", "/api/design-packages/**")
+                .addPathPatterns("/api/rewrite/**", "/api/document/**", "/api/documents/**", "/api/engineering-writing/**", "/api/design-packages/**", "/api/points/**", "/api/existing-tech/**")
                 .excludePathPatterns("/api/rewrite/ai/status");
     }
 

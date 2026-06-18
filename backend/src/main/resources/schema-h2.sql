@@ -16,6 +16,9 @@ CREATE TABLE IF NOT EXISTS user_account (
   phone VARCHAR(20) NOT NULL UNIQUE,
   password_hash VARCHAR(100) NOT NULL,
   role VARCHAR(20) DEFAULT 'USER' NOT NULL,
+  points INT DEFAULT 1000 NOT NULL,
+  total_points INT DEFAULT 1000 NOT NULL,
+  used_points INT DEFAULT 0 NOT NULL,
   created_at TIMESTAMP NOT NULL,
   updated_at TIMESTAMP NOT NULL
 );
@@ -23,6 +26,9 @@ CREATE TABLE IF NOT EXISTS user_account (
 ALTER TABLE user_account ADD COLUMN IF NOT EXISTS phone VARCHAR(20);
 ALTER TABLE user_account ADD COLUMN IF NOT EXISTS password_hash VARCHAR(100);
 ALTER TABLE user_account ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'USER' NOT NULL;
+ALTER TABLE user_account ADD COLUMN IF NOT EXISTS points INT DEFAULT 1000 NOT NULL;
+ALTER TABLE user_account ADD COLUMN IF NOT EXISTS total_points INT DEFAULT 1000 NOT NULL;
+ALTER TABLE user_account ADD COLUMN IF NOT EXISTS used_points INT DEFAULT 0 NOT NULL;
 ALTER TABLE user_account ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP;
 ALTER TABLE user_account DROP COLUMN IF EXISTS wechat_openid;
 ALTER TABLE user_account DROP COLUMN IF EXISTS wechat_unionid;
@@ -59,6 +65,36 @@ ALTER TABLE document_job ALTER COLUMN mode VARCHAR(100);
 ALTER TABLE document_job ALTER COLUMN mode_name VARCHAR(100);
 ALTER TABLE document_job ALTER COLUMN platform VARCHAR(100);
 ALTER TABLE document_job ALTER COLUMN platform_name VARCHAR(100);
+
+CREATE TABLE IF NOT EXISTS point_transactions (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  user_id BIGINT NOT NULL,
+  feature_code VARCHAR(50) NOT NULL,
+  feature_name VARCHAR(100) NOT NULL,
+  points_change INT NOT NULL,
+  balance_after INT NOT NULL,
+  remark VARCHAR(255),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS feature_pricing (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  feature_code VARCHAR(50) NOT NULL UNIQUE,
+  feature_name VARCHAR(100) NOT NULL,
+  cost_points INT NOT NULL,
+  enabled BOOLEAN DEFAULT TRUE NOT NULL
+);
+
+MERGE INTO feature_pricing (feature_code, feature_name, cost_points, enabled) KEY(feature_code)
+VALUES ('DESIGN_GENERATE', '毕业设计成果包生成', 100, TRUE);
+MERGE INTO feature_pricing (feature_code, feature_name, cost_points, enabled) KEY(feature_code)
+VALUES ('CAD_GENERATE', 'CAD图纸生成', 50, TRUE);
+MERGE INTO feature_pricing (feature_code, feature_name, cost_points, enabled) KEY(feature_code)
+VALUES ('MODEL_GENERATE', '三维模型生成', 50, TRUE);
+MERGE INTO feature_pricing (feature_code, feature_name, cost_points, enabled) KEY(feature_code)
+VALUES ('DOCX_GENERATE', '文档生成', 30, TRUE);
+MERGE INTO feature_pricing (feature_code, feature_name, cost_points, enabled) KEY(feature_code)
+VALUES ('ZIP_EXPORT', '成果包导出', 20, TRUE);
 
 CREATE TABLE IF NOT EXISTS workflow_node (
   id BIGINT AUTO_INCREMENT PRIMARY KEY,

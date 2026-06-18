@@ -1,15 +1,22 @@
 package com.dropai.rewrite.controller;
 
-import com.dropai.rewrite.modules.model.DesignProject;
-import com.dropai.rewrite.modules.documentParser.DocumentParser;
 import com.dropai.rewrite.modules.designAnalyzer.DesignAnalyzer;
 import com.dropai.rewrite.modules.designPipeline.TaskDrivenDesignPipeline;
+import com.dropai.rewrite.modules.documentParser.DocumentParser;
+import com.dropai.rewrite.modules.model.DesignProject;
 import com.dropai.rewrite.service.DesignPackageService;
+import com.dropai.rewrite.service.PointsNotEnoughException;
 import com.dropai.rewrite.vo.DesignAnalysisResultVO;
 import com.dropai.rewrite.vo.DesignPackageVO;
 import com.dropai.rewrite.vo.Result;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
+
 import java.util.List;
 
 @RestController
@@ -19,20 +26,30 @@ public class DesignPackageController {
     private final DocumentParser documentParser;
     private final DesignAnalyzer designAnalyzer;
     private final TaskDrivenDesignPipeline designPipeline;
+
     public DesignPackageController(DesignPackageService service, DocumentParser documentParser, DesignAnalyzer designAnalyzer,
                                    TaskDrivenDesignPipeline designPipeline) {
-        this.service = service; this.documentParser = documentParser; this.designAnalyzer = designAnalyzer;
+        this.service = service;
+        this.documentParser = documentParser;
+        this.designAnalyzer = designAnalyzer;
         this.designPipeline = designPipeline;
     }
 
     @PostMapping("/generate")
-    public Result<DesignPackageVO> generate(@RequestBody DesignProject project) { return Result.success(service.generate(project)); }
+    public Result<DesignPackageVO> generate(@RequestBody DesignProject project) {
+        return Result.success(service.generate(project));
+    }
 
     @PostMapping("/analyze")
     public Result<DesignAnalysisResultVO> analyze(@RequestParam(defaultValue = "") String title, @RequestParam("files") List<MultipartFile> files) {
         List<DocumentParser.ParsedDocument> documents = documentParser.parse(files);
         DesignProject project = designPipeline.analyzeNewTask(designAnalyzer.analyze(title, documents));
         return Result.success(DesignAnalysisResultVO.of(project, documents));
+    }
+
+    @ExceptionHandler(PointsNotEnoughException.class)
+    public Result<Void> pointsNotEnough(PointsNotEnoughException exception) {
+        return Result.fail("POINTS_NOT_ENOUGH", exception.getMessage());
     }
 
     @ExceptionHandler(Exception.class)

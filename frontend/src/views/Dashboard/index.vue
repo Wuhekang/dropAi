@@ -11,6 +11,37 @@
 
     <HomeHero3D :project="heroProject" status="首页演示模型" />
 
+    <section class="points-panel">
+      <el-card class="points-card" shadow="never">
+        <template #header>
+          <div class="section-head">
+            <div>
+              <h2>我的积分</h2>
+              <p>所有生成能力都会消耗积分，生成成功后自动扣减并记录流水。</p>
+            </div>
+            <el-button :loading="pointsLoading" @click="loadPoints">刷新积分</el-button>
+          </div>
+        </template>
+        <div class="points-summary">
+          <div><span>当前积分</span><strong>{{ pointAccount.points ?? '--' }}</strong></div>
+          <div><span>累计获得</span><strong>{{ pointAccount.totalPoints ?? '--' }}</strong></div>
+          <div><span>累计消耗</span><strong>{{ pointAccount.usedPoints ?? '--' }}</strong></div>
+        </div>
+        <el-table :data="pointAccount.recentTransactions || []" size="small" empty-text="暂无积分流水">
+          <el-table-column prop="featureName" label="功能" min-width="130" />
+          <el-table-column prop="pointsChange" label="积分变化" width="95" />
+          <el-table-column prop="balanceAfter" label="余额" width="80" />
+          <el-table-column prop="remark" label="备注" min-width="160" show-overflow-tooltip />
+        </el-table>
+      </el-card>
+      <el-card class="points-card admin-card" shadow="never">
+        <h2>积分管理</h2>
+        <p>管理员可进入功能价格管理，修改各生成能力的积分消耗和启用状态。</p>
+        <el-button type="primary" :disabled="role !== 'ADMIN'" @click="router.push('/points-admin')">进入积分管理</el-button>
+        <small v-if="role !== 'ADMIN'">当前账号不是管理员，仅可查看个人积分。</small>
+      </el-card>
+    </section>
+
     <section class="quick-actions">
       <button class="primary-action" type="button" @click="router.push('/new-project')">
         <span>开始生成</span>
@@ -73,12 +104,15 @@
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import HomeHero3D from '../../components/HomeHero3D.vue'
-import { downloadMyDocument, getMyDocuments, logout } from '../../api/rewrite'
+import { downloadMyDocument, getMyDocuments, getPointAccount, logout } from '../../api/rewrite'
 
 const router = useRouter()
 const username = sessionStorage.getItem('dropai_username') || '当前账号'
+const role = sessionStorage.getItem('dropai_role') || 'USER'
 const documents = ref([])
 const loading = ref(false)
+const pointsLoading = ref(false)
+const pointAccount = ref({ points: null, totalPoints: null, usedPoints: null, recentTransactions: [] })
 const heroProject = {
   projectTitle: '重力沉降室详细设计展示',
   equipmentName: '重力沉降室',
@@ -91,6 +125,10 @@ const heroProject = {
 async function loadDocuments() {
   loading.value = true
   try { documents.value = await getMyDocuments() || [] } finally { loading.value = false }
+}
+async function loadPoints() {
+  pointsLoading.value = true
+  try { pointAccount.value = await getPointAccount() || pointAccount.value } finally { pointsLoading.value = false }
 }
 async function download(row) {
   const blob = await downloadMyDocument(row.jobId)
@@ -113,7 +151,10 @@ async function signOut() {
 function statusType(status) { return status === 'SUCCESS' ? 'success' : status === 'FAILED' ? 'danger' : 'warning' }
 function statusText(status) { return ({ SUCCESS: '已完成', FAILED: '失败', RUNNING: '处理中', PENDING: '等待中' })[status] || status }
 function featureName(feature) { return feature === 'REWRITE' ? '降重与降 AI' : feature === 'DESIGN_GENERATION' || feature === 'ENGINEERING_WRITING' ? '设计生成' : feature || '设计生成' }
-onMounted(loadDocuments)
+onMounted(() => {
+  loadDocuments()
+  loadPoints()
+})
 </script>
 
 <style scoped>
@@ -130,8 +171,9 @@ h1{margin:8px 0 6px;font-size:38px}h2{margin:0 0 6px}
 .existing-tech-action em{display:inline-flex;margin-top:14px;padding:8px 12px;border-radius:999px;background:#0f172a;color:white;font-style:normal;font-weight:800;font-size:12px}
 .quick-actions span{font-size:12px;font-weight:800;color:#2563eb}.quick-actions strong{display:block;margin:12px 0 8px;font-size:25px;color:#172033}
 .feature-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:22px 0 28px}
+.points-panel{display:grid;grid-template-columns:1.4fr .8fr;gap:18px;margin:24px 0}.points-card{border-radius:18px}.points-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px}.points-summary div{padding:14px;border-radius:16px;background:#f8fafc;border:1px solid #e2e8f0}.points-summary span{display:block;color:#64748b;font-size:13px}.points-summary strong{display:block;margin-top:6px;font-size:28px;color:#2563eb}.admin-card p{color:#64748b;line-height:1.7}.admin-card small{display:block;margin-top:12px;color:#94a3b8}
 .feature-grid div{padding:18px;border-radius:18px;background:#f8fafc;border:1px solid #e2e8f0}
 .feature-grid strong{display:block;margin-bottom:8px;color:#172033}
 .document-center{border-radius:18px}.section-head h2{font-size:22px}
-@media(max-width:980px){.quick-actions,.feature-grid{grid-template-columns:1fr}.dashboard-header{align-items:center}h1{font-size:30px}}
+@media(max-width:980px){.quick-actions,.feature-grid,.points-panel{grid-template-columns:1fr}.dashboard-header{align-items:center}h1{font-size:30px}}
 </style>

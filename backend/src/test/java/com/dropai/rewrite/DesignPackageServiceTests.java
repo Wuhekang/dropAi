@@ -24,6 +24,7 @@ import com.dropai.rewrite.modules.structureEngine.StructureEngine;
 import com.dropai.rewrite.modules.structureTreeBuilder.StructureTreeBuilder;
 import com.dropai.rewrite.modules.swMacroEngine.SwMacroEngine;
 import com.dropai.rewrite.modules.unknownPartResolver.UnknownPartResolver;
+import com.dropai.rewrite.service.PointService;
 import com.dropai.rewrite.service.DesignPackageService;
 import com.dropai.rewrite.vo.DesignPackageVO;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -36,6 +37,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -58,9 +60,12 @@ class DesignPackageServiceTests {
                 new StandardPartSelector(cache, new MockOnlineStandardPartProvider(cache)),
                 new NonStandardPartGenerator(new UnknownPartResolver()), new AssemblyBuilder(), new BOMGenerator(),
                 calculationEngine, new DrawingPlanBuilder());
+        PointService pointService = mock(PointService.class);
+        when(pointService.chargeAfterSuccess(anyString(), anyString(), any())).thenAnswer(invocation ->
+                ((java.util.function.Supplier<?>) invocation.getArgument(2)).get());
         DesignPackageService service = new DesignPackageService(
                 parameterEngine, calculationEngine, new DesignEnhancementEngine(), new StructureEngine(), new DrawingEngine(), new SwMacroEngine(),
-                new PaperEngine(), new ExportEngine(new ObjectMapper()), mapper, pipeline);
+                new PaperEngine(), new ExportEngine(new ObjectMapper()), mapper, pipeline, pointService);
         AuthContext.setUserId(1L);
 
         DesignPackageVO result = service.generate(validProject());

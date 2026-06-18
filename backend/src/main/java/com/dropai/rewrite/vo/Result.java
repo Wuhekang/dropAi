@@ -2,14 +2,14 @@ package com.dropai.rewrite.vo;
 
 public class Result<T> {
 
-    private int code;
+    private Object code;
     private String message;
     private T data;
 
     public Result() {
     }
 
-    public Result(int code, String message, T data) {
+    public Result(Object code, String message, T data) {
         this.code = code;
         this.message = message;
         this.data = data;
@@ -27,11 +27,15 @@ public class Result<T> {
         return new Result<>(500, message, null);
     }
 
-    public int getCode() {
+    public static <T> Result<T> fail(String code, String message) {
+        return new Result<>(code, message, null);
+    }
+
+    public Object getCode() {
         return code;
     }
 
-    public void setCode(int code) {
+    public void setCode(Object code) {
         this.code = code;
     }
 
