@@ -5,16 +5,10 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class DimensionEngine {
-    public void drawAssemblyDimensions(DrawingEngine.Canvas c, DesignProject p) {
-        dim(c, 70, 285, 470, 285, "总长");
-        dim(c, 55, 300, 55, 460, "总高");
-        dim(c, 70, 88, 470, 88, "总宽");
-    }
-
-    public void drawPlanDimensions(DrawingEngine.Canvas c, DesignProject p) {
-        drawViewDimensions(c, p.getDrawingPlan().getMainView(), "main");
-        drawViewDimensions(c, p.getDrawingPlan().getTopView(), "top");
-        drawViewDimensions(c, p.getDrawingPlan().getSideView(), "side");
+    public void drawPlanDimensions(DrawingEngine.Canvas c, DesignProject project) {
+        drawViewDimensions(c, project.getDrawingPlan().getMainView(), "front");
+        drawViewDimensions(c, project.getDrawingPlan().getTopView(), "top");
+        drawViewDimensions(c, project.getDrawingPlan().getSideView(), "side");
     }
 
     private void drawViewDimensions(DrawingEngine.Canvas c, DesignProject.DrawingViewPlan view, String type) {
@@ -24,39 +18,51 @@ public class DimensionEngine {
         double h = vp(view, "height", 150);
         int index = 0;
         for (DesignProject.DimensionChain item : view.getDimensions().stream().limit(4).toList()) {
-            boolean horizontal = switch (type) {
-                case "top" -> index < 3;
-                case "side" -> false;
-                default -> index % 2 == 0;
-            };
-            if (horizontal) {
-                double yy = y - 15 - index * 13;
-                dim(c, x + 8, yy, x + w - 8, yy, label(item));
-            } else if ("side".equals(type)) {
-                double xx = x + w + 12 + index * 10;
+            String label = label(item);
+            if ("side".equals(type)) {
+                double xx = x + w + 12 + index * 11;
                 double y1 = y + 8 + index * 7;
                 double y2 = y + h - 8 - index * 7;
                 dimNoLabel(c, xx, y1, xx, y2);
-                c.text("DIMENSION", xx + 5, y + h - 20 - index * 18, 3, label(item));
+                c.text("DIMENSION", xx + 5, (y1 + y2) / 2, 3, label);
+            } else if ("top".equals(type) || index % 2 == 0) {
+                double yy = y - 15 - index * 12;
+                dim(c, x + 8, yy, x + w - 8, yy, label);
             } else {
                 double xx = x - 16 - index * 10;
-                dim(c, xx, y + 8, xx, y + h - 8, label(item));
+                dim(c, xx, y + 8, xx, y + h - 8, label);
             }
             index++;
         }
     }
 
-    public void drawPartDimensions(DrawingEngine.Canvas c, DesignProject.Component p, double thickness) {
-        dim(c, 160, 205, 520, 205, "L=" + fmt(p.getLength()));
-        dim(c, 140, 230, 140, 420, "H=" + fmt(p.getHeight()));
-        dim(c, 195, 245, 485, 245, "孔距 " + fmt(Math.max(120, p.getLength() * .58)));
-        c.text("DIMENSION", 510, 360, 3.2, "安装孔：4×M18");
-        c.text("DIMENSION", 510, 342, 3.2, "板厚 t=" + fmt(thickness));
-        c.text("DIMENSION", 510, 324, 3.2, "倒角C2，未注圆角R3");
+    public void drawPartDimensions(DrawingEngine.Canvas c, DesignProject.Component part) {
+        double length = Math.max(80, part.getLength());
+        double width = Math.max(40, part.getWidth());
+        double height = Math.max(35, part.getHeight());
+        dim(c, 145, 215, 485, 215, "总长 " + fmt(length));
+        dim(c, 125, 245, 125, 405, "高度 " + fmt(height));
+        dim(c, 170, 435, 470, 435, "宽度 " + fmt(width));
+        c.text("DIMENSION", 510, 365, 3.2, "安装孔：4×M8");
+        c.text("DIMENSION", 510, 347, 3.2, "孔距：" + fmt(Math.max(60, length * .55)));
+        c.text("DIMENSION", 510, 329, 3.2, "板厚/壁厚：" + fmt(Math.max(4, Math.min(12, height * .08))) + " mm");
+    }
+
+    public void drawHolePattern(DrawingEngine.Canvas c, double x, double y, double w, double h, int columns, int rows) {
+        for (int i = 0; i < columns; i++) {
+            for (int j = 0; j < rows; j++) {
+                double cx = x + w * (i + 1) / (columns + 1);
+                double cy = y + h * (j + 1) / (rows + 1);
+                c.circle("CENTER", cx, cy, 3.2);
+                c.line("CENTER", cx - 6, cy, cx + 6, cy);
+                c.line("CENTER", cx, cy - 6, cx, cy + 6);
+            }
+        }
     }
 
     private String label(DesignProject.DimensionChain item) {
-        return trim(item.getName(), 18) + " " + fmt(item.getValue()) + item.getUnit();
+        if (item.getValue() <= 0) return trim(item.getName(), 16) + " 待校核";
+        return trim(item.getName(), 16) + " " + fmt(item.getValue()) + item.getUnit();
     }
 
     private void dim(DrawingEngine.Canvas c, double x1, double y1, double x2, double y2, String label) {
@@ -75,11 +81,11 @@ public class DimensionEngine {
         return view.getViewport().getOrDefault(key, fallback);
     }
 
-    private String fmt(double v) {
-        return "%.0f".formatted(v);
+    private String fmt(double value) {
+        return "%.0f".formatted(value);
     }
 
-    private String trim(String v, int n) {
-        return v == null ? "" : v.length() > n ? v.substring(0, n) : v;
+    private String trim(String value, int length) {
+        return value == null ? "" : value.length() > length ? value.substring(0, length) : value;
     }
 }

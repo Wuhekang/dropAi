@@ -14,6 +14,7 @@ import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 
 @Service
 public class DrawingEngine {
@@ -22,23 +23,24 @@ public class DrawingEngine {
     private final DimensionEngine dimensionEngine = new DimensionEngine();
     private final PartDrawingEngine partDrawingEngine = new PartDrawingEngine();
     private final ConceptRenderGenerator conceptRenderGenerator = new ConceptRenderGenerator();
+    private final ToleranceGenerator toleranceGenerator = new ToleranceGenerator();
 
     public List<DrawingArtifact> drawAssemblyDrawing(DesignProject project) {
         validateDrawingPlan(project);
-        Canvas c = new Canvas(project.getProjectTitle(), "总装三视图", "ZD-00");
-        frame(c);
-        title(c, project);
-        planViews(c, project);
-        dimensionEngine.drawPlanDimensions(c, project);
-        bom(c, project);
-        parameterTable(c, project);
-        requirements(c, project);
+        Canvas canvas = new Canvas(project.getProjectTitle(), "总装三视图", "ZD-00");
+        frame(canvas);
+        title(canvas, project);
+        planViews(canvas, project);
+        dimensionEngine.drawPlanDimensions(canvas, project);
+        bom(canvas, project);
+        parameterTable(canvas, project);
+        requirements(canvas, project);
 
         Canvas concept = conceptRenderGenerator.draw(project);
         return List.of(
-                new DrawingArtifact("assembly.dxf", c.dxf().getBytes(StandardCharsets.UTF_8), "application/dxf"),
-                new DrawingArtifact("cad_preview.svg", c.svg(false).getBytes(StandardCharsets.UTF_8), "image/svg+xml"),
-                new DrawingArtifact("cad_preview.png", render(c, Color.WHITE, false), "image/png"),
+                new DrawingArtifact("assembly.dxf", canvas.dxf().getBytes(StandardCharsets.UTF_8), "application/dxf"),
+                new DrawingArtifact("cad_preview.svg", canvas.svg(false).getBytes(StandardCharsets.UTF_8), "image/svg+xml"),
+                new DrawingArtifact("cad_preview.png", render(canvas, Color.WHITE, false), "image/png"),
                 new DrawingArtifact("preview.svg", concept.svg(true).getBytes(StandardCharsets.UTF_8), "image/svg+xml"),
                 new DrawingArtifact("preview.png", render(concept, new Color(243, 247, 251), true), "image/png"));
     }
@@ -59,56 +61,56 @@ public class DrawingEngine {
         }
     }
 
-    private void frame(Canvas c) {
-        c.rect("FRAME", 20, 20, 800, 550);
-        c.rect("FRAME", 30, 30, 780, 530);
+    private void frame(Canvas canvas) {
+        canvas.rect("FRAME", 20, 20, 800, 550);
+        canvas.rect("FRAME", 30, 30, 780, 530);
     }
 
-    private void title(Canvas c, DesignProject p) {
-        String drawingName = p.getDrawingPlan().getTitleBlock().getOrDefault("drawingName", c.name);
-        String drawingNo = p.getDrawingPlan().getTitleBlock().getOrDefault("drawingNo", c.no);
-        String scale = p.getDrawingPlan().getTitleBlock().getOrDefault("scale", "1:10");
-        c.rect("TITLE", 570, 30, 240, 75);
-        c.line("TITLE", 570, 55, 810, 55);
-        c.line("TITLE", 700, 30, 700, 105);
-        c.text("TEXT", 580, 82, 5, drawingName);
-        c.text("TEXT", 710, 82, 4, "图号 " + drawingNo);
-        c.text("TEXT", 580, 42, 3.5, trim(c.title, 22));
-        c.text("TEXT", 710, 42, 3.5, "比例 " + scale);
-        c.text("TEXT", 580, 66, 3, "本科毕业设计总装图");
+    private void title(Canvas canvas, DesignProject project) {
+        String drawingName = project.getDrawingPlan().getTitleBlock().getOrDefault("drawingName", canvas.name);
+        String drawingNo = project.getDrawingPlan().getTitleBlock().getOrDefault("drawingNo", canvas.no);
+        String scale = project.getDrawingPlan().getTitleBlock().getOrDefault("scale", "1:10");
+        canvas.rect("TITLE", 570, 30, 240, 75);
+        canvas.line("TITLE", 570, 55, 810, 55);
+        canvas.line("TITLE", 700, 30, 700, 105);
+        canvas.text("TEXT", 580, 82, 5, drawingName);
+        canvas.text("TEXT", 710, 82, 4, "图号 " + drawingNo);
+        canvas.text("TEXT", 580, 66, 3, "本科毕业设计总装图");
+        canvas.text("TEXT", 580, 42, 3.5, trim(canvas.title, 22));
+        canvas.text("TEXT", 710, 42, 3.5, "比例 " + scale);
     }
 
-    private void planViews(Canvas c, DesignProject p) {
-        Bounds bounds = bounds(p.getComponents());
-        drawPlanView(c, p, p.getDrawingPlan().getMainView(), "FRONT", "主视图", bounds);
-        drawPlanView(c, p, p.getDrawingPlan().getTopView(), "TOP", "俯视图", bounds);
-        drawPlanView(c, p, p.getDrawingPlan().getSideView(), "SIDE", "侧视图", bounds);
+    private void planViews(Canvas canvas, DesignProject project) {
+        Bounds bounds = bounds(project.getComponents());
+        drawPlanView(canvas, project, project.getDrawingPlan().getMainView(), "FRONT", "主视图", bounds);
+        drawPlanView(canvas, project, project.getDrawingPlan().getTopView(), "TOP", "俯视图", bounds);
+        drawPlanView(canvas, project, project.getDrawingPlan().getSideView(), "SIDE", "侧视图", bounds);
     }
 
-    private void drawPlanView(Canvas c, DesignProject p, DesignProject.DrawingViewPlan view,
+    private void drawPlanView(Canvas canvas, DesignProject project, DesignProject.DrawingViewPlan view,
                               String orientation, String title, Bounds bounds) {
         double ox = vp(view, "x", 60);
         double oy = vp(view, "y", 300);
         double vw = vp(view, "width", 400);
         double vh = vp(view, "height", 150);
-        c.text("TEXT", ox, oy + vh + 13, 4.2, title);
-        c.rect("OUTLINE", ox, oy, vw, vh);
-        for (DesignProject.Component part : parts(p, view)) {
-            Projection pr = project(part, orientation, ox, oy, vw, vh, bounds);
-            drawLodSymbol(c, part, pr.x(), pr.y(), pr.w(), pr.h());
-            if (part.isKeyPart()) balloon(c, part, pr.x() + pr.w() / 2, pr.y() + pr.h() / 2);
+        canvas.text("TEXT", ox, oy + vh + 13, 4.2, title);
+        canvas.rect("OUTLINE", ox, oy, vw, vh);
+        for (DesignProject.Component part : parts(project, view)) {
+            Projection projection = project(part, orientation, ox, oy, vw, vh, bounds);
+            drawLodSymbol(canvas, part, projection.x(), projection.y(), projection.w(), projection.h());
+            if (part.isKeyPart()) balloon(canvas, part, projection.x() + projection.w() / 2, projection.y() + projection.h() / 2);
         }
     }
 
     private Projection project(DesignProject.Component part, String orientation,
-                               double ox, double oy, double vw, double vh, Bounds b) {
+                               double ox, double oy, double vw, double vh, Bounds bounds) {
         if ("TOP".equals(orientation)) {
-            return fit(part.getX(), part.getY(), part.getLength(), part.getWidth(), b.minX(), b.maxX(), b.minY(), b.maxY(), ox, oy, vw, vh);
+            return fit(part.getX(), part.getY(), part.getLength(), part.getWidth(), bounds.minX(), bounds.maxX(), bounds.minY(), bounds.maxY(), ox, oy, vw, vh);
         }
         if ("SIDE".equals(orientation)) {
-            return fit(part.getY(), part.getZ(), part.getWidth(), part.getHeight(), b.minY(), b.maxY(), b.minZ(), b.maxZ(), ox, oy, vw, vh);
+            return fit(part.getY(), part.getZ(), part.getWidth(), part.getHeight(), bounds.minY(), bounds.maxY(), bounds.minZ(), bounds.maxZ(), ox, oy, vw, vh);
         }
-        return fit(part.getX(), part.getZ(), part.getLength(), part.getHeight(), b.minX(), b.maxX(), b.minZ(), b.maxZ(), ox, oy, vw, vh);
+        return fit(part.getX(), part.getZ(), part.getLength(), part.getHeight(), bounds.minX(), bounds.maxX(), bounds.minZ(), bounds.maxZ(), ox, oy, vw, vh);
     }
 
     private Projection fit(double x, double y, double w, double h,
@@ -124,128 +126,133 @@ public class DrawingEngine {
         return new Projection(px, py, Math.min(pw, vw - pad), Math.min(ph, vh - pad));
     }
 
-    private void drawLodSymbol(Canvas c, DesignProject.Component part, double x, double y, double w, double h) {
-        String geometry = part.getGeometry() == null ? "" : part.getGeometry().toUpperCase();
-        String name = normalized(part.getName());
+    private void drawLodSymbol(Canvas canvas, DesignProject.Component part, double x, double y, double w, double h) {
+        String geometry = safe(part.getGeometry()).toUpperCase(Locale.ROOT);
+        String name = safe(part.getName()).toLowerCase(Locale.ROOT);
         String layer = layer(part);
         if (geometry.contains("TRACK") || name.contains("履带") || name.contains("track")) {
-            c.rect(layer, x, y, w, h);
-            c.circle(layer, x + Math.min(w, h) / 2, y + h / 2, Math.min(w, h) / 2);
-            c.circle(layer, x + w - Math.min(w, h) / 2, y + h / 2, Math.min(w, h) / 2);
-            c.line("CENTER", x + w * .12, y + h / 2, x + w * .88, y + h / 2);
+            canvas.rect(layer, x, y, w, h);
+            double r = Math.min(w, h) / 2;
+            canvas.circle(layer, x + r, y + h / 2, r);
+            canvas.circle(layer, x + w - r, y + h / 2, r);
+            for (int i = 0; i < 6; i++) canvas.line("STRUCTURE", x + w * (.18 + i * .11), y, x + w * (.14 + i * .11), y + h);
+            canvas.line("CENTER", x + w * .12, y + h / 2, x + w * .88, y + h / 2);
         } else if (geometry.contains("WHEEL") || name.contains("轮") || name.contains("wheel")) {
             double r = Math.max(4, Math.min(w, h) / 2);
-            c.circle(layer, x + w / 2, y + h / 2, r);
-            c.circle("CENTER", x + w / 2, y + h / 2, r * .45);
-            c.line("CENTER", x + w / 2 - r, y + h / 2, x + w / 2 + r, y + h / 2);
+            canvas.circle(layer, x + w / 2, y + h / 2, r);
+            canvas.circle("CENTER", x + w / 2, y + h / 2, r * .42);
+            for (int i = 0; i < 6; i++) {
+                double a = Math.PI * 2 * i / 6;
+                canvas.line("CENTER", x + w / 2, y + h / 2, x + w / 2 + Math.cos(a) * r * .8, y + h / 2 + Math.sin(a) * r * .8);
+            }
         } else if (geometry.contains("BRUSH") || name.contains("刷") || name.contains("brush")) {
             double r = Math.max(6, Math.min(w, h) / 2);
-            c.circle(layer, x + w / 2, y + h / 2, r);
-            for (int i = 0; i < 10; i++) {
-                double a = Math.PI * 2 * i / 10;
-                c.line(layer, x + w / 2, y + h / 2, x + w / 2 + Math.cos(a) * r, y + h / 2 + Math.sin(a) * r);
+            canvas.circle(layer, x + w / 2, y + h / 2, r);
+            canvas.circle("CENTER", x + w / 2, y + h / 2, r * .25);
+            for (int i = 0; i < 14; i++) {
+                double a = Math.PI * 2 * i / 14;
+                canvas.line(layer, x + w / 2, y + h / 2, x + w / 2 + Math.cos(a) * r, y + h / 2 + Math.sin(a) * r);
             }
         } else if (geometry.contains("MAGNET") || name.contains("磁") || name.contains("magnet")) {
-            c.rect(layer, x, y, w, h);
-            c.line("HIDDEN", x + 4, y + 4, x + w - 4, y + h - 4);
-            c.line("HIDDEN", x + 4, y + h - 4, x + w - 4, y + 4);
-            c.text("ANNOTATION", x + 3, y + h / 2, 2.5, "磁吸附");
+            canvas.rect(layer, x, y, w, h);
+            for (int i = 0; i < 4; i++) canvas.rect("FUNCTION", x + w * (.1 + i * .22), y + h * .25, w * .13, h * .5);
+            canvas.text("ANNOTATION", x + 3, y + h / 2, 2.5, "磁吸附");
         } else if (geometry.contains("BEARING")) {
             double r = Math.max(5, Math.min(w, h) / 2);
-            c.circle(layer, x + w / 2, y + h / 2, r);
-            c.circle(layer, x + w / 2, y + h / 2, r * .55);
-            c.line("CENTER", x + w / 2 - r, y + h / 2, x + w / 2 + r, y + h / 2);
-            c.line("HATCH", x + w / 2 - r * .65, y + h / 2 - r * .65, x + w / 2 + r * .65, y + h / 2 + r * .65);
+            canvas.circle(layer, x + w / 2, y + h / 2, r);
+            canvas.circle(layer, x + w / 2, y + h / 2, r * .55);
+            canvas.line("CENTER", x + w / 2 - r, y + h / 2, x + w / 2 + r, y + h / 2);
+            canvas.line("HATCH", x + w / 2 - r * .65, y + h / 2 - r * .65, x + w / 2 + r * .65, y + h / 2 + r * .65);
         } else if (geometry.contains("MOTOR") || name.contains("电机") || name.contains("motor")) {
-            c.rect(layer, x, y, w, h);
-            c.circle(layer, x + w * .18, y + h / 2, Math.min(w, h) * .28);
-            c.circle("STRUCTURE", x + w * .76, y + h / 2, Math.min(w, h) * .24);
-            c.text("ANNOTATION", x + 3, y + h / 2, 2.5, "电机");
+            canvas.rect(layer, x, y, w, h);
+            canvas.circle(layer, x + w * .18, y + h / 2, Math.min(w, h) * .28);
+            canvas.circle("STRUCTURE", x + w * .76, y + h / 2, Math.min(w, h) * .24);
+            canvas.rect("STRUCTURE", x + w * .45, y + h * .74, w * .22, h * .18);
+            canvas.text("ANNOTATION", x + 3, y + h / 2, 2.5, "电机");
         } else if (geometry.contains("GEAR") || name.contains("减速") || name.contains("reducer")) {
-            c.rect(layer, x, y, w, h);
-            c.line("STRUCTURE", x, y, x + w, y + h);
-            c.line("STRUCTURE", x, y + h, x + w, y);
-            c.line("CENTER", x - 8, y + h / 2, x + w + 8, y + h / 2);
-        } else if (geometry.contains("RAIL") || name.contains("导轨") || name.contains("滑轨")) {
-            c.rect(layer, x, y + h * .35, w, h * .3);
-            c.rect("STRUCTURE", x + w * .25, y + h * .18, w * .5, h * .64);
-            for (int i = 0; i < 3; i++) c.circle("CENTER", x + w * (.2 + i * .3), y + h / 2, 2.5);
+            canvas.rect(layer, x, y, w, h);
+            canvas.line("STRUCTURE", x, y, x + w, y + h);
+            canvas.line("STRUCTURE", x, y + h, x + w, y);
+            canvas.line("CENTER", x - 8, y + h / 2, x + w + 8, y + h / 2);
+        } else if (geometry.contains("RAIL") || name.contains("导轨") || name.contains("滑轨") || name.contains("rail")) {
+            canvas.rect(layer, x, y + h * .35, w, h * .3);
+            canvas.rect("STRUCTURE", x + w * .25, y + h * .18, w * .5, h * .64);
+            for (int i = 0; i < 3; i++) canvas.circle("CENTER", x + w * (.2 + i * .3), y + h / 2, 2.5);
         } else if (geometry.contains("COUPLING")) {
-            c.circle(layer, x + w * .33, y + h / 2, Math.min(w, h) * .25);
-            c.circle(layer, x + w * .67, y + h / 2, Math.min(w, h) * .25);
-            c.line("CENTER", x, y + h / 2, x + w, y + h / 2);
-            c.circle("CENTER", x + w * .5, y + h * .25, 2.5);
+            canvas.circle(layer, x + w * .33, y + h / 2, Math.min(w, h) * .25);
+            canvas.circle(layer, x + w * .67, y + h / 2, Math.min(w, h) * .25);
+            canvas.line("CENTER", x, y + h / 2, x + w, y + h / 2);
+            canvas.circle("CENTER", x + w * .5, y + h * .25, 2.5);
         } else if (geometry.contains("BOLT")) {
             for (int i = 0; i < 4; i++) {
                 double bx = x + w * (.2 + (i % 2) * .6);
                 double by = y + h * (.25 + (i / 2) * .5);
-                c.circle(layer, bx, by, Math.max(2.5, Math.min(w, h) * .08));
-                c.line("CENTER", bx - 4, by, bx + 4, by);
+                canvas.circle(layer, bx, by, Math.max(2.5, Math.min(w, h) * .08));
+                canvas.line("CENTER", bx - 4, by, bx + 4, by);
             }
         } else if (geometry.contains("FLANGE")) {
             double r = Math.max(6, Math.min(w, h) / 2);
-            c.circle(layer, x + w / 2, y + h / 2, r);
-            c.circle(layer, x + w / 2, y + h / 2, r * .45);
+            canvas.circle(layer, x + w / 2, y + h / 2, r);
+            canvas.circle(layer, x + w / 2, y + h / 2, r * .45);
             for (int i = 0; i < 6; i++) {
                 double a = Math.PI * 2 * i / 6;
-                c.circle("CENTER", x + w / 2 + Math.cos(a) * r * .72, y + h / 2 + Math.sin(a) * r * .72, 2.2);
+                canvas.circle("CENTER", x + w / 2 + Math.cos(a) * r * .72, y + h / 2 + Math.sin(a) * r * .72, 2.2);
             }
         } else if (geometry.contains("SENSOR") || name.contains("检测") || name.contains("传感") || name.contains("sensor")) {
-            c.rect(layer, x, y, w, h);
-            c.line("CENTER", x, y + h / 2, x + w, y + h / 2);
-            c.circle("ANNOTATION", x + w * .76, y + h / 2, 3);
+            canvas.rect(layer, x, y, w, h);
+            canvas.line("CENTER", x, y + h / 2, x + w, y + h / 2);
+            canvas.circle("ANNOTATION", x + w * .76, y + h / 2, 3);
         } else if (geometry.contains("FRAME") || name.contains("机架") || name.contains("frame")) {
-            c.rect(layer, x, y, w, h);
-            c.line("STRUCTURE", x, y, x + w, y + h);
-            c.line("STRUCTURE", x, y + h, x + w, y);
+            canvas.rect(layer, x, y, w, h);
+            canvas.line("STRUCTURE", x, y, x + w, y + h);
+            canvas.line("STRUCTURE", x, y + h, x + w, y);
         } else if (geometry.contains("COVER") || name.contains("外壳") || name.contains("cover")) {
-            c.rect(layer, x, y, w, h);
-            c.line("HIDDEN", x + w * .1, y + h * .5, x + w * .9, y + h * .5);
+            canvas.rect(layer, x, y, w, h);
+            canvas.line("HIDDEN", x + w * .1, y + h * .5, x + w * .9, y + h * .5);
         } else {
-            c.rect(layer, x, y, w, h);
+            canvas.rect(layer, x, y, w, h);
         }
     }
 
-    private void bom(Canvas c, DesignProject p) {
+    private void bom(Canvas canvas, DesignProject project) {
         double x = 515, y = 405, w = 295, h = 140;
-        c.rect("TABLE", x, y, w, h);
-        c.text("TABLE", x + 8, y + h - 12, 4, "BOM明细表");
-        c.text("TABLE", x + 8, y + h - 28, 3, "序号  名称              材料       数量/来源");
+        canvas.rect("TABLE", x, y, w, h);
+        canvas.text("TABLE", x + 8, y + h - 12, 4, "BOM明细表");
+        canvas.text("TABLE", x + 8, y + h - 28, 3, "序号  名称              材料       数量/来源");
         int row = 0;
-        for (DesignProject.BomItem item : p.getDrawingPlan().getBomTable().stream().limit(6).toList()) {
-            c.text("TABLE", x + 8, y + h - 45 - row * 15, 2.8,
+        for (DesignProject.BomItem item : project.getDrawingPlan().getBomTable().stream().limit(6).toList()) {
+            canvas.text("TABLE", x + 8, y + h - 45 - row * 15, 2.8,
                     "%02d    %-12s  %-8s  %d %s".formatted(item.getSequence(), trim(item.getName(), 10), trim(item.getMaterial(), 6), item.getQuantity(), trim(item.getRemark(), 14)));
             row++;
         }
     }
 
-    private void parameterTable(Canvas c, DesignProject p) {
+    private void parameterTable(Canvas canvas, DesignProject project) {
         double x = 690, y = 112, w = 120, h = 96;
-        c.rect("TABLE", x, y, w, h);
-        c.text("TABLE", x + 6, y + h - 12, 3.6, "主要参数表");
+        canvas.rect("TABLE", x, y, w, h);
+        canvas.text("TABLE", x + 6, y + h - 12, 3.6, "主要参数表");
         int row = 0;
-        for (DesignProject.Parameter parameter : p.getDrawingPlan().getParameterTable().stream().limit(4).toList()) {
-            c.text("TABLE", x + 6, y + h - 30 - row++ * 16, 2.7,
+        for (DesignProject.Parameter parameter : project.getDrawingPlan().getParameterTable().stream().limit(4).toList()) {
+            canvas.text("TABLE", x + 6, y + h - 30 - row++ * 16, 2.7,
                     trim(parameter.getName(), 8) + "=" + trim(String.valueOf(parameter.getValue()), 8) + parameter.getUnit());
         }
     }
 
-    private void requirements(Canvas c, DesignProject p) {
-        c.text("TEXT", 510, 205, 4, "技术要求");
-        int row = 0;
-        for (String item : p.getDrawingPlan().getTechnicalRequirements().stream().limit(3).toList()) {
-            c.text("TEXT", 510, 188 - row * 17, 3, (row + 1) + ". " + trim(item, 24));
-            row++;
-        }
+    private void requirements(Canvas canvas, DesignProject project) {
+        List<String> requirements = project.getDrawingPlan().getTechnicalRequirements().isEmpty()
+                ? toleranceGenerator.assemblyRequirements(project)
+                : project.getDrawingPlan().getTechnicalRequirements();
+        toleranceGenerator.drawToleranceBlock(canvas, 510, 122, requirements);
+        toleranceGenerator.drawDatumAndGdt(canvas, 510, 97);
     }
 
-    private void balloon(Canvas c, DesignProject.Component part, double x, double y) {
-        c.circle("ANNOTATION", x, y, 6);
-        c.text("ANNOTATION", x - 2.5, y - 2.5, 3, String.valueOf(part.getSequence()));
+    private void balloon(Canvas canvas, DesignProject.Component part, double x, double y) {
+        canvas.circle("ANNOTATION", x, y, 6);
+        canvas.text("ANNOTATION", x - 2.5, y - 2.5, 3, String.valueOf(part.getSequence()));
     }
 
-    private List<DesignProject.Component> parts(DesignProject p, DesignProject.DrawingViewPlan view) {
-        return p.getComponents().stream()
+    private List<DesignProject.Component> parts(DesignProject project, DesignProject.DrawingViewPlan view) {
+        return project.getComponents().stream()
                 .filter(component -> view.getVisibleParts().contains(component.getPartId()))
                 .sorted(Comparator.comparingInt(DesignProject.Component::getSequence))
                 .toList();
@@ -261,12 +268,12 @@ public class DrawingEngine {
         return new Bounds(minX, minY, minZ, maxX, maxY, maxZ);
     }
 
-    private byte[] render(Canvas c, Color bg, boolean colorByLayer) {
+    private byte[] render(Canvas canvas, Color background, boolean colorByLayer) {
         try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             BufferedImage image = new BufferedImage(1680, 1180, BufferedImage.TYPE_INT_RGB);
-            Graphics2D g = graphics(image, bg);
-            for (Shape s : c.shapes) draw(g, s, 2, colorByLayer);
-            g.dispose();
+            Graphics2D graphics = graphics(image, background);
+            for (Shape shape : canvas.shapes) draw(graphics, shape, 2, colorByLayer);
+            graphics.dispose();
             ImageIO.write(image, "png", out);
             return out.toByteArray();
         } catch (Exception e) {
@@ -274,32 +281,32 @@ public class DrawingEngine {
         }
     }
 
-    private Graphics2D graphics(BufferedImage image, Color bg) {
-        Graphics2D g = image.createGraphics();
-        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-        g.setColor(bg);
-        g.fillRect(0, 0, image.getWidth(), image.getHeight());
-        g.setColor(new Color(24, 34, 48));
-        g.setStroke(new BasicStroke(2));
-        return g;
+    private Graphics2D graphics(BufferedImage image, Color background) {
+        Graphics2D graphics = image.createGraphics();
+        graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        graphics.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+        graphics.setColor(background);
+        graphics.fillRect(0, 0, image.getWidth(), image.getHeight());
+        graphics.setColor(new Color(24, 34, 48));
+        graphics.setStroke(new BasicStroke(2));
+        return graphics;
     }
 
-    private void draw(Graphics2D g, Shape s, double scale, boolean colorByLayer) {
-        Color previous = g.getColor();
-        if (colorByLayer) g.setColor(layerColor(s.layer));
-        int x = (int) (s.x1 * scale);
-        int y = (int) ((590 - s.y1) * scale);
-        if ("LINE".equals(s.type)) {
-            g.drawLine(x, y, (int) (s.x2 * scale), (int) ((590 - s.y2) * scale));
-        } else if ("CIRCLE".equals(s.type)) {
-            int r = (int) (s.size * scale);
-            g.drawOval(x - r, y - r, 2 * r, 2 * r);
+    private void draw(Graphics2D graphics, Shape shape, double scale, boolean colorByLayer) {
+        Color previous = graphics.getColor();
+        if (colorByLayer) graphics.setColor(layerColor(shape.layer));
+        int x = (int) (shape.x1 * scale);
+        int y = (int) ((590 - shape.y1) * scale);
+        if ("LINE".equals(shape.type)) {
+            graphics.drawLine(x, y, (int) (shape.x2 * scale), (int) ((590 - shape.y2) * scale));
+        } else if ("CIRCLE".equals(shape.type)) {
+            int r = (int) (shape.size * scale);
+            graphics.drawOval(x - r, y - r, 2 * r, 2 * r);
         } else {
-            g.setFont(font().deriveFont(Math.max(12f, (float) (s.size * scale))));
-            g.drawString(s.text, x, y);
+            graphics.setFont(font().deriveFont(Math.max(12f, (float) (shape.size * scale))));
+            graphics.drawString(shape.text, x, y);
         }
-        g.setColor(previous);
+        graphics.setColor(previous);
     }
 
     private Color layerColor(String layer) {
@@ -315,15 +322,15 @@ public class DrawingEngine {
     }
 
     private Font font() {
-        for (String n : FONTS) {
-            Font f = new Font(n, Font.PLAIN, 14);
-            if (f.canDisplay('中')) return f;
+        for (String name : FONTS) {
+            Font font = new Font(name, Font.PLAIN, 14);
+            if (font.canDisplay('中')) return font;
         }
         return new Font("Dialog", Font.PLAIN, 14);
     }
 
-    private String layer(DesignProject.Component c) {
-        return switch (c.getRole()) {
+    private String layer(DesignProject.Component component) {
+        return switch (component.getRole()) {
             case "BODY" -> "BODY";
             case "SUPPORT", "BASE" -> "SUPPORT";
             case "INTERFACE" -> "INTERFACE";
@@ -339,8 +346,8 @@ public class DrawingEngine {
         return view.getViewport().getOrDefault(key, fallback);
     }
 
-    private String normalized(String value) { return value == null ? "" : value.toLowerCase(); }
-    private String trim(String v, int n) { return v == null ? "" : v.length() > n ? v.substring(0, n) + "..." : v; }
+    private String safe(String value) { return value == null ? "" : value; }
+    private String trim(String value, int length) { return value == null ? "" : value.length() > length ? value.substring(0, length) + "..." : value; }
 
     record Projection(double x, double y, double w, double h) {}
     record Bounds(double minX, double minY, double minZ, double maxX, double maxY, double maxZ) {}
@@ -351,49 +358,47 @@ public class DrawingEngine {
         final String no;
         final java.util.List<Shape> shapes = new java.util.ArrayList<>();
 
-        Canvas(String t, String n, String no) {
-            title = t == null ? "" : t;
-            name = n == null ? "" : n;
+        Canvas(String title, String name, String no) {
+            this.title = title == null ? "" : title;
+            this.name = name == null ? "" : name;
             this.no = no == null ? "" : no;
         }
-        void line(String l, double a, double b, double c, double d) { shapes.add(new Shape("LINE", l, a, b, c, d, 0, "")); }
-        void rect(String l, double x, double y, double w, double h) { line(l, x, y, x + w, y); line(l, x + w, y, x + w, y + h); line(l, x + w, y + h, x, y + h); line(l, x, y + h, x, y); }
-        void circle(String l, double x, double y, double r) { shapes.add(new Shape("CIRCLE", l, x, y, 0, 0, r, "")); }
-        void poly(String l, double... points) {
-            for (int i = 0; i + 3 < points.length; i += 2) {
-                line(l, points[i], points[i + 1], points[i + 2], points[i + 3]);
-            }
-            if (points.length >= 4) line(l, points[points.length - 2], points[points.length - 1], points[0], points[1]);
+        void line(String layer, double a, double b, double c, double d) { shapes.add(new Shape("LINE", layer, a, b, c, d, 0, "")); }
+        void rect(String layer, double x, double y, double w, double h) { line(layer, x, y, x + w, y); line(layer, x + w, y, x + w, y + h); line(layer, x + w, y + h, x, y + h); line(layer, x, y + h, x, y); }
+        void circle(String layer, double x, double y, double r) { shapes.add(new Shape("CIRCLE", layer, x, y, 0, 0, r, "")); }
+        void poly(String layer, double... points) {
+            for (int i = 0; i + 3 < points.length; i += 2) line(layer, points[i], points[i + 1], points[i + 2], points[i + 3]);
+            if (points.length >= 4) line(layer, points[points.length - 2], points[points.length - 1], points[0], points[1]);
         }
-        void text(String l, double x, double y, double s, String t) { shapes.add(new Shape("TEXT", l, x, y, 0, 0, s, t == null ? "" : t)); }
+        void text(String layer, double x, double y, double size, String text) { shapes.add(new Shape("TEXT", layer, x, y, 0, 0, size, text == null ? "" : text)); }
         String dxf() {
-            StringBuilder b = new StringBuilder("0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1027\n0\nENDSEC\n0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLAYER\n70\n20\n");
-            for (String l : List.of("FRAME", "TITLE", "BODY", "SUPPORT", "INTERFACE", "FUNCTION", "STRUCTURE", "OUTLINE", "CENTER", "DIMENSION", "ANNOTATION", "TABLE", "TEXT", "HATCH", "JOINT", "HIDDEN")) {
-                b.append("0\nLAYER\n2\n").append(l).append("\n70\n0\n62\n7\n6\nCONTINUOUS\n");
+            StringBuilder builder = new StringBuilder("0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1027\n0\nENDSEC\n0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLAYER\n70\n20\n");
+            for (String layer : List.of("FRAME", "TITLE", "BODY", "SUPPORT", "INTERFACE", "FUNCTION", "STRUCTURE", "OUTLINE", "CENTER", "DIMENSION", "ANNOTATION", "TABLE", "TEXT", "HATCH", "JOINT", "HIDDEN", "TOLERANCE")) {
+                builder.append("0\nLAYER\n2\n").append(layer).append("\n70\n0\n62\n7\n6\nCONTINUOUS\n");
             }
-            b.append("0\nENDTAB\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n");
-            shapes.forEach(s -> s.dxf(b));
-            return b.append("0\nENDSEC\n0\nEOF\n").toString();
+            builder.append("0\nENDTAB\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n");
+            shapes.forEach(shape -> shape.dxf(builder));
+            return builder.append("0\nENDSEC\n0\nEOF\n").toString();
         }
         String svg(boolean colorByLayer) {
-            StringBuilder b = new StringBuilder("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 840 590\"><rect width=\"840\" height=\"590\" fill=\"white\"/>");
-            shapes.forEach(s -> s.svg(b, colorByLayer));
-            return b.append("</svg>").toString();
+            StringBuilder builder = new StringBuilder("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 840 590\"><rect width=\"840\" height=\"590\" fill=\"white\"/>");
+            shapes.forEach(shape -> shape.svg(builder, colorByLayer));
+            return builder.append("</svg>").toString();
         }
     }
 
     record Shape(String type, String layer, double x1, double y1, double x2, double y2, double size, String text) {
-        void dxf(StringBuilder b) {
-            b.append("0\n").append(type).append("\n8\n").append(layer).append('\n');
-            if ("LINE".equals(type)) b.append("10\n").append(x1).append("\n20\n").append(y1).append("\n11\n").append(x2).append("\n21\n").append(y2).append('\n');
-            else if ("CIRCLE".equals(type)) b.append("10\n").append(x1).append("\n20\n").append(y1).append("\n40\n").append(size).append('\n');
-            else b.append("10\n").append(x1).append("\n20\n").append(y1).append("\n40\n").append(size).append("\n1\n").append(text).append('\n');
+        void dxf(StringBuilder builder) {
+            builder.append("0\n").append(type).append("\n8\n").append(layer).append('\n');
+            if ("LINE".equals(type)) builder.append("10\n").append(x1).append("\n20\n").append(y1).append("\n11\n").append(x2).append("\n21\n").append(y2).append('\n');
+            else if ("CIRCLE".equals(type)) builder.append("10\n").append(x1).append("\n20\n").append(y1).append("\n40\n").append(size).append('\n');
+            else builder.append("10\n").append(x1).append("\n20\n").append(y1).append("\n40\n").append(size).append("\n1\n").append(text).append('\n');
         }
-        void svg(StringBuilder b, boolean colorByLayer) {
+        void svg(StringBuilder builder, boolean colorByLayer) {
             String stroke = colorByLayer ? color(layer) : "#182230";
-            if ("LINE".equals(type)) b.append("<line x1=\"").append(x1).append("\" y1=\"").append(590 - y1).append("\" x2=\"").append(x2).append("\" y2=\"").append(590 - y2).append("\" stroke=\"").append(stroke).append("\"/>");
-            else if ("CIRCLE".equals(type)) b.append("<circle cx=\"").append(x1).append("\" cy=\"").append(590 - y1).append("\" r=\"").append(size).append("\" fill=\"white\" stroke=\"").append(stroke).append("\"/>");
-            else b.append("<text x=\"").append(x1).append("\" y=\"").append(590 - y1).append("\" font-size=\"").append(size).append("\" font-family=\"Microsoft YaHei,Arial\" fill=\"").append(stroke).append("\">").append(escape(text)).append("</text>");
+            if ("LINE".equals(type)) builder.append("<line x1=\"").append(x1).append("\" y1=\"").append(590 - y1).append("\" x2=\"").append(x2).append("\" y2=\"").append(590 - y2).append("\" stroke=\"").append(stroke).append("\"/>");
+            else if ("CIRCLE".equals(type)) builder.append("<circle cx=\"").append(x1).append("\" cy=\"").append(590 - y1).append("\" r=\"").append(size).append("\" fill=\"white\" stroke=\"").append(stroke).append("\"/>");
+            else builder.append("<text x=\"").append(x1).append("\" y=\"").append(590 - y1).append("\" font-size=\"").append(size).append("\" font-family=\"Microsoft YaHei,Arial\" fill=\"").append(stroke).append("\">").append(escape(text)).append("</text>");
         }
         private static String color(String layer) {
             return switch (layer) {
@@ -405,6 +410,6 @@ public class DrawingEngine {
                 default -> "#182230";
             };
         }
-        private static String escape(String v) { return v.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"); }
+        private static String escape(String value) { return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"); }
     }
 }

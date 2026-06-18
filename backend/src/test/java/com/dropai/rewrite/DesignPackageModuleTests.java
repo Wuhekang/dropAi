@@ -4,6 +4,7 @@ import com.dropai.rewrite.modules.assemblyBuilder.AssemblyBuilder;
 import com.dropai.rewrite.modules.bomGenerator.BOMGenerator;
 import com.dropai.rewrite.modules.calculationEngine.CalculationEngine;
 import com.dropai.rewrite.modules.designPipeline.TaskDrivenDesignPipeline;
+import com.dropai.rewrite.modules.drawingEngine.DrawingArtifact;
 import com.dropai.rewrite.modules.drawingEngine.DrawingEngine;
 import com.dropai.rewrite.modules.drawingPlanBuilder.DrawingPlanBuilder;
 import com.dropai.rewrite.modules.model.DesignProject;
@@ -55,7 +56,8 @@ class DesignPackageModuleTests {
     @Test
     void drawingPlanDrivesCleanThreeViewCad() throws Exception {
         DesignProject project = structuredProject();
-        String dxf = new String(new DrawingEngine().drawAssemblyDrawing(project).get(0).content(), StandardCharsets.UTF_8);
+        List<DrawingArtifact> drawings = new DrawingEngine().drawAssemblyDrawing(project);
+        String dxf = new String(drawings.get(0).content(), StandardCharsets.UTF_8);
         assertTrue("DrawingPlan".equals(project.getDrawingPlan().getInputSource()));
         assertFalse(project.getDrawingPlan().getMainView().getVisibleParts().isEmpty());
         assertFalse(project.getDrawingPlan().getTopView().getVisibleParts().isEmpty());
@@ -70,10 +72,29 @@ class DesignPackageModuleTests {
         assertTrue(dxf.contains("主视图"));
         assertTrue(dxf.contains("俯视图"));
         assertTrue(dxf.contains("侧视图"));
-        byte[] png = new DrawingEngine().drawAssemblyDrawing(project).stream()
-                .filter(file -> "cad_preview.png".equals(file.fileName())).findFirst().orElseThrow().content();
+        assertTrue(dxf.contains("BOM明细表"));
+        assertTrue(dxf.contains("技术要求"));
+        byte[] png = drawings.stream().filter(file -> "cad_preview.png".equals(file.fileName())).findFirst().orElseThrow().content();
         assertTrue(png.length > 1000);
         assertTrue(ImageIO.read(new ByteArrayInputStream(png)).getWidth() >= 1600);
+    }
+
+    @Test
+    void partDrawingEngineProducesMajorEngineeringPartDrawings() {
+        List<DrawingArtifact> partDrawings = new DrawingEngine().drawPartDrawing(structuredProject());
+        assertTrue(partDrawings.size() >= 3);
+        String combined = partDrawings.stream()
+                .map(file -> new String(file.content(), StandardCharsets.UTF_8))
+                .reduce("", String::concat);
+        assertTrue(combined.contains("履带机构装配图"));
+        assertTrue(combined.contains("机架结构图"));
+        assertTrue(combined.contains("清扫刷组件图"));
+        assertTrue(combined.contains("磁吸附模块图"));
+        assertTrue(combined.contains("检测支架图"));
+        assertTrue(combined.contains("结构特征"));
+        assertTrue(combined.contains("未注尺寸公差"));
+        assertTrue(combined.contains("基准A"));
+        assertTrue(combined.contains("表面粗糙度"));
     }
 
     @Test
@@ -107,7 +128,8 @@ class DesignPackageModuleTests {
         CalculationEngine calculationEngine = new CalculationEngine();
         StandardPartCache cache = new StandardPartCache(new ObjectMapper());
         return new TaskDrivenDesignPipeline(new ProjectSessionReset(), parameterEngine, new ProjectAnalyzer(),
-                new StructureTreeBuilder(), new StandardPartSelector(cache, new MockOnlineStandardPartProvider(cache)), new NonStandardPartGenerator(new UnknownPartResolver()),
-                new AssemblyBuilder(), new BOMGenerator(), calculationEngine, new DrawingPlanBuilder());
+                new StructureTreeBuilder(), new StandardPartSelector(cache, new MockOnlineStandardPartProvider(cache)),
+                new NonStandardPartGenerator(new UnknownPartResolver()), new AssemblyBuilder(), new BOMGenerator(),
+                calculationEngine, new DrawingPlanBuilder());
     }
 }

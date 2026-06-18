@@ -51,7 +51,7 @@ public class DesignPackageService {
         generated.add(generateOne("design_calculation.docx", DOCX, () -> paperEngine.generateCalculationBook(project)));
         generated.add(generateOne("sw_modeling_steps.docx", DOCX, () -> paperEngine.generateModelingSteps(project)));
         generated.addAll(generateGroup(List.of("assembly.dxf", "cad_preview.svg", "cad_preview.png", "preview.svg", "preview.png"), () -> drawingEngine.drawAssemblyDrawing(project)));
-        generated.addAll(generateGroup(List.of("part_01.dxf", "part_02.dxf", "part_03.dxf", "part_04.dxf"), () -> drawingEngine.drawPartDrawing(project)));
+        generated.addAll(generateGroup(List.of("part_01.dxf", "part_02.dxf", "part_03.dxf", "part_04.dxf", "part_05.dxf"), () -> drawingEngine.drawPartDrawing(project)));
         generated.addAll(generateGroup(List.of("sw_macro_shell.bas", "sw_macro_base.bas", "sw_macro_inlet.bas", "sw_modeling_steps.txt"), () -> swMacroEngine.generate(project)));
         generated.addAll(generateGroup(List.of("design_parameters.json", "preview.pdf"),
                 () -> exportEngine.appendManifests(project, List.of())));
