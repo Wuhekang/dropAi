@@ -41,10 +41,44 @@ public class AssemblyConstraintEngine {
             constraint.setMountTo(component.getMountTo());
             constraint.setConstraintType(component.getConstraintType());
             constraint.setMateReferences(component.getMateReferences());
+            enrichInterfaceConstraint(constraint, component);
             constraints.add(constraint);
             index++;
         }
         return new AssemblyResult(components, constraints);
+    }
+
+    private void enrichInterfaceConstraint(DesignProject.AssemblyConstraint constraint, DesignProject.Component component) {
+        String geometry = component.getGeometry() == null ? "" : component.getGeometry().toUpperCase();
+        String id = component.getPartId();
+        if (geometry.contains("MOTOR") || geometry.contains("GEARBOX") || geometry.contains("WHEEL") || geometry.contains("BEARING") || geometry.contains("SHAFT")) {
+            constraint.setAxisId(id + "-AXIS-X");
+            constraint.setMountingFace("端面安装面");
+            constraint.setHolePattern("法兰/端盖安装孔阵列");
+            constraint.setContactFace("轴端或轮系接触面");
+            constraint.setSource("由标准件类别和装配关系推导，待CAD孔距复核");
+        } else if (geometry.contains("TRACK")) {
+            constraint.setAxisId(id + "-TRACK-CENTER");
+            constraint.setContactFace("履带内侧与轮系接触面");
+            constraint.setSymmetryPlane("整机Y向中心面对称");
+            constraint.setOffsetDistance(component.getY());
+            constraint.setSource("由履带机构左右布局和整机坐标系推导");
+        } else if (geometry.contains("MAGNET")) {
+            constraint.setMountingFace("底部安装面");
+            constraint.setHolePattern("磁吸附模块固定孔阵列");
+            constraint.setContactFace("磁体工作面");
+            constraint.setOffsetDistance(component.getZ());
+            constraint.setSource("由磁吸附模块底部安装要求推导");
+        } else if (geometry.contains("SENSOR") || geometry.contains("RAIL")) {
+            constraint.setAxisId(id + "-GUIDE-AXIS");
+            constraint.setMountingFace("滑轨安装面");
+            constraint.setHolePattern("滑轨长圆孔/安装孔阵列");
+            constraint.setSource("由检测支架与滑轨调节机构推导");
+        } else {
+            constraint.setMountingFace("基准安装面");
+            constraint.setContactFace("装配接触面");
+            constraint.setSource("由结构树节点和规则装配坐标推导，需人工校核");
+        }
     }
 
     private Layout crawlerLayout(String name, int index, double l, double w, double h) {

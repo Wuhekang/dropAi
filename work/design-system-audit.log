@@ -1,0 +1,9 @@
+﻿[2026-06-18T23:12:26+08:00] design-system-audit regenerated after quality-gate fixes.
+- mvn -q test passed from backend directory.
+- ProjectAnalyzer strict mode: no default generic machinery fallback.
+- StructureTreeNormalizer active: duplicate and generic nodes merged.
+- MockOnlineStandardPartProvider returns retrievalStatus=mock/source=mock_provider.
+- AssemblyConstraintEngine emits interface constraint fields.
+- DrawingPlanBuilder emits clean three-view plan only.
+- DrawingEngine uses DrawingPlan; no component envelope/debug/internal labels in CAD output.
+- PaperEngine generates complete DOCX sections and fails incomplete drafts.

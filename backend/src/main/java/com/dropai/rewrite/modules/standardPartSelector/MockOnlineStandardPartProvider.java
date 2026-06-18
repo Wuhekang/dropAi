@@ -9,6 +9,7 @@ import java.util.Optional;
 
 @Service
 public class MockOnlineStandardPartProvider implements OnlineStandardPartProvider {
+    private static final List<String> FORMATS = List.of("STEP", "IGES", "SLDPRT", "STL", "GLTF");
     private final StandardPartCache cache;
 
     public MockOnlineStandardPartProvider(StandardPartCache cache) {
@@ -17,25 +18,23 @@ public class MockOnlineStandardPartProvider implements OnlineStandardPartProvide
 
     @Override
     public Optional<StandardPartResult> search(StandardPartQuery query) {
-        // This provider keeps the online-search contract alive until real platform APIs are configured.
-        // Results are explicitly marked as mock_provider_pending_real_api and must not be treated as downloaded models.
+        if (query == null || query.getCategory() == null || query.getCategory().isBlank()) return Optional.empty();
         StandardPartResult result = new StandardPartResult();
-        result.setPartId("mock-online-" + query.getCategory() + "-" + Math.abs(query.getName().hashCode()));
+        result.setPartId("mock-" + query.getCategory() + "-" + Math.abs(query.getName().hashCode()));
         result.setCategory(query.getCategory());
         result.setName(displayName(query.getCategory()));
         result.setModel(model(query.getCategory()));
         result.setBrand(brand(query.getCategory()));
-        result.setSource("mock_provider_pending_real_api");
-        result.setSourcePlatform(platform(query.getCategory()));
-        result.setSourceUrl(sourceUrl(query.getCategory()));
+        result.setSource("mock_provider");
+        result.setSourcePlatform("模拟推荐：" + platform(query.getCategory()));
+        result.setSourceUrl("");
         result.setDimensions(dimensions(query.getCategory(), query.getRequirements()));
-        result.setTechnicalParams(technicalParams(query.getCategory(), query.getRequirements()));
-        result.setAvailableModelFormats(List.of("STEP", "IGES", "SLDPRT", "STL", "GLTF"));
-        result.setAvailableFormats(result.getAvailableModelFormats());
-        result.setModelDownloadUrl("");
-        result.setRetrievalStatus("online_found");
-        result.setConfidence(0.62);
-        result.setReason("在线标准件接口层模拟结果；接入TraceParts、MISUMI、SKF等真实API后由真实Provider替换。");
+        result.setTechnicalParams(new LinkedHashMap<>(query.getRequirements()));
+        result.setAvailableFormats(FORMATS);
+        result.setAvailableModelFormats(FORMATS);
+        result.setRetrievalStatus("mock");
+        result.setConfidence(0.55);
+        result.setReason("标准件参数为模拟推荐，未联网校验；接入真实公开标准件平台API后由真实Provider替换。");
         return Optional.of(result);
     }
 
@@ -46,8 +45,7 @@ public class MockOnlineStandardPartProvider implements OnlineStandardPartProvide
 
     @Override
     public void cacheResult(StandardPartResult part) {
-        StandardPartQuery query = new StandardPartQuery(part.getCategory(), part.getName(), part.getDimensions());
-        cache.save(query, part);
+        // Mock provider does not download models. StandardPartSelector writes cache by query.
     }
 
     private String displayName(String category) {
@@ -57,10 +55,10 @@ public class MockOnlineStandardPartProvider implements OnlineStandardPartProvide
             case "reducer" -> "行星减速器";
             case "rail" -> "直线导轨";
             case "coupling" -> "弹性联轴器";
-            case "bolt" -> "内六角螺栓";
-            case "flange" -> "标准法兰";
-            case "roller" -> "滚轮";
-            default -> category + "标准件";
+            case "bolt" -> "六角头螺栓";
+            case "roller" -> "包胶滚轮";
+            case "shaft" -> "传动轴";
+            default -> "标准件";
         };
     }
 
@@ -71,70 +69,44 @@ public class MockOnlineStandardPartProvider implements OnlineStandardPartProvide
             case "reducer" -> "PLF60-i20";
             case "rail" -> "MGN12H";
             case "coupling" -> "D25L30";
-            case "bolt" -> "M6x20-8.8";
-            case "flange" -> "DN80-PN16";
+            case "bolt" -> "M6x20";
             case "roller" -> "U608-80";
-            default -> "PENDING-" + category.toUpperCase();
+            case "shaft" -> "D20";
+            default -> "PENDING";
         };
     }
 
     private String brand(String category) {
         return switch (category) {
             case "bearing" -> "SKF";
-            case "rail" -> "HIWIN";
             case "motor" -> "MISUMI";
             case "reducer" -> "NORD";
-            case "bolt", "flange", "coupling" -> "MISUMI";
-            default -> "TraceParts";
+            case "rail" -> "HIWIN";
+            default -> "mock";
         };
     }
 
     private String platform(String category) {
         return switch (category) {
             case "bearing" -> "SKF / TraceParts";
-            case "rail" -> "HIWIN / CADENAS PARTsolutions";
-            case "motor", "bolt", "flange", "coupling" -> "MISUMI / TraceParts";
+            case "motor" -> "MISUMI / TraceParts";
             case "reducer" -> "NORD / 3D ContentCentral";
+            case "rail" -> "HIWIN / CADENAS PARTsolutions";
             default -> "TraceParts / GrabCAD";
         };
     }
 
-    private String sourceUrl(String category) {
-        return switch (category) {
-            case "bearing" -> "https://www.skf.com/group/products/rolling-bearings/ball-bearings/deep-groove-ball-bearings";
-            case "rail" -> "https://www.hiwin.com/linear-guideways.html";
-            case "motor", "bolt", "flange", "coupling" -> "https://us.misumi-ec.com/";
-            case "reducer" -> "https://www.nord.com/";
-            default -> "https://www.traceparts.com/";
-        };
-    }
-
-    private Map<String, Object> dimensions(String category, Map<String, Object> requirements) {
-        Map<String, Object> result = new LinkedHashMap<>(requirements);
+    private Map<String, Object> dimensions(String category, Map<String, Object> req) {
+        Map<String, Object> d = new LinkedHashMap<>();
         switch (category) {
-            case "bearing" -> result.putAll(Map.of("innerDiameter", 20, "outerDiameter", 47, "width", 14));
-            case "rail" -> result.putAll(Map.of("width", 12, "height", 8, "sliderLength", 34, "mountingPitch", 25));
-            case "motor" -> result.putAll(Map.of("ratedPowerW", requirements.getOrDefault("requiredPowerW", 60), "ratedSpeedRpm", requirements.getOrDefault("requiredSpeedRpm", 120), "bodyDiameter", 60, "mountingPitch", 32, "shaftDiameter", 8));
-            case "reducer" -> result.putAll(Map.of("ratio", requirements.getOrDefault("ratio", 20), "outputTorqueNm", requirements.getOrDefault("requiredTorqueNm", 15), "centerDistance", 60, "mountingPitch", 50));
-            case "bolt" -> result.putAll(Map.of("nominalDiameter", requirements.getOrDefault("nominalDiameter", 6), "length", 20, "headDiameter", 10, "grade", "8.8"));
-            case "flange" -> result.putAll(Map.of("outerDiameter", 120, "innerDiameter", 80, "holeCount", 8, "holeDiameter", 10));
-            case "coupling" -> result.putAll(Map.of("outerDiameter", 25, "length", 30, "boreDiameter", requirements.getOrDefault("shaftDiameter", 12)));
-            case "roller" -> result.putAll(Map.of("diameter", 80, "width", 28, "bearingBore", 20));
-            default -> result.putIfAbsent("nominalSize", 50);
+            case "bearing" -> { d.put("innerDiameter", 20); d.put("outerDiameter", 47); d.put("width", 14); }
+            case "motor" -> { d.put("bodyDiameter", 60); d.put("bodyLength", 95); d.put("shaftDiameter", 8); d.put("mountingPitch", 32); }
+            case "reducer" -> { d.put("length", 90); d.put("width", 60); d.put("height", 60); d.put("ratio", req.getOrDefault("ratio", 20)); d.put("mountingPitch", 50); }
+            case "rail" -> { d.put("width", 12); d.put("height", 8); d.put("blockLength", 45); d.put("mountingPitch", 25); }
+            case "roller" -> { d.put("diameter", req.getOrDefault("diameter", 80)); d.put("width", 28); d.put("bearingBore", 20); }
+            case "bolt" -> { d.put("nominalDiameter", req.getOrDefault("nominalDiameter", 6)); d.put("length", 20); d.put("headWidth", 10); }
+            default -> { d.put("length", 50); d.put("width", 30); d.put("height", 20); }
         }
-        return result;
-    }
-
-    private Map<String, Object> technicalParams(String category, Map<String, Object> requirements) {
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("selectionBasis", requirements);
-        switch (category) {
-            case "bearing" -> result.putAll(Map.of("standard", "GB/T 276", "type", "deep groove ball bearing"));
-            case "motor" -> result.putAll(Map.of("voltage", "24V", "mounting", "flange"));
-            case "reducer" -> result.putAll(Map.of("backlash", "standard", "mounting", "flange"));
-            case "rail" -> result.putAll(Map.of("accuracyGrade", "normal", "sliderType", "block"));
-            default -> result.put("standard", "platform catalog");
-        }
-        return result;
+        return d;
     }
 }

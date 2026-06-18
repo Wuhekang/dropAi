@@ -287,6 +287,7 @@ public class DesignProject {
         private String type = "";
         private String source = "";
         private double confidence;
+        private boolean required = true;
         private List<StructureNode> children = new ArrayList<>();
         public StructureNode() {}
         public StructureNode(String name, String type, String source, double confidence) {
@@ -296,6 +297,7 @@ public class DesignProject {
         public String getType() { return type; } public void setType(String v) { type = v; }
         public String getSource() { return source; } public void setSource(String v) { source = v; }
         public double getConfidence() { return confidence; } public void setConfidence(double v) { confidence = v; }
+        public boolean isRequired() { return required; } public void setRequired(boolean v) { required = v; }
         public List<StructureNode> getChildren() { return children; } public void setChildren(List<StructureNode> v) { children = safe(v); }
     }
 
@@ -378,12 +380,26 @@ public class DesignProject {
         private String parentAssembly = "";
         private String mountTo = "";
         private String constraintType = "fixed";
+        private String axisId = "";
+        private String mountingFace = "";
+        private String holePattern = "";
+        private String contactFace = "";
+        private String symmetryPlane = "";
+        private double offsetDistance;
+        private String source = "";
         private List<String> mateReferences = new ArrayList<>();
         public String getPartId() { return partId; } public void setPartId(String v) { partId = v; }
         public String getPartName() { return partName; } public void setPartName(String v) { partName = v; }
         public String getParentAssembly() { return parentAssembly; } public void setParentAssembly(String v) { parentAssembly = v; }
         public String getMountTo() { return mountTo; } public void setMountTo(String v) { mountTo = v; }
         public String getConstraintType() { return constraintType; } public void setConstraintType(String v) { constraintType = v; }
+        public String getAxisId() { return axisId; } public void setAxisId(String v) { axisId = v; }
+        public String getMountingFace() { return mountingFace; } public void setMountingFace(String v) { mountingFace = v; }
+        public String getHolePattern() { return holePattern; } public void setHolePattern(String v) { holePattern = v; }
+        public String getContactFace() { return contactFace; } public void setContactFace(String v) { contactFace = v; }
+        public String getSymmetryPlane() { return symmetryPlane; } public void setSymmetryPlane(String v) { symmetryPlane = v; }
+        public double getOffsetDistance() { return offsetDistance; } public void setOffsetDistance(double v) { offsetDistance = v; }
+        public String getSource() { return source; } public void setSource(String v) { source = v; }
         public List<String> getMateReferences() { return mateReferences; } public void setMateReferences(List<String> v) { mateReferences = safe(v); }
     }
 
@@ -391,12 +407,12 @@ public class DesignProject {
         private String inputSource = "";
         private int qualityScore;
         private List<String> qualityNotes = new ArrayList<>();
-        private DrawingViewPlan mainView = new DrawingViewPlan("mainView");
-        private DrawingViewPlan topView = new DrawingViewPlan("topView");
-        private DrawingViewPlan sideView = new DrawingViewPlan("sideView");
+        private DrawingViewPlan mainView = new DrawingViewPlan("主视图");
+        private DrawingViewPlan topView = new DrawingViewPlan("俯视图");
+        private DrawingViewPlan sideView = new DrawingViewPlan("侧视图");
         private List<DrawingViewPlan> sectionViews = new ArrayList<>();
         private List<DrawingViewPlan> detailViews = new ArrayList<>();
-        private DrawingViewPlan isometricView = new DrawingViewPlan("isometricView");
+        private DrawingViewPlan isometricView = new DrawingViewPlan("网页三维展示");
         private List<BomItem> bomTable = new ArrayList<>();
         private List<String> technicalRequirements = new ArrayList<>();
         private java.util.Map<String, String> titleBlock = new java.util.LinkedHashMap<>();
@@ -404,12 +420,12 @@ public class DesignProject {
         public String getInputSource() { return inputSource; } public void setInputSource(String v) { inputSource = v; }
         public int getQualityScore() { return qualityScore; } public void setQualityScore(int v) { qualityScore = v; }
         public List<String> getQualityNotes() { return qualityNotes; } public void setQualityNotes(List<String> v) { qualityNotes = safe(v); }
-        public DrawingViewPlan getMainView() { return mainView; } public void setMainView(DrawingViewPlan v) { mainView = v == null ? new DrawingViewPlan("mainView") : v; }
-        public DrawingViewPlan getTopView() { return topView; } public void setTopView(DrawingViewPlan v) { topView = v == null ? new DrawingViewPlan("topView") : v; }
-        public DrawingViewPlan getSideView() { return sideView; } public void setSideView(DrawingViewPlan v) { sideView = v == null ? new DrawingViewPlan("sideView") : v; }
+        public DrawingViewPlan getMainView() { return mainView; } public void setMainView(DrawingViewPlan v) { mainView = v == null ? new DrawingViewPlan("主视图") : v; }
+        public DrawingViewPlan getTopView() { return topView; } public void setTopView(DrawingViewPlan v) { topView = v == null ? new DrawingViewPlan("俯视图") : v; }
+        public DrawingViewPlan getSideView() { return sideView; } public void setSideView(DrawingViewPlan v) { sideView = v == null ? new DrawingViewPlan("侧视图") : v; }
         public List<DrawingViewPlan> getSectionViews() { return sectionViews; } public void setSectionViews(List<DrawingViewPlan> v) { sectionViews = safe(v); }
         public List<DrawingViewPlan> getDetailViews() { return detailViews; } public void setDetailViews(List<DrawingViewPlan> v) { detailViews = safe(v); }
-        public DrawingViewPlan getIsometricView() { return isometricView; } public void setIsometricView(DrawingViewPlan v) { isometricView = v == null ? new DrawingViewPlan("isometricView") : v; }
+        public DrawingViewPlan getIsometricView() { return isometricView; } public void setIsometricView(DrawingViewPlan v) { isometricView = v == null ? new DrawingViewPlan("网页三维展示") : v; }
         public List<BomItem> getBomTable() { return bomTable; } public void setBomTable(List<BomItem> v) { bomTable = safe(v); }
         public List<String> getTechnicalRequirements() { return technicalRequirements; } public void setTechnicalRequirements(List<String> v) { technicalRequirements = safe(v); }
         public java.util.Map<String, String> getTitleBlock() { return titleBlock; } public void setTitleBlock(java.util.Map<String, String> v) { titleBlock = v == null ? new java.util.LinkedHashMap<>() : new java.util.LinkedHashMap<>(v); }

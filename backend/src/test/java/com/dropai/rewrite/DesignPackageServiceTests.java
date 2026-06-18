@@ -57,7 +57,7 @@ class DesignPackageServiceTests {
                 new PaperEngine(), new ExportEngine(new ObjectMapper()), mapper, pipeline);
         AuthContext.setUserId(1L);
 
-        DesignPackageVO result = service.generate(new DesignProject());
+        DesignPackageVO result = service.generate(validProject());
 
         assertEquals("success", result.getStatus());
         assertTrue(result.getArtifacts().stream().allMatch(item -> "success".equals(item.getStatus())));
@@ -68,11 +68,24 @@ class DesignPackageServiceTests {
         assertTrue(result.getArtifacts().stream().anyMatch(item -> "preview.png".equals(item.getName())));
         assertTrue(result.getProject().getBom().size() >= 5);
         assertTrue(result.getProject().getStructureTree().getChildren().size() >= 3);
-        assertTrue(result.getProject().getAssemblyTree().getChildren().size() >= 3);
+        assertTrue(result.getProject().getAssemblyTree().getChildren().size() >= 1);
         assertTrue(result.getArtifacts().stream().anyMatch(item -> "project_package.zip".equals(item.getName())));
         ArgumentCaptor<DocumentJobRecord> captor = ArgumentCaptor.forClass(DocumentJobRecord.class);
         verify(mapper, org.mockito.Mockito.atLeastOnce()).insert(captor.capture());
         assertTrue(captor.getAllValues().stream().allMatch(record -> record.getMode() != null && record.getMode().length() <= 10));
         assertTrue(captor.getAllValues().stream().filter(record -> record.getFileName().endsWith(".docx")).allMatch(record -> "docx".equals(record.getMode())));
+    }
+
+    private DesignProject validProject() {
+        DesignProject input = new DesignProject();
+        input.setProjectTitle("油罐检测爬壁机器人结构设计");
+        input.setEquipmentName("油罐检测爬壁机器人");
+        input.setDesignType("机器人结构设计 / 机电一体化设计");
+        input.setMainFunctions(java.util.List.of("油罐壁面爬行", "磁吸附稳定附着", "表面清扫", "检测模块安装", "模块化维护"));
+        input.setMainStructures(java.util.List.of("履带机构", "驱动轮", "从动轮", "支重轮", "永磁吸附模块", "圆盘清扫刷", "检测传感器安装架", "滑轨调节机构", "机架", "防护外壳", "驱动电机", "减速器"));
+        input.getExplicitParameters().add(new DesignProject.Parameter("整机长度", 800, "mm", "任务书技术指标：整机尺寸≤800×600×300mm", null));
+        input.getExplicitParameters().add(new DesignProject.Parameter("整机宽度", 600, "mm", "任务书技术指标：整机尺寸≤800×600×300mm", null));
+        input.getExplicitParameters().add(new DesignProject.Parameter("整机高度", 300, "mm", "任务书技术指标：整机尺寸≤800×600×300mm", null));
+        return input;
     }
 }

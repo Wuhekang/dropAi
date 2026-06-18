@@ -103,15 +103,12 @@ public class DrawingEngine {
     private Projection project(DesignProject.Component part, String orientation,
                                double ox, double oy, double vw, double vh, Bounds b) {
         if ("TOP".equals(orientation)) {
-            return fit(part.getX(), part.getY(), part.getLength(), part.getWidth(),
-                    b.minX(), b.maxX(), b.minY(), b.maxY(), ox, oy, vw, vh);
+            return fit(part.getX(), part.getY(), part.getLength(), part.getWidth(), b.minX(), b.maxX(), b.minY(), b.maxY(), ox, oy, vw, vh);
         }
         if ("SIDE".equals(orientation)) {
-            return fit(part.getY(), part.getZ(), part.getWidth(), part.getHeight(),
-                    b.minY(), b.maxY(), b.minZ(), b.maxZ(), ox, oy, vw, vh);
+            return fit(part.getY(), part.getZ(), part.getWidth(), part.getHeight(), b.minY(), b.maxY(), b.minZ(), b.maxZ(), ox, oy, vw, vh);
         }
-        return fit(part.getX(), part.getZ(), part.getLength(), part.getHeight(),
-                b.minX(), b.maxX(), b.minZ(), b.maxZ(), ox, oy, vw, vh);
+        return fit(part.getX(), part.getZ(), part.getLength(), part.getHeight(), b.minX(), b.maxX(), b.minZ(), b.maxZ(), ox, oy, vw, vh);
     }
 
     private Projection fit(double x, double y, double w, double h,
@@ -131,45 +128,45 @@ public class DrawingEngine {
         String geometry = part.getGeometry() == null ? "" : part.getGeometry().toUpperCase();
         String name = normalized(part.getName());
         String layer = layer(part);
-        if (geometry.contains("TRACK") || name.contains("track") || name.contains("履带")) {
+        if (geometry.contains("TRACK") || name.contains("履带") || name.contains("track")) {
             c.rect(layer, x, y, w, h);
             c.circle(layer, x + Math.min(w, h) / 2, y + h / 2, Math.min(w, h) / 2);
             c.circle(layer, x + w - Math.min(w, h) / 2, y + h / 2, Math.min(w, h) / 2);
             c.line("CENTER", x + w * .12, y + h / 2, x + w * .88, y + h / 2);
-        } else if (geometry.contains("WHEEL") || name.contains("wheel") || name.contains("轮")) {
+        } else if (geometry.contains("WHEEL") || name.contains("轮") || name.contains("wheel")) {
             double r = Math.max(4, Math.min(w, h) / 2);
             c.circle(layer, x + w / 2, y + h / 2, r);
             c.circle("CENTER", x + w / 2, y + h / 2, r * .45);
             c.line("CENTER", x + w / 2 - r, y + h / 2, x + w / 2 + r, y + h / 2);
-        } else if (geometry.contains("BRUSH") || name.contains("brush") || name.contains("刷")) {
+        } else if (geometry.contains("BRUSH") || name.contains("刷") || name.contains("brush")) {
             double r = Math.max(6, Math.min(w, h) / 2);
             c.circle(layer, x + w / 2, y + h / 2, r);
             for (int i = 0; i < 10; i++) {
                 double a = Math.PI * 2 * i / 10;
                 c.line(layer, x + w / 2, y + h / 2, x + w / 2 + Math.cos(a) * r, y + h / 2 + Math.sin(a) * r);
             }
-        } else if (geometry.contains("MAGNET") || name.contains("magnet") || name.contains("磁")) {
+        } else if (geometry.contains("MAGNET") || name.contains("磁") || name.contains("magnet")) {
             c.rect(layer, x, y, w, h);
             c.line("HIDDEN", x + 4, y + 4, x + w - 4, y + h - 4);
             c.line("HIDDEN", x + 4, y + h - 4, x + w - 4, y + 4);
-            c.text("ANNOTATION", x + 3, y + h / 2, 2.5, "磁");
+            c.text("ANNOTATION", x + 3, y + h / 2, 2.5, "磁吸附");
         } else if (geometry.contains("BEARING")) {
             double r = Math.max(5, Math.min(w, h) / 2);
             c.circle(layer, x + w / 2, y + h / 2, r);
             c.circle(layer, x + w / 2, y + h / 2, r * .55);
             c.line("CENTER", x + w / 2 - r, y + h / 2, x + w / 2 + r, y + h / 2);
             c.line("HATCH", x + w / 2 - r * .65, y + h / 2 - r * .65, x + w / 2 + r * .65, y + h / 2 + r * .65);
-        } else if (geometry.contains("MOTOR") || name.contains("motor") || name.contains("电机")) {
+        } else if (geometry.contains("MOTOR") || name.contains("电机") || name.contains("motor")) {
             c.rect(layer, x, y, w, h);
             c.circle(layer, x + w * .18, y + h / 2, Math.min(w, h) * .28);
             c.circle("STRUCTURE", x + w * .76, y + h / 2, Math.min(w, h) * .24);
             c.text("ANNOTATION", x + 3, y + h / 2, 2.5, "电机");
-        } else if (geometry.contains("GEAR") || name.contains("reducer") || name.contains("减速")) {
+        } else if (geometry.contains("GEAR") || name.contains("减速") || name.contains("reducer")) {
             c.rect(layer, x, y, w, h);
             c.line("STRUCTURE", x, y, x + w, y + h);
             c.line("STRUCTURE", x, y + h, x + w, y);
             c.line("CENTER", x - 8, y + h / 2, x + w + 8, y + h / 2);
-        } else if (geometry.contains("RAIL")) {
+        } else if (geometry.contains("RAIL") || name.contains("导轨") || name.contains("滑轨")) {
             c.rect(layer, x, y + h * .35, w, h * .3);
             c.rect("STRUCTURE", x + w * .25, y + h * .18, w * .5, h * .64);
             for (int i = 0; i < 3; i++) c.circle("CENTER", x + w * (.2 + i * .3), y + h / 2, 2.5);
@@ -193,15 +190,15 @@ public class DrawingEngine {
                 double a = Math.PI * 2 * i / 6;
                 c.circle("CENTER", x + w / 2 + Math.cos(a) * r * .72, y + h / 2 + Math.sin(a) * r * .72, 2.2);
             }
-        } else if (geometry.contains("SENSOR") || name.contains("sensor") || name.contains("检测") || name.contains("传感")) {
+        } else if (geometry.contains("SENSOR") || name.contains("检测") || name.contains("传感") || name.contains("sensor")) {
             c.rect(layer, x, y, w, h);
             c.line("CENTER", x, y + h / 2, x + w, y + h / 2);
             c.circle("ANNOTATION", x + w * .76, y + h / 2, 3);
-        } else if (geometry.contains("FRAME") || name.contains("frame") || name.contains("机架")) {
+        } else if (geometry.contains("FRAME") || name.contains("机架") || name.contains("frame")) {
             c.rect(layer, x, y, w, h);
             c.line("STRUCTURE", x, y, x + w, y + h);
             c.line("STRUCTURE", x, y + h, x + w, y);
-        } else if (geometry.contains("COVER") || name.contains("cover") || name.contains("外壳")) {
+        } else if (geometry.contains("COVER") || name.contains("外壳") || name.contains("cover")) {
             c.rect(layer, x, y, w, h);
             c.line("HIDDEN", x + w * .1, y + h * .5, x + w * .9, y + h * .5);
         } else {
@@ -210,13 +207,10 @@ public class DrawingEngine {
     }
 
     private void bom(Canvas c, DesignProject p) {
-        double x = 515;
-        double y = 405;
-        double w = 295;
-        double h = 140;
+        double x = 515, y = 405, w = 295, h = 140;
         c.rect("TABLE", x, y, w, h);
         c.text("TABLE", x + 8, y + h - 12, 4, "BOM明细表");
-        c.text("TABLE", x + 8, y + h - 28, 3, "序号  名称              材料       数量/型号来源");
+        c.text("TABLE", x + 8, y + h - 28, 3, "序号  名称              材料       数量/来源");
         int row = 0;
         for (DesignProject.BomItem item : p.getDrawingPlan().getBomTable().stream().limit(6).toList()) {
             c.text("TABLE", x + 8, y + h - 45 - row * 15, 2.8,
@@ -226,10 +220,7 @@ public class DrawingEngine {
     }
 
     private void parameterTable(Canvas c, DesignProject p) {
-        double x = 690;
-        double y = 112;
-        double w = 120;
-        double h = 96;
+        double x = 690, y = 112, w = 120, h = 96;
         c.rect("TABLE", x, y, w, h);
         c.text("TABLE", x + 6, y + h - 12, 3.6, "主要参数表");
         int row = 0;
@@ -348,13 +339,8 @@ public class DrawingEngine {
         return view.getViewport().getOrDefault(key, fallback);
     }
 
-    private String normalized(String value) {
-        return value == null ? "" : value.toLowerCase();
-    }
-
-    private String trim(String v, int n) {
-        return v == null ? "" : v.length() > n ? v.substring(0, n) + "..." : v;
-    }
+    private String normalized(String value) { return value == null ? "" : value.toLowerCase(); }
+    private String trim(String v, int n) { return v == null ? "" : v.length() > n ? v.substring(0, n) + "..." : v; }
 
     record Projection(double x, double y, double w, double h) {}
     record Bounds(double minX, double minY, double minZ, double maxX, double maxY, double maxZ) {}
@@ -370,44 +356,25 @@ public class DrawingEngine {
             name = n == null ? "" : n;
             this.no = no == null ? "" : no;
         }
-
-        void line(String l, double a, double b, double c, double d) {
-            shapes.add(new Shape("LINE", l, a, b, c, d, 0, ""));
-        }
-
-        void rect(String l, double x, double y, double w, double h) {
-            line(l, x, y, x + w, y);
-            line(l, x + w, y, x + w, y + h);
-            line(l, x + w, y + h, x, y + h);
-            line(l, x, y + h, x, y);
-        }
-
-        void circle(String l, double x, double y, double r) {
-            shapes.add(new Shape("CIRCLE", l, x, y, 0, 0, r, ""));
-        }
-
+        void line(String l, double a, double b, double c, double d) { shapes.add(new Shape("LINE", l, a, b, c, d, 0, "")); }
+        void rect(String l, double x, double y, double w, double h) { line(l, x, y, x + w, y); line(l, x + w, y, x + w, y + h); line(l, x + w, y + h, x, y + h); line(l, x, y + h, x, y); }
+        void circle(String l, double x, double y, double r) { shapes.add(new Shape("CIRCLE", l, x, y, 0, 0, r, "")); }
         void poly(String l, double... points) {
-            for (int i = 0; i < points.length; i += 2) {
-                int n = (i + 2) % points.length;
-                line(l, points[i], points[i + 1], points[n], points[n + 1]);
+            for (int i = 0; i + 3 < points.length; i += 2) {
+                line(l, points[i], points[i + 1], points[i + 2], points[i + 3]);
             }
+            if (points.length >= 4) line(l, points[points.length - 2], points[points.length - 1], points[0], points[1]);
         }
-
-        void text(String l, double x, double y, double s, String t) {
-            shapes.add(new Shape("TEXT", l, x, y, 0, 0, s, t == null ? "" : t));
-        }
-
+        void text(String l, double x, double y, double s, String t) { shapes.add(new Shape("TEXT", l, x, y, 0, 0, s, t == null ? "" : t)); }
         String dxf() {
             StringBuilder b = new StringBuilder("0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1027\n0\nENDSEC\n0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLAYER\n70\n20\n");
-            for (String l : List.of("FRAME", "TITLE", "BODY", "SUPPORT", "INTERFACE", "FUNCTION", "STRUCTURE", "OUTLINE", "CENTER",
-                    "DIMENSION", "ANNOTATION", "TABLE", "TEXT", "SECTION", "HATCH", "CUTTING", "TOLERANCE", "JOINT", "HIDDEN")) {
+            for (String l : List.of("FRAME", "TITLE", "BODY", "SUPPORT", "INTERFACE", "FUNCTION", "STRUCTURE", "OUTLINE", "CENTER", "DIMENSION", "ANNOTATION", "TABLE", "TEXT", "HATCH", "JOINT", "HIDDEN")) {
                 b.append("0\nLAYER\n2\n").append(l).append("\n70\n0\n62\n7\n6\nCONTINUOUS\n");
             }
             b.append("0\nENDTAB\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n");
             shapes.forEach(s -> s.dxf(b));
             return b.append("0\nENDSEC\n0\nEOF\n").toString();
         }
-
         String svg(boolean colorByLayer) {
             StringBuilder b = new StringBuilder("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 840 590\"><rect width=\"840\" height=\"590\" fill=\"white\"/>");
             shapes.forEach(s -> s.svg(b, colorByLayer));
@@ -418,29 +385,16 @@ public class DrawingEngine {
     record Shape(String type, String layer, double x1, double y1, double x2, double y2, double size, String text) {
         void dxf(StringBuilder b) {
             b.append("0\n").append(type).append("\n8\n").append(layer).append('\n');
-            if ("LINE".equals(type)) {
-                b.append("10\n").append(x1).append("\n20\n").append(y1).append("\n11\n").append(x2).append("\n21\n").append(y2).append('\n');
-            } else if ("CIRCLE".equals(type)) {
-                b.append("10\n").append(x1).append("\n20\n").append(y1).append("\n40\n").append(size).append('\n');
-            } else {
-                b.append("10\n").append(x1).append("\n20\n").append(y1).append("\n40\n").append(size).append("\n1\n").append(text).append('\n');
-            }
+            if ("LINE".equals(type)) b.append("10\n").append(x1).append("\n20\n").append(y1).append("\n11\n").append(x2).append("\n21\n").append(y2).append('\n');
+            else if ("CIRCLE".equals(type)) b.append("10\n").append(x1).append("\n20\n").append(y1).append("\n40\n").append(size).append('\n');
+            else b.append("10\n").append(x1).append("\n20\n").append(y1).append("\n40\n").append(size).append("\n1\n").append(text).append('\n');
         }
-
         void svg(StringBuilder b, boolean colorByLayer) {
             String stroke = colorByLayer ? color(layer) : "#182230";
-            if ("LINE".equals(type)) {
-                b.append("<line x1=\"").append(x1).append("\" y1=\"").append(590 - y1).append("\" x2=\"").append(x2)
-                        .append("\" y2=\"").append(590 - y2).append("\" stroke=\"").append(stroke).append("\"/>");
-            } else if ("CIRCLE".equals(type)) {
-                b.append("<circle cx=\"").append(x1).append("\" cy=\"").append(590 - y1).append("\" r=\"").append(size)
-                        .append("\" fill=\"white\" stroke=\"").append(stroke).append("\"/>");
-            } else {
-                b.append("<text x=\"").append(x1).append("\" y=\"").append(590 - y1).append("\" font-size=\"").append(size)
-                        .append("\" font-family=\"Microsoft YaHei,Arial\" fill=\"").append(stroke).append("\">").append(escape(text)).append("</text>");
-            }
+            if ("LINE".equals(type)) b.append("<line x1=\"").append(x1).append("\" y1=\"").append(590 - y1).append("\" x2=\"").append(x2).append("\" y2=\"").append(590 - y2).append("\" stroke=\"").append(stroke).append("\"/>");
+            else if ("CIRCLE".equals(type)) b.append("<circle cx=\"").append(x1).append("\" cy=\"").append(590 - y1).append("\" r=\"").append(size).append("\" fill=\"white\" stroke=\"").append(stroke).append("\"/>");
+            else b.append("<text x=\"").append(x1).append("\" y=\"").append(590 - y1).append("\" font-size=\"").append(size).append("\" font-family=\"Microsoft YaHei,Arial\" fill=\"").append(stroke).append("\">").append(escape(text)).append("</text>");
         }
-
         private static String color(String layer) {
             return switch (layer) {
                 case "BODY", "FRAME" -> "#2363b9";
@@ -451,9 +405,6 @@ public class DrawingEngine {
                 default -> "#182230";
             };
         }
-
-        private static String escape(String v) {
-            return v.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
-        }
+        private static String escape(String v) { return v.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"); }
     }
 }
