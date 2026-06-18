@@ -178,6 +178,11 @@ class DesignPackageModuleTests {
                         && !p.getAvailableModelFormats().isEmpty()
                         && !p.getTechnicalParams().isEmpty()));
         assertTrue(project.getBom().stream().anyMatch(item -> item.getRemark().contains("平台：") || item.getRemark().contains("状态：")));
+        assertTrue(project.getComponents().stream()
+                .filter(c -> project.getResolvedParts().stream()
+                        .filter(p -> p.getName().equals(c.getName())).findFirst()
+                        .map(DesignProject.DesignPart::getPartType).orElse("").equals("standard"))
+                .allMatch(c -> c.getGeometry().contains("PARAMETRIC")));
         assertTrue(project.getResolvedParts().stream().filter(p -> "non_standard".equals(p.getPartType()))
                 .allMatch(p -> "NonStandardPartGenerator".equals(p.getGeneratedBy()) && p.getGeometryFeatures().size() >= 4));
         assertTrue(project.getAssemblyTree().getChildren().size() >= 3);

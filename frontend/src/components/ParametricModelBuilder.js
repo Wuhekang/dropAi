@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { drawParametricStandardPartGeometry, hasParametricGeometry } from './ParametricStandardPartGeometryGenerator.js'
 
 function mat(color, metalness = 0.28, roughness = 0.52, opacity = 1) {
   return new THREE.MeshStandardMaterial({
@@ -282,6 +283,11 @@ function componentAssemblyModel(group, dims, project = {}) {
 }
 
 function drawNamedPart(group, name, geometry, size, position, color) {
+  const part = { name, geometry }
+  if (hasParametricGeometry(part)) {
+    drawParametricStandardPartGeometry(group, part, size, position, color)
+    return
+  }
   const [sx, sy, sz] = size
   if (['WHEEL', 'BRUSH'].includes(geometry) || name.includes('轮') || name.includes('刷')) {
     cyl(group, name, Math.max(sy, sz) / 2, sx, position, color, 'x', 1, 40)
@@ -305,6 +311,28 @@ function drawNamedPart(group, name, geometry, size, position, color) {
   }
 }
 
+function geometryFromResolvedPart(part = {}) {
+  const category = String(part.category || '').toLowerCase()
+  if (category === 'bearing') return 'BEARING_PARAMETRIC'
+  if (category === 'motor') return 'MOTOR_PARAMETRIC'
+  if (category === 'reducer') return 'GEARBOX_PARAMETRIC'
+  if (category === 'rail') return 'RAIL_PARAMETRIC'
+  if (category === 'coupling') return 'COUPLING_PARAMETRIC'
+  if (category === 'bolt') return 'BOLT_GROUP_PARAMETRIC'
+  if (category === 'flange') return 'FLANGE_PARAMETRIC'
+  if (['roller', 'sprocket', 'timing_pulley'].includes(category)) return 'WHEEL_PARAMETRIC'
+  if (category === 'shaft') return 'SHAFT_PARAMETRIC'
+  if (category === 'key') return 'KEY_PARAMETRIC'
+  if (category === 'pin') return 'PIN_PARAMETRIC'
+  if (category === 'spring') return 'SPRING_PARAMETRIC'
+  const name = String(part.name || '')
+  if (name.includes('履带') || name.includes('灞ゅ甫')) return 'TRACK_PARAMETRIC'
+  if (name.includes('清扫') || name.includes('刷') || name.includes('娓呮壂')) return 'BRUSH_PARAMETRIC'
+  if (name.includes('磁') || name.includes('吸附') || name.includes('纾')) return 'MAGNET_MODULE_PARAMETRIC'
+  if (name.includes('检测') || name.includes('传感') || name.includes('导轨') || name.includes('滑轨')) return 'SENSOR_RAIL_PARAMETRIC'
+  return ''
+}
+
 function assemblyDrivenModel(group, dims, parts = []) {
   const l = dims.length
   const w = dims.width
@@ -315,6 +343,11 @@ function assemblyDrivenModel(group, dims, parts = []) {
     const z = -w * 0.28 + (Math.floor(index / 5) % 4) * w * 0.18
     const y = -0.45 + (index % 4) * h * 0.12
     const color = part.partType === 'standard' ? 0x2563eb : 0xf97316
+    const geometry = geometryFromResolvedPart(part)
+    if (hasParametricGeometry({ name, geometry })) {
+      drawParametricStandardPartGeometry(group, { ...part, name, geometry }, [l * 0.16, h * 0.12, w * 0.14], [x, y, z], color)
+      return
+    }
     if (name.includes('轮') || name.includes('滚筒') || name.includes('刷')) {
       cyl(group, name, h * 0.08, w * 0.16, [x, y, z], color, 'z', 1, 32)
     } else if (name.includes('履带') || name.includes('带')) {

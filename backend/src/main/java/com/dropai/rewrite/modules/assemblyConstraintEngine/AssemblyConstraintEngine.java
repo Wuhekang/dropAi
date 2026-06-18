@@ -1,6 +1,7 @@
 package com.dropai.rewrite.modules.assemblyConstraintEngine;
 
 import com.dropai.rewrite.modules.model.DesignProject;
+import com.dropai.rewrite.modules.parametricStandardPartGeometryGenerator.ParametricStandardPartGeometryGenerator;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -8,6 +9,8 @@ import java.util.List;
 
 @Service
 public class AssemblyConstraintEngine {
+    private final ParametricStandardPartGeometryGenerator geometryGenerator = new ParametricStandardPartGeometryGenerator();
+
     public AssemblyResult solve(DesignProject project) {
         double l = project.number("总长", project.number("整机长度", 800));
         double w = project.number("总宽", project.number("整机宽度", 600));
@@ -23,7 +26,7 @@ public class AssemblyConstraintEngine {
             DesignProject.Component component = new DesignProject.Component(index + 1, role(part), part.getName(),
                     function(part), part.getMaterial(), Math.max(1, part.getQuantity()),
                     layout.x(), layout.y(), layout.z(), layout.sx(), layout.sy(), layout.sz(), index < 16);
-            component.setGeometry(geometry(part));
+            component.setGeometry(geometryGenerator.resolveGeometry(part));
             component.setPartId("P%03d".formatted(index + 1));
             component.setParentAssembly(parentAssembly(part));
             component.setMountTo(layout.mountTo());
