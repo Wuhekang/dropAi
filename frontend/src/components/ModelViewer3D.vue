@@ -48,7 +48,12 @@ function setupScene() {
 function setModel() {
   if (!scene) return
   if (model.value) scene.remove(model.value)
-  model.value = buildParametricMechanicalModel(props.project)
+  try {
+    model.value = buildParametricMechanicalModel(props.project)
+  } catch (error) {
+    console.error('3D方案模型生成失败，已切换到演示模型', error)
+    model.value = buildParametricMechanicalModel({})
+  }
   scene.add(model.value)
 }
 

@@ -148,7 +148,7 @@
           <div><span>CAD文件</span><strong>{{ groups.cad.length }}</strong></div>
           <div><span>设计细节分</span><strong>{{ project.detailScore || 0 }}</strong></div>
         </div>
-        <section v-if="previews.scheme || previews.cad" class="preview-stage">
+        <section v-if="hasDesignModel || previews.scheme || previews.cad" class="preview-stage">
           <div class="preview-card model-card">
             <div><strong>参数化3D方案模型</strong><span>随总长、总宽、总高和设备类型变化</span></div>
             <ModelViewer3D :project="modelProject" />
@@ -289,6 +289,15 @@ const groups = computed(() => ({
   document: artifacts.value.filter(x => /\.(docx|pdf)$/i.test(x.fileName)),
   package: artifacts.value.filter(x => /\.(zip|json)$/i.test(x.fileName))
 }))
+const hasDesignModel = computed(() => Boolean(
+  targetConfirmed.value ||
+  artifacts.value.length ||
+  project.projectTitle ||
+  project.equipmentName ||
+  project.structureTree ||
+  project.components?.length ||
+  project.resolvedParts?.length
+))
 const modelProject = computed(() => ({
   projectTitle: project.projectTitle,
   equipmentName: project.equipmentName,
