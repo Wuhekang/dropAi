@@ -108,16 +108,30 @@ function createPartShape(part, size) {
   return createNonStandardShape(part, size)
 }
 
+function countMeshes(group) {
+  let count = 0
+  group.traverse(item => {
+    if (item.isMesh) count += 1
+  })
+  return count
+}
+
+function inputComponentCount(project = {}) {
+  if (Array.isArray(project.components) && project.components.length) return project.components.length
+  if (Array.isArray(project.resolvedParts) && project.resolvedParts.length) return project.resolvedParts.length
+  return 0
+}
+
 function buildFromAssembly(group, project, dims) {
   const transforms = buildAssemblyTransforms(project, dims)
-  if (!transforms.length) return false
+  if (!transforms.length) return { built: false, renderableComponents: 0 }
 
   transforms.forEach(transform => {
     const shape = createPartShape(transform.part, transform.size)
     applyTransform(shape, transform)
     group.add(shape)
   })
-  return true
+  return { built: true, renderableComponents: transforms.length }
 }
 
 function addSystemLabels(group, project, dims) {
@@ -164,16 +178,36 @@ export function buildParametricMechanicalModel(project = {}) {
   addGroundShadow(group, dims)
   addConstraintGuides(group, dims)
 
-  const builtFromAssembly = buildFromAssembly(group, project, dims)
-  if (!builtFromAssembly) {
+  const assemblyComponents = inputComponentCount(project)
+  const assemblyResult = buildFromAssembly(group, project, dims)
+  if (!assemblyResult.built) {
     if (isCrawlerRobotProject(project)) drawRobotFallback(group, dims)
     else buildGenericMechanicalAssembly(group, dims)
   }
 
   addReadableDimensionHints(group, dims)
   addSystemLabels(group, project, dims)
+  let meshCount = countMeshes(group)
+  if (meshCount <= 1) {
+    console.error('[DropAI 3D] mesh count is 0, restoring visible fallback model', {
+      assemblyComponents,
+      renderableComponents: assemblyResult.renderableComponents,
+      meshCount
+    })
+    drawRobotFallback(group, dims)
+    meshCount = countMeshes(group)
+  }
+  console.info('[DropAI 3D] render diagnostics', {
+    assemblyComponents,
+    renderableComponents: assemblyResult.renderableComponents,
+    meshCount,
+    source: assemblyResult.built ? 'AssemblyTree/Components' : 'FallbackModel'
+  })
   group.userData = {
-    source: builtFromAssembly ? 'assembly_tree_with_constraints' : 'mechanical_fallback',
+    source: assemblyResult.built ? 'assembly_tree_with_constraints' : 'mechanical_fallback',
+    assemblyComponents,
+    renderableComponents: assemblyResult.renderableComponents,
+    meshCount,
     hasScatteredLayout: false,
     usesMechanicalPrimitiveLibrary: true
   }

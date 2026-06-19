@@ -85,25 +85,28 @@ public class DrawingEngine {
     }
 
     private void planViews(Canvas c, DesignProject project) {
-        Bounds bounds = bounds(project.getComponents());
-        drawPlanView(c, project, project.getDrawingPlan().getMainView(), "FRONT", "主视图", bounds);
-        drawPlanView(c, project, project.getDrawingPlan().getTopView(), "TOP", "俯视图", bounds);
-        drawPlanView(c, project, project.getDrawingPlan().getSideView(), "SIDE", "侧视图", bounds);
+        drawPlanView(c, project, project.getDrawingPlan().getMainView(), "FRONT", "主视图");
+        drawPlanView(c, project, project.getDrawingPlan().getTopView(), "TOP", "俯视图");
+        drawPlanView(c, project, project.getDrawingPlan().getSideView(), "SIDE", "侧视图");
     }
 
     private void drawPlanView(Canvas c, DesignProject project, DesignProject.DrawingViewPlan view,
-                              String orientation, String title, Bounds bounds) {
+                              String orientation, String title) {
         double ox = vp(view, "x", 60);
         double oy = vp(view, "y", 300);
         double vw = vp(view, "width", 400);
         double vh = vp(view, "height", 150);
         c.text("TEXT", ox, oy + vh + 13, 4.2, title);
         c.rect("OUTLINE", ox, oy, vw, vh);
-        for (DesignProject.Component part : parts(project, view)) {
+        List<DesignProject.Component> viewParts = parts(project, view);
+        Bounds bounds = bounds(viewParts);
+        int balloonIndex = 0;
+        for (DesignProject.Component part : viewParts) {
             Projection projection = project(part, orientation, ox, oy, vw, vh, bounds);
             drawEngineeringSymbol(c, part, projection.x(), projection.y(), projection.w(), projection.h());
             if (part.isKeyPart()) {
-                balloon(c, part, projection.x() + projection.w() / 2, projection.y() + projection.h() / 2);
+                balloon(c, part, projection.x() + projection.w() / 2, projection.y() + projection.h() / 2,
+                        ox, oy, vw, vh, balloonIndex++);
             }
         }
     }
@@ -293,9 +296,15 @@ public class DrawingEngine {
         toleranceGenerator.drawDatumAndGdt(c, 510, 97);
     }
 
-    private void balloon(Canvas c, DesignProject.Component part, double x, double y) {
-        c.circle("ANNOTATION", x, y, 6);
-        c.text("ANNOTATION", x - 2.5, y - 2.5, 3, String.valueOf(part.getSequence()));
+    private void balloon(Canvas c, DesignProject.Component part, double x, double y,
+                         double ox, double oy, double vw, double vh, int index) {
+        boolean rightSide = index % 2 == 0;
+        double bx = rightSide ? ox + vw + 10 : ox - 10;
+        double by = oy + vh - 18 - index * 16;
+        if (by < oy + 14) by = oy + 14 + (index % 4) * 15;
+        c.line("ANNOTATION", x, y, bx, by);
+        c.circle("ANNOTATION", bx, by, 6);
+        c.text("ANNOTATION", bx - 2.5, by - 2.5, 3, String.valueOf(part.getSequence()));
     }
 
     private List<DesignProject.Component> parts(DesignProject project, DesignProject.DrawingViewPlan view) {
