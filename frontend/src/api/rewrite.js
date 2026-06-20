@@ -6,6 +6,16 @@ const request = axios.create({
   timeout: 120000
 })
 
+function logApiError(error) {
+  const config = error.config || {}
+  console.error('[DropAI API Error]', {
+    url: `${config.baseURL || ''}${config.url || ''}`,
+    method: config.method,
+    status: error.response?.status,
+    responseData: error.response?.data
+  })
+}
+
 request.interceptors.request.use((config) => {
   const token = sessionStorage.getItem('dropai_token')
   if (token) config.headers.Authorization = `Bearer ${token}`
@@ -26,6 +36,7 @@ request.interceptors.response.use(
     return result.data
   },
   (error) => {
+    logApiError(error)
     if (error.response?.status === 401) {
       sessionStorage.removeItem('dropai_token')
       sessionStorage.removeItem('dropai_username')

@@ -3,18 +3,34 @@ import axios from 'axios'
 const USE_MOCK = true
 const request = axios.create({ baseURL: '/api', timeout: 120000 })
 
+function logApiError(error: any) {
+  const config = error.config || {}
+  console.error('[DropAI API Error]', {
+    url: `${config.baseURL || ''}${config.url || ''}`,
+    method: config.method,
+    status: error.response?.status,
+    responseData: error.response?.data
+  })
+}
+
 request.interceptors.request.use((config) => {
   const token = sessionStorage.getItem('dropai_token')
   if (token) config.headers.Authorization = `Bearer ${token}`
   return config
 })
 
-request.interceptors.response.use((response) => {
-  if (response.config.responseType === 'blob' || response.data instanceof Blob) return response.data
-  const result = response.data
-  if (result && result.code !== 200) return Promise.reject(new Error(result.message || '请求失败'))
-  return result.data
-})
+request.interceptors.response.use(
+  (response) => {
+    if (response.config.responseType === 'blob' || response.data instanceof Blob) return response.data
+    const result = response.data
+    if (result && result.code !== 200) return Promise.reject(new Error(result.message || '请求失败'))
+    return result.data
+  },
+  (error) => {
+    logApiError(error)
+    return Promise.reject(error)
+  }
+)
 
 const mockTasks = new Map<string, any>()
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))

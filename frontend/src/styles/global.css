@@ -14,6 +14,9 @@ button,
 input,
 textarea {
   font: inherit;
+  appearance: none;
+  -moz-appearance: none;
+  -webkit-appearance: none;
 }
 
 #app {
@@ -22,4 +25,34 @@ textarea {
 
 .el-card {
   border-radius: 8px;
+}
+
+html {
+  scrollbar-color: #cbd5e1 transparent;
+  scrollbar-width: thin;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.el-loading-mask {
+  mask: none;
+  -webkit-mask: none;
+}
+
+.el-drawer,
+.el-message,
+.el-notification {
+  transition-property: transform, opacity;
 }
