@@ -73,7 +73,8 @@ class DesignPackageModuleTests {
         assertFalse(dxf.contains("P002"));
         assertFalse(dxf.contains("DrawingPlan"));
         assertFalse(dxf.contains("debug"));
-        assertTrue(dxf.contains("Crawler walking mechanism"));
+        String planJson = new String(drawings.stream().filter(file -> "drawing_plan.json".equals(file.fileName())).findFirst().orElseThrow().content(), StandardCharsets.UTF_8);
+        assertTrue(planJson.contains("crawler_track"));
         assertTrue(dxf.contains("Front view"));
         assertTrue(dxf.contains("Top view"));
         assertTrue(dxf.contains("Side view"));
@@ -90,6 +91,36 @@ class DesignPackageModuleTests {
         assertTrue(conceptSvg.contains("Functional areas"));
         assertFalse(conceptSvg.contains("Core BOM"));
         assertFalse(conceptSvg.equals(cadSvg));
+    }
+
+    @Test
+    void drawingTypesFollowStructureTreeInsteadOfRobotTemplate() {
+        DesignProject conveyor = projectWithStructure("输送机结构设计", List.of("输送带", "主动滚筒", "从动滚筒", "机架", "驱动电机", "减速器"));
+        List<String> conveyorFiles = fileNames(new DrawingEngine().drawAssemblyDrawing(conveyor));
+        assertTrue(conveyorFiles.contains("conveyor_belt.png"));
+        assertTrue(conveyorFiles.contains("roller_mechanism.png"));
+        assertTrue(conveyorFiles.contains("frame_structure.png"));
+        assertTrue(conveyorFiles.contains("drive_mechanism.png"));
+        assertFalse(conveyorFiles.contains("track_mechanism.png"));
+        assertFalse(conveyorFiles.contains("cleaning_mechanism.png"));
+
+        DesignProject chamber = projectWithStructure("重力沉降室设计", List.of("壳体", "进口法兰", "出口接口", "排灰斗", "检修门", "支撑架"));
+        List<String> chamberFiles = fileNames(new DrawingEngine().drawAssemblyDrawing(chamber));
+        assertTrue(chamberFiles.contains("shell_structure.png"));
+        assertTrue(chamberFiles.contains("inlet_outlet.png"));
+        assertTrue(chamberFiles.contains("ash_hopper.png"));
+        assertTrue(chamberFiles.contains("access_door.png"));
+        assertTrue(chamberFiles.contains("support_frame.png"));
+        assertFalse(chamberFiles.contains("track_mechanism.png"));
+
+        DesignProject manipulator = projectWithStructure("机械手结构设计", List.of("底座", "大臂", "小臂", "夹爪", "关节伺服驱动"));
+        List<String> manipulatorFiles = fileNames(new DrawingEngine().drawAssemblyDrawing(manipulator));
+        assertTrue(manipulatorFiles.contains("base_structure.png"));
+        assertTrue(manipulatorFiles.contains("upper_arm.png"));
+        assertTrue(manipulatorFiles.contains("forearm.png"));
+        assertTrue(manipulatorFiles.contains("gripper.png"));
+        assertTrue(manipulatorFiles.contains("joint_drive.png"));
+        assertFalse(manipulatorFiles.contains("cleaning_mechanism.png"));
     }
 
     @Test
@@ -133,6 +164,21 @@ class DesignPackageModuleTests {
         input.getExplicitParameters().add(new DesignProject.Parameter("整机高度", 300, "mm", "任务书技术指标：整机尺寸≤800×600×300mm", null));
         input.getExplicitParameters().add(new DesignProject.Parameter("吸附力", 200, "N", "任务书技术指标：吸附力≥200N", null));
         return pipeline().analyzeNewTask(input);
+    }
+
+    private DesignProject projectWithStructure(String title, List<String> nodes) {
+        DesignProject project = structuredProject();
+        project.setProjectTitle(title);
+        DesignProject.StructureNode root = new DesignProject.StructureNode("整机", "root", "test", 1.0);
+        root.setChildren(nodes.stream()
+                .map(name -> new DesignProject.StructureNode(name, "mechanism", "test-structure-tree", 1.0))
+                .toList());
+        project.setStructureTree(root);
+        return project;
+    }
+
+    private List<String> fileNames(List<DrawingArtifact> drawings) {
+        return drawings.stream().map(DrawingArtifact::fileName).toList();
     }
 
     private TaskDrivenDesignPipeline pipeline() {

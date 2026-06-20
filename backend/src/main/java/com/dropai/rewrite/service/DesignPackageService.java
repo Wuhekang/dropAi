@@ -57,14 +57,7 @@ public class DesignPackageService {
         generated.add(generateOne("paper.docx", DOCX, () -> paperEngine.generatePaper(project)));
         generated.add(generateOne("design_calculation.docx", DOCX, () -> paperEngine.generateCalculationBook(project)));
         generated.add(generateOne("sw_modeling_steps.docx", DOCX, () -> paperEngine.generateModelingSteps(project)));
-        generated.addAll(generateGroup(List.of(
-                "preview.svg", "preview.png",
-                "overall_structure.dxf", "overall_structure.svg", "overall_structure.png",
-                "track_mechanism.dxf", "track_mechanism.svg", "track_mechanism.png",
-                "cleaning_mechanism.dxf", "cleaning_mechanism.svg", "cleaning_mechanism.png",
-                "frame_structure.dxf", "frame_structure.svg", "frame_structure.png",
-                "drive_mechanism.dxf", "drive_mechanism.svg", "drive_mechanism.png",
-                "assembly.dxf", "cad_preview.svg", "cad_preview.png"), () -> drawingEngine.drawAssemblyDrawing(project)));
+        generated.addAll(generateDrawingGroup(() -> drawingEngine.drawAssemblyDrawing(project)));
         generated.addAll(generateGroup(List.of("part_01.dxf", "part_02.dxf", "part_03.dxf", "part_04.dxf", "part_05.dxf"), () -> drawingEngine.drawPartDrawing(project)));
         generated.addAll(generateGroup(List.of("sw_macro_shell.bas", "sw_macro_base.bas", "sw_macro_inlet.bas", "sw_modeling_steps.txt"), () -> swMacroEngine.generate(project)));
         generated.addAll(generateGroup(List.of("design_parameters.json", "preview.pdf"),
@@ -118,6 +111,23 @@ public class DesignPackageService {
             String reason = readable(exception);
             log.error("文件组生成失败 names={} reason={}", expectedNames, reason, exception);
             return expectedNames.stream().map(name -> new Generated(new DrawingArtifact(name, new byte[0], mediaType(name)), reason)).toList();
+        }
+    }
+
+    private List<Generated> generateDrawingGroup(Supplier<List<DrawingArtifact>> supplier) {
+        try {
+            List<DrawingArtifact> files = supplier.get();
+            List<Generated> result = new ArrayList<>();
+            for (DrawingArtifact file : files) {
+                result.add(file.content() == null || file.content().length == 0
+                        ? new Generated(file, "鐢熸垚鏂囦欢涓虹┖") : new Generated(file, null));
+                log.info("鍥剧焊鐢熸垚缁撴灉 name={} success={} size={}", file.fileName(), file.content() != null && file.content().length > 0, file.content() == null ? 0 : file.content().length);
+            }
+            return result;
+        } catch (Exception exception) {
+            String reason = readable(exception);
+            log.error("鍥剧焊缁勭敓鎴愬け璐?reason={}", reason, exception);
+            return List.of(new Generated(new DrawingArtifact("cad_preview.png", new byte[0], "image/png"), reason));
         }
     }
 

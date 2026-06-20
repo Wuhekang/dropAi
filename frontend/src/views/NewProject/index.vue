@@ -277,12 +277,24 @@ const artifacts = ref([]), parameters = ref([])
 const functionsText = ref(''), structuresText = ref('')
 const previews = reactive({ scheme: '', cad: '' })
 const selectedDrawing = ref('overall_structure')
-const drawingOptions = [
+const baseDrawingOptions = [
   { key: 'overall_structure', label: '总体结构图', file: 'overall_structure.png' },
   { key: 'track_mechanism', label: '履带机构图', file: 'track_mechanism.png' },
   { key: 'cleaning_mechanism', label: '清扫机构图', file: 'cleaning_mechanism.png' },
   { key: 'frame_structure', label: '机架结构图', file: 'frame_structure.png' },
-  { key: 'drive_mechanism', label: '驱动机构图', file: 'drive_mechanism.png' }
+  { key: 'drive_mechanism', label: '驱动机构图', file: 'drive_mechanism.png' },
+  { key: 'conveyor_belt', label: '输送带机构图', file: 'conveyor_belt.png' },
+  { key: 'roller_mechanism', label: '滚筒机构图', file: 'roller_mechanism.png' },
+  { key: 'shell_structure', label: '壳体结构图', file: 'shell_structure.png' },
+  { key: 'inlet_outlet', label: '进出口接口图', file: 'inlet_outlet.png' },
+  { key: 'ash_hopper', label: '排灰斗结构图', file: 'ash_hopper.png' },
+  { key: 'access_door', label: '检修门结构图', file: 'access_door.png' },
+  { key: 'support_frame', label: '支撑架结构图', file: 'support_frame.png' },
+  { key: 'base_structure', label: '底座结构图', file: 'base_structure.png' },
+  { key: 'upper_arm', label: '大臂结构图', file: 'upper_arm.png' },
+  { key: 'forearm', label: '小臂结构图', file: 'forearm.png' },
+  { key: 'gripper', label: '夹爪结构图', file: 'gripper.png' },
+  { key: 'joint_drive', label: '关节驱动结构图', file: 'joint_drive.png' }
 ]
 const packageStatus = ref('pending'), packageMessage = ref('等待生成')
 const project = reactive({ projectId: '', projectTitle: '', equipmentName: '', designType: '', designDepth: 'graduation', projectCategory: '', mainFunctions: [], mainStructures: [], explicitParameters: [], derivedParameters: [], suggestedParameters: [], verificationItems: [], calculations: [], bom: [], technicalRequirements: [], materials: [], standardParts: [], detailFeatures: [], drawingViews: [], annotationList: [], structureTree: null, resolvedParts: [], assemblyTree: null, assemblyConstraints: [], components: [], partCount: 0, featureCount: 0, detailScore: 0, enhancementNotes: [] })
@@ -294,13 +306,17 @@ const activeStep = computed(() => packageStatus.value === 'success' ? 10 : artif
 const analysisStatusText = computed(() => ({ pending: '待识别', running: '正在解析资料', success: '已识别设计目标', failed: '识别失败' })[analysisStatus.value] || analysisStatus.value)
 const canConfirmTarget = computed(() => Boolean(project.projectTitle?.trim() && project.equipmentName?.trim() && project.designType?.trim() && parameters.value.length))
 const groups = computed(() => ({
-  cad: artifacts.value.filter(x => /\.dxf$/i.test(x.fileName) || /^(overall_structure|track_mechanism|cleaning_mechanism|frame_structure|drive_mechanism|cad_preview)\.(svg|png)$/i.test(x.fileName)),
+  cad: artifacts.value.filter(x => /\.dxf$/i.test(x.fileName) || (/^(?!preview\.)[a-z0-9_]+\.(svg|png)$/i.test(x.fileName) && x.fileName !== 'preview.png' && x.fileName !== 'preview.svg')),
   showcase: artifacts.value.filter(x => /^preview\.(svg|png)$/i.test(x.fileName)),
   macro: artifacts.value.filter(x => /\.(bas|txt)$/i.test(x.fileName)),
   document: artifacts.value.filter(x => /\.(docx|pdf)$/i.test(x.fileName)),
   package: artifacts.value.filter(x => /\.(zip|json)$/i.test(x.fileName))
 }))
-const selectedDrawingLabel = computed(() => drawingOptions.find(item => item.key === selectedDrawing.value)?.label || '章节图纸')
+const drawingOptions = computed(() => {
+  const available = baseDrawingOptions.filter(option => artifacts.value.some(file => file.fileName === option.file && file.status === 'success'))
+  return available.length ? available : baseDrawingOptions.slice(0, 1)
+})
+const selectedDrawingLabel = computed(() => drawingOptions.value.find(item => item.key === selectedDrawing.value)?.label || '章节图纸')
 const hasDesignModel = computed(() => Boolean(
   targetConfirmed.value ||
   artifacts.value.length ||
@@ -456,7 +472,10 @@ async function loadPreviews() {
 async function loadDrawingPreview() {
   if (previews.cad) URL.revokeObjectURL(previews.cad)
   previews.cad = ''
-  const option = drawingOptions.find(item => item.key === selectedDrawing.value) || drawingOptions[0]
+  const options = drawingOptions.value
+  if (!options.some(item => item.key === selectedDrawing.value)) selectedDrawing.value = options[0]?.key || 'overall_structure'
+  const option = options.find(item => item.key === selectedDrawing.value) || options[0]
+  if (!option) return
   const item = artifacts.value.find(file => file.fileName === option.file && file.status === 'success' && file.downloadUrl)
   if (!item) return
   try { previews.cad = URL.createObjectURL(await downloadArtifact(item.downloadUrl)) } catch (_) { /* artifact card keeps the failure visible */ }

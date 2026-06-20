@@ -34,6 +34,7 @@ public class DrawingEngine {
         java.util.ArrayList<DrawingArtifact> files = new java.util.ArrayList<>();
         files.add(new DrawingArtifact("preview.svg", concept.svg(true).getBytes(StandardCharsets.UTF_8), "image/svg+xml"));
         files.add(new DrawingArtifact("preview.png", render(concept, new Color(243, 247, 251), true), "image/png"));
+        files.add(new DrawingArtifact("drawing_plan.json", drawingPlanJson(sheets).getBytes(StandardCharsets.UTF_8), "application/json"));
         for (ChapterDrawingEngine.Sheet sheet : sheets) {
             files.add(new DrawingArtifact(sheet.key() + ".dxf", sheet.canvas().dxf().getBytes(StandardCharsets.UTF_8), "application/dxf"));
             files.add(new DrawingArtifact(sheet.key() + ".svg", sheet.canvas().svg(false).getBytes(StandardCharsets.UTF_8), "image/svg+xml"));
@@ -48,6 +49,24 @@ public class DrawingEngine {
         files.add(new DrawingArtifact("cad_preview.svg", defaultCad.svg(false).getBytes(StandardCharsets.UTF_8), "image/svg+xml"));
         files.add(new DrawingArtifact("cad_preview.png", render(defaultCad, Color.WHITE, false), "image/png"));
         return files;
+    }
+
+    private String drawingPlanJson(List<ChapterDrawingEngine.Sheet> sheets) {
+        StringBuilder builder = new StringBuilder("[");
+        for (int i = 0; i < sheets.size(); i++) {
+            DrawingTypePlanner.DrawingPlanItem item = sheets.get(i).planItem();
+            if (i > 0) builder.append(',');
+            builder.append("{\"drawingName\":\"").append(json(item.drawingName()))
+                    .append("\",\"drawingType\":\"").append(json(item.drawingType()))
+                    .append("\",\"sourceStructureNode\":\"").append(json(item.sourceStructureNode()))
+                    .append("\",\"reason\":\"").append(json(item.reason()))
+                    .append("\"}");
+        }
+        return builder.append(']').toString();
+    }
+
+    private String json(String value) {
+        return value == null ? "" : value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
     public List<DrawingArtifact> drawPartDrawing(DesignProject project) {
