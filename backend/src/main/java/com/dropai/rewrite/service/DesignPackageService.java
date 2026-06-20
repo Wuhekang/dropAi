@@ -29,6 +29,7 @@ import java.util.function.Supplier;
 public class DesignPackageService {
     private static final Logger log = LoggerFactory.getLogger(DesignPackageService.class);
     private static final String DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    private static final long MIN_ZIP_HEAP_BYTES = 700L * 1024 * 1024;
     private final ParameterEngine parameterEngine; private final CalculationEngine calculationEngine;
     private final DesignEnhancementEngine designEnhancementEngine; private final StructureEngine structureEngine; private final DrawingEngine drawingEngine; private final SwMacroEngine swMacroEngine;
     private final PaperEngine paperEngine; private final ExportEngine exportEngine; private final DocumentJobMapper mapper;
@@ -62,8 +63,13 @@ public class DesignPackageService {
         generated.addAll(generateGroup(List.of("design_parameters.json", "preview.pdf"),
                 () -> exportEngine.appendManifests(project, List.of())));
 
-        List<DrawingArtifact> successfulFiles = generated.stream().filter(Generated::success).map(Generated::artifact).toList();
-        generated.add(generateOne("project_package.zip", "application/zip", () -> exportEngine.zip(successfulFiles)));
+        if (shouldGenerateZip()) {
+            List<DrawingArtifact> successfulFiles = generated.stream().filter(Generated::success).map(Generated::artifact).toList();
+            generated.add(generateOne("project_package.zip", "application/zip", () -> exportEngine.zip(successfulFiles)));
+        } else {
+            generated.add(new Generated(new DrawingArtifact("project_package.zip", new byte[0], "application/zip"),
+                    "当前实例内存较小，已跳过总ZIP生成；请下载上方单个成果文件"));
+        }
 
         DesignPackageVO result = new DesignPackageVO();
         result.setProject(project);
@@ -148,6 +154,18 @@ public class DesignPackageService {
     private String fileType(String name) {
         int dot = name == null ? -1 : name.lastIndexOf('.');
         return dot < 0 ? "file" : name.substring(dot + 1).toLowerCase();
+    }
+    private boolean shouldGenerateZip() {
+        String configured = System.getenv("DROP_AI_PACKAGE_ZIP_ENABLED");
+        if (configured != null && !configured.isBlank()) {
+            return Boolean.parseBoolean(configured);
+        }
+        long maxMemory = Runtime.getRuntime().maxMemory();
+        boolean enabled = maxMemory >= MIN_ZIP_HEAP_BYTES;
+        if (!enabled) {
+            log.warn("跳过成果包ZIP生成 maxHeap={} threshold={}", maxMemory, MIN_ZIP_HEAP_BYTES);
+        }
+        return enabled;
     }
     private String readable(Exception exception) {
         String message = exception.getMessage();
