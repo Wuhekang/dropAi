@@ -57,7 +57,7 @@ class DesignPackageModuleTests {
     void drawingPlanDrivesCleanThreeViewCad() throws Exception {
         DesignProject project = structuredProject();
         List<DrawingArtifact> drawings = new DrawingEngine().drawAssemblyDrawing(project);
-        String dxf = new String(drawings.get(0).content(), StandardCharsets.UTF_8);
+        String dxf = new String(drawings.stream().filter(file -> "track_mechanism.dxf".equals(file.fileName())).findFirst().orElseThrow().content(), StandardCharsets.UTF_8);
         assertTrue("DrawingPlan".equals(project.getDrawingPlan().getInputSource()));
         assertFalse(project.getDrawingPlan().getMainView().getVisibleParts().isEmpty());
         assertFalse(project.getDrawingPlan().getTopView().getVisibleParts().isEmpty());
@@ -73,11 +73,14 @@ class DesignPackageModuleTests {
         assertFalse(dxf.contains("P002"));
         assertFalse(dxf.contains("DrawingPlan"));
         assertFalse(dxf.contains("debug"));
+        assertTrue(dxf.contains("Crawler walking mechanism"));
         assertTrue(dxf.contains("Front view"));
         assertTrue(dxf.contains("Top view"));
         assertTrue(dxf.contains("Side view"));
-        assertTrue(dxf.contains("Core BOM"));
-        assertTrue(dxf.contains("Technical notes"));
+        assertTrue(dxf.contains("track plates"));
+        assertTrue(new String(drawings.stream().filter(file -> "cleaning_mechanism.dxf".equals(file.fileName())).findFirst().orElseThrow().content(), StandardCharsets.UTF_8).contains("brush disk"));
+        assertTrue(new String(drawings.stream().filter(file -> "frame_structure.dxf".equals(file.fileName())).findFirst().orElseThrow().content(), StandardCharsets.UTF_8).contains("mounting holes"));
+        assertTrue(new String(drawings.stream().filter(file -> "drive_mechanism.dxf".equals(file.fileName())).findFirst().orElseThrow().content(), StandardCharsets.UTF_8).contains("M8"));
         byte[] png = drawings.stream().filter(file -> "cad_preview.png".equals(file.fileName())).findFirst().orElseThrow().content();
         assertTrue(png.length > 1000);
         assertTrue(ImageIO.read(new ByteArrayInputStream(png)).getWidth() >= 1600);

@@ -29,22 +29,25 @@ public class DrawingEngine {
 
     public List<DrawingArtifact> drawAssemblyDrawing(DesignProject project) {
         validateDrawingPlan(project);
-        Canvas canvas = new Canvas(clean(project.getProjectTitle(), "本科毕业设计"), "总装三视图", "ZD-00");
-        DrawingLayoutOptimizer.Layout layout = layoutOptimizer.optimize(project);
-        frame(canvas);
-        titleBlock(canvas, project);
-        planViews(canvas, project, layout);
-        bom(canvas, project, layout);
-        parameterTable(canvas, project, layout);
-        requirements(canvas, project, layout);
-
         Canvas concept = conceptRenderGenerator.draw(project);
-        return List.of(
-                new DrawingArtifact("assembly.dxf", canvas.dxf().getBytes(StandardCharsets.UTF_8), "application/dxf"),
-                new DrawingArtifact("cad_preview.svg", canvas.svg(false).getBytes(StandardCharsets.UTF_8), "image/svg+xml"),
-                new DrawingArtifact("cad_preview.png", render(canvas, Color.WHITE, false), "image/png"),
-                new DrawingArtifact("preview.svg", concept.svg(true).getBytes(StandardCharsets.UTF_8), "image/svg+xml"),
-                new DrawingArtifact("preview.png", render(concept, new Color(243, 247, 251), true), "image/png"));
+        List<ChapterDrawingEngine.Sheet> sheets = new ChapterDrawingEngine().draw(project);
+        java.util.ArrayList<DrawingArtifact> files = new java.util.ArrayList<>();
+        files.add(new DrawingArtifact("preview.svg", concept.svg(true).getBytes(StandardCharsets.UTF_8), "image/svg+xml"));
+        files.add(new DrawingArtifact("preview.png", render(concept, new Color(243, 247, 251), true), "image/png"));
+        for (ChapterDrawingEngine.Sheet sheet : sheets) {
+            files.add(new DrawingArtifact(sheet.key() + ".dxf", sheet.canvas().dxf().getBytes(StandardCharsets.UTF_8), "application/dxf"));
+            files.add(new DrawingArtifact(sheet.key() + ".svg", sheet.canvas().svg(false).getBytes(StandardCharsets.UTF_8), "image/svg+xml"));
+            files.add(new DrawingArtifact(sheet.key() + ".png", render(sheet.canvas(), Color.WHITE, false), "image/png"));
+        }
+        DrawingEngine.Canvas defaultCad = sheets.stream()
+                .filter(sheet -> "track_mechanism".equals(sheet.key()))
+                .findFirst()
+                .map(ChapterDrawingEngine.Sheet::canvas)
+                .orElse(sheets.get(0).canvas());
+        files.add(new DrawingArtifact("assembly.dxf", sheets.get(0).canvas().dxf().getBytes(StandardCharsets.UTF_8), "application/dxf"));
+        files.add(new DrawingArtifact("cad_preview.svg", defaultCad.svg(false).getBytes(StandardCharsets.UTF_8), "image/svg+xml"));
+        files.add(new DrawingArtifact("cad_preview.png", render(defaultCad, Color.WHITE, false), "image/png"));
+        return files;
     }
 
     public List<DrawingArtifact> drawPartDrawing(DesignProject project) {

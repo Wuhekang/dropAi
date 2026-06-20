@@ -157,9 +157,12 @@
             <div><strong>设备结构示意图</strong><span>{{ project.designType }} · {{ project.equipmentName }}</span></div>
             <img :src="previews.scheme" alt="设备结构示意图" />
           </div>
-          <div v-if="previews.cad" class="preview-card">
-            <div><strong>CAD 三视图预览</strong><span>主视图、俯视图、侧视图使用同一结构模型</span></div>
-            <img :src="previews.cad" alt="CAD 三视图预览" />
+          <div v-if="previews.cad" class="preview-card drawing-preview-card">
+            <div><strong>CAD 章节图纸预览</strong><span>{{ selectedDrawingLabel }}</span></div>
+            <div class="drawing-switch">
+              <button v-for="option in drawingOptions" :key="option.key" type="button" :class="{ active: selectedDrawing === option.key }" @click="selectDrawing(option.key)">{{ option.label }}</button>
+            </div>
+            <img :src="previews.cad" alt="CAD 章节图纸预览" />
           </div>
         </section>
         <el-tabs>
@@ -273,6 +276,14 @@ const analysisStatus = ref('pending'), parseMessage = ref('')
 const artifacts = ref([]), parameters = ref([])
 const functionsText = ref(''), structuresText = ref('')
 const previews = reactive({ scheme: '', cad: '' })
+const selectedDrawing = ref('overall_structure')
+const drawingOptions = [
+  { key: 'overall_structure', label: '总体结构图', file: 'overall_structure.png' },
+  { key: 'track_mechanism', label: '履带机构图', file: 'track_mechanism.png' },
+  { key: 'cleaning_mechanism', label: '清扫机构图', file: 'cleaning_mechanism.png' },
+  { key: 'frame_structure', label: '机架结构图', file: 'frame_structure.png' },
+  { key: 'drive_mechanism', label: '驱动机构图', file: 'drive_mechanism.png' }
+]
 const packageStatus = ref('pending'), packageMessage = ref('等待生成')
 const project = reactive({ projectId: '', projectTitle: '', equipmentName: '', designType: '', designDepth: 'graduation', projectCategory: '', mainFunctions: [], mainStructures: [], explicitParameters: [], derivedParameters: [], suggestedParameters: [], verificationItems: [], calculations: [], bom: [], technicalRequirements: [], materials: [], standardParts: [], detailFeatures: [], drawingViews: [], annotationList: [], structureTree: null, resolvedParts: [], assemblyTree: null, assemblyConstraints: [], components: [], partCount: 0, featureCount: 0, detailScore: 0, enhancementNotes: [] })
 
@@ -283,12 +294,13 @@ const activeStep = computed(() => packageStatus.value === 'success' ? 10 : artif
 const analysisStatusText = computed(() => ({ pending: '待识别', running: '正在解析资料', success: '已识别设计目标', failed: '识别失败' })[analysisStatus.value] || analysisStatus.value)
 const canConfirmTarget = computed(() => Boolean(project.projectTitle?.trim() && project.equipmentName?.trim() && project.designType?.trim() && parameters.value.length))
 const groups = computed(() => ({
-  cad: artifacts.value.filter(x => /\.dxf$/i.test(x.fileName) || /^cad_preview\.(svg|png)$/i.test(x.fileName)),
+  cad: artifacts.value.filter(x => /\.dxf$/i.test(x.fileName) || /^(overall_structure|track_mechanism|cleaning_mechanism|frame_structure|drive_mechanism|cad_preview)\.(svg|png)$/i.test(x.fileName)),
   showcase: artifacts.value.filter(x => /^preview\.(svg|png)$/i.test(x.fileName)),
   macro: artifacts.value.filter(x => /\.(bas|txt)$/i.test(x.fileName)),
   document: artifacts.value.filter(x => /\.(docx|pdf)$/i.test(x.fileName)),
   package: artifacts.value.filter(x => /\.(zip|json)$/i.test(x.fileName))
 }))
+const selectedDrawingLabel = computed(() => drawingOptions.find(item => item.key === selectedDrawing.value)?.label || '章节图纸')
 const hasDesignModel = computed(() => Boolean(
   targetConfirmed.value ||
   artifacts.value.length ||
@@ -435,12 +447,23 @@ async function loadPreviews() {
     if (previews[key]) URL.revokeObjectURL(previews[key])
     previews[key] = ''
   }
-  const targets = { scheme: 'preview.png', cad: 'cad_preview.png' }
-  for (const [key, fileName] of Object.entries(targets)) {
-    const item = artifacts.value.find(file => file.fileName === fileName && file.status === 'success' && file.downloadUrl)
-    if (!item) continue
-    try { previews[key] = URL.createObjectURL(await downloadArtifact(item.downloadUrl)) } catch (_) { /* artifact card keeps the failure visible */ }
+  const scheme = artifacts.value.find(file => file.fileName === 'preview.png' && file.status === 'success' && file.downloadUrl)
+  if (scheme) {
+    try { previews.scheme = URL.createObjectURL(await downloadArtifact(scheme.downloadUrl)) } catch (_) { /* artifact card keeps the failure visible */ }
   }
+  await loadDrawingPreview()
+}
+async function loadDrawingPreview() {
+  if (previews.cad) URL.revokeObjectURL(previews.cad)
+  previews.cad = ''
+  const option = drawingOptions.find(item => item.key === selectedDrawing.value) || drawingOptions[0]
+  const item = artifacts.value.find(file => file.fileName === option.file && file.status === 'success' && file.downloadUrl)
+  if (!item) return
+  try { previews.cad = URL.createObjectURL(await downloadArtifact(item.downloadUrl)) } catch (_) { /* artifact card keeps the failure visible */ }
+}
+function selectDrawing(key) {
+  selectedDrawing.value = key
+  if (artifacts.value.length) loadDrawingPreview()
 }
 async function download(item) {
   if (item.status !== 'success' || !item.downloadUrl || !item.size) return ElMessage.error(item.failureReason || '文件未生成成功，无法下载')
@@ -463,4 +486,5 @@ function statusText(status) { return ({ pending:'等待中', running:'生成中'
 
 <style scoped>
 .workspace{max-width:1500px;margin:auto;padding:30px 24px 70px}.hero,.panel-head{display:flex;justify-content:space-between;align-items:flex-start;gap:24px}.hero h1{font-size:36px;margin:10px 0}.hero p{color:#64748b}.eyebrow{display:block;margin-top:18px;color:#2563eb;font-weight:800;font-size:12px;letter-spacing:.16em}.steps{margin:34px 0}.grid{display:grid;grid-template-columns:.9fr 1.1fr;gap:20px}.step-one{display:grid;gap:20px}.grid .el-card,.panel{border-radius:18px}.full{width:100%;margin:14px 0 0}.panel{margin-top:20px}.upload-slots{display:grid;gap:12px}.upload-slot{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;padding:14px;border:1px solid #e4e9f1;border-radius:14px;background:#f8fafc}.slot-main span{display:block;color:#64748b;font-size:12px;margin-top:4px}.file-status{grid-column:1/-1;color:#64748b;font-size:12px}.file-status b{display:block;color:#0f172a;margin-bottom:3px}.file-status.success span{color:#059669}.file-status.failed span{color:#dc2626}.file-status.running span{color:#d97706}.inline-alert{margin-top:14px}.recognition-form{margin-top:8px}.field-tip{margin:8px 0 0;color:#64748b;font-size:12px;line-height:1.6}.recognized-params{display:flex;flex-wrap:wrap;gap:8px}.muted{color:#94a3b8}.parameter-table{margin-top:16px;overflow:auto}.parameter-header,.parameter-row{display:grid;grid-template-columns:1fr .75fr .5fr .8fr 1.45fr 60px;gap:8px;align-items:center;min-width:850px}.parameter-header{padding:8px 0;color:#64748b;font-size:13px;font-weight:700}.parameter-row{padding:8px 0;border-top:1px solid #edf1f6}.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:20px 0}.metrics div{padding:18px;border-radius:14px;background:#f4f7fb}.metrics span{display:block;color:#64748b}.metrics strong{font-size:28px}.preview-stage{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin:20px 0}.preview-card{border:1px solid #e4e9f1;border-radius:16px;padding:14px;background:#f8fafc}.preview-card div{display:flex;justify-content:space-between;gap:12px;margin-bottom:10px}.preview-card span{color:#64748b;font-size:12px}.preview-card img{display:block;width:100%;height:360px;object-fit:contain;background:white;border-radius:10px}.model-card{grid-column:1/-1}.model-card :deep(.model-viewer){height:430px;min-height:430px}.list-panel{display:grid;grid-template-columns:repeat(2,1fr);gap:18px;margin:10px 0 18px}.list-panel>div{padding:16px;border:1px solid #e4e9f1;border-radius:14px;background:#f8fafc}.list-panel h3{margin:0 0 12px}.list-tag{margin:0 8px 8px 0}.note-line{margin:0 0 8px;color:#334155;line-height:1.7}.artifact-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:14px}.artifact{display:flex;justify-content:space-between;align-items:center;padding:16px;border:1px solid #e4e9f1;border-radius:12px}.artifact span{display:block;color:#64748b;font-size:12px;margin-top:5px}.artifact-action{display:flex;align-items:center;gap:8px}@media(max-width:1050px){.grid,.preview-stage,.list-panel{grid-template-columns:1fr}.metrics{grid-template-columns:repeat(2,1fr)}}@media(max-width:700px){.steps{display:none}.artifact-grid,.metrics{grid-template-columns:1fr}.hero{display:block}.upload-slot{grid-template-columns:1fr}}
+.drawing-switch{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 10px}.drawing-switch button{border:1px solid #cbd5e1;background:#fff;color:#334155;border-radius:6px;padding:7px 10px;font-size:12px;cursor:pointer}.drawing-switch button.active{background:#2563eb;border-color:#2563eb;color:#fff}.drawing-preview-card img{height:390px}
 </style>

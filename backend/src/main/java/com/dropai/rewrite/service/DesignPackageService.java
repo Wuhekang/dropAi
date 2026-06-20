@@ -57,7 +57,14 @@ public class DesignPackageService {
         generated.add(generateOne("paper.docx", DOCX, () -> paperEngine.generatePaper(project)));
         generated.add(generateOne("design_calculation.docx", DOCX, () -> paperEngine.generateCalculationBook(project)));
         generated.add(generateOne("sw_modeling_steps.docx", DOCX, () -> paperEngine.generateModelingSteps(project)));
-        generated.addAll(generateGroup(List.of("assembly.dxf", "cad_preview.svg", "cad_preview.png", "preview.svg", "preview.png"), () -> drawingEngine.drawAssemblyDrawing(project)));
+        generated.addAll(generateGroup(List.of(
+                "preview.svg", "preview.png",
+                "overall_structure.dxf", "overall_structure.svg", "overall_structure.png",
+                "track_mechanism.dxf", "track_mechanism.svg", "track_mechanism.png",
+                "cleaning_mechanism.dxf", "cleaning_mechanism.svg", "cleaning_mechanism.png",
+                "frame_structure.dxf", "frame_structure.svg", "frame_structure.png",
+                "drive_mechanism.dxf", "drive_mechanism.svg", "drive_mechanism.png",
+                "assembly.dxf", "cad_preview.svg", "cad_preview.png"), () -> drawingEngine.drawAssemblyDrawing(project)));
         generated.addAll(generateGroup(List.of("part_01.dxf", "part_02.dxf", "part_03.dxf", "part_04.dxf", "part_05.dxf"), () -> drawingEngine.drawPartDrawing(project)));
         generated.addAll(generateGroup(List.of("sw_macro_shell.bas", "sw_macro_base.bas", "sw_macro_inlet.bas", "sw_modeling_steps.txt"), () -> swMacroEngine.generate(project)));
         generated.addAll(generateGroup(List.of("design_parameters.json", "preview.pdf"),
