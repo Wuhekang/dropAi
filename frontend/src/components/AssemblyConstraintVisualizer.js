@@ -1,3 +1,5 @@
+import * as THREE from 'three'
+
 function textOf(part = {}) {
   return `${part.partName || ''} ${part.name || ''} ${part.category || ''} ${part.type || ''}`.toLowerCase()
 }

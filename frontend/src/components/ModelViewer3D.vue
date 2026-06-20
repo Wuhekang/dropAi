@@ -1,6 +1,7 @@
 <template>
   <div ref="wrap" class="model-viewer" @mouseenter="hovering = true" @mouseleave="hovering = false">
     <ModelControls @reset="resetView" @fullscreen="fullscreen" />
+    <div v-if="statusMessage" class="model-status">{{ statusMessage }}</div>
   </div>
 </template>
 
@@ -15,6 +16,7 @@ const props = defineProps({ project: { type: Object, default: () => ({}) } })
 const wrap = ref(null)
 const hovering = ref(false)
 const model = shallowRef(null)
+const statusMessage = ref('')
 let renderer, scene, camera, controls, frameId, observer
 
 function setupScene() {
@@ -54,7 +56,13 @@ function setModel() {
     console.error('3D方案模型生成失败，已切换到演示模型', error)
     model.value = buildParametricMechanicalModel({})
   }
+  statusMessage.value = hasModelData(props.project) ? '' : '暂无模型数据，已展示演示模型'
   scene.add(model.value)
+}
+
+function hasModelData(project = {}) {
+  return (Array.isArray(project.components) && project.components.length > 0)
+    || (Array.isArray(project.resolvedParts) && project.resolvedParts.length > 0)
 }
 
 function animate() {
@@ -95,4 +103,5 @@ onBeforeUnmount(() => {
 .model-viewer{position:relative;min-height:440px;height:100%;border-radius:24px;overflow:hidden;background:#0f172a;box-shadow:inset 0 0 70px rgba(59,130,246,.2)}
 .model-viewer:fullscreen{width:100vw;height:100vh;border-radius:0}
 canvas{display:block;width:100%;height:100%}
+.model-status{position:absolute;left:16px;bottom:16px;max-width:calc(100% - 32px);padding:8px 12px;border-radius:8px;background:rgba(15,23,42,.76);color:#dbeafe;font-size:13px;line-height:1.4;pointer-events:none}
 </style>
