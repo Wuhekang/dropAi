@@ -144,7 +144,7 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
 
     @Override
     public Resource download(String jobId) {
-        DocumentJobRecord record = ownedRecord(jobId, AuthContext.requireUserId());
+        DocumentJobRecord record = ownedRecordWithOutputFile(jobId, AuthContext.requireUserId());
         if (record == null || record.getOutputFile() == null || record.getOutputFile().length == 0) {
             throw new IllegalArgumentException("处理结果不存在或任务尚未完成");
         }
@@ -541,6 +541,16 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
 
     private DocumentJobRecord ownedRecord(String jobId, Long userId) {
         return documentJobMapper.selectOne(new LambdaQueryWrapper<DocumentJobRecord>()
+                .eq(DocumentJobRecord::getJobId, jobId)
+                .eq(DocumentJobRecord::getUserId, userId));
+    }
+
+    private DocumentJobRecord ownedRecordWithOutputFile(String jobId, Long userId) {
+        return documentJobMapper.selectOne(new LambdaQueryWrapper<DocumentJobRecord>()
+                .select(DocumentJobRecord::getJobId,
+                        DocumentJobRecord::getUserId,
+                        DocumentJobRecord::getFileName,
+                        DocumentJobRecord::getOutputFile)
                 .eq(DocumentJobRecord::getJobId, jobId)
                 .eq(DocumentJobRecord::getUserId, userId));
     }

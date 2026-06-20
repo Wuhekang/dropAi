@@ -35,7 +35,7 @@ public class DesignWorkflowService {
     private final ParametricDxfService dxfService;
     private final DocumentJobMapper documentJobMapper;
     private final ObjectMapper objectMapper;
-    private final ExecutorService executor = Executors.newFixedThreadPool(6);
+    private final ExecutorService executor = Executors.newFixedThreadPool(2);
     private final Map<String, DesignWorkflowVO> workflows = new ConcurrentHashMap<>();
 
     public DesignWorkflowService(MatrixDesignService matrixDesignService, ParametricDxfService dxfService,

@@ -23,3 +23,5 @@ services:
         sync: false
       - key: MATRIX_MODEL
         value: claude-opus-4-7
+      - key: DOUBAO_DOCUMENT_CONCURRENCY
+        value: 2

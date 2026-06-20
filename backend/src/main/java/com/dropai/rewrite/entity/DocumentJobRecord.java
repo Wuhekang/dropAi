@@ -1,6 +1,7 @@
 package com.dropai.rewrite.entity;
 
 import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import java.time.LocalDateTime;
 
@@ -21,6 +22,7 @@ public class DocumentJobRecord {
     private Integer rewrittenParagraphs;
     private String message;
     private String paragraphsJson;
+    @TableField(select = false)
     private byte[] outputFile;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
