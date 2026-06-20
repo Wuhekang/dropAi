@@ -73,16 +73,20 @@ class DesignPackageModuleTests {
         assertFalse(dxf.contains("P002"));
         assertFalse(dxf.contains("DrawingPlan"));
         assertFalse(dxf.contains("debug"));
-        assertTrue(dxf.contains("主视图"));
-        assertTrue(dxf.contains("俯视图"));
-        assertTrue(dxf.contains("侧视图"));
-        assertTrue(dxf.contains("BOM明细表"));
-        assertTrue(dxf.contains("技术要求"));
-        assertTrue(dxf.contains("基准A"));
-        assertTrue(dxf.contains("位置度"));
+        assertTrue(dxf.contains("Front view"));
+        assertTrue(dxf.contains("Top view"));
+        assertTrue(dxf.contains("Side view"));
+        assertTrue(dxf.contains("Core BOM"));
+        assertTrue(dxf.contains("Technical notes"));
         byte[] png = drawings.stream().filter(file -> "cad_preview.png".equals(file.fileName())).findFirst().orElseThrow().content();
         assertTrue(png.length > 1000);
         assertTrue(ImageIO.read(new ByteArrayInputStream(png)).getWidth() >= 1600);
+        String conceptSvg = new String(drawings.stream().filter(file -> "preview.svg".equals(file.fileName())).findFirst().orElseThrow().content(), StandardCharsets.UTF_8);
+        String cadSvg = new String(drawings.stream().filter(file -> "cad_preview.svg".equals(file.fileName())).findFirst().orElseThrow().content(), StandardCharsets.UTF_8);
+        assertTrue(conceptSvg.contains("Color concept diagram"));
+        assertTrue(conceptSvg.contains("Functional areas"));
+        assertFalse(conceptSvg.contains("Core BOM"));
+        assertFalse(conceptSvg.equals(cadSvg));
     }
 
     @Test
