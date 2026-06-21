@@ -180,15 +180,18 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
 
     public void process(String jobId, Path inputPath, Path outputPath) {
         DocumentRewriteJobVO job = jobs.get(jobId);
-        update(job, "RUNNING", "正在分析文档段落");
+        update(job, "RUNNING", "正在读取 DOCX 内容，图片较多时可能需要更长时间");
         try (InputStream inputStream = Files.newInputStream(inputPath);
              XWPFDocument document = new XWPFDocument(inputStream)) {
+            update(job, "RUNNING", "DOCX 已读取，正在提取文档段落");
             List<XWPFParagraph> paragraphs = collectParagraphs(document);
             job.setTotalParagraphs(paragraphs.size());
+            job.setProcessedParagraphs(0);
             job.setUpdatedAt(LocalDateTime.now());
             if (paragraphs.isEmpty()) {
                 job.setMessage("未识别到普通正文段落，将生成原文副本");
             }
+            update(job, "RUNNING", "已读取 " + paragraphs.size() + " 个文档段落，正在筛选正文段落");
 
             List<RewriteTarget> targets = collectRewriteTargets(job, paragraphs);
             job.setParagraphs(targets.stream().map(this::toParagraphJob).collect(Collectors.toList()));
@@ -198,8 +201,7 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
                 update(job, "FAILED", "未识别到可优化正文段落，未生成优化结果。请检查文档是否包含目录后的正文内容。");
                 return;
             }
-            job.setMessage("已提取 " + targets.size() + " 个待优化段落，开始并发处理");
-            job.setUpdatedAt(LocalDateTime.now());
+            update(job, "RUNNING", "已提取 " + targets.size() + " 个待优化段落，开始并发处理");
 
             List<RewriteResult> results = rewriteTargetsConcurrently(job, targets);
             long failedParagraphs = results.stream().filter(result -> !result.success()).count();
@@ -223,23 +225,11 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             job.setDownloadUrl("/api/document/rewrite/download/" + jobId);
             if (failedParagraphs > 0) {
                 update(job, "FAILED", job.getModeName() + "未完成：已处理 " + job.getRewrittenParagraphs()
-                        + " 个段落，失败 " + failedParagraphs + " 个段落；模型状态：" + aiRewriteService.lastCallProvider());
+                        + " 个段落，失败 " + failedParagraphs + " 个段落；首个失败原因：" + firstFailure
+                        + "；模型状态：" + aiRewriteService.lastCallProvider());
             } else {
                 update(job, "SUCCESS", completedMessage(job.getMode()) + "；已处理 " + job.getRewrittenParagraphs()
                         + " 个段落；模型状态：" + aiRewriteService.lastCallProvider());
-            }
-            if (failedParagraphs > 0) {
-                update(job, "FAILED", job.getModeName() + "未完成：已处理 " + job.getRewrittenParagraphs()
-                        + " 个段落，失败 " + failedParagraphs + " 个段落；首个失败原因：" + firstFailure);
-            } else {
-                update(job, "SUCCESS", completedMessage(job.getMode()) + "；已处理 "
-                        + job.getRewrittenParagraphs() + " 个段落");
-            }
-            if (failedParagraphs > 0) {
-                update(job, "FAILED", "Document rewrite failed: rewritten=" + job.getRewrittenParagraphs()
-                        + ", failed=" + failedParagraphs + ", firstError=" + firstFailure);
-            } else {
-                update(job, "SUCCESS", completedMessage(job.getMode()));
             }
             persistJob(job, null, Files.readAllBytes(outputPath));
         } catch (Exception exception) {
