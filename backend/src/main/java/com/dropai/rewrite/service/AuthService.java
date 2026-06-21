@@ -30,8 +30,8 @@ public class AuthService {
         account.setPhone(dto.getPhone());
         account.setPasswordHash(encoder.encode(dto.getPassword()));
         account.setRole("USER");
-        account.setPoints(1000);
-        account.setTotalPoints(1000);
+        account.setPoints(0);
+        account.setTotalPoints(0);
         account.setUsedPoints(0);
         account.setCreatedAt(LocalDateTime.now());
         account.setUpdatedAt(LocalDateTime.now());

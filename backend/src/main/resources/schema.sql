@@ -18,18 +18,20 @@ CREATE TABLE IF NOT EXISTS user_account (
   phone VARCHAR(20) NOT NULL UNIQUE,
   password_hash VARCHAR(100) NOT NULL,
   role VARCHAR(20) NOT NULL DEFAULT 'USER',
-  points INT NOT NULL DEFAULT 1000,
-  total_points INT NOT NULL DEFAULT 1000,
+  points INT NOT NULL DEFAULT 0,
+  total_points INT NOT NULL DEFAULT 0,
   used_points INT NOT NULL DEFAULT 0,
   created_at DATETIME NOT NULL,
   updated_at DATETIME NOT NULL
 ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-ALTER TABLE user_account ADD COLUMN IF NOT EXISTS points INT NOT NULL DEFAULT 1000;
-ALTER TABLE user_account ADD COLUMN IF NOT EXISTS total_points INT NOT NULL DEFAULT 1000;
+ALTER TABLE user_account ADD COLUMN IF NOT EXISTS points INT NOT NULL DEFAULT 0;
+ALTER TABLE user_account ADD COLUMN IF NOT EXISTS total_points INT NOT NULL DEFAULT 0;
 ALTER TABLE user_account ADD COLUMN IF NOT EXISTS used_points INT NOT NULL DEFAULT 0;
-UPDATE user_account SET points = 1000 WHERE points IS NULL;
-UPDATE user_account SET total_points = 1000 WHERE total_points IS NULL;
+ALTER TABLE user_account ALTER COLUMN points SET DEFAULT 0;
+ALTER TABLE user_account ALTER COLUMN total_points SET DEFAULT 0;
+UPDATE user_account SET points = 0 WHERE points IS NULL;
+UPDATE user_account SET total_points = 0 WHERE total_points IS NULL;
 UPDATE user_account SET used_points = 0 WHERE used_points IS NULL;
 
 CREATE TABLE IF NOT EXISTS user_session (

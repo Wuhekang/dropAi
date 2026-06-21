@@ -93,7 +93,7 @@ public class PointService {
 
     @Transactional
     public void initializeUserPoints(UserAccount account) {
-        if (account.getPoints() == null) account.setPoints(1000);
+        if (account.getPoints() == null) account.setPoints(0);
         if (account.getTotalPoints() == null) account.setTotalPoints(account.getPoints());
         if (account.getUsedPoints() == null) account.setUsedPoints(0);
     }
@@ -138,7 +138,7 @@ public class PointService {
         UserAccount user = userMapper.selectById(userId);
         if (user == null) throw new IllegalStateException("用户不存在");
         if (user.getPoints() == null || user.getTotalPoints() == null || user.getUsedPoints() == null) {
-            user.setPoints(user.getPoints() == null ? 1000 : user.getPoints());
+            user.setPoints(user.getPoints() == null ? 0 : user.getPoints());
             user.setTotalPoints(user.getTotalPoints() == null ? user.getPoints() : user.getTotalPoints());
             user.setUsedPoints(user.getUsedPoints() == null ? 0 : user.getUsedPoints());
             userMapper.updatePointSnapshot(userId, value(user.getPoints()), value(user.getTotalPoints()), value(user.getUsedPoints()));
