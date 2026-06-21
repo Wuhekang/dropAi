@@ -16,6 +16,7 @@ import org.apache.poi.xwpf.usermodel.XWPFTableRow;
 import org.apache.poi.xwpf.usermodel.XWPFParagraph;
 import org.apache.poi.xwpf.usermodel.XWPFRun;
 import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTRPr;
+import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.ByteArrayResource;
@@ -73,6 +74,22 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
         this.doubaoProperties = doubaoProperties;
         this.documentJobMapper = documentJobMapper;
         this.objectMapper = objectMapper;
+    }
+
+    @PostConstruct
+    public void markInterruptedJobsFailed() {
+        try {
+            List<DocumentJobRecord> interruptedJobs = documentJobMapper.selectList(new LambdaQueryWrapper<DocumentJobRecord>()
+                    .in(DocumentJobRecord::getStatus, "PENDING", "RUNNING"));
+            for (DocumentJobRecord record : interruptedJobs) {
+                record.setStatus("FAILED");
+                record.setMessage("服务重启后任务未继续执行，请重新上传文档处理");
+                record.setUpdatedAt(LocalDateTime.now());
+                documentJobMapper.updateById(record);
+            }
+        } catch (Exception ignored) {
+            // Some local/test databases may not have the document_job table yet.
+        }
     }
 
     @Override
@@ -539,9 +556,13 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
     }
 
     private void update(DocumentRewriteJobVO job, String status, String message) {
+        if (job == null) {
+            return;
+        }
         job.setStatus(status);
         job.setMessage(message);
         job.setUpdatedAt(LocalDateTime.now());
+        persistJob(job, null, null);
     }
 
     private DocumentJobRecord ownedRecord(String jobId, Long userId) {
