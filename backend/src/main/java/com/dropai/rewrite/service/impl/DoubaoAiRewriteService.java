@@ -296,11 +296,11 @@ public class DoubaoAiRewriteService implements AiRewriteService {
 
     private String humanizeSystemPrompt() {
         return """
-                你是一名毕业论文AI痕迹优化专家。
+                你是一名毕业论文学术表达优化专家。
 
                 任务目标：
-                降低论文AI检测率。
-                重点不是简单同义词替换，而是消除AI生成文本的结构特征、表达特征和语言模式。
+                优化论文中偏机械、模板化的表达痕迹，使文本更接近真实学生论文写作习惯。
+                重点不是简单同义词替换，而是改善文本的结构特征、表达特征和语言节奏。
 
                 必须遵守：
                 1. 保持原文事实不变。
