@@ -131,7 +131,7 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             jobs.put(jobId, job);
             persistJob(job, userId, null);
 
-            documentExecutor.submit(() -> process(jobId, inputPath, outputDir.resolve(jobId + "-ai-optimized.docx")));
+            documentExecutor.submit(() -> processSafely(jobId, inputPath, outputDir.resolve(jobId + "-ai-optimized.docx")));
             return job;
         } catch (IOException exception) {
             throw new IllegalStateException("文档上传失败：" + exception.getMessage(), exception);
@@ -176,6 +176,17 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
         }
         String baseName = job.getFileName().replaceAll("(?i)\\.docx$", "");
         return baseName + "-AI痕迹优化.docx";
+    }
+
+    private void processSafely(String jobId, Path inputPath, Path outputPath) {
+        try {
+            process(jobId, inputPath, outputPath);
+        } catch (Exception exception) {
+            writeJobLog(jobId, exception);
+            DocumentRewriteJobVO job = jobs.get(jobId);
+            update(job, "FAILED", "处理线程异常：" + readableMessage(exception) + "；详情见 storage/jobs/" + jobId + ".log");
+            persistJobSafely(job, null, null);
+        }
     }
 
     public void process(String jobId, Path inputPath, Path outputPath) {
@@ -235,7 +246,7 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
         } catch (Exception exception) {
             writeJobLog(jobId, exception);
             update(job, "FAILED", "处理失败：" + readableMessage(exception) + "；详情见 storage/jobs/" + jobId + ".log");
-            persistJob(job, null, null);
+            persistJobSafely(job, null, null);
         }
     }
 
@@ -552,7 +563,17 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
         job.setStatus(status);
         job.setMessage(message);
         job.setUpdatedAt(LocalDateTime.now());
-        persistJob(job, null, null);
+        persistJobSafely(job, null, null);
+    }
+
+    private void persistJobSafely(DocumentRewriteJobVO job, Long userId, byte[] outputFile) {
+        try {
+            persistJob(job, userId, outputFile);
+        } catch (Exception exception) {
+            if (job != null) {
+                writeJobLog(job.getJobId() + "-persist", exception);
+            }
+        }
     }
 
     private DocumentJobRecord ownedRecord(String jobId, Long userId) {
