@@ -22,6 +22,8 @@ import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
@@ -131,11 +133,25 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             jobs.put(jobId, job);
             persistJob(job, userId, null);
 
-            documentExecutor.submit(() -> processSafely(jobId, inputPath, outputDir.resolve(jobId + "-ai-optimized.docx")));
+            scheduleProcessingAfterCommit(jobId, inputPath, outputDir.resolve(jobId + "-ai-optimized.docx"));
             return job;
         } catch (IOException exception) {
             throw new IllegalStateException("文档上传失败：" + exception.getMessage(), exception);
         }
+    }
+
+    private void scheduleProcessingAfterCommit(String jobId, Path inputPath, Path outputPath) {
+        Runnable task = () -> documentExecutor.submit(() -> processSafely(jobId, inputPath, outputPath));
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            task.run();
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                task.run();
+            }
+        });
     }
 
     @Override
