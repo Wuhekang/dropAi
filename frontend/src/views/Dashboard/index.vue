@@ -73,43 +73,70 @@
         <div class="section-head">
           <div>
             <h2>我的文档</h2>
-            <p>当前及未来所有功能生成的文档都会在这里统一展示。</p>
+            <p>成果包用于整体交付，过程文档和检测报告可单独查看与下载。</p>
           </div>
-          <el-button :loading="loading" @click="loadDocuments">刷新</el-button>
+          <el-button :loading="loading" @click="refreshDocuments">刷新</el-button>
         </div>
       </template>
-      <el-table :data="documents" empty-text="暂无生成文档">
-        <el-table-column prop="fileName" label="文档名称" min-width="240" show-overflow-tooltip />
-        <el-table-column label="来源功能" width="150">
-          <template #default="{ row }">{{ featureName(row.sourceFeature) }}</template>
-        </el-table-column>
-        <el-table-column prop="platformName" label="处理口径" width="110" />
-        <el-table-column label="状态" width="110">
-          <template #default="{ row }">
-            <el-tag :type="statusType(row.status)">{{ statusText(row.status) }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="updatedAt" label="更新时间" width="190" />
-        <el-table-column label="操作" width="110">
-          <template #default="{ row }">
-            <el-button text type="success" :disabled="row.status !== 'SUCCESS'" @click="download(row)">下载</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
+      <el-empty v-if="!documents.length && !loading" description="暂无生成文档" />
+      <div v-else class="document-list">
+        <article v-for="item in documents" :key="item.id" class="document-card">
+          <div class="document-card-head">
+            <div>
+              <h3>{{ item.projectName || '未命名项目' }}</h3>
+              <p>时间：{{ formatTime(item.createTime) }}</p>
+            </div>
+            <el-tag :type="statusType(item.status)">{{ statusText(item.status) }}</el-tag>
+          </div>
+
+          <div class="delivery-grid">
+            <section class="delivery-section">
+              <h4>成果包</h4>
+              <el-button
+                type="primary"
+                :disabled="item.status !== 'SUCCESS' || !item.packageUrl"
+                @click="downloadUrl(item.packageUrl, `${item.projectName || '毕业设计成果包'}.zip`)"
+              >
+                下载毕业设计成果包ZIP
+              </el-button>
+              <p v-if="!item.packageUrl" class="muted">该项目暂无成果包。</p>
+            </section>
+
+            <section class="delivery-section">
+              <h4>文档输出</h4>
+              <div class="doc-output-list">
+                <div v-for="doc in docOutputs(item)" :key="doc.key" class="doc-output-row">
+                  <span>{{ doc.label }}</span>
+                  <div>
+                    <el-button v-if="doc.viewable" text type="primary" :disabled="!doc.url" @click="viewUrl(doc.url, doc.fileName)">查看</el-button>
+                    <el-button text type="success" :disabled="!doc.url" @click="downloadUrl(doc.url, doc.fileName)">下载</el-button>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </div>
+        </article>
+      </div>
+      <div class="document-pagination">
+        <el-button :disabled="page.pageNum <= 1 || loading" @click="goPage(page.pageNum - 1)">上一页</el-button>
+        <span>第 {{ page.pageNum }} 页 / 共 {{ pageTotal }} 页</span>
+        <el-button :disabled="page.pageNum >= pageTotal || loading" @click="goPage(page.pageNum + 1)">下一页</el-button>
+      </div>
     </el-card>
   </main>
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import HomeHero3D from '../../components/HomeHero3D.vue'
-import { downloadMyDocument, getMyDocuments, getPointAccount, logout } from '../../api/rewrite'
+import { downloadArtifact, getMyDocuments, getPointAccount, logout } from '../../api/rewrite'
 
 const router = useRouter()
 const username = sessionStorage.getItem('dropai_username') || '当前账号'
 const role = sessionStorage.getItem('dropai_role') || 'USER'
 const documents = ref([])
+const page = ref({ pageNum: 1, pageSize: 10, total: 0 })
 const loading = ref(false)
 const pointsLoading = ref(false)
 const pointAccount = ref({ points: null, totalPoints: null, usedPoints: null, recentTransactions: [] })
@@ -122,24 +149,47 @@ const heroProject = {
   totalHeight: 3200
 }
 
+const pageTotal = computed(() => Math.max(1, Math.ceil((page.value.total || 0) / page.value.pageSize)))
+
 async function loadDocuments() {
   loading.value = true
-  try { documents.value = await getMyDocuments() || [] } finally { loading.value = false }
+  try {
+    const result = await getMyDocuments({ pageNum: page.value.pageNum, pageSize: page.value.pageSize })
+    documents.value = result?.list || []
+    page.value.total = result?.total || 0
+    page.value.pageNum = result?.pageNum || page.value.pageNum
+    page.value.pageSize = result?.pageSize || page.value.pageSize
+  } finally { loading.value = false }
+}
+function refreshDocuments() {
+  page.value.pageNum = 1
+  loadDocuments()
+}
+function goPage(pageNum) {
+  page.value.pageNum = Math.max(1, pageNum)
+  loadDocuments()
 }
 async function loadPoints() {
   pointsLoading.value = true
   try { pointAccount.value = await getPointAccount() || pointAccount.value } finally { pointsLoading.value = false }
 }
-async function download(row) {
-  const blob = await downloadMyDocument(row.jobId)
-  const url = URL.createObjectURL(blob)
+async function downloadUrl(downloadUrl, fileName) {
+  if (!downloadUrl) return
+  const blob = await downloadArtifact(downloadUrl)
+  const objectUrl = URL.createObjectURL(blob)
   const link = document.createElement('a')
-  link.href = url
-  link.download = row.sourceFeature === 'REWRITE'
-    ? row.fileName?.replace(/\.docx$/i, '') + '-生成结果.docx'
-    : row.fileName
+  link.href = objectUrl
+  link.download = fileName || 'download'
   link.click()
-  URL.revokeObjectURL(url)
+  URL.revokeObjectURL(objectUrl)
+}
+async function viewUrl(url, fileName) {
+  if (!url) return
+  const blob = await downloadArtifact(url)
+  const viewBlob = blob.type === 'application/pdf' ? blob : new Blob([blob], { type: 'application/pdf' })
+  const objectUrl = URL.createObjectURL(viewBlob)
+  window.open(objectUrl, '_blank', 'noopener')
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 60000)
 }
 async function signOut() {
   try { await logout() } finally {
@@ -150,7 +200,18 @@ async function signOut() {
 }
 function statusType(status) { return status === 'SUCCESS' ? 'success' : status === 'FAILED' ? 'danger' : 'warning' }
 function statusText(status) { return ({ SUCCESS: '已完成', FAILED: '失败', RUNNING: '处理中', PENDING: '等待中' })[status] || status }
-function featureName(feature) { return feature === 'REWRITE' ? '降重与降 AI' : feature === 'DESIGN_GENERATION' || feature === 'ENGINEERING_WRITING' ? '设计生成' : feature || '设计生成' }
+function formatTime(value) { return value ? String(value).replace('T', ' ').slice(0, 16) : '--' }
+function docOutputs(item) {
+  const doc = item.doc || {}
+  const base = item.projectName || '文档输出'
+  return [
+    { key: 'reduce', label: '降重文档', url: doc.reduceDocUrl, fileName: `${base}-降重文档.docx` },
+    { key: 'aiReduce', label: '降AI文档', url: doc.aiReduceDocUrl, fileName: `${base}-降AI文档.docx` },
+    { key: 'doubleReduce', label: '双降文档', url: doc.doubleReduceDocUrl, fileName: `${base}-双降文档.docx` },
+    { key: 'aiReport', label: 'AI检测报告', url: doc.aiReportUrl, fileName: `${base}-AI检测报告.pdf`, viewable: true },
+    { key: 'plagiarismReport', label: '查重报告', url: doc.plagiarismReportUrl, fileName: `${base}-查重报告.pdf`, viewable: true }
+  ]
+}
 onMounted(() => {
   loadDocuments()
   loadPoints()
@@ -175,5 +236,21 @@ h1{margin:8px 0 6px;font-size:38px}h2{margin:0 0 6px}
 .feature-grid div{padding:18px;border-radius:18px;background:#f8fafc;border:1px solid #e2e8f0}
 .feature-grid strong{display:block;margin-bottom:8px;color:#172033}
 .document-center{border-radius:18px}.section-head h2{font-size:22px}
+.document-list{display:grid;grid-template-columns:1fr;gap:14px}
+.document-card{border:1px solid #e2e8f0;border-radius:16px;padding:18px;background:#fff}
+.document-card-head{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin-bottom:16px}
+.document-card h3{margin:0 0 6px;font-size:18px;color:#172033;line-height:1.35;word-break:break-word}
+.document-card p{margin:0;color:#64748b;line-height:1.6}
+.delivery-grid{display:grid;grid-template-columns:.85fr 1.15fr;gap:16px}
+.delivery-section{border:1px solid #edf2f7;border-radius:12px;padding:14px;background:#f8fafc}
+.delivery-section h4{margin:0 0 12px;font-size:15px;color:#334155}
+.muted{margin-top:10px!important;font-size:13px;color:#94a3b8!important}
+.doc-output-list{display:grid;gap:8px}
+.doc-output-row{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:34px;border-bottom:1px solid #e8eef7;padding-bottom:8px}
+.doc-output-row:last-child{border-bottom:none;padding-bottom:0}
+.doc-output-row span{font-weight:700;color:#334155}
+.doc-output-row div{display:flex;align-items:center;gap:4px;flex-shrink:0}
+.document-pagination{display:flex;align-items:center;justify-content:center;gap:16px;margin-top:18px;color:#64748b}
 @media(max-width:980px){.quick-actions,.feature-grid,.points-panel{grid-template-columns:1fr}.dashboard-header{align-items:center}h1{font-size:30px}}
+@media(max-width:760px){.document-card-head,.doc-output-row{align-items:flex-start}.delivery-grid{grid-template-columns:1fr}.doc-output-row{flex-direction:column}.document-pagination{gap:10px}}
 </style>

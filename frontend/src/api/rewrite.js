@@ -152,8 +152,8 @@ export function downloadDocument(jobId) {
   })
 }
 
-export function getMyDocuments() {
-  return request.get('/documents')
+export function getMyDocuments(params = { pageNum: 1, pageSize: 10 }) {
+  return request.get('/documents', { params })
 }
 
 export function downloadMyDocument(jobId) {
