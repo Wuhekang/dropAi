@@ -32,6 +32,7 @@ const registering = ref(false)
 const loading = ref(false)
 const form = reactive({ phone: '', password: '' })
 async function submit() {
+  if (loading.value) return
   if (!form.phone || !form.password) return
   loading.value = true
   try {

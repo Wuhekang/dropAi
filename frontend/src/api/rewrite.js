@@ -6,6 +6,18 @@ const request = axios.create({
   timeout: 120000
 })
 
+const recentMessages = new Map()
+
+function showApiError(message) {
+  const now = Date.now()
+  const lastShownAt = recentMessages.get(message) || 0
+  if (now - lastShownAt < 1800) {
+    return
+  }
+  recentMessages.set(message, now)
+  ElMessage.error(message)
+}
+
 function logApiError(error) {
   const config = error.config || {}
   console.error('[DropAI API Error]', {
@@ -30,7 +42,7 @@ request.interceptors.response.use(
     const result = response.data
     if (result && result.code !== 200) {
       const message = result.message || '请求失败'
-      ElMessage.error(message)
+      showApiError(message)
       return Promise.reject(new Error(message))
     }
     return result.data
@@ -51,7 +63,7 @@ request.interceptors.response.use(
     } else if (!error.response) {
       message = '无法连接后端服务，请确认服务已启动'
     }
-    ElMessage.error(message)
+    showApiError(message)
     return Promise.reject(new Error(message))
   }
 )

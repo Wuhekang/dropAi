@@ -462,6 +462,7 @@ const documentMode = ref('humanize')
 const targetPlatform = ref('GENERAL')
 const documentUploading = ref(false)
 const documentPollTimer = ref(null)
+const documentTerminalMessages = new Set()
 const documentJobs = ref([])
 const documentDetailVisible = ref(false)
 const documentJob = reactive({
@@ -644,6 +645,9 @@ function handleDocumentSelected(uploadFile) {
 }
 
 async function submitDocument() {
+  if (documentUploading.value) {
+    return
+  }
   if (!selectedDocument.value) {
     ElMessage.warning('请先选择 .docx 文件')
     return
@@ -657,6 +661,8 @@ async function submitDocument() {
     const job = await uploadDocument(selectedDocument.value, documentMode.value, targetPlatform.value)
     setDocumentJob(job)
     rememberDocumentJob(job)
+    documentTerminalMessages.delete(`${job.jobId}:SUCCESS`)
+    documentTerminalMessages.delete(`${job.jobId}:FAILED`)
     ElMessage.success('文档任务已提交，正在后台处理')
     await startDocumentPolling(job.jobId)
   } finally {
@@ -670,12 +676,7 @@ async function startDocumentPolling(jobId) {
   }
   await syncDocumentJob(jobId)
   if (['SUCCESS', 'FAILED'].includes(documentJob.status)) {
-    if (documentJob.status === 'FAILED') {
-      ElMessage.error(documentJob.message || '文档处理失败')
-    }
-    if (documentJob.status === 'SUCCESS') {
-      ElMessage.success(documentJob.message || '文档处理完成')
-    }
+    notifyDocumentTerminal(documentJob)
     return
   }
   documentPollTimer.value = setInterval(async () => {
@@ -687,12 +688,7 @@ async function startDocumentPolling(jobId) {
       if (['SUCCESS', 'FAILED'].includes(job.status)) {
         clearInterval(documentPollTimer.value)
         documentPollTimer.value = null
-        if (job.status === 'FAILED') {
-          ElMessage.error(job.message || '文档处理失败')
-        }
-        if (job.status === 'SUCCESS') {
-          ElMessage.success(job.message || '文档优化完成')
-        }
+        notifyDocumentTerminal(job)
       }
     } catch (error) {
       clearInterval(documentPollTimer.value)
@@ -701,6 +697,22 @@ async function startDocumentPolling(jobId) {
       documentJob.message = error.message || '查询文档任务失败'
     }
   }, 800)
+}
+
+function notifyDocumentTerminal(job) {
+  if (!job?.jobId || !['SUCCESS', 'FAILED'].includes(job.status)) {
+    return
+  }
+  const key = `${job.jobId}:${job.status}`
+  if (documentTerminalMessages.has(key)) {
+    return
+  }
+  documentTerminalMessages.add(key)
+  if (job.status === 'FAILED') {
+    ElMessage.error(job.message || '文档处理失败')
+  } else {
+    ElMessage.success(job.message || '文档优化完成')
+  }
 }
 
 async function syncDocumentJob(jobId) {
