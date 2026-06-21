@@ -127,10 +127,14 @@ public class DoubaoAiRewriteService implements AiRewriteService {
                     必须区分资料明确参数、推导参数和工程建议值，不得把建议值伪装成任务书原值。
                     """;
         }
-        if ("降低AI写作痕迹".equals(baseRewriteType)
-                || "深度降低AI写作痕迹".equals(baseRewriteType)
-                || "双降".equals(baseRewriteType)) {
-            return skillPromptService.loadSkill("humanize-zh-academic");
+        if (isRewriteMode(baseRewriteType)) {
+            return rewriteSystemPrompt();
+        }
+        if (isHumanizeMode(baseRewriteType)) {
+            return humanizeSystemPrompt();
+        }
+        if (isDoubleMode(baseRewriteType)) {
+            return doubleSystemPrompt();
         }
         return """
                 你是学术写作优化助手。你的任务是帮助用户改进论文段落表达质量，而不是承诺规避任何检测。
@@ -151,6 +155,21 @@ public class DoubaoAiRewriteService implements AiRewriteService {
             return originalText;
         }
         String platform = platformCode(rewriteType);
+        if (isRewriteMode(baseRewriteType) || isHumanizeMode(baseRewriteType) || isDoubleMode(baseRewriteType)) {
+            return """
+                    优化类型：%s
+                    目标检测口径：%s
+                    改写前风险分：%d
+                    上一次失败原因：%s
+
+                    请严格按照系统 Prompt 的任务目标和禁止事项处理。
+                    任何 [[DROP_AI_PROTECTED_数字]] 占位符都必须逐字原样保留，不得删除、改写、翻译或调整顺序。
+                    只输出优化后的完整正文，不输出解释、标题、步骤、列表或多个版本。
+
+                    原文：
+                    %s
+                    """.formatted(displayModeName(baseRewriteType), platformName(platform), beforeScore, isBlank(feedback) ? "无" : feedback, originalText);
+        }
         String extraRule = "";
         if ("深度降低AI写作痕迹".equals(baseRewriteType)) {
             extraRule = """
@@ -220,6 +239,102 @@ public class DoubaoAiRewriteService implements AiRewriteService {
         }
         int index = rewriteType.indexOf('@');
         return index >= 0 ? rewriteType.substring(0, index) : rewriteType;
+    }
+
+    private boolean isRewriteMode(String rewriteType) {
+        return "rewrite".equals(rewriteType)
+                || "智能降重".equals(rewriteType)
+                || "降重复改写".equals(rewriteType);
+    }
+
+    private boolean isHumanizeMode(String rewriteType) {
+        return "humanize".equals(rewriteType)
+                || "智能降AI".equals(rewriteType)
+                || "降低AI写作痕迹".equals(rewriteType)
+                || "深度降低AI写作痕迹".equals(rewriteType);
+    }
+
+    private boolean isDoubleMode(String rewriteType) {
+        return "double".equals(rewriteType)
+                || "双降增强".equals(rewriteType)
+                || "双降".equals(rewriteType);
+    }
+
+    private String displayModeName(String rewriteType) {
+        if (isRewriteMode(rewriteType)) {
+            return "智能降重";
+        }
+        if (isDoubleMode(rewriteType)) {
+            return "双降增强";
+        }
+        return "智能降AI";
+    }
+
+    private String rewriteSystemPrompt() {
+        return """
+                你是一名学术论文改写专家。
+
+                任务目标：
+                在保持原意、数据、专业术语和论文结构不变的前提下，降低文本重复表达风险。
+
+                改写要求：
+                1. 不改变原文核心观点。
+                2. 不删除重要信息。
+                3. 不随意增加未经原文支持的新内容。
+                4. 保留专业术语、数据、公式、引用、图表编号。
+                5. 避免大段照搬原句。
+                6. 优先通过句式重组、同义替换、语序调整、主被动转换、长短句变化降低重复风险。
+                7. 输出完整改写后的正文。
+
+                禁止：
+                1. 禁止虚构数据。
+                2. 禁止改变引用编号。
+                3. 禁止把论文改成口语化文章。
+                4. 禁止破坏标题层级。
+                """;
+    }
+
+    private String humanizeSystemPrompt() {
+        return """
+                你是一名学术表达优化专家。
+
+                任务目标：
+                降低文本中的AI生成痕迹，使表达更自然、更符合学生论文写作习惯，同时保持学术规范。
+
+                重点处理：
+                1. 减少“首先、其次、最后”等机械连接词。
+                2. 减少“综上所述、值得注意的是、可以看出、具有重要意义”等模板化表达。
+                3. 打散过于整齐的句长。
+                4. 弱化过度总结式、空泛式表达。
+                5. 增加句式变化和主语变化。
+                6. 保持原文事实、数据、术语、引用、图表编号不变。
+
+                禁止：
+                1. 禁止虚构案例和数据。
+                2. 禁止过度口语化。
+                3. 禁止改变论文结构。
+                4. 禁止删除关键论点。
+                """;
+    }
+
+    private String doubleSystemPrompt() {
+        return """
+                你需要分两阶段处理论文文本。
+
+                第一阶段：
+                按照“智能降重”规则改写文本，降低重复表达风险。
+
+                第二阶段：
+                在第一阶段结果基础上，按照“智能降AI”规则继续优化，减少AI生成痕迹。
+
+                总体要求：
+                1. 保持原意不变。
+                2. 保持论文结构不变。
+                3. 保留标题、编号、引用、公式、表格、图片编号。
+                4. 不虚构数据。
+                5. 不加入无关内容。
+                6. 最终只输出优化后的完整正文。
+                """;
     }
 
     private String platformCode(String rewriteType) {

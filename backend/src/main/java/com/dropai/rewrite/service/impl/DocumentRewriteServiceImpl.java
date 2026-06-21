@@ -108,7 +108,7 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             job.setPlatform(normalizedPlatform);
             job.setPlatformName(platformName(normalizedPlatform));
             job.setStatus("PENDING");
-            job.setMessage("文档已上传，等待执行：" + job.getModeName() + " / " + job.getPlatformName());
+            job.setMessage("文档已上传，等待执行：" + processingMessage(normalizedMode) + " / " + job.getPlatformName());
             job.setCreatedAt(LocalDateTime.now());
             job.setUpdatedAt(LocalDateTime.now());
             jobs.put(jobId, job);
@@ -204,28 +204,25 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
                 document.write(outputStream);
             }
             job.setDownloadUrl("/api/document/rewrite/download/" + jobId);
-            update(job, "SUCCESS", job.getModeName() + "完成，目录后正文已处理 " + job.getRewrittenParagraphs()
-                    + " 个段落；模型状态：" + aiRewriteService.lastCallProvider());
             if (failedParagraphs > 0) {
-                update(job, "FAILED", job.getModeName() + "未完成：成功改写 " + job.getRewrittenParagraphs()
+                update(job, "FAILED", job.getModeName() + "未完成：已处理 " + job.getRewrittenParagraphs()
                         + " 个段落，失败 " + failedParagraphs + " 个段落；模型状态：" + aiRewriteService.lastCallProvider());
             } else {
-                update(job, "SUCCESS", job.getModeName() + "完成，正文已成功改写 " + job.getRewrittenParagraphs()
+                update(job, "SUCCESS", completedMessage(job.getMode()) + "；已处理 " + job.getRewrittenParagraphs()
                         + " 个段落；模型状态：" + aiRewriteService.lastCallProvider());
             }
             if (failedParagraphs > 0) {
-                update(job, "FAILED", job.getModeName() + "未完成：成功改写 " + job.getRewrittenParagraphs()
+                update(job, "FAILED", job.getModeName() + "未完成：已处理 " + job.getRewrittenParagraphs()
                         + " 个段落，失败 " + failedParagraphs + " 个段落；首个失败原因：" + firstFailure);
             } else {
-                update(job, "SUCCESS", job.getModeName() + "完成，正文已成功改写 " + job.getRewrittenParagraphs()
-                        + " 个段落；模型状态：" + aiRewriteService.lastCallProvider());
+                update(job, "SUCCESS", completedMessage(job.getMode()) + "；已处理 "
+                        + job.getRewrittenParagraphs() + " 个段落");
             }
             if (failedParagraphs > 0) {
                 update(job, "FAILED", "Document rewrite failed: rewritten=" + job.getRewrittenParagraphs()
                         + ", failed=" + failedParagraphs + ", firstError=" + firstFailure);
             } else {
-                update(job, "SUCCESS", "Document rewrite completed: rewritten=" + job.getRewrittenParagraphs()
-                        + ", provider=" + aiRewriteService.lastCallProvider());
+                update(job, "SUCCESS", completedMessage(job.getMode()));
             }
             persistJob(job, null, Files.readAllBytes(outputPath));
         } catch (Exception exception) {
@@ -245,9 +242,6 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
         }
         if (isCatalogLine(trimmed) || isProtectedSectionTitle(trimmed)) {
             return false;
-        }
-        if ("PRECISE_AI_REDUCE".equals(mode)) {
-            return hasAiTraceSignal(trimmed) && !isTechnicalFragment(trimmed);
         }
         return true;
     }
@@ -388,34 +382,56 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
 
     private String rewriteByMode(String text, String mode, String platform) {
         String suffix = platform == null || "GENERAL".equals(platform) ? "" : "@" + platform;
-        if ("DUPLICATE_REDUCE".equals(mode)) {
-            return workflowRewriteService.execute(text, "降重复改写").getRewrittenText();
+        if ("rewrite".equals(mode)) {
+            return workflowRewriteService.execute(text, "rewrite" + suffix).getRewrittenText();
         }
-        if ("DOUBLE_REDUCE".equals(mode)) {
-            return workflowRewriteService.execute(text, "双降" + suffix).getRewrittenText();
+        if ("double".equals(mode)) {
+            String rewritten = workflowRewriteService.execute(text, "rewrite" + suffix).getRewrittenText();
+            return workflowRewriteService.execute(rewritten, "humanize" + suffix).getRewrittenText();
         }
-        if ("FULL_AI_REDUCE".equals(mode)) {
-            return workflowRewriteService.execute(text, "深度降低AI写作痕迹" + suffix).getRewrittenText();
-        }
-        return workflowRewriteService.execute(text, "降低AI写作痕迹" + suffix).getRewrittenText();
+        return workflowRewriteService.execute(text, "humanize" + suffix).getRewrittenText();
     }
 
     private String normalizeMode(String mode) {
-        if ("DUPLICATE_REDUCE".equals(mode)
-                || "DOUBLE_REDUCE".equals(mode)
-                || "PRECISE_AI_REDUCE".equals(mode)) {
-            return mode;
+        if (mode == null || mode.isBlank()) {
+            return "humanize";
         }
-        return "FULL_AI_REDUCE";
+        return switch (mode.trim()) {
+            case "rewrite", "DUPLICATE_REDUCE" -> "rewrite";
+            case "double", "DOUBLE_REDUCE" -> "double";
+            case "humanize", "FULL_AI_REDUCE", "PRECISE_AI_REDUCE" -> "humanize";
+            default -> "humanize";
+        };
     }
 
     private String modeName(String mode) {
         return switch (mode) {
-            case "DUPLICATE_REDUCE" -> "智能降重";
-            case "DOUBLE_REDUCE" -> "双降";
-            case "PRECISE_AI_REDUCE" -> "精准降AI";
-            default -> "全文降AI";
+            case "rewrite" -> "智能降重";
+            case "double" -> "双降增强";
+            default -> "智能降AI";
         };
+    }
+
+    private String modeTarget(String mode) {
+        return switch (mode) {
+            case "rewrite" -> "降低重复表达风险，同时尽量保持论文结构、数据、引用、图表编号不变。";
+            case "double" -> "第一遍降重，第二遍降AI，即调用两次处理流程。";
+            default -> "降低AI检测风险，同时保持学术表达和原文事实不变。";
+        };
+    }
+
+    private String processingMessage(String mode) {
+        return modeName(mode) + "处理中：" + modeTarget(mode);
+    }
+
+    private String completedMessage(String mode) {
+        if ("rewrite".equals(mode)) {
+            return "已完成降重处理，建议结合检测报告进一步微调";
+        }
+        if ("double".equals(mode)) {
+            return "已完成降重/降AI处理，建议结合检测报告进一步微调";
+        }
+        return "已完成学术表达优化，建议结合检测报告进一步微调";
     }
 
     private String normalizePlatform(String platform) {
@@ -436,17 +452,6 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             case "GEZIDA" -> "格子达";
             default -> "通用";
         };
-    }
-
-    private boolean hasAiTraceSignal(String text) {
-        return text.contains("首先")
-                || text.contains("其次")
-                || text.contains("最后")
-                || text.contains("综上所述")
-                || text.contains("值得注意的是")
-                || text.contains("随着")
-                || text.contains("因此")
-                || text.contains("由此可见");
     }
 
     private boolean isProtectedSectionTitle(String text) {

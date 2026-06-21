@@ -94,7 +94,7 @@
               :disabled="!selectedDocument || isDocumentRunning || aiStatus.testStatus !== 'success'"
               @click="submitDocument"
             >
-              开始整篇处理
+              {{ documentActionText }}
             </el-button>
             <el-button
               type="success"
@@ -458,7 +458,7 @@ const aiStatus = reactive({
 const detailVisible = ref(false)
 const detail = ref(null)
 const selectedDocument = ref(null)
-const documentMode = ref('FULL_AI_REDUCE')
+const documentMode = ref('humanize')
 const targetPlatform = ref('GENERAL')
 const documentUploading = ref(false)
 const documentPollTimer = ref(null)
@@ -485,24 +485,19 @@ const analysis = reactive({
 })
 const documentModes = [
   {
-    value: 'FULL_AI_REDUCE',
-    label: '全文降AI',
-    description: '目录后所有正文段落统一优化，跳过标题'
-  },
-  {
-    value: 'DUPLICATE_REDUCE',
+    value: 'rewrite',
     label: '智能降重',
-    description: '调整语序与句式，降低重复表达风险'
+    description: '针对重复率较高内容进行学术改写，在保持原意和专业术语的前提下降低文本重复风险。'
   },
   {
-    value: 'DOUBLE_REDUCE',
-    label: '双降',
-    description: '一次性同时控制重复表达与AI痕迹'
+    value: 'humanize',
+    label: '智能降AI',
+    description: '优化AI生成痕迹，减少模板化表达、机械连接词和过度总结式语言。'
   },
   {
-    value: 'PRECISE_AI_REDUCE',
-    label: '精准降AI',
-    description: '只处理含明显AI痕迹信号的正文段落'
+    value: 'double',
+    label: '双降增强',
+    description: '先执行智能降重，再进行智能降AI优化，适用于重复率和AI率同时偏高的论文。'
   }
 ]
 const platformOptions = [
@@ -562,6 +557,11 @@ const currentDocumentMode = computed(() =>
 const currentPlatform = computed(() =>
   platformOptions.find((item) => item.value === targetPlatform.value) || platformOptions[0]
 )
+const documentActionText = computed(() => {
+  if (documentMode.value === 'rewrite') return '开始降重处理'
+  if (documentMode.value === 'double') return '开始双降处理'
+  return '开始降AI处理'
+})
 
 async function handleSubmit() {
   if (!originalText.value.trim()) {
@@ -691,7 +691,7 @@ async function startDocumentPolling(jobId) {
           ElMessage.error(job.message || '文档处理失败')
         }
         if (job.status === 'SUCCESS') {
-          ElMessage.success(job.message || '文档处理完成')
+          ElMessage.success(job.message || '文档优化完成')
         }
       }
     } catch (error) {
@@ -950,7 +950,7 @@ onBeforeUnmount(() => {
 
 .mode-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
   margin-bottom: 14px;
 }
@@ -1284,6 +1284,12 @@ onBeforeUnmount(() => {
   .platform-strip {
     align-items: flex-start;
     flex-direction: column;
+  }
+}
+
+@media (max-width: 560px) {
+  .mode-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>
