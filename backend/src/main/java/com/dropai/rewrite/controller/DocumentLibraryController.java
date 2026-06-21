@@ -62,7 +62,20 @@ public class DocumentLibraryController {
         return new LambdaQueryWrapper<DocumentJobRecord>()
                 .eq(DocumentJobRecord::getUserId, userId)
                 .and(wrapper -> wrapper
-                        .ne(DocumentJobRecord::getSourceFeature, "DESIGN_PACKAGE")
+                        .and(nonPackage -> nonPackage
+                                .ne(DocumentJobRecord::getSourceFeature, "DESIGN_PACKAGE")
+                                .notLike(DocumentJobRecord::getFileName, ".json")
+                                .notLike(DocumentJobRecord::getFileName, ".bas")
+                                .notLike(DocumentJobRecord::getFileName, ".dxf")
+                                .notLike(DocumentJobRecord::getFileName, ".step")
+                                .notLike(DocumentJobRecord::getFileName, ".stp")
+                                .notLike(DocumentJobRecord::getFileName, ".iges")
+                                .notLike(DocumentJobRecord::getFileName, ".igs")
+                                .notLike(DocumentJobRecord::getFileName, ".txt")
+                                .notLike(DocumentJobRecord::getFileName, "preview.pdf")
+                                .notLike(DocumentJobRecord::getFileName, "sw_macro_")
+                                .notLike(DocumentJobRecord::getFileName, "part_")
+                                .notLike(DocumentJobRecord::getFileName, "design_parameters."))
                         .or(designPackage -> designPackage
                                 .eq(DocumentJobRecord::getSourceFeature, "DESIGN_PACKAGE")
                                 .and(zip -> zip
@@ -75,15 +88,38 @@ public class DocumentLibraryController {
         DocumentLibraryItemVO item = new DocumentLibraryItemVO();
         item.setId(record.getJobId());
         item.setProjectName(projectName(record));
+        item.setFileName(displayFileName(record));
+        item.setSourceFeature(record.getSourceFeature());
+        item.setFileType(fileType(record.getFileName()));
         item.setCreateTime(record.getCreatedAt());
         item.setStatus(record.getStatus());
         String downloadUrl = "/api/documents/" + record.getJobId() + "/download";
+        item.setDownloadUrl(downloadUrl);
+        item.setViewable(endsWithIgnoreCase(record.getFileName(), ".pdf"));
         if (isPackage(record)) {
             item.setPackageUrl(downloadUrl);
         } else {
             setDocUrl(item.getDoc(), record, downloadUrl);
         }
         return item;
+    }
+
+    private String displayFileName(DocumentJobRecord record) {
+        if (isPackage(record)) {
+            return "毕业设计成果包.zip";
+        }
+        String name = record.getFileName() == null || record.getFileName().isBlank() ? "未命名文档" : record.getFileName();
+        String base = name.replaceAll("(?i)\\.(docx|pdf|zip)$", "");
+        if (equalsIgnoreCase(record.getMode(), "rewrite")) {
+            return base + "-降重结果.docx";
+        }
+        if (equalsIgnoreCase(record.getMode(), "double")) {
+            return base + "-双降结果.docx";
+        }
+        if (equalsIgnoreCase(record.getMode(), "humanize") || "REWRITE".equals(record.getSourceFeature())) {
+            return base + "-降AI结果.docx";
+        }
+        return name;
     }
 
     private boolean isPackage(DocumentJobRecord record) {
@@ -116,6 +152,11 @@ public class DocumentLibraryController {
         }
         String name = record.getFileName() == null || record.getFileName().isBlank() ? "未命名项目" : record.getFileName();
         return name.replaceAll("(?i)\\.(docx|pdf|zip)$", "");
+    }
+
+    private String fileType(String fileName) {
+        int index = fileName == null ? -1 : fileName.lastIndexOf('.');
+        return index < 0 || index == fileName.length() - 1 ? "file" : fileName.substring(index + 1).toLowerCase();
     }
 
     private boolean equalsIgnoreCase(String value, String expected) {
