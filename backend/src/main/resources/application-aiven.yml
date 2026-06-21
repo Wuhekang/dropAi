@@ -31,6 +31,10 @@ mybatis-plus:
     db-config:
       id-type: auto
 
+app:
+  poi:
+    min-inflate-ratio: ${POI_MIN_INFLATE_RATIO:0.001}
+
 ai:
   doubao:
     enabled: true
