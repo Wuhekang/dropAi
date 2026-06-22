@@ -67,7 +67,10 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
                 || "降低AI写作痕迹".equals(baseRewriteType)
                 || "深度降低AI写作痕迹".equals(baseRewriteType)
                 || "双降".equals(baseRewriteType);
-        boolean useModelHumanize = !aiReductionType && originalRisk.getScore() >= 45;
+        boolean rewriteOnlyType = "rewrite".equals(baseRewriteType)
+                || "智能降重".equals(baseRewriteType)
+                || "降重复改写".equals(baseRewriteType);
+        boolean useModelHumanize = !aiReductionType && !rewriteOnlyType && originalRisk.getScore() >= 45;
         String finalText = humanizeExpression(polished, useModelHumanize);
         String finalProvider = useModelHumanize ? aiRewriteService.lastCallProvider() : sentenceProvider;
         steps.add(new WorkflowStepVO("HUMAN_EXPRESSION_ADJUST", "人工化表达调整 Skill",
@@ -94,9 +97,14 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
 
     private String planStrategy(String rewriteType, AiAnalyzeVO risk) {
         List<String> rules = new ArrayList<>();
+        boolean rewriteOnlyType = "rewrite".equals(rewriteType)
+                || "智能降重".equals(rewriteType)
+                || "降重复改写".equals(rewriteType);
         rules.add("保留原意");
         rules.add("避免凭空添加数据");
-        if ("rewrite".equals(rewriteType) || "降重复改写".equals(rewriteType)) {
+        if (rewriteOnlyType) {
+            rules.add("查重降重优先");
+            rules.add("段落重构优先于词语替换");
             rules.add("调整语序与句式结构");
         }
         if ("humanize".equals(rewriteType)
@@ -104,7 +112,7 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
                 || "降低AI写作痕迹".equals(rewriteType)
                 || "深度降低AI写作痕迹".equals(rewriteType)
                 || "双降".equals(rewriteType)
-                || risk.getScore() >= 45) {
+                || (!rewriteOnlyType && risk.getScore() >= 45)) {
             rules.add("减少模板化连接词");
             rules.add("避免连续三句使用相同结构");
         }
