@@ -3,7 +3,6 @@ import RewriteIndex from '../views/Rewrite/index.vue'
 import LoginIndex from '../views/Login/index.vue'
 import DashboardIndex from '../views/Dashboard/index.vue'
 import NewProjectIndex from '../views/NewProject/index.vue'
-import ExistingTech from '../views/ExistingTech.vue'
 import PointsAdmin from '../views/PointsAdmin.vue'
 
 const router = createRouter({
@@ -32,11 +31,6 @@ const router = createRouter({
       path: '/new-project',
       name: 'NewProject',
       component: NewProjectIndex
-    },
-    {
-      path: '/existing-tech',
-      name: 'ExistingTech',
-      component: ExistingTech
     },
     {
       path: '/points-admin',

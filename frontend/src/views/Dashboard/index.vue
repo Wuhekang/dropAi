@@ -53,12 +53,6 @@
         <strong>论文降重与降AI</strong>
         <p>处理论文段落和Word文档，降低重复表达与机械写作痕迹。</p>
       </button>
-      <button class="existing-tech-action" type="button" @click="router.push('/existing-tech')">
-        <span>现有技术</span>
-        <strong>成熟 AI 内容优化技术</strong>
-        <p>支持论文优化、内容改写、AIGC 降低、文本处理等功能。</p>
-        <em>立即使用</em>
-      </button>
     </section>
 
     <section class="feature-grid">
@@ -201,12 +195,10 @@ onMounted(() => {
 .eyebrow{color:#2563eb;font-size:12px;font-weight:800;letter-spacing:.15em}
 h1{margin:8px 0 6px;font-size:38px}h2{margin:0 0 6px}
 .dashboard-header p,.section-head p,.quick-actions p,.feature-grid p{margin:0;color:#64748b;line-height:1.7}
-.quick-actions{display:grid;grid-template-columns:1.1fr .9fr .9fr;gap:18px;margin:28px 0}
+.quick-actions{display:grid;grid-template-columns:1.1fr .9fr;gap:18px;margin:28px 0}
 .quick-actions button{border:1px solid #dbe5f4;border-radius:22px;padding:26px;text-align:left;cursor:pointer;background:#fff;transition:.2s}
 .quick-actions button:hover{transform:translateY(-2px);box-shadow:0 18px 40px rgba(15,23,42,.1)}
 .primary-action{background:linear-gradient(145deg,#eff6ff,#fff)!important}.secondary-action{background:linear-gradient(145deg,#faf5ff,#fff)!important}
-.existing-tech-action{background:linear-gradient(145deg,#ecfeff,#fff)!important;position:relative;overflow:hidden}
-.existing-tech-action em{display:inline-flex;margin-top:14px;padding:8px 12px;border-radius:999px;background:#0f172a;color:white;font-style:normal;font-weight:800;font-size:12px}
 .quick-actions span{font-size:12px;font-weight:800;color:#2563eb}.quick-actions strong{display:block;margin:12px 0 8px;font-size:25px;color:#172033}
 .feature-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:22px 0 28px}
 .points-panel{display:grid;grid-template-columns:1.4fr .8fr;gap:18px;margin:24px 0}.points-card{border-radius:18px}.points-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px}.points-summary div{padding:14px;border-radius:16px;background:#f8fafc;border:1px solid #e2e8f0}.points-summary span{display:block;color:#64748b;font-size:13px}.points-summary strong{display:block;margin-top:6px;font-size:28px;color:#2563eb}.admin-card p{color:#64748b;line-height:1.7}.admin-card small{display:block;margin-top:12px;color:#94a3b8}
