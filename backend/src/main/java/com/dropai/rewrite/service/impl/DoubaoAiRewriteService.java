@@ -151,17 +151,20 @@ public class DoubaoAiRewriteService implements AiRewriteService {
 
     private String bodyOnlyProtectionPrompt() {
         return """
-                【最高优先级规则】
+                【DropAI Content Guard V1：最高优先级规则】
                 本系统仅允许改写论文正文自然语言段落和摘要正文。
 
                 除正文段落和摘要正文外，以下内容禁止修改：
-                封面、目录、摘要标题、关键词、英文关键词、参考文献、致谢、声明页、代码、表格、图表、图标题、表标题、公式、引用编号、学术评价、评阅意见、页码、格式。
+                封面、目录、摘要标题、关键词、英文关键词、参考文献、致谢、声明页、所有代码块、所有表格、所有图片、所有图标题、所有表标题、所有公式、所有引用编号、所有章节标题、所有小节标题、学术评价、评阅意见、页码、格式。
 
                 检测到以上内容时必须原样保留。
                 禁止重写。
                 禁止润色。
                 禁止同义替换。
                 禁止格式变化。
+
+                如果内容包含以下代码特征，则整个片段锁定保护，禁止修改任何字符：
+                @RestController、@Service、@Component、@Mapper、@RequestMapping、@GetMapping、@PostMapping、public class、private、protected、SELECT、INSERT、UPDATE、DELETE、<template>、<script>、<style>。
 
                 仅处理正文自然语言段落和摘要正文。
                 """;

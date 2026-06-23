@@ -10,9 +10,6 @@ import com.dropai.rewrite.service.WorkflowRewriteService;
 import com.dropai.rewrite.vo.DocumentParagraphJobVO;
 import com.dropai.rewrite.vo.DocumentRewriteJobVO;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
-import org.apache.poi.xwpf.usermodel.XWPFTable;
-import org.apache.poi.xwpf.usermodel.XWPFTableCell;
-import org.apache.poi.xwpf.usermodel.XWPFTableRow;
 import org.apache.poi.xwpf.usermodel.XWPFParagraph;
 import org.apache.poi.xwpf.usermodel.XWPFRun;
 import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTRPr;
@@ -287,22 +284,34 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
     private boolean isTechnicalFragment(String text) {
         String compact = text.replaceAll("\\s+", " ").trim();
         String lower = compact.toLowerCase();
+        if (hasAny(compact,
+                "@RestController", "@Controller", "@Service", "@Component", "@Mapper", "@Repository",
+                "@RequestMapping", "@GetMapping", "@PostMapping", "@PutMapping", "@DeleteMapping",
+                "@Autowired", "@Resource", "@Override", "@Entity", "@Table")) {
+            return true;
+        }
+        if (hasAny(lower,
+                "<template", "</template>", "<script", "</script>", "<style", "</style>",
+                "select ", "insert ", "update ", "delete ", "create table", "alter table", "drop table")) {
+            return true;
+        }
         if (compact.length() <= 40 && hasAny(lower,
                 "varchar", "bigint", "timestamp", "int", "decimal", "datetime",
                 "字段名称", "字段说明", "默认值", "主键", "外键", "类型", "长度", "not null",
                 "auto_increment", "current_timestamp")) {
             return true;
         }
-        if (compact.matches("^@\\w+(Mapping|Autowired|Resource|Override|Service|Controller|Entity|Table).*")) {
+        if (compact.matches("^@\\w+(Mapping|Autowired|Resource|Override|Service|Controller|Component|Mapper|Repository|Entity|Table).*")) {
             return true;
         }
         if (hasAny(compact,
                 "public ", "private ", "protected ", "class ", "interface ", "return ",
                 "if (", "else", "for (", "while (", "try {", "catch (", "new ",
                 "String ", "Integer ", "Long ", "Float ", "Double ", "Boolean ",
-                "queryWrapper.", "Result.", ".get", ".set")) {
+                "queryWrapper.", "Result.", ".get", ".set", "export default", "const ", "let ", "var ",
+                "UserController", "BillService", "PlanService", "StatisticsController", "ReminderScheduler")) {
             int codeMarks = countCodeMarks(compact);
-            if (codeMarks >= 2 || compact.endsWith(";") || compact.endsWith("{") || compact.endsWith("}")) {
+            if (codeMarks >= 2 || compact.endsWith(";") || compact.endsWith("{") || compact.endsWith("}") || compact.contains("Controller") || compact.contains("Service")) {
                 return true;
             }
         }
@@ -525,7 +534,7 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
     private boolean isCaptionOrFormulaLine(String text) {
         return text.matches("^(图|表)\\s*\\d+(\\.\\d+)*\\s+.*$")
                 || text.matches("^公式\\s*\\d+(\\.\\d+)*\\s+.*$")
-                || text.matches("^\\(?\\d+(\\.\\d+)*\\)?\\s*[=＋+\\-*/×÷].*$");
+                || text.matches("^\\(?\\d+(\\.\\d+)*\\)?\\s*.*[=＋+\\-*/×÷].*$");
     }
 
     private boolean hasBodyStart(List<XWPFParagraph> paragraphs) {
