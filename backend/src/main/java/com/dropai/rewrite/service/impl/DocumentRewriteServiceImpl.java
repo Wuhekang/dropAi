@@ -274,7 +274,11 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
         if (isHeadingParagraph(paragraph, trimmed)) {
             return false;
         }
-        if (isCatalogLine(trimmed) || isProtectedSectionTitle(trimmed)) {
+        if (isCatalogLine(trimmed)
+                || isProtectedSectionTitle(trimmed)
+                || isFrontMatterLine(trimmed)
+                || isCaptionOrFormulaLine(trimmed)
+                || isTechnicalFragment(trimmed)) {
             return false;
         }
         return true;
@@ -333,16 +337,33 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
     private List<RewriteTarget> collectRewriteTargets(DocumentRewriteJobVO job, List<XWPFParagraph> paragraphs) {
         List<RewriteTarget> targets = new ArrayList<>();
         boolean hasCatalog = hasCatalog(paragraphs);
+        boolean hasBodyStart = hasBodyStart(paragraphs);
         boolean afterCatalog = !hasCatalog;
+        boolean inBody = !hasBodyStart && !hasCatalog;
         for (int index = 0; index < paragraphs.size(); index++) {
             XWPFParagraph paragraph = paragraphs.get(index);
             String text = paragraph.getText();
+            String trimmed = text == null ? "" : text.trim();
             if (!afterCatalog) {
-                afterCatalog = isCatalogEnd(text);
+                afterCatalog = isCatalogEnd(trimmed);
                 continue;
             }
-            if (shouldRewriteBodyParagraph(paragraph, text, job.getMode())) {
-                targets.add(new RewriteTarget(index, paragraph, text.trim()));
+            if (isTrailingProtectedSectionTitle(trimmed)) {
+                break;
+            }
+            if (isAbstractSectionTitle(trimmed) || isBodyStartTitle(trimmed)) {
+                inBody = true;
+                continue;
+            }
+            if (isFrontMatterSectionTitle(trimmed) || isKeywordLine(trimmed)) {
+                inBody = false;
+                continue;
+            }
+            if (!inBody) {
+                continue;
+            }
+            if (shouldRewriteBodyParagraph(paragraph, trimmed, job.getMode())) {
+                targets.add(new RewriteTarget(index, paragraph, trimmed));
             }
         }
         return targets;
@@ -396,22 +417,7 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
     }
 
     private List<XWPFParagraph> collectParagraphs(XWPFDocument document) {
-        List<XWPFParagraph> paragraphs = new java.util.ArrayList<>(document.getParagraphs());
-        for (XWPFTable table : document.getTables()) {
-            collectTableParagraphs(table, paragraphs);
-        }
-        return paragraphs;
-    }
-
-    private void collectTableParagraphs(XWPFTable table, List<XWPFParagraph> paragraphs) {
-        for (XWPFTableRow row : table.getRows()) {
-            for (XWPFTableCell cell : row.getTableCells()) {
-                paragraphs.addAll(cell.getParagraphs());
-                for (XWPFTable nestedTable : cell.getTables()) {
-                    collectTableParagraphs(nestedTable, paragraphs);
-                }
-            }
-        }
+        return new java.util.ArrayList<>(document.getParagraphs());
     }
 
     private String rewriteByMode(String text, String mode, String platform) {
@@ -489,7 +495,45 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
     }
 
     private boolean isProtectedSectionTitle(String text) {
-        return text.matches("^(参考文献|致谢|附录|作者简介|声明)$");
+        return isFrontMatterSectionTitle(text) || isAbstractSectionTitle(text) || isTrailingProtectedSectionTitle(text);
+    }
+
+    private boolean isFrontMatterSectionTitle(String text) {
+        return text.matches("^(封面|目录|目\\s*录|关键词|关键字|Key\\s*words|Keywords)$");
+    }
+
+    private boolean isAbstractSectionTitle(String text) {
+        return text.matches("^(摘要|摘\\s*要|Abstract|ABSTRACT)$");
+    }
+
+    private boolean isTrailingProtectedSectionTitle(String text) {
+        return text.matches("^(参考文献|致谢|附录|作者简介|声明|原创性声明|学位论文原创性声明|评阅意见|学术评价)$");
+    }
+
+    private boolean isFrontMatterLine(String text) {
+        return isKeywordLine(text)
+                || text.matches("^摘\\s*要[:：].*$")
+                || text.matches("^Abstract[:：].*$")
+                || text.matches("^.{0,12}(学院|专业|班级|学生|姓名|学号|指导教师|导师|日期)[:：].*$")
+                || text.matches("^第\\s*\\d+\\s*页\\s*(共\\s*\\d+\\s*页)?$");
+    }
+
+    private boolean isKeywordLine(String text) {
+        return text.matches("^(关键词|关键字|Key\\s*words|Keywords)\\s*[:：]?.*$");
+    }
+
+    private boolean isCaptionOrFormulaLine(String text) {
+        return text.matches("^(图|表)\\s*\\d+(\\.\\d+)*\\s+.*$")
+                || text.matches("^公式\\s*\\d+(\\.\\d+)*\\s+.*$")
+                || text.matches("^\\(?\\d+(\\.\\d+)*\\)?\\s*[=＋+\\-*/×÷].*$");
+    }
+
+    private boolean hasBodyStart(List<XWPFParagraph> paragraphs) {
+        return paragraphs.stream()
+                .map(XWPFParagraph::getText)
+                .filter(text -> text != null)
+                .map(String::trim)
+                .anyMatch(this::isBodyStartTitle);
     }
 
     private boolean hasCatalog(List<XWPFParagraph> paragraphs) {
@@ -508,7 +552,7 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
         if ("目录".equals(trimmed) || "目 录".equals(trimmed)) {
             return false;
         }
-        return isCommonBodyStartTitle(trimmed) || (isHeadingLikeNumberedTitle(trimmed) && !isCatalogLine(trimmed));
+        return isAbstractSectionTitle(trimmed) || isBodyStartTitle(trimmed);
     }
 
     private boolean isHeadingParagraph(XWPFParagraph paragraph, String text) {
@@ -520,8 +564,12 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
     }
 
     private boolean isCommonBodyStartTitle(String text) {
-        return text.matches("^(摘要|摘 要|Abstract|ABSTRACT|引言|绪论|前言|正文)$")
+        return text.matches("^(引言|绪论|前言|正文)$")
                 || text.matches("^第[一二三四五六七八九十百]+章.*$");
+    }
+
+    private boolean isBodyStartTitle(String text) {
+        return isCommonBodyStartTitle(text) || (isHeadingLikeNumberedTitle(text) && !isCatalogLine(text));
     }
 
     private boolean isHeadingLikeNumberedTitle(String text) {

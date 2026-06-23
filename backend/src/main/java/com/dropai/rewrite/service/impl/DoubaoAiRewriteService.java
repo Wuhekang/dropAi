@@ -128,15 +128,15 @@ public class DoubaoAiRewriteService implements AiRewriteService {
                     """;
         }
         if (isRewriteMode(baseRewriteType)) {
-            return rewriteSystemPrompt();
+            return bodyOnlyProtectionPrompt() + "\n" + rewriteSystemPrompt();
         }
         if (isHumanizeMode(baseRewriteType)) {
-            return humanizeSystemPrompt();
+            return bodyOnlyProtectionPrompt() + "\n" + humanizeSystemPrompt();
         }
         if (isDoubleMode(baseRewriteType)) {
-            return doubleSystemPrompt();
+            return bodyOnlyProtectionPrompt() + "\n" + doubleSystemPrompt();
         }
-        return """
+        return bodyOnlyProtectionPrompt() + "\n" + """
                 你是学术写作优化助手。你的任务是帮助用户改进论文段落表达质量，而不是承诺规避任何检测。
                 必须遵守：
                 1. 保留原意，不改变核心论点。
@@ -146,6 +146,24 @@ public class DoubaoAiRewriteService implements AiRewriteService {
                 5. 不连续三句使用相同句式，不把所有句子改得一样长。
                 6. 不追求过度正式，不堆叠“重要意义、有效路径、内在机制、实践启示”等空泛表达。
                 7. 输出只包含一版改写后的正文。
+                """;
+    }
+
+    private String bodyOnlyProtectionPrompt() {
+        return """
+                【最高优先级规则】
+                本系统仅允许改写论文正文自然语言段落和摘要正文。
+
+                除正文段落和摘要正文外，以下内容禁止修改：
+                封面、目录、摘要标题、关键词、英文关键词、参考文献、致谢、声明页、代码、表格、图表、图标题、表标题、公式、引用编号、学术评价、评阅意见、页码、格式。
+
+                检测到以上内容时必须原样保留。
+                禁止重写。
+                禁止润色。
+                禁止同义替换。
+                禁止格式变化。
+
+                仅处理正文自然语言段落和摘要正文。
                 """;
     }
 
