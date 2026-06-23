@@ -19,7 +19,10 @@ public class DocumentPrecheckController {
     }
 
     @PostMapping("/precheck")
-    public Result<DocumentPrecheckVO> precheck(@RequestParam("file") MultipartFile file) {
-        return Result.success(documentRewriteService.precheck(file));
+    public Result<DocumentPrecheckVO> precheck(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(value = "mode", defaultValue = "FULL_AI_REDUCE") String mode
+    ) {
+        return Result.success(documentRewriteService.precheck(file, mode));
     }
 }

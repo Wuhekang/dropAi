@@ -13,7 +13,7 @@ public interface DocumentRewriteService {
 
     DocumentRewriteJobVO submit(MultipartFile file, String mode, String platform, String requestId);
 
-    DocumentPrecheckVO precheck(MultipartFile file);
+    DocumentPrecheckVO precheck(MultipartFile file, String mode);
 
     DocumentRewriteJobVO getJob(String jobId);
 

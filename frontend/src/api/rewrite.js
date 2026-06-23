@@ -146,9 +146,10 @@ export function getDocumentJobs() {
   return request.get('/document/rewrite/jobs')
 }
 
-export function precheckDocument(file) {
+export function precheckDocument(file, mode = 'humanize') {
   const formData = new FormData()
   formData.append('file', file)
+  formData.append('mode', mode)
   return request.post('/document/precheck', formData, {
     headers: {
       'Content-Type': 'multipart/form-data'

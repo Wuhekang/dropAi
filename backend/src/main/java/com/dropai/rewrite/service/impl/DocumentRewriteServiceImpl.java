@@ -150,7 +150,7 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             Files.createDirectories(jobLogDir);
             String jobId = UUID.randomUUID().toString().replace("-", "");
             int charCount = countDocumentChars(file);
-            int costPoints = calculateCostPoints(charCount);
+            int costPoints = calculateCostPoints(charCount, normalizedMode);
             String featureCode = documentFeatureCode(normalizedMode);
             pointService.deductCustom(userId, jobId, featureCode, documentFeatureName(normalizedMode), costPoints,
                     "提交文档改写任务：" + originalName);
@@ -195,14 +195,14 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
     }
 
     @Override
-    public DocumentPrecheckVO precheck(MultipartFile file) {
+    public DocumentPrecheckVO precheck(MultipartFile file, String mode) {
         Long userId = AuthContext.requireUserId();
         String originalName = file.getOriginalFilename() == null ? "document.docx" : file.getOriginalFilename();
         if (!originalName.toLowerCase().endsWith(".docx")) {
             throw new IllegalArgumentException("当前仅支持上传 .docx 文件");
         }
         int charCount = countDocumentChars(file);
-        int costPoints = calculateCostPoints(charCount);
+        int costPoints = calculateCostPoints(charCount, normalizeMode(mode));
         int currentPoints = pointService.currentPoints(userId);
         return new DocumentPrecheckVO(charCount, costPoints, currentPoints, currentPoints >= costPoints);
     }
@@ -585,11 +585,12 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
                 .trim();
     }
 
-    private int calculateCostPoints(int charCount) {
+    private int calculateCostPoints(int charCount, String mode) {
         if (charCount <= 0) {
             return 0;
         }
-        return ((charCount + 999) / 1000) * 10;
+        int baseCost = ((charCount + 999) / 1000) * 10;
+        return "double".equals(mode) ? baseCost * 2 : baseCost;
     }
 
     private String idempotencyKey(Long userId, String requestId) {

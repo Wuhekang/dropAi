@@ -50,7 +50,7 @@
           class="mode-card"
           :class="{ active: documentMode === mode.value }"
           type="button"
-          @click="documentMode = mode.value"
+          @click="selectDocumentMode(mode.value)"
         >
           <strong>{{ mode.label }}</strong>
           <span>{{ mode.description }}</span>
@@ -469,6 +469,7 @@ const documentMode = ref('humanize')
 const targetPlatform = ref('GENERAL')
 const documentUploading = ref(false)
 const documentPrechecking = ref(false)
+const documentPrecheckSeq = ref(0)
 const documentPollTimer = ref(null)
 const documentTerminalMessages = new Set()
 const documentJobs = ref([])
@@ -677,11 +678,33 @@ async function handleDocumentSelected(uploadFile) {
   documentJob.fileName = uploadFile.name
   documentJob.status = ''
   documentJob.message = '已选择文件，正在检测字符数和积分'
+  await runDocumentPrecheck()
+}
+
+async function selectDocumentMode(mode) {
+  if (documentMode.value === mode) {
+    return
+  }
+  documentMode.value = mode
+  if (selectedDocument.value && !isDocumentRunning.value) {
+    await runDocumentPrecheck()
+  }
+}
+
+async function runDocumentPrecheck() {
+  if (!selectedDocument.value) {
+    return
+  }
   resetDocumentPrecheck()
   documentPrecheck.requestId = createRequestId()
   documentPrechecking.value = true
+  const seq = documentPrecheckSeq.value + 1
+  documentPrecheckSeq.value = seq
   try {
-    const result = await precheckDocument(uploadFile.raw)
+    const result = await precheckDocument(selectedDocument.value, documentMode.value)
+    if (seq !== documentPrecheckSeq.value) {
+      return
+    }
     Object.assign(documentPrecheck, {
       ready: true,
       charCount: result.charCount || 0,
@@ -695,11 +718,16 @@ async function handleDocumentSelected(uploadFile) {
       ? '字符数检测完成，请确认后开始处理'
       : `当前积分不足，预计需要 ${documentPrecheck.costPoints} 积分`
   } catch (error) {
+    if (seq !== documentPrecheckSeq.value) {
+      return
+    }
     selectedDocument.value = null
     documentJob.status = 'FAILED'
     documentJob.message = error.message || '文档字符数检测失败'
   } finally {
-    documentPrechecking.value = false
+    if (seq === documentPrecheckSeq.value) {
+      documentPrechecking.value = false
+    }
   }
 }
 
