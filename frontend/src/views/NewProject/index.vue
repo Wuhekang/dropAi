@@ -110,11 +110,18 @@
           <div class="panel-head"><strong>参数确认与微调</strong><el-tag>{{ parameters.length }} 项参数</el-tag></div>
         </template>
         <el-alert type="info" title="参数来自识别结果、工程推导和系统建议。可直接修改、添加或删除，重新生成时论文、计算书和CAD会同步更新。" :closable="false" />
+        <el-alert
+          v-if="hasSuggestedParameters"
+          class="inline-alert"
+          type="warning"
+          title="任务书部分参数未明确，系统已生成方案级建议值，可在下一步修改确认。"
+          :closable="false"
+        />
         <el-empty v-if="!targetConfirmed" description="请先完成设计目标识别与确认" />
         <template v-else>
           <div class="parameter-table">
             <div class="parameter-header"><span>参数名称</span><span>数值</span><span>单位</span><span>来源</span><span>依据说明</span><span>操作</span></div>
-            <div v-for="(row, index) in parameters" :key="row.id" class="parameter-row">
+            <div v-for="(row, index) in parameters" :key="row.id" class="parameter-row" :class="{ suggested: row.category === 'suggested' }">
               <el-input v-model="row.name" placeholder="参数名称" />
               <el-input v-model="row.value" placeholder="数值" />
               <el-input v-model="row.unit" placeholder="单位" />
@@ -178,7 +185,13 @@
               <el-table-column prop="name" label="参数" />
               <el-table-column prop="value" label="数值" />
               <el-table-column prop="unit" label="单位" />
-              <el-table-column prop="category" label="来源类型" />
+              <el-table-column label="来源类型">
+                <template #default="{row}">
+                  <el-tag :type="row.category === 'suggested' ? 'warning' : row.category === 'derived' ? 'success' : 'info'">
+                    {{ categoryText(row.category) }}
+                  </el-tag>
+                </template>
+              </el-table-column>
               <el-table-column prop="note" label="依据" min-width="220" />
             </el-table>
           </el-tab-pane>
@@ -263,11 +276,7 @@ const router = useRouter()
 const steps = ['上传资料', 'AI识别', '参数确认', '设计计算', '总体方案', 'CAD总装图', '零件图', 'SW宏', '论文预览', '成果包']
 const uploadSlots = [
   { key: 'taskBook', label: '任务书', type: 'TASK_BOOK', hint: '优先用于识别题目、设备和参数', accept: '.docx,.pdf,.txt,.md' },
-  { key: 'proposal', label: '开题报告', type: 'PROPOSAL', hint: '用于补充设计背景和研究内容', accept: '.docx,.pdf,.txt,.md' },
-  { key: 'template', label: '论文模板', type: 'THESIS_TEMPLATE', hint: '用于后续论文格式参考', accept: '.docx' },
-  { key: 'references', label: '参考文献', type: 'REFERENCE', hint: '用于参考文献和研究现状', accept: '.docx,.pdf,.txt,.md' },
-  { key: 'image', label: '图片参考图', type: 'IMAGE_REFERENCE', hint: '用于结构方案参考', accept: '.png,.jpg,.jpeg,.webp,.bmp' },
-  { key: 'cad', label: 'CAD参考图', type: 'CAD_REFERENCE', hint: '用于结构和尺寸关系参考', accept: '.dxf,.dwg' }
+  { key: 'proposal', label: '开题报告', type: 'PROPOSAL', hint: '可选，用于补充设计背景和研究内容', accept: '.docx,.pdf,.txt,.md' }
 ]
 const designTypeOptions = ['机械结构设计', '机械传动设计', '环保设备结构设计', '输送设备设计', '自动化设备设计', 'PLC控制设计', '机电一体化设计']
 const files = reactive({})
@@ -305,6 +314,7 @@ const failedCount = computed(() => artifacts.value.filter(x => x.status === 'fai
 const activeStep = computed(() => packageStatus.value === 'success' ? 10 : artifacts.value.length ? 8 : targetConfirmed.value ? 3 : analysisStatus.value === 'success' ? 2 : uploadedFiles.value.length ? 1 : 0)
 const analysisStatusText = computed(() => ({ pending: '待识别', running: '正在解析资料', success: '已识别设计目标', failed: '识别失败' })[analysisStatus.value] || analysisStatus.value)
 const canConfirmTarget = computed(() => Boolean(project.projectTitle?.trim() && project.equipmentName?.trim() && project.designType?.trim() && parameters.value.length))
+const hasSuggestedParameters = computed(() => parameters.value.some(row => row.category === 'suggested'))
 const groups = computed(() => ({
   cad: artifacts.value.filter(x => /\.dxf$/i.test(x.fileName) || (/^(?!preview\.)[a-z0-9_]+\.(svg|png)$/i.test(x.fileName) && x.fileName !== 'preview.png' && x.fileName !== 'preview.svg')),
   showcase: artifacts.value.filter(x => /^preview\.(svg|png)$/i.test(x.fileName)),
@@ -385,6 +395,7 @@ function addParameter() { parameters.value.push({ id: Date.now(), name: '', valu
 function removeParameter(index) { parameters.value.splice(index, 1) }
 function splitList(value) { return String(value || '').split(/[、,，\n]/).map(item => item.trim()).filter(Boolean) }
 async function analyze() {
+  if (!files.taskBook?.raw) return ElMessage.warning('机械设计模块必须上传任务书，开题报告为可选。')
   clearGeneratedState()
   analyzing.value = true
   analysisStatus.value = 'running'
@@ -393,7 +404,7 @@ async function analyze() {
   try {
     const form = new FormData()
     if (project.projectTitle?.trim()) form.append('title', project.projectTitle.trim())
-    uploadedFiles.value.forEach(file => form.append('files', file.raw))
+    uploadedFiles.value.forEach(file => { form.append('files', file.raw); form.append('types', file.type) })
     const result = await analyzeDesignPackage(form)
     applyAnalysisResult(result)
     analysisStatus.value = result.status || 'success'
@@ -501,9 +512,11 @@ function friendlyError(error) {
 function formatSize(size) { return size >= 1024 * 1024 ? `${(size / 1024 / 1024).toFixed(2)} MB` : `${Math.max(1, Math.round(size / 1024))} KB` }
 function statusType(status) { return status === 'success' ? 'success' : status === 'failed' ? 'danger' : status === 'running' ? 'warning' : 'info' }
 function statusText(status) { return ({ pending:'等待中', running:'生成中', success:'成功', failed:'失败', partial_success:'部分成功' })[status] || status }
+function categoryText(category) { return ({ explicit: '资料明确', derived: '工程推导', suggested: '系统建议' })[category] || category }
 </script>
 
 <style scoped>
 .workspace{max-width:1500px;margin:auto;padding:30px 24px 70px}.hero,.panel-head{display:flex;justify-content:space-between;align-items:flex-start;gap:24px}.hero h1{font-size:36px;margin:10px 0}.hero p{color:#64748b}.eyebrow{display:block;margin-top:18px;color:#2563eb;font-weight:800;font-size:12px;letter-spacing:.16em}.steps{margin:34px 0}.grid{display:grid;grid-template-columns:.9fr 1.1fr;gap:20px}.step-one{display:grid;gap:20px}.grid .el-card,.panel{border-radius:18px}.full{width:100%;margin:14px 0 0}.panel{margin-top:20px}.upload-slots{display:grid;gap:12px}.upload-slot{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;padding:14px;border:1px solid #e4e9f1;border-radius:14px;background:#f8fafc}.slot-main span{display:block;color:#64748b;font-size:12px;margin-top:4px}.file-status{grid-column:1/-1;color:#64748b;font-size:12px}.file-status b{display:block;color:#0f172a;margin-bottom:3px}.file-status.success span{color:#059669}.file-status.failed span{color:#dc2626}.file-status.running span{color:#d97706}.inline-alert{margin-top:14px}.recognition-form{margin-top:8px}.field-tip{margin:8px 0 0;color:#64748b;font-size:12px;line-height:1.6}.recognized-params{display:flex;flex-wrap:wrap;gap:8px}.muted{color:#94a3b8}.parameter-table{margin-top:16px;overflow:auto}.parameter-header,.parameter-row{display:grid;grid-template-columns:1fr .75fr .5fr .8fr 1.45fr 60px;gap:8px;align-items:center;min-width:850px}.parameter-header{padding:8px 0;color:#64748b;font-size:13px;font-weight:700}.parameter-row{padding:8px 0;border-top:1px solid #edf1f6}.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:20px 0}.metrics div{padding:18px;border-radius:14px;background:#f4f7fb}.metrics span{display:block;color:#64748b}.metrics strong{font-size:28px}.preview-stage{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin:20px 0}.preview-card{border:1px solid #e4e9f1;border-radius:16px;padding:14px;background:#f8fafc}.preview-card div{display:flex;justify-content:space-between;gap:12px;margin-bottom:10px}.preview-card span{color:#64748b;font-size:12px}.preview-card img{display:block;width:100%;height:360px;object-fit:contain;background:white;border-radius:10px}.model-card{grid-column:1/-1}.model-card :deep(.model-viewer){height:430px;min-height:430px}.list-panel{display:grid;grid-template-columns:repeat(2,1fr);gap:18px;margin:10px 0 18px}.list-panel>div{padding:16px;border:1px solid #e4e9f1;border-radius:14px;background:#f8fafc}.list-panel h3{margin:0 0 12px}.list-tag{margin:0 8px 8px 0}.note-line{margin:0 0 8px;color:#334155;line-height:1.7}.artifact-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:14px}.artifact{display:flex;justify-content:space-between;align-items:center;padding:16px;border:1px solid #e4e9f1;border-radius:12px}.artifact span{display:block;color:#64748b;font-size:12px;margin-top:5px}.artifact-action{display:flex;align-items:center;gap:8px}@media(max-width:1050px){.grid,.preview-stage,.list-panel{grid-template-columns:1fr}.metrics{grid-template-columns:repeat(2,1fr)}}@media(max-width:700px){.steps{display:none}.artifact-grid,.metrics{grid-template-columns:1fr}.hero{display:block}.upload-slot{grid-template-columns:1fr}}
+.parameter-row.suggested{background:#fffbeb}
 .drawing-switch{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 10px}.drawing-switch button{border:1px solid #cbd5e1;background:#fff;color:#334155;border-radius:6px;padding:7px 10px;font-size:12px;cursor:pointer}.drawing-switch button.active{background:#2563eb;border-color:#2563eb;color:#fff}.drawing-preview-card img{height:390px}
 </style>

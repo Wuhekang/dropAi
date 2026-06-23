@@ -108,6 +108,12 @@ public class DrawingPlanBuilder {
     private int priority(DesignProject.Component c) {
         return switch (semanticLayer.semanticOf(c).category()) {
             case "frame" -> 1;
+            case "shell" -> 1;
+            case "interface" -> 2;
+            case "hopper" -> 3;
+            case "door" -> 4;
+            case "support" -> 5;
+            case "rib" -> 6;
             case "track" -> 2;
             case "wheel" -> 3;
             case "motor" -> 4;
@@ -123,15 +129,18 @@ public class DrawingPlanBuilder {
     }
 
     private boolean mainViewPart(DesignProject.Component c) {
-        return hasSemantic(c, "frame", "cover", "track", "wheel", "brush", "sensor", "rail", "motor", "reducer");
+        return hasSemantic(c, "frame", "cover", "track", "wheel", "brush", "sensor", "rail", "motor", "reducer",
+                "shell", "interface", "hopper", "door", "support", "rib");
     }
 
     private boolean topViewPart(DesignProject.Component c) {
-        return hasSemantic(c, "track", "frame", "cover", "sensor", "rail", "brush", "motor", "reducer");
+        return hasSemantic(c, "track", "frame", "cover", "sensor", "rail", "brush", "motor", "reducer",
+                "shell", "interface", "door", "rib");
     }
 
     private boolean sideViewPart(DesignProject.Component c) {
-        return hasSemantic(c, "track", "wheel", "magnet", "cover", "sensor", "rail", "frame", "motor", "reducer");
+        return hasSemantic(c, "track", "wheel", "magnet", "cover", "sensor", "rail", "frame", "motor", "reducer",
+                "shell", "interface", "hopper", "support", "door");
     }
 
     private List<DesignProject.DimensionChain> mainDimensions(DesignProject project) {

@@ -73,15 +73,16 @@ class DesignPackageServiceTests {
         assertEquals("success", result.getStatus());
         assertTrue(result.getArtifacts().stream().allMatch(item -> "success".equals(item.getStatus())));
         assertTrue(result.getArtifacts().stream().allMatch(item -> item.getSize() > 0 && item.getDownloadUrl() != null));
+        assertEquals(8, result.getArtifacts().size());
+        assertTrue(result.getArtifacts().stream().anyMatch(item -> "model_3d.json".equals(item.getName())));
         assertTrue(result.getArtifacts().stream().anyMatch(item -> "paper.docx".equals(item.getName())));
         assertTrue(result.getArtifacts().stream().anyMatch(item -> "assembly.dxf".equals(item.getName())));
-        assertTrue(result.getArtifacts().stream().anyMatch(item -> "cad_preview.png".equals(item.getName())));
-        assertTrue(result.getArtifacts().stream().anyMatch(item -> "preview.png".equals(item.getName())));
         assertTrue(result.getArtifacts().stream().anyMatch(item -> "part_05.dxf".equals(item.getName())));
         assertTrue(result.getProject().getBom().size() >= 5);
         assertTrue(result.getProject().getStructureTree().getChildren().size() >= 3);
         assertTrue(result.getProject().getAssemblyTree().getChildren().size() >= 1);
-        assertTrue(result.getArtifacts().stream().anyMatch(item -> "project_package.zip".equals(item.getName())));
+        assertTrue(result.getArtifacts().stream().noneMatch(item -> item.getName().contains("preview")));
+        assertTrue(result.getArtifacts().stream().noneMatch(item -> item.getName().contains("track_mechanism")));
 
         ArgumentCaptor<DocumentJobRecord> captor = ArgumentCaptor.forClass(DocumentJobRecord.class);
         verify(mapper, org.mockito.Mockito.atLeastOnce()).insert(captor.capture());

@@ -54,22 +54,10 @@ public class DesignPackageService {
         DesignProject project = designPipeline.generateCurrentTask(input == null ? new DesignProject() : input);
         log.info("开始生成成果包 title={} parameters={}", project.getProjectTitle(), project.allParameters().size());
         List<Generated> generated = new ArrayList<>();
-        generated.add(generateOne("paper.docx", DOCX, () -> paperEngine.generatePaper(project)));
-        generated.add(generateOne("design_calculation.docx", DOCX, () -> paperEngine.generateCalculationBook(project)));
-        generated.add(generateOne("sw_modeling_steps.docx", DOCX, () -> paperEngine.generateModelingSteps(project)));
-        generated.addAll(generateDrawingGroup(() -> drawingEngine.drawAssemblyDrawing(project)));
+        generated.add(generateOne("model_3d.json", "application/json", () -> exportEngine.model3d(project)));
+        generated.addAll(generateGroup(List.of("assembly.dxf"), () -> drawingEngine.drawAssemblyDrawing(project)));
         generated.addAll(generateGroup(List.of("part_01.dxf", "part_02.dxf", "part_03.dxf", "part_04.dxf", "part_05.dxf"), () -> drawingEngine.drawPartDrawing(project)));
-        generated.addAll(generateGroup(List.of("sw_macro_shell.bas", "sw_macro_base.bas", "sw_macro_inlet.bas", "sw_modeling_steps.txt"), () -> swMacroEngine.generate(project)));
-        generated.addAll(generateGroup(List.of("design_parameters.json", "preview.pdf"),
-                () -> exportEngine.appendManifests(project, List.of())));
-
-        if (shouldGenerateZip()) {
-            List<DrawingArtifact> successfulFiles = generated.stream().filter(Generated::success).map(Generated::artifact).toList();
-            generated.add(generateOne("project_package.zip", "application/zip", () -> exportEngine.zip(successfulFiles)));
-        } else {
-            generated.add(new Generated(new DrawingArtifact("project_package.zip", new byte[0], "application/zip"),
-                    "当前实例内存较小，已跳过总ZIP生成；请下载上方单个成果文件"));
-        }
+        generated.add(generateOne("paper.docx", DOCX, () -> paperEngine.generatePaper(project)));
 
         DesignPackageVO result = new DesignPackageVO();
         result.setProject(project);

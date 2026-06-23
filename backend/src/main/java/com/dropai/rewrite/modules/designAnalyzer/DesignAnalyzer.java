@@ -33,11 +33,14 @@ public class DesignAnalyzer {
     }
 
     public DesignProject analyze(String title, List<DocumentParser.ParsedDocument> documents) {
-        String sourceText = documents.stream()
+        List<DocumentParser.ParsedDocument> generationSources = documents.stream()
+                .filter(document -> "TASK_BOOK".equals(document.type()) || "PROPOSAL".equals(document.type()))
+                .toList();
+        String sourceText = generationSources.stream()
                 .filter(DocumentParser.ParsedDocument::textReadable)
                 .map(DocumentParser.ParsedDocument::text)
                 .reduce("", (a, b) -> a + "\n" + b);
-        DesignProject project = analyzeByRules(title, sourceText, documents);
+        DesignProject project = analyzeByRules(title, sourceText, generationSources);
         if (!sourceText.isBlank() && matrixDesignService != null && matrixDesignService.apiKeyConfigured()) {
             try {
                 mergeAiResult(project, matrixDesignService.generate(aiInstructions(), aiPrompt(title, sourceText)));

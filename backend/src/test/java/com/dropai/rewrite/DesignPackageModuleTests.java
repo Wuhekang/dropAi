@@ -4,9 +4,11 @@ import com.dropai.rewrite.modules.assemblyBuilder.AssemblyBuilder;
 import com.dropai.rewrite.modules.bomGenerator.BOMGenerator;
 import com.dropai.rewrite.modules.calculationEngine.CalculationEngine;
 import com.dropai.rewrite.modules.designPipeline.TaskDrivenDesignPipeline;
+import com.dropai.rewrite.modules.designAnalyzer.DesignAnalyzer;
 import com.dropai.rewrite.modules.drawingEngine.DrawingArtifact;
 import com.dropai.rewrite.modules.drawingEngine.DrawingEngine;
 import com.dropai.rewrite.modules.drawingPlanBuilder.DrawingPlanBuilder;
+import com.dropai.rewrite.modules.documentParser.DocumentParser;
 import com.dropai.rewrite.modules.model.DesignProject;
 import com.dropai.rewrite.modules.nonStandardPartGenerator.NonStandardPartGenerator;
 import com.dropai.rewrite.modules.paperEngine.PaperEngine;
@@ -35,7 +37,48 @@ class DesignPackageModuleTests {
     @Test
     void emptyProjectDoesNotEnterDefaultGeneration() {
         IllegalStateException error = assertThrows(IllegalStateException.class, () -> pipeline().analyzeNewTask(new DesignProject()));
-        assertTrue(error.getMessage().contains("不能生成默认通用机械设备"));
+        assertTrue(error.getMessage().contains("缺少题目"));
+    }
+
+    @Test
+    void designAnalyzerIgnoresArchivedNonWhitelistDocuments() {
+        DesignProject project = new DesignAnalyzer().analyze("", List.of(
+                new DocumentParser.ParsedDocument("任务书.docx", "TASK_BOOK", "题目：重力沉降室设计\n总长 4200mm"),
+                new DocumentParser.ParsedDocument("旧论文.docx", "DOCUMENT", "题目：油罐检测爬壁机器人结构设计\n履带机构 吸附力 200N", "archived", false, "仅存档")
+        ));
+
+        assertTrue(project.getProjectTitle().contains("重力沉降室"));
+        assertFalse(project.getProjectTitle().contains("油罐检测爬壁机器人"));
+        assertFalse(project.getMainStructures().stream().anyMatch(item -> item.contains("履带")));
+        assertTrue(project.getExplicitParameters().stream().anyMatch(item -> "总长".equals(item.getName())));
+        assertFalse(project.getExplicitParameters().stream().anyMatch(item -> "吸附力".equals(item.getName())));
+    }
+
+    @Test
+    void incompleteSettlingChamberTaskIsCompletedAsSuggestedPlan() {
+        DesignProject input = new DesignProject();
+        input.setProjectTitle("重力沉降室设计");
+
+        DesignProject project = pipeline().analyzeNewTask(input);
+
+        assertTrue(project.getEquipmentName().contains("重力沉降室"));
+        assertTrue(project.getDesignType().contains("环保设备"));
+        assertTrue(project.getMainStructures().contains("进气管"));
+        assertTrue(project.getMainStructures().contains("灰斗"));
+        assertTrue(project.getMainStructures().contains("检修门"));
+        assertTrue(project.getMainStructures().contains("加强筋"));
+        assertTrue(project.getSuggestedParameters().stream().anyMatch(p -> "总长".equals(p.getName()) && "系统建议".equals(p.getSource())));
+        assertTrue(project.getSuggestedParameters().stream().anyMatch(p -> "设计风量".equals(p.getName()) && String.valueOf(p.getValue()).contains("3000~6000")));
+        assertTrue(project.getSuggestedParameters().stream()
+                .filter(p -> List.of("总长", "总宽", "总高", "箱体板厚", "灰斗角度", "进出口尺寸", "设计风量", "气流速度", "停留时间").contains(p.getName()))
+                .allMatch(p -> p.getBasis() != null && p.getBasis().contains("方案级建议")));
+        assertTrue(project.getVerificationItems().contains("任务书部分参数未明确，系统已生成方案级建议值，可在下一步修改确认。"));
+
+        List<String> chamberFiles = fileNames(new DrawingEngine().drawAssemblyDrawing(project));
+        assertTrue(chamberFiles.contains("assembly.dxf"), chamberFiles::toString);
+        assertFalse(chamberFiles.contains("shell_structure.png"));
+        assertFalse(chamberFiles.contains("inlet_outlet.png"));
+        assertFalse(chamberFiles.contains("track_mechanism.png"));
     }
 
     @Test
@@ -57,7 +100,10 @@ class DesignPackageModuleTests {
     void drawingPlanDrivesCleanThreeViewCad() throws Exception {
         DesignProject project = structuredProject();
         List<DrawingArtifact> drawings = new DrawingEngine().drawAssemblyDrawing(project);
-        String dxf = new String(drawings.stream().filter(file -> "track_mechanism.dxf".equals(file.fileName())).findFirst().orElseThrow().content(), StandardCharsets.UTF_8);
+        assertTrue(drawings.stream().anyMatch(file -> "assembly.dxf".equals(file.fileName())));
+        assertFalse(drawings.stream().anyMatch(file -> file.fileName().contains("track_mechanism")));
+        assertFalse(drawings.stream().anyMatch(file -> file.fileName().contains("preview")));
+        String dxf = new String(drawings.stream().filter(file -> "assembly.dxf".equals(file.fileName())).findFirst().orElseThrow().content(), StandardCharsets.UTF_8);
         assertTrue("DrawingPlan".equals(project.getDrawingPlan().getInputSource()));
         assertFalse(project.getDrawingPlan().getMainView().getVisibleParts().isEmpty());
         assertFalse(project.getDrawingPlan().getTopView().getVisibleParts().isEmpty());
@@ -73,60 +119,41 @@ class DesignPackageModuleTests {
         assertFalse(dxf.contains("P002"));
         assertFalse(dxf.contains("DrawingPlan"));
         assertFalse(dxf.contains("debug"));
-        String planJson = new String(drawings.stream().filter(file -> "drawing_plan.json".equals(file.fileName())).findFirst().orElseThrow().content(), StandardCharsets.UTF_8);
-        assertTrue(planJson.contains("crawler_track"));
         assertTrue(dxf.contains("Front view"));
         assertTrue(dxf.contains("Top view"));
         assertTrue(dxf.contains("Side view"));
-        assertTrue(dxf.contains("track plates"));
-        assertTrue(new String(drawings.stream().filter(file -> "cleaning_mechanism.dxf".equals(file.fileName())).findFirst().orElseThrow().content(), StandardCharsets.UTF_8).contains("brush disk"));
-        assertTrue(new String(drawings.stream().filter(file -> "frame_structure.dxf".equals(file.fileName())).findFirst().orElseThrow().content(), StandardCharsets.UTF_8).contains("mounting holes"));
-        assertTrue(new String(drawings.stream().filter(file -> "drive_mechanism.dxf".equals(file.fileName())).findFirst().orElseThrow().content(), StandardCharsets.UTF_8).contains("M8"));
-        byte[] png = drawings.stream().filter(file -> "cad_preview.png".equals(file.fileName())).findFirst().orElseThrow().content();
-        assertTrue(png.length > 1000);
-        assertTrue(ImageIO.read(new ByteArrayInputStream(png)).getWidth() >= 1600);
-        String conceptSvg = new String(drawings.stream().filter(file -> "preview.svg".equals(file.fileName())).findFirst().orElseThrow().content(), StandardCharsets.UTF_8);
-        String cadSvg = new String(drawings.stream().filter(file -> "cad_preview.svg".equals(file.fileName())).findFirst().orElseThrow().content(), StandardCharsets.UTF_8);
-        assertTrue(conceptSvg.contains("Color concept diagram"));
-        assertTrue(conceptSvg.contains("Functional areas"));
-        assertFalse(conceptSvg.contains("Core BOM"));
-        assertFalse(conceptSvg.equals(cadSvg));
+        assertTrue(dxf.contains("Core BOM"));
     }
 
     @Test
-    void drawingTypesFollowStructureTreeInsteadOfRobotTemplate() {
+    void assemblyOutputDoesNotEmitChapterOrAuxiliaryDrawings() {
         DesignProject conveyor = projectWithStructure("输送机结构设计", List.of("输送带", "主动滚筒", "从动滚筒", "机架", "驱动电机", "减速器"));
         List<String> conveyorFiles = fileNames(new DrawingEngine().drawAssemblyDrawing(conveyor));
-        assertTrue(conveyorFiles.contains("conveyor_belt.png"));
-        assertTrue(conveyorFiles.contains("roller_mechanism.png"));
-        assertTrue(conveyorFiles.contains("frame_structure.png"));
-        assertTrue(conveyorFiles.contains("drive_mechanism.png"));
+        assertTrue(conveyorFiles.contains("assembly.dxf"));
+        assertFalse(conveyorFiles.contains("conveyor_belt.png"));
+        assertFalse(conveyorFiles.contains("roller_mechanism.png"));
         assertFalse(conveyorFiles.contains("track_mechanism.png"));
         assertFalse(conveyorFiles.contains("cleaning_mechanism.png"));
 
         DesignProject chamber = projectWithStructure("重力沉降室设计", List.of("壳体", "进口法兰", "出口接口", "排灰斗", "检修门", "支撑架"));
         List<String> chamberFiles = fileNames(new DrawingEngine().drawAssemblyDrawing(chamber));
-        assertTrue(chamberFiles.contains("shell_structure.png"));
-        assertTrue(chamberFiles.contains("inlet_outlet.png"));
-        assertTrue(chamberFiles.contains("ash_hopper.png"));
-        assertTrue(chamberFiles.contains("access_door.png"));
-        assertTrue(chamberFiles.contains("support_frame.png"));
+        assertTrue(chamberFiles.contains("assembly.dxf"));
+        assertFalse(chamberFiles.contains("shell_structure.png"));
+        assertFalse(chamberFiles.contains("ash_hopper.png"));
         assertFalse(chamberFiles.contains("track_mechanism.png"));
 
         DesignProject manipulator = projectWithStructure("机械手结构设计", List.of("底座", "大臂", "小臂", "夹爪", "关节伺服驱动"));
         List<String> manipulatorFiles = fileNames(new DrawingEngine().drawAssemblyDrawing(manipulator));
-        assertTrue(manipulatorFiles.contains("base_structure.png"));
-        assertTrue(manipulatorFiles.contains("upper_arm.png"));
-        assertTrue(manipulatorFiles.contains("forearm.png"));
-        assertTrue(manipulatorFiles.contains("gripper.png"));
-        assertTrue(manipulatorFiles.contains("joint_drive.png"));
+        assertTrue(manipulatorFiles.contains("assembly.dxf"));
+        assertFalse(manipulatorFiles.contains("base_structure.png"));
+        assertFalse(manipulatorFiles.contains("gripper.png"));
         assertFalse(manipulatorFiles.contains("cleaning_mechanism.png"));
     }
 
     @Test
     void partDrawingEngineProducesMajorEngineeringPartDrawings() {
         List<DrawingArtifact> partDrawings = new DrawingEngine().drawPartDrawing(structuredProject());
-        assertTrue(partDrawings.size() >= 3);
+        assertTrue(partDrawings.size() == 5);
         String combined = partDrawings.stream()
                 .map(file -> new String(file.content(), StandardCharsets.UTF_8))
                 .reduce("", String::concat);

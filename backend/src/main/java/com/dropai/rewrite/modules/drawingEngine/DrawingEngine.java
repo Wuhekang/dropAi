@@ -29,26 +29,22 @@ public class DrawingEngine {
 
     public List<DrawingArtifact> drawAssemblyDrawing(DesignProject project) {
         validateDrawingPlan(project);
-        Canvas concept = conceptRenderGenerator.draw(project);
-        List<ChapterDrawingEngine.Sheet> sheets = new ChapterDrawingEngine().draw(project);
+        Canvas assembly = assemblyCanvas(project);
         java.util.ArrayList<DrawingArtifact> files = new java.util.ArrayList<>();
-        files.add(new DrawingArtifact("preview.svg", concept.svg(true).getBytes(StandardCharsets.UTF_8), "image/svg+xml"));
-        files.add(new DrawingArtifact("preview.png", render(concept, new Color(243, 247, 251), true), "image/png"));
-        files.add(new DrawingArtifact("drawing_plan.json", drawingPlanJson(sheets).getBytes(StandardCharsets.UTF_8), "application/json"));
-        for (ChapterDrawingEngine.Sheet sheet : sheets) {
-            files.add(new DrawingArtifact(sheet.key() + ".dxf", sheet.canvas().dxf().getBytes(StandardCharsets.UTF_8), "application/dxf"));
-            files.add(new DrawingArtifact(sheet.key() + ".svg", sheet.canvas().svg(false).getBytes(StandardCharsets.UTF_8), "image/svg+xml"));
-            files.add(new DrawingArtifact(sheet.key() + ".png", render(sheet.canvas(), Color.WHITE, false), "image/png"));
-        }
-        DrawingEngine.Canvas defaultCad = sheets.stream()
-                .filter(sheet -> "track_mechanism".equals(sheet.key()))
-                .findFirst()
-                .map(ChapterDrawingEngine.Sheet::canvas)
-                .orElse(sheets.get(0).canvas());
-        files.add(new DrawingArtifact("assembly.dxf", sheets.get(0).canvas().dxf().getBytes(StandardCharsets.UTF_8), "application/dxf"));
-        files.add(new DrawingArtifact("cad_preview.svg", defaultCad.svg(false).getBytes(StandardCharsets.UTF_8), "image/svg+xml"));
-        files.add(new DrawingArtifact("cad_preview.png", render(defaultCad, Color.WHITE, false), "image/png"));
+        files.add(new DrawingArtifact("assembly.dxf", assembly.dxf().getBytes(StandardCharsets.UTF_8), "application/dxf"));
         return files;
+    }
+
+    private Canvas assemblyCanvas(DesignProject project) {
+        Canvas canvas = new Canvas(project.getProjectTitle(), "总装图", "ZZ-00");
+        DrawingLayoutOptimizer.Layout layout = layoutOptimizer.optimize(project);
+        frame(canvas);
+        titleBlock(canvas, project);
+        planViews(canvas, project, layout);
+        bom(canvas, project, layout);
+        parameterTable(canvas, project, layout);
+        requirements(canvas, project, layout);
+        return canvas;
     }
 
     private String drawingPlanJson(List<ChapterDrawingEngine.Sheet> sheets) {

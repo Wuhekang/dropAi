@@ -22,6 +22,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -50,6 +52,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 @Service
 public class DocumentRewriteServiceImpl implements DocumentRewriteService {
 
+    private static final Logger log = LoggerFactory.getLogger(DocumentRewriteServiceImpl.class);
+
     private final WorkflowRewriteService workflowRewriteService;
     private final AiRewriteService aiRewriteService;
     private final DoubaoProperties doubaoProperties;
@@ -60,6 +64,7 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
     private final Path outputDir = Path.of("storage", "outputs");
     private final Path jobLogDir = Path.of("storage", "jobs");
     private final ExecutorService documentExecutor = Executors.newFixedThreadPool(2);
+    private final Map<String, Path> generatedOutputFiles = new ConcurrentHashMap<>();
 
     public DocumentRewriteServiceImpl(
             WorkflowRewriteService workflowRewriteService,
@@ -174,11 +179,36 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
 
     @Override
     public Resource download(String jobId) {
-        DocumentJobRecord record = ownedRecordWithOutputFile(jobId, AuthContext.requireUserId());
-        if (record == null || record.getOutputFile() == null || record.getOutputFile().length == 0) {
+        long startedAt = System.currentTimeMillis();
+        Long userId = AuthContext.requireUserId();
+        log.info("下载接口开始 jobId={} userId={} regenerate=false startTime={}", jobId, userId, LocalDateTime.now());
+        DocumentJobRecord record = ownedRecord(jobId, userId);
+        if (record == null) {
             throw new IllegalArgumentException("处理结果不存在或任务尚未完成");
         }
-        return new ByteArrayResource(record.getOutputFile());
+        Path outputPath = resolvedOutputPath(jobId);
+        if (isUsableFile(outputPath)) {
+            try {
+                long fileSize = Files.size(outputPath);
+                log.info("下载接口返回 jobId={} source=local-file filePath={} fileSize={} elapsedMs={} regenerate=false",
+                        jobId, outputPath.toAbsolutePath(), fileSize, System.currentTimeMillis() - startedAt);
+            } catch (IOException exception) {
+                log.warn("下载接口读取本地文件大小失败 jobId={} filePath={} regenerate=false", jobId, outputPath.toAbsolutePath(), exception);
+            }
+            return new FileSystemResource(outputPath);
+        }
+
+        DocumentJobRecord recordWithOutputFile = ownedRecordWithOutputFile(jobId, userId);
+        if (recordWithOutputFile != null
+                && recordWithOutputFile.getOutputFile() != null
+                && recordWithOutputFile.getOutputFile().length > 0) {
+            log.info("下载接口返回 jobId={} source=db-legacy fileSize={} elapsedMs={} regenerate=false",
+                    jobId, recordWithOutputFile.getOutputFile().length, System.currentTimeMillis() - startedAt);
+            return new ByteArrayResource(recordWithOutputFile.getOutputFile());
+        }
+        log.warn("下载接口未找到已生成文件 jobId={} expectedPath={} elapsedMs={} regenerate=false",
+                jobId, outputPath.toAbsolutePath(), System.currentTimeMillis() - startedAt);
+        throw new IllegalArgumentException("处理结果不存在或任务尚未完成");
     }
 
     @Override
@@ -243,19 +273,39 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
                             job.setRewrittenParagraphs(job.getRewrittenParagraphs() + 1);
                         }
                     });
+            long docxStartedAt = System.currentTimeMillis();
+            log.info("docx生成开始 jobId={} outputPath={} startTime={}",
+                    jobId, outputPath.toAbsolutePath(), LocalDateTime.now());
+            Files.createDirectories(outputPath.getParent());
             try (OutputStream outputStream = Files.newOutputStream(outputPath)) {
                 document.write(outputStream);
             }
+            long fileSize = Files.size(outputPath);
+            if (fileSize <= 0) {
+                throw new IllegalStateException("生成的 DOCX 文件为空");
+            }
+            generatedOutputFiles.put(jobId, outputPath);
             job.setDownloadUrl("/api/document/rewrite/download/" + jobId);
+            log.info("docx生成结束 jobId={} outputPath={} fileSize={} elapsedMs={}",
+                    jobId, outputPath.toAbsolutePath(), fileSize, System.currentTimeMillis() - docxStartedAt);
             if (failedParagraphs > 0) {
                 update(job, "FAILED", job.getModeName() + "未完成：已处理 " + job.getRewrittenParagraphs()
                         + " 个段落，失败 " + failedParagraphs + " 个段落；首个失败原因：" + firstFailure
                         + "；模型状态：" + aiRewriteService.lastCallProvider());
             } else {
-                update(job, "SUCCESS", completedMessage(job.getMode()) + "；已处理 " + job.getRewrittenParagraphs()
-                        + " 个段落；模型状态：" + aiRewriteService.lastCallProvider());
+                job.setMessage("结果文件已生成，正在登记下载信息");
+                job.setUpdatedAt(LocalDateTime.now());
+                persistJobSafely(job, null, null);
+
+                String successMessage = completedMessage(job.getMode()) + "；已处理 " + job.getRewrittenParagraphs()
+                        + " 个段落；模型状态：" + aiRewriteService.lastCallProvider();
+                job.setStatus("SUCCESS");
+                job.setMessage(successMessage);
+                job.setUpdatedAt(LocalDateTime.now());
+                log.info("SUCCESS设置时间 jobId={} filePath={} fileSize={} downloadUrl={} successTime={}",
+                        jobId, outputPath.toAbsolutePath(), fileSize, job.getDownloadUrl(), job.getUpdatedAt());
+                persistJobSafely(job, null, null);
             }
-            persistJob(job, null, Files.readAllBytes(outputPath));
         } catch (Exception exception) {
             writeJobLog(jobId, exception);
             update(job, "FAILED", "处理失败：" + readableMessage(exception) + "；详情见 storage/jobs/" + jobId + ".log");
@@ -665,6 +715,19 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
                 .eq(DocumentJobRecord::getUserId, userId));
     }
 
+    private Path resolvedOutputPath(String jobId) {
+        Path cachedPath = generatedOutputFiles.get(jobId);
+        return cachedPath != null ? cachedPath : outputDir.resolve(jobId + "-ai-optimized.docx");
+    }
+
+    private boolean isUsableFile(Path path) {
+        try {
+            return path != null && Files.isRegularFile(path) && Files.size(path) > 0;
+        } catch (IOException exception) {
+            return false;
+        }
+    }
+
     private void persistJob(DocumentRewriteJobVO job, Long userId, byte[] outputFile) {
         if (job == null) return;
         DocumentJobRecord record = documentJobMapper.selectById(job.getJobId());
@@ -712,7 +775,9 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
         job.setMessage(record.getMessage());
         job.setCreatedAt(record.getCreatedAt());
         job.setUpdatedAt(record.getUpdatedAt());
-        if (record.getOutputFile() != null) job.setDownloadUrl("/api/document/rewrite/download/" + record.getJobId());
+        if ("SUCCESS".equals(record.getStatus()) || record.getOutputFile() != null || isUsableFile(resolvedOutputPath(record.getJobId()))) {
+            job.setDownloadUrl("/api/document/rewrite/download/" + record.getJobId());
+        }
         try {
             job.setParagraphs(objectMapper.readValue(record.getParagraphsJson(), new TypeReference<List<DocumentParagraphJobVO>>() {}));
         } catch (Exception ignored) {

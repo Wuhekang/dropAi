@@ -25,6 +25,12 @@ public class EngineeringSemanticLayer {
         if (has(geometry, name, "SENSOR", "DETECT", "检测", "传感", "sensor")) return new SemanticPart("检测组件", "sensor", "FUNCTION");
         if (has(geometry, name, "RAIL", "导轨", "滑轨", "rail")) return new SemanticPart("检测导轨", "rail", "FUNCTION");
         if (has(geometry, name, "BRUSH", "刷", "清扫", "brush")) return new SemanticPart("清扫刷", "brush", "FUNCTION");
+        if (has(geometry, name, "沉降室箱体", "壳体", "箱体", "沉降室", "chamber", "housing")) return new SemanticPart("沉降室箱体", "shell", "BODY");
+        if (has(geometry, name, "进气", "出气", "进口", "出口", "进出口", "接口", "管", "inlet", "outlet")) return new SemanticPart("进出口接口", "interface", "INTERFACE");
+        if (has(geometry, name, "灰斗", "排灰", "卸灰", "hopper", "ash")) return new SemanticPart("排灰斗", "hopper", "FUNCTION");
+        if (has(geometry, name, "检修门", "观察孔", "access door", "inspection")) return new SemanticPart("检修门", "door", "MAINTENANCE");
+        if (has(geometry, name, "支撑框架", "支撑架", "支腿", "support")) return new SemanticPart("支撑框架", "support", "SUPPORT");
+        if (has(geometry, name, "导流板", "扩散段", "加强筋", "rib", "baffle")) return new SemanticPart("导流加强件", "rib", "STRUCTURE");
         if (has(geometry, name, "BEARING", "轴承", "bearing")) return new SemanticPart("轴承", "bearing", "JOINT");
         if (has(geometry, name, "COUPLING", "联轴器", "coupling")) return new SemanticPart("联轴器", "coupling", "JOINT");
         if (has(geometry, name, "BOLT", "SCREW", "螺栓", "螺钉", "bolt")) return new SemanticPart("螺栓连接", "bolt", "JOINT");

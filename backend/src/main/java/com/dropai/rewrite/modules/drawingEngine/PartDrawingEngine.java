@@ -11,18 +11,13 @@ import java.util.Locale;
 @Service
 public class PartDrawingEngine {
     private final MechanicalFeatureLibrary featureLibrary = new MechanicalFeatureLibrary();
+    private final PartImportanceAnalyzer importanceAnalyzer = new PartImportanceAnalyzer();
     private final DimensionEngine dimensionEngine = new DimensionEngine();
     private final AnnotationEngine annotationEngine = new AnnotationEngine();
     private final ToleranceGenerator toleranceGenerator = new ToleranceGenerator();
 
     public List<DrawingArtifact> drawPartDrawing(DesignProject project) {
-        List<DesignProject.Component> targets = featureLibrary.selectMajorDrawingTargets(project);
-        if (targets.size() < 3) {
-            targets = project.getComponents().stream().filter(DesignProject.Component::isKeyPart).limit(5).toList();
-        }
-        if (targets.size() < 3) {
-            throw new IllegalStateException("主要零件图生成失败：关键机构数量不足，至少需要3个可出图零件。");
-        }
+        List<DesignProject.Component> targets = importanceAnalyzer.selectTopFive(project);
 
         List<DrawingArtifact> result = new ArrayList<>();
         for (int i = 0; i < targets.size(); i++) {

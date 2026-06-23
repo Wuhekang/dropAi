@@ -41,9 +41,21 @@ public class DesignPackageController {
     }
 
     @PostMapping("/analyze")
-    public Result<DesignAnalysisResultVO> analyze(@RequestParam(defaultValue = "") String title, @RequestParam("files") List<MultipartFile> files) {
-        List<DocumentParser.ParsedDocument> documents = documentParser.parse(files);
-        DesignProject project = designPipeline.analyzeNewTask(designAnalyzer.analyze(title, documents));
+    public Result<DesignAnalysisResultVO> analyze(@RequestParam(defaultValue = "") String title,
+                                                  @RequestParam("files") List<MultipartFile> files,
+                                                  @RequestParam(value = "types", required = false) List<String> types) {
+        List<DocumentParser.ParsedDocument> documents = documentParser.parse(files, types == null ? List.of() : types);
+        List<DocumentParser.ParsedDocument> generationSources = documents.stream()
+                .filter(document -> documentParser.allowedForMechanicalDesign(document.type()))
+                .toList();
+        if (generationSources.stream().noneMatch(document -> "TASK_BOOK".equals(document.type()))) {
+            throw new IllegalArgumentException("机械设计模块必须上传任务书；开题报告为可选补充资料。");
+        }
+        if (generationSources.stream().filter(document -> "TASK_BOOK".equals(document.type()))
+                .noneMatch(DocumentParser.ParsedDocument::textReadable)) {
+            throw new IllegalArgumentException("任务书未读取到可用文字内容，请上传可读取的任务书文档。");
+        }
+        DesignProject project = designPipeline.analyzeNewTask(designAnalyzer.analyze(title, generationSources));
         return Result.success(DesignAnalysisResultVO.of(project, documents));
     }
 

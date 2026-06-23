@@ -10,7 +10,7 @@ import java.util.Map;
 
 class DrawingLayoutOptimizer {
     private static final List<String> CORE_ORDER = List.of(
-            "frame", "track", "wheel", "brush", "sensor", "cover", "magnet");
+            "frame", "shell", "track", "wheel", "interface", "hopper", "brush", "sensor", "cover", "magnet", "door", "support");
 
     private final EngineeringSemanticLayer semanticLayer = new EngineeringSemanticLayer();
 

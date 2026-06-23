@@ -69,8 +69,8 @@ class DrawingTypePlanner {
             add(result, "shell_structure", "壳体结构图", "shell_structure", source(nodes, "壳体", "箱体", "shell"),
                     "StructureTree contains chamber shell or housing");
         }
-        if (hasAny(all, "进口", "出口", "进出口", "法兰", "inlet", "outlet", "flange")) {
-            add(result, "inlet_outlet", "进出口接口图", "inlet_outlet", source(nodes, "进口", "出口", "法兰", "inlet", "outlet"),
+        if (hasAny(all, "进口", "出口", "进出口", "进气", "出气", "进气管", "出气管", "接口", "法兰", "inlet", "outlet", "flange")) {
+            add(result, "inlet_outlet", "进出口接口图", "inlet_outlet", source(nodes, "进口", "出口", "进气", "出气", "接口", "法兰", "inlet", "outlet"),
                     "StructureTree contains inlet/outlet interface");
         }
         if (hasAny(all, "排灰斗", "灰斗", "hopper", "ash")) {
@@ -81,7 +81,7 @@ class DrawingTypePlanner {
             add(result, "access_door", "检修门结构图", "access_door", source(nodes, "检修门", "检查门", "door"),
                     "StructureTree contains access door");
         }
-        if (hasAny(all, "支撑架", "支架", "支腿", "support frame", "support")) {
+        if (hasAny(all, "支撑框架", "支撑架", "支架", "支腿", "support frame", "support")) {
             add(result, "support_frame", "支撑架结构图", "support_frame", source(nodes, "支撑", "支架", "support"),
                     "StructureTree contains support frame");
         }

@@ -16,18 +16,29 @@ import java.util.List;
 @Service
 public class DocumentParser {
     public List<ParsedDocument> parse(List<MultipartFile> files) {
+        return parse(files, List.of());
+    }
+
+    public List<ParsedDocument> parse(List<MultipartFile> files, List<String> declaredTypes) {
         List<ParsedDocument> result = new ArrayList<>();
-        for (MultipartFile file : files == null ? List.<MultipartFile>of() : files) {
+        List<MultipartFile> input = files == null ? List.of() : files;
+        for (int i = 0; i < input.size(); i++) {
+            MultipartFile file = input.get(i);
             String name = file.getOriginalFilename() == null ? "未命名资料" : file.getOriginalFilename();
             String lower = name.toLowerCase();
-            String type = classify(lower);
+            String type = declaredType(declaredTypes, i, lower);
             try {
+                if (!allowedForMechanicalDesign(type)) {
+                    result.add(new ParsedDocument(name, type, "", "archived", false,
+                            "该文件仅允许作为参考资料存档，禁止进入机械设计生成链路"));
+                    continue;
+                }
                 String text = readText(file, lower);
                 boolean readable = !text.isBlank();
-                String status = readable || type.equals("IMAGE_REFERENCE") || type.equals("CAD_REFERENCE") ? "success" : "failed";
+                String status = readable ? "success" : "failed";
                 String reason = readable ? "" : switch (type) {
-                    case "IMAGE_REFERENCE" -> "图片参考图已接收，当前阶段不读取图片文字";
-                    case "CAD_REFERENCE" -> "CAD参考图已接收，当前阶段仅作为结构参考";
+                    case "TASK_BOOK" -> "任务书未读取到可用文字内容";
+                    case "PROPOSAL" -> "开题报告未读取到可用文字内容";
                     default -> "未读取到可用文字内容";
                 };
                 result.add(new ParsedDocument(name, type, trim(text), status, readable, reason));
@@ -36,6 +47,18 @@ public class DocumentParser {
             }
         }
         return result;
+    }
+
+    private String declaredType(List<String> declaredTypes, int index, String lower) {
+        if (declaredTypes != null && index < declaredTypes.size()) {
+            String type = declaredTypes.get(index);
+            if (type != null && !type.isBlank()) return type;
+        }
+        return classify(lower);
+    }
+
+    public boolean allowedForMechanicalDesign(String type) {
+        return "TASK_BOOK".equals(type) || "PROPOSAL".equals(type);
     }
 
     private String readText(MultipartFile file, String lower) throws Exception {

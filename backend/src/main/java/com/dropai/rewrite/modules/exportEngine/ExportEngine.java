@@ -26,6 +26,22 @@ public class ExportEngine {
         return result;
     }
 
+    public byte[] model3d(DesignProject project) {
+        try {
+            return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsBytes(java.util.Map.of(
+                    "projectTitle", project.getProjectTitle(),
+                    "equipmentName", project.getEquipmentName(),
+                    "designType", project.getDesignType(),
+                    "structureTree", project.getStructureTree(),
+                    "components", project.getComponents(),
+                    "assemblyTree", project.getAssemblyTree(),
+                    "assemblyConstraints", project.getAssemblyConstraints()
+            ));
+        } catch (Exception e) {
+            throw new IllegalStateException("生成3D模型数据失败", e);
+        }
+    }
+
     public byte[] zip(List<DrawingArtifact> artifacts) {
         try (ByteArrayOutputStream output = new ByteArrayOutputStream(); ZipOutputStream zip = new ZipOutputStream(output, StandardCharsets.UTF_8)) {
             for (DrawingArtifact artifact : artifacts) {

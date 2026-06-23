@@ -10,8 +10,10 @@ import com.dropai.rewrite.modules.partResolver.PartResolver;
 import com.dropai.rewrite.modules.parameterEngine.ParameterEngine;
 import com.dropai.rewrite.modules.projectAnalyzer.ProjectAnalyzer;
 import com.dropai.rewrite.modules.projectSessionReset.ProjectSessionReset;
+import com.dropai.rewrite.modules.requirementCompleter.RequirementCompleter;
 import com.dropai.rewrite.modules.standardPartSelector.StandardPartSelector;
 import com.dropai.rewrite.modules.structureTreeBuilder.StructureTreeBuilder;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -19,6 +21,7 @@ public class TaskDrivenDesignPipeline {
     private final ProjectSessionReset sessionReset;
     private final ParameterEngine parameterEngine;
     private final ProjectAnalyzer projectAnalyzer;
+    private final RequirementCompleter requirementCompleter;
     private final StructureTreeBuilder structureTreeBuilder;
     private final PartResolver partResolver;
     private final AssemblyBuilder assemblyBuilder;
@@ -31,9 +34,22 @@ public class TaskDrivenDesignPipeline {
                                     StandardPartSelector standardPartSelector, NonStandardPartGenerator nonStandardPartGenerator,
                                     AssemblyBuilder assemblyBuilder, BOMGenerator bomGenerator,
                                     CalculationEngine calculationEngine, DrawingPlanBuilder drawingPlanBuilder) {
+        this(sessionReset, parameterEngine, projectAnalyzer, new RequirementCompleter(), structureTreeBuilder,
+                standardPartSelector, nonStandardPartGenerator, assemblyBuilder, bomGenerator, calculationEngine,
+                drawingPlanBuilder);
+    }
+
+    @Autowired
+    public TaskDrivenDesignPipeline(ProjectSessionReset sessionReset, ParameterEngine parameterEngine,
+                                    ProjectAnalyzer projectAnalyzer, RequirementCompleter requirementCompleter,
+                                    StructureTreeBuilder structureTreeBuilder,
+                                    StandardPartSelector standardPartSelector, NonStandardPartGenerator nonStandardPartGenerator,
+                                    AssemblyBuilder assemblyBuilder, BOMGenerator bomGenerator,
+                                    CalculationEngine calculationEngine, DrawingPlanBuilder drawingPlanBuilder) {
         this.sessionReset = sessionReset;
         this.parameterEngine = parameterEngine;
         this.projectAnalyzer = projectAnalyzer;
+        this.requirementCompleter = requirementCompleter;
         this.structureTreeBuilder = structureTreeBuilder;
         this.partResolver = new PartResolver(standardPartSelector, nonStandardPartGenerator);
         this.assemblyBuilder = assemblyBuilder;
@@ -52,7 +68,8 @@ public class TaskDrivenDesignPipeline {
 
     private DesignProject run(DesignProject project) {
         project = parameterEngine.normalize(project);
-        ensureMinimumParameters(project);
+        project = projectAnalyzer.analyze(project);
+        project = requirementCompleter.complete(project);
         project = projectAnalyzer.analyze(project);
         project = structureTreeBuilder.build(project);
         project = partResolver.resolve(project);
@@ -65,21 +82,6 @@ public class TaskDrivenDesignPipeline {
         project.getEnhancementNotes().removeIf(item -> item != null && item.contains("任务书驱动结构树流水线"));
         project.getEnhancementNotes().add("任务书驱动结构树流水线：StructureTree + StandardPartSelector + NonStandardPartGenerator + AssemblyTree 已生成当前项目专属结构。");
         return project;
-    }
-
-    private void ensureMinimumParameters(DesignProject project) {
-        addSuggested(project, "总长", project.number("整机长度", 4200), "mm", "任务书未给出总长时按毕业设计方案阶段估算");
-        addSuggested(project, "总宽", project.number("整机宽度", 1600), "mm", "任务书未给出总宽时按总体布置估算");
-        addSuggested(project, "总高", project.number("整机高度", 1800), "mm", "任务书未给出总高时按装配高度估算");
-        addSuggested(project, "设计载荷", 1200, "kg", "任务书未给出载荷时按中小型机械结构方案载荷估算");
-        addSuggested(project, "安全系数", 1.8, "", "按本科机械设计方案阶段强度校核取值");
-        addSuggested(project, "材料", "Q235B/6061铝合金", "", "按机械结构常用材料初选");
-    }
-
-    private void addSuggested(DesignProject project, String name, Object value, String unit, String basis) {
-        if (project.allParameters().stream().noneMatch(item -> name.equals(item.getName()))) {
-            project.getSuggestedParameters().add(new DesignProject.Parameter(name, value, unit, null, basis));
-        }
     }
 
     private void score(DesignProject project) {
