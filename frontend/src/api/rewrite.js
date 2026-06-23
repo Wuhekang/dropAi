@@ -122,11 +122,12 @@ export function deleteRewrite(id) {
   return request.delete(`/rewrite/${id}`)
 }
 
-export function uploadDocument(file, mode, platform = 'GENERAL') {
+export function uploadDocument(file, mode, platform = 'GENERAL', requestId = '') {
   const formData = new FormData()
   formData.append('file', file)
   formData.append('mode', mode)
   formData.append('platform', platform)
+  if (requestId) formData.append('requestId', requestId)
   return request.post('/document/rewrite/upload', formData, {
     headers: {
       'Content-Type': 'multipart/form-data'
@@ -143,6 +144,17 @@ export function getDocumentJob(jobId, includeParagraphs = false) {
 
 export function getDocumentJobs() {
   return request.get('/document/rewrite/jobs')
+}
+
+export function precheckDocument(file) {
+  const formData = new FormData()
+  formData.append('file', file)
+  return request.post('/document/precheck', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data'
+    },
+    timeout: 120000
+  })
 }
 
 export function downloadDocument(jobId) {

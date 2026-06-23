@@ -54,6 +54,9 @@ CREATE TABLE IF NOT EXISTS document_job (
   total_paragraphs INT DEFAULT 0,
   processed_paragraphs INT DEFAULT 0,
   rewritten_paragraphs INT DEFAULT 0,
+  char_count INT DEFAULT 0,
+  cost_points INT DEFAULT 0,
+  points_charged BOOLEAN DEFAULT FALSE NOT NULL,
   message CLOB,
   paragraphs_json CLOB,
   output_file BLOB,
@@ -61,6 +64,9 @@ CREATE TABLE IF NOT EXISTS document_job (
   updated_at TIMESTAMP NOT NULL
 );
 ALTER TABLE document_job ADD COLUMN IF NOT EXISTS source_feature VARCHAR(50) DEFAULT 'REWRITE' NOT NULL;
+ALTER TABLE document_job ADD COLUMN IF NOT EXISTS char_count INT DEFAULT 0;
+ALTER TABLE document_job ADD COLUMN IF NOT EXISTS cost_points INT DEFAULT 0;
+ALTER TABLE document_job ADD COLUMN IF NOT EXISTS points_charged BOOLEAN DEFAULT FALSE NOT NULL;
 ALTER TABLE document_job ALTER COLUMN mode VARCHAR(100);
 ALTER TABLE document_job ALTER COLUMN mode_name VARCHAR(100);
 ALTER TABLE document_job ALTER COLUMN platform VARCHAR(100);
@@ -69,6 +75,7 @@ ALTER TABLE document_job ALTER COLUMN platform_name VARCHAR(100);
 CREATE TABLE IF NOT EXISTS point_transactions (
   id BIGINT AUTO_INCREMENT PRIMARY KEY,
   user_id BIGINT NOT NULL,
+  job_id VARCHAR(64),
   feature_code VARCHAR(50) NOT NULL,
   feature_name VARCHAR(100) NOT NULL,
   points_change INT NOT NULL,
@@ -76,6 +83,7 @@ CREATE TABLE IF NOT EXISTS point_transactions (
   remark VARCHAR(255),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
+ALTER TABLE point_transactions ADD COLUMN IF NOT EXISTS job_id VARCHAR(64);
 
 CREATE TABLE IF NOT EXISTS feature_pricing (
   id BIGINT AUTO_INCREMENT PRIMARY KEY,

@@ -17,6 +17,9 @@ public class DocumentRewriteJobVO {
     private int totalParagraphs;
     private int processedParagraphs;
     private int rewrittenParagraphs;
+    private int charCount;
+    private int costPoints;
+    private boolean pointsCharged;
     private String message;
     private String downloadUrl;
     private List<DocumentParagraphJobVO> paragraphs = new ArrayList<>();
@@ -103,6 +106,30 @@ public class DocumentRewriteJobVO {
 
     public void setRewrittenParagraphs(int rewrittenParagraphs) {
         this.rewrittenParagraphs = rewrittenParagraphs;
+    }
+
+    public int getCharCount() {
+        return charCount;
+    }
+
+    public void setCharCount(int charCount) {
+        this.charCount = charCount;
+    }
+
+    public int getCostPoints() {
+        return costPoints;
+    }
+
+    public void setCostPoints(int costPoints) {
+        this.costPoints = costPoints;
+    }
+
+    public boolean isPointsCharged() {
+        return pointsCharged;
+    }
+
+    public void setPointsCharged(boolean pointsCharged) {
+        this.pointsCharged = pointsCharged;
     }
 
     public String getMessage() {

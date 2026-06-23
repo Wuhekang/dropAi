@@ -20,6 +20,9 @@ public class DocumentJobRecord {
     private Integer totalParagraphs;
     private Integer processedParagraphs;
     private Integer rewrittenParagraphs;
+    private Integer charCount;
+    private Integer costPoints;
+    private Boolean pointsCharged;
     private String message;
     private String paragraphsJson;
     @TableField(select = false)
@@ -51,6 +54,12 @@ public class DocumentJobRecord {
     public void setProcessedParagraphs(Integer processedParagraphs) { this.processedParagraphs = processedParagraphs; }
     public Integer getRewrittenParagraphs() { return rewrittenParagraphs; }
     public void setRewrittenParagraphs(Integer rewrittenParagraphs) { this.rewrittenParagraphs = rewrittenParagraphs; }
+    public Integer getCharCount() { return charCount; }
+    public void setCharCount(Integer charCount) { this.charCount = charCount; }
+    public Integer getCostPoints() { return costPoints; }
+    public void setCostPoints(Integer costPoints) { this.costPoints = costPoints; }
+    public Boolean getPointsCharged() { return pointsCharged; }
+    public void setPointsCharged(Boolean pointsCharged) { this.pointsCharged = pointsCharged; }
     public String getMessage() { return message; }
     public void setMessage(String message) { this.message = message; }
     public String getParagraphsJson() { return paragraphsJson; }

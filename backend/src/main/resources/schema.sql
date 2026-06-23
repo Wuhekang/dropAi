@@ -53,6 +53,9 @@ CREATE TABLE IF NOT EXISTS document_job (
   total_paragraphs INT DEFAULT 0,
   processed_paragraphs INT DEFAULT 0,
   rewritten_paragraphs INT DEFAULT 0,
+  char_count INT DEFAULT 0,
+  cost_points INT DEFAULT 0,
+  points_charged TINYINT(1) NOT NULL DEFAULT 0,
   message TEXT,
   paragraphs_json LONGTEXT,
   output_file LONGBLOB,
@@ -60,10 +63,14 @@ CREATE TABLE IF NOT EXISTS document_job (
   updated_at DATETIME NOT NULL,
   INDEX idx_document_user_created (user_id, created_at)
 ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+ALTER TABLE document_job ADD COLUMN IF NOT EXISTS char_count INT DEFAULT 0;
+ALTER TABLE document_job ADD COLUMN IF NOT EXISTS cost_points INT DEFAULT 0;
+ALTER TABLE document_job ADD COLUMN IF NOT EXISTS points_charged TINYINT(1) NOT NULL DEFAULT 0;
 
 CREATE TABLE IF NOT EXISTS point_transactions (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   user_id BIGINT NOT NULL,
+  job_id VARCHAR(64),
   feature_code VARCHAR(50) NOT NULL,
   feature_name VARCHAR(100) NOT NULL,
   points_change INT NOT NULL,
@@ -71,8 +78,10 @@ CREATE TABLE IF NOT EXISTS point_transactions (
   remark VARCHAR(255),
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_point_tx_user_created (user_id, created_at),
+  INDEX idx_point_tx_job (job_id),
   INDEX idx_point_tx_feature (feature_code)
 ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+ALTER TABLE point_transactions ADD COLUMN IF NOT EXISTS job_id VARCHAR(64);
 
 CREATE TABLE IF NOT EXISTS feature_pricing (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,

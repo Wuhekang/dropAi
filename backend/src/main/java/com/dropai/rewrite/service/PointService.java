@@ -26,6 +26,9 @@ public class PointService {
     public static final String MODEL_GENERATE = "MODEL_GENERATE";
     public static final String DOCX_GENERATE = "DOCX_GENERATE";
     public static final String ZIP_EXPORT = "ZIP_EXPORT";
+    public static final String DOCUMENT_REWRITE = "DOCUMENT_REWRITE";
+    public static final String DOCUMENT_HUMANIZE = "DOCUMENT_HUMANIZE";
+    public static final String DOCUMENT_DOUBLE = "DOCUMENT_DOUBLE";
 
     private final UserAccountMapper userMapper;
     private final FeaturePricingMapper pricingMapper;
@@ -50,6 +53,43 @@ public class PointService {
     public void checkPoints(String featureCode) {
         Long userId = AuthContext.requireUserId();
         ensureEnough(userId, requirePricing(featureCode));
+    }
+
+    public int currentPoints(Long userId) {
+        return value(requireUser(userId).getPoints());
+    }
+
+    public void ensureEnoughCustom(Long userId, int costPoints) {
+        if (costPoints <= 0) {
+            return;
+        }
+        int balance = currentPoints(userId);
+        if (balance < costPoints) {
+            throw new PointsNotEnoughException("积分不足，预计需要 " + costPoints + " 积分，当前仅有 " + balance + " 积分");
+        }
+    }
+
+    @Transactional
+    public void deductCustom(Long userId, String jobId, String featureCode, String featureName, int costPoints, String remark) {
+        if (costPoints <= 0) {
+            return;
+        }
+        ensureEnoughCustom(userId, costPoints);
+        int updated = userMapper.deductPoints(userId, costPoints);
+        if (updated <= 0) {
+            throw new PointsNotEnoughException("积分不足，预计需要 " + costPoints + " 积分");
+        }
+        UserAccount after = requireUser(userId);
+        PointTransaction transaction = new PointTransaction();
+        transaction.setUserId(userId);
+        transaction.setJobId(jobId);
+        transaction.setFeatureCode(featureCode);
+        transaction.setFeatureName(featureName);
+        transaction.setPointsChange(-costPoints);
+        transaction.setBalanceAfter(value(after.getPoints()));
+        transaction.setRemark(remark == null ? "" : remark);
+        transaction.setCreatedAt(LocalDateTime.now());
+        transactionMapper.insert(transaction);
     }
 
     public PointAccountVO myAccount() {
@@ -118,6 +158,7 @@ public class PointService {
         UserAccount after = requireUser(userId);
         PointTransaction transaction = new PointTransaction();
         transaction.setUserId(userId);
+        transaction.setJobId(null);
         transaction.setFeatureCode(pricing.getFeatureCode());
         transaction.setFeatureName(pricing.getFeatureName());
         transaction.setPointsChange(-cost);

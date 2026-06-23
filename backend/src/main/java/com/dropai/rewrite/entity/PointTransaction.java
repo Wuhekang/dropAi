@@ -11,6 +11,7 @@ public class PointTransaction {
     @TableId(type = IdType.AUTO)
     private Long id;
     private Long userId;
+    private String jobId;
     private String featureCode;
     private String featureName;
     private Integer pointsChange;
@@ -22,6 +23,8 @@ public class PointTransaction {
     public void setId(Long id) { this.id = id; }
     public Long getUserId() { return userId; }
     public void setUserId(Long userId) { this.userId = userId; }
+    public String getJobId() { return jobId; }
+    public void setJobId(String jobId) { this.jobId = jobId; }
     public String getFeatureCode() { return featureCode; }
     public void setFeatureCode(String featureCode) { this.featureCode = featureCode; }
     public String getFeatureName() { return featureName; }

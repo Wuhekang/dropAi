@@ -86,12 +86,18 @@
           <span>口径：{{ documentJob.platformName || currentPlatform.label }}</span>
           <span>进度：{{ documentProgress }}%（{{ documentJob.processedParagraphs || 0 }}/{{ documentJob.totalParagraphs || 0 }} 段）</span>
           <span>{{ documentJob.message || '支持 .docx，处理完成后可下载结果文档' }}</span>
+          <div v-if="documentPrecheck.ready" class="document-precheck" :class="{ insufficient: !documentPrecheck.canProcess }">
+            <span>文档字符数：{{ formatNumber(documentPrecheck.charCount) }}</span>
+            <span>预计消耗：{{ documentPrecheck.costPoints }} 积分</span>
+            <span>当前积分：{{ documentPrecheck.currentPoints }} 积分</span>
+            <strong v-if="!documentPrecheck.canProcess">当前积分不足，预计需要 {{ documentPrecheck.costPoints }} 积分</strong>
+          </div>
           <el-progress :percentage="documentProgress" :status="progressStatus" />
           <div class="controls">
             <el-button
               type="primary"
-              :loading="documentUploading"
-              :disabled="!selectedDocument || isDocumentRunning || aiStatus.testStatus !== 'success'"
+              :loading="documentUploading || documentPrechecking"
+              :disabled="!canConfirmDocument"
               @click="submitDocument"
             >
               {{ documentActionText }}
@@ -412,6 +418,7 @@ import {
   getAiStatus,
   getDocumentJob,
   getDocumentJobs,
+  precheckDocument,
   getRewriteDetail,
   getRewriteList,
   submitRewrite,
@@ -461,6 +468,7 @@ const selectedDocument = ref(null)
 const documentMode = ref('humanize')
 const targetPlatform = ref('GENERAL')
 const documentUploading = ref(false)
+const documentPrechecking = ref(false)
 const documentPollTimer = ref(null)
 const documentTerminalMessages = new Set()
 const documentJobs = ref([])
@@ -472,12 +480,23 @@ const documentJob = reactive({
   totalParagraphs: 0,
   processedParagraphs: 0,
   rewrittenParagraphs: 0,
+  charCount: 0,
+  costPoints: 0,
+  pointsCharged: false,
   modeName: '',
   platform: 'GENERAL',
   platformName: '通用',
   message: '',
   downloadUrl: '',
   paragraphs: []
+})
+const documentPrecheck = reactive({
+  ready: false,
+  requestId: '',
+  charCount: 0,
+  costPoints: 0,
+  currentPoints: 0,
+  canProcess: false
 })
 const analysis = reactive({
   score: null,
@@ -559,10 +578,26 @@ const currentPlatform = computed(() =>
   platformOptions.find((item) => item.value === targetPlatform.value) || platformOptions[0]
 )
 const documentActionText = computed(() => {
+  if (documentPrechecking.value) return '正在检测字符数'
+  if (documentPrecheck.ready && documentPrecheck.canProcess) {
+    return `确认处理并消耗 ${documentPrecheck.costPoints} 积分`
+  }
+  if (documentPrecheck.ready && !documentPrecheck.canProcess) {
+    return `当前积分不足，预计需要 ${documentPrecheck.costPoints} 积分`
+  }
   if (documentMode.value === 'rewrite') return '开始降重处理'
   if (documentMode.value === 'double') return '开始双降处理'
   return '开始降AI处理'
 })
+const canConfirmDocument = computed(() =>
+  !!selectedDocument.value &&
+  documentPrecheck.ready &&
+  documentPrecheck.canProcess &&
+  !documentUploading.value &&
+  !documentPrechecking.value &&
+  !isDocumentRunning.value &&
+  aiStatus.testStatus === 'success'
+)
 
 async function handleSubmit() {
   if (!originalText.value.trim()) {
@@ -637,11 +672,35 @@ function setWorkflow(result) {
   qualityCheck.issues = check.issues || []
 }
 
-function handleDocumentSelected(uploadFile) {
+async function handleDocumentSelected(uploadFile) {
   selectedDocument.value = uploadFile.raw
   documentJob.fileName = uploadFile.name
   documentJob.status = ''
-  documentJob.message = '已选择文件，点击开始整篇处理'
+  documentJob.message = '已选择文件，正在检测字符数和积分'
+  resetDocumentPrecheck()
+  documentPrecheck.requestId = createRequestId()
+  documentPrechecking.value = true
+  try {
+    const result = await precheckDocument(uploadFile.raw)
+    Object.assign(documentPrecheck, {
+      ready: true,
+      charCount: result.charCount || 0,
+      costPoints: result.costPoints || 0,
+      currentPoints: result.currentPoints || 0,
+      canProcess: !!result.canProcess
+    })
+    documentJob.charCount = documentPrecheck.charCount
+    documentJob.costPoints = documentPrecheck.costPoints
+    documentJob.message = documentPrecheck.canProcess
+      ? '字符数检测完成，请确认后开始处理'
+      : `当前积分不足，预计需要 ${documentPrecheck.costPoints} 积分`
+  } catch (error) {
+    selectedDocument.value = null
+    documentJob.status = 'FAILED'
+    documentJob.message = error.message || '文档字符数检测失败'
+  } finally {
+    documentPrechecking.value = false
+  }
 }
 
 async function submitDocument() {
@@ -656,9 +715,22 @@ async function submitDocument() {
     ElMessage.error('真实模型尚未连接，已阻止文档任务，不会生成模拟结果')
     return
   }
+  if (!documentPrecheck.ready) {
+    ElMessage.warning('请等待字符数和积分检测完成')
+    return
+  }
+  if (!documentPrecheck.canProcess) {
+    ElMessage.error(`当前积分不足，预计需要 ${documentPrecheck.costPoints} 积分`)
+    return
+  }
   documentUploading.value = true
   try {
-    const job = await uploadDocument(selectedDocument.value, documentMode.value, targetPlatform.value)
+    const job = await uploadDocument(
+      selectedDocument.value,
+      documentMode.value,
+      targetPlatform.value,
+      documentPrecheck.requestId
+    )
     setDocumentJob(job)
     rememberDocumentJob(job)
     documentTerminalMessages.delete(`${job.jobId}:SUCCESS`)
@@ -668,6 +740,28 @@ async function submitDocument() {
   } finally {
     documentUploading.value = false
   }
+}
+
+function resetDocumentPrecheck() {
+  Object.assign(documentPrecheck, {
+    ready: false,
+    requestId: '',
+    charCount: 0,
+    costPoints: 0,
+    currentPoints: 0,
+    canProcess: false
+  })
+}
+
+function createRequestId() {
+  if (window.crypto?.randomUUID) {
+    return window.crypto.randomUUID()
+  }
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
+function formatNumber(value) {
+  return Number(value || 0).toLocaleString()
 }
 
 async function startDocumentPolling(jobId) {
@@ -1039,6 +1133,24 @@ onBeforeUnmount(() => {
   align-content: center;
   gap: 10px;
   color: #475569;
+}
+
+.document-precheck {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  padding: 10px 12px;
+  border: 1px solid #bbf7d0;
+  background: #f0fdf4;
+  color: #166534;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.document-precheck.insufficient {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
 }
 
 .document-job-table {

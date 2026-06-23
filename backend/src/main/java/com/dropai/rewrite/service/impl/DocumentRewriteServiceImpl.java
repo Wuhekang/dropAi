@@ -6,12 +6,17 @@ import com.dropai.rewrite.entity.DocumentJobRecord;
 import com.dropai.rewrite.mapper.DocumentJobMapper;
 import com.dropai.rewrite.service.DocumentRewriteService;
 import com.dropai.rewrite.service.AiRewriteService;
+import com.dropai.rewrite.service.PointService;
 import com.dropai.rewrite.service.WorkflowRewriteService;
 import com.dropai.rewrite.vo.DocumentParagraphJobVO;
+import com.dropai.rewrite.vo.DocumentPrecheckVO;
 import com.dropai.rewrite.vo.DocumentRewriteJobVO;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.apache.poi.xwpf.usermodel.XWPFParagraph;
 import org.apache.poi.xwpf.usermodel.XWPFRun;
+import org.apache.poi.xwpf.usermodel.XWPFTable;
+import org.apache.poi.xwpf.usermodel.XWPFTableCell;
+import org.apache.poi.xwpf.usermodel.XWPFTableRow;
 import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTRPr;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
@@ -19,6 +24,7 @@ import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
@@ -59,7 +65,9 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
     private final DoubaoProperties doubaoProperties;
     private final DocumentJobMapper documentJobMapper;
     private final ObjectMapper objectMapper;
+    private final PointService pointService;
     private final Map<String, DocumentRewriteJobVO> jobs = new ConcurrentHashMap<>();
+    private final Map<String, String> requestJobs = new ConcurrentHashMap<>();
     private final Path uploadDir = Path.of("storage", "uploads");
     private final Path outputDir = Path.of("storage", "outputs");
     private final Path jobLogDir = Path.of("storage", "jobs");
@@ -71,13 +79,15 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             AiRewriteService aiRewriteService,
             DoubaoProperties doubaoProperties,
             DocumentJobMapper documentJobMapper,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            PointService pointService
     ) {
         this.workflowRewriteService = workflowRewriteService;
         this.aiRewriteService = aiRewriteService;
         this.doubaoProperties = doubaoProperties;
         this.documentJobMapper = documentJobMapper;
         this.objectMapper = objectMapper;
+        this.pointService = pointService;
     }
 
     @PostConstruct
@@ -97,8 +107,30 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
     }
 
     @Override
+    @Transactional
     public DocumentRewriteJobVO submit(MultipartFile file, String mode, String platform) {
+        return submit(file, mode, platform, null);
+    }
+
+    @Override
+    @Transactional
+    public DocumentRewriteJobVO submit(MultipartFile file, String mode, String platform, String requestId) {
         Long userId = AuthContext.requireUserId();
+        String idempotencyKey = idempotencyKey(userId, requestId);
+        boolean idempotencyReserved = false;
+        if (idempotencyKey != null) {
+            String existingJobId = requestJobs.putIfAbsent(idempotencyKey, "");
+            if (existingJobId != null) {
+                if (existingJobId.isBlank()) {
+                    throw new IllegalStateException("该文档请求正在创建任务，请勿重复提交");
+                }
+                DocumentJobRecord existing = ownedRecord(existingJobId, userId);
+                if (existing != null) {
+                    return toJob(existing);
+                }
+            }
+            idempotencyReserved = true;
+        }
         Long running = documentJobMapper.selectCount(new LambdaQueryWrapper<DocumentJobRecord>()
                 .eq(DocumentJobRecord::getUserId, userId)
                 .in(DocumentJobRecord::getStatus, "PENDING", "RUNNING"));
@@ -117,6 +149,11 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             Files.createDirectories(outputDir);
             Files.createDirectories(jobLogDir);
             String jobId = UUID.randomUUID().toString().replace("-", "");
+            int charCount = countDocumentChars(file);
+            int costPoints = calculateCostPoints(charCount);
+            String featureCode = documentFeatureCode(normalizedMode);
+            pointService.deductCustom(userId, jobId, featureCode, documentFeatureName(normalizedMode), costPoints,
+                    "提交文档改写任务：" + originalName);
             Path inputPath = uploadDir.resolve(jobId + "-" + originalName);
             file.transferTo(inputPath);
 
@@ -128,18 +165,46 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             job.setModeName(modeName(normalizedMode));
             job.setPlatform(normalizedPlatform);
             job.setPlatformName(platformName(normalizedPlatform));
+            job.setCharCount(charCount);
+            job.setCostPoints(costPoints);
+            job.setPointsCharged(costPoints > 0);
             job.setStatus("PENDING");
-            job.setMessage("文档已上传，等待执行：" + processingMessage(normalizedMode) + " / " + job.getPlatformName());
+            job.setMessage("文档已上传，已按 " + charCount + " 字符预扣 " + costPoints + " 积分，等待执行："
+                    + processingMessage(normalizedMode) + " / " + job.getPlatformName());
             job.setCreatedAt(LocalDateTime.now());
             job.setUpdatedAt(LocalDateTime.now());
             jobs.put(jobId, job);
             persistJob(job, userId, null);
+            if (idempotencyKey != null) {
+                requestJobs.put(idempotencyKey, jobId);
+            }
 
             scheduleProcessingAfterCommit(jobId, inputPath, outputDir.resolve(jobId + "-ai-optimized.docx"));
             return job;
         } catch (IOException exception) {
+            if (idempotencyReserved) {
+                requestJobs.remove(idempotencyKey, "");
+            }
             throw new IllegalStateException("文档上传失败：" + exception.getMessage(), exception);
+        } catch (RuntimeException exception) {
+            if (idempotencyReserved) {
+                requestJobs.remove(idempotencyKey, "");
+            }
+            throw exception;
         }
+    }
+
+    @Override
+    public DocumentPrecheckVO precheck(MultipartFile file) {
+        Long userId = AuthContext.requireUserId();
+        String originalName = file.getOriginalFilename() == null ? "document.docx" : file.getOriginalFilename();
+        if (!originalName.toLowerCase().endsWith(".docx")) {
+            throw new IllegalArgumentException("当前仅支持上传 .docx 文件");
+        }
+        int charCount = countDocumentChars(file);
+        int costPoints = calculateCostPoints(charCount);
+        int currentPoints = pointService.currentPoints(userId);
+        return new DocumentPrecheckVO(charCount, costPoints, currentPoints, currentPoints >= costPoints);
     }
 
     private void scheduleProcessingAfterCommit(String jobId, Path inputPath, Path outputPath) {
@@ -479,6 +544,81 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
         return new java.util.ArrayList<>(document.getParagraphs());
     }
 
+    private int countDocumentChars(MultipartFile file) {
+        try (InputStream inputStream = file.getInputStream();
+             XWPFDocument document = new XWPFDocument(inputStream)) {
+            DocumentRewriteJobVO countingJob = new DocumentRewriteJobVO();
+            countingJob.setMode("humanize");
+            List<String> chunks = new ArrayList<>();
+            for (RewriteTarget target : collectRewriteTargets(countingJob, collectParagraphs(document))) {
+                chunks.add(target.text());
+            }
+            chunks.addAll(collectTableTexts(document));
+            return normalizeChargeText(String.join("\n", chunks)).length();
+        } catch (IOException exception) {
+            throw new IllegalStateException("文档字符数解析失败：" + exception.getMessage(), exception);
+        }
+    }
+
+    private List<String> collectTableTexts(XWPFDocument document) {
+        List<String> texts = new ArrayList<>();
+        for (XWPFTable table : document.getTables()) {
+            for (XWPFTableRow row : table.getRows()) {
+                for (XWPFTableCell cell : row.getTableCells()) {
+                    String text = normalizeChargeText(cell.getText());
+                    if (!text.isBlank() && !isCatalogLine(text) && !isTrailingProtectedSectionTitle(text)) {
+                        texts.add(text);
+                    }
+                }
+            }
+        }
+        return texts;
+    }
+
+    private String normalizeChargeText(String text) {
+        if (text == null) {
+            return "";
+        }
+        return text.replace('\u00A0', ' ')
+                .replaceAll("[\\t\\x0B\\f\\r ]+", " ")
+                .replaceAll("\\n{2,}", "\n")
+                .trim();
+    }
+
+    private int calculateCostPoints(int charCount) {
+        if (charCount <= 0) {
+            return 0;
+        }
+        return ((charCount + 999) / 1000) * 10;
+    }
+
+    private String idempotencyKey(Long userId, String requestId) {
+        if (requestId == null || requestId.isBlank()) {
+            return null;
+        }
+        return userId + ":" + requestId.trim();
+    }
+
+    private String documentFeatureCode(String mode) {
+        if ("rewrite".equals(mode)) {
+            return PointService.DOCUMENT_REWRITE;
+        }
+        if ("double".equals(mode)) {
+            return PointService.DOCUMENT_DOUBLE;
+        }
+        return PointService.DOCUMENT_HUMANIZE;
+    }
+
+    private String documentFeatureName(String mode) {
+        if ("rewrite".equals(mode)) {
+            return "文档降重";
+        }
+        if ("double".equals(mode)) {
+            return "文档双降";
+        }
+        return "文档降AI";
+    }
+
     private String rewriteByMode(String text, String mode, String platform) {
         String suffix = platform == null || "GENERAL".equals(platform) ? "" : "@" + platform;
         if ("rewrite".equals(mode)) {
@@ -747,6 +887,9 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
         record.setTotalParagraphs(job.getTotalParagraphs());
         record.setProcessedParagraphs(job.getProcessedParagraphs());
         record.setRewrittenParagraphs(job.getRewrittenParagraphs());
+        record.setCharCount(job.getCharCount());
+        record.setCostPoints(job.getCostPoints());
+        record.setPointsCharged(job.isPointsCharged());
         record.setMessage(job.getMessage());
         record.setUpdatedAt(job.getUpdatedAt());
         try {
@@ -772,6 +915,9 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
         job.setTotalParagraphs(record.getTotalParagraphs() == null ? 0 : record.getTotalParagraphs());
         job.setProcessedParagraphs(record.getProcessedParagraphs() == null ? 0 : record.getProcessedParagraphs());
         job.setRewrittenParagraphs(record.getRewrittenParagraphs() == null ? 0 : record.getRewrittenParagraphs());
+        job.setCharCount(record.getCharCount() == null ? 0 : record.getCharCount());
+        job.setCostPoints(record.getCostPoints() == null ? 0 : record.getCostPoints());
+        job.setPointsCharged(Boolean.TRUE.equals(record.getPointsCharged()));
         job.setMessage(record.getMessage());
         job.setCreatedAt(record.getCreatedAt());
         job.setUpdatedAt(record.getUpdatedAt());

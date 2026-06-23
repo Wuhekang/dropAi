@@ -9,7 +9,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class DocumentContentGuardTests {
 
-    private final DocumentRewriteServiceImpl service = new DocumentRewriteServiceImpl(null, null, null, null, null);
+    private final DocumentRewriteServiceImpl service = new DocumentRewriteServiceImpl(null, null, null, null, null, null);
 
     @Test
     void detectsCodeLikeFragmentsAsProtectedContent() throws Exception {

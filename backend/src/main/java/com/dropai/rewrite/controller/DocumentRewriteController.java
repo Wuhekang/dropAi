@@ -1,7 +1,6 @@
 package com.dropai.rewrite.controller;
 
 import com.dropai.rewrite.service.DocumentRewriteService;
-import com.dropai.rewrite.service.PointService;
 import com.dropai.rewrite.service.PointsNotEnoughException;
 import com.dropai.rewrite.vo.DocumentRewriteJobVO;
 import com.dropai.rewrite.vo.Result;
@@ -26,21 +25,19 @@ import java.util.List;
 public class DocumentRewriteController {
 
     private final DocumentRewriteService documentRewriteService;
-    private final PointService pointService;
 
-    public DocumentRewriteController(DocumentRewriteService documentRewriteService, PointService pointService) {
+    public DocumentRewriteController(DocumentRewriteService documentRewriteService) {
         this.documentRewriteService = documentRewriteService;
-        this.pointService = pointService;
     }
 
     @PostMapping("/upload")
     public Result<DocumentRewriteJobVO> upload(
             @RequestParam("file") MultipartFile file,
             @RequestParam(value = "mode", defaultValue = "FULL_AI_REDUCE") String mode,
-            @RequestParam(value = "platform", defaultValue = "GENERAL") String platform
+            @RequestParam(value = "platform", defaultValue = "GENERAL") String platform,
+            @RequestParam(value = "requestId", required = false) String requestId
     ) {
-        return Result.success(pointService.chargeAfterSuccess(PointService.DOCX_GENERATE,
-                "提交文档改写任务", () -> documentRewriteService.submit(file, mode, platform)));
+        return Result.success(documentRewriteService.submit(file, mode, platform, requestId));
     }
 
     @GetMapping("/job/{jobId}")
@@ -81,6 +78,9 @@ public class DocumentRewriteController {
         target.setTotalParagraphs(source.getTotalParagraphs());
         target.setProcessedParagraphs(source.getProcessedParagraphs());
         target.setRewrittenParagraphs(source.getRewrittenParagraphs());
+        target.setCharCount(source.getCharCount());
+        target.setCostPoints(source.getCostPoints());
+        target.setPointsCharged(source.isPointsCharged());
         target.setMessage(source.getMessage());
         target.setDownloadUrl(source.getDownloadUrl());
         target.setCreatedAt(source.getCreatedAt());
