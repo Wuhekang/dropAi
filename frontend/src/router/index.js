@@ -4,6 +4,7 @@ import LoginIndex from '../views/Login/index.vue'
 import DashboardIndex from '../views/Dashboard/index.vue'
 import NewProjectIndex from '../views/NewProject/index.vue'
 import PointsAdmin from '../views/PointsAdmin.vue'
+import ComputerGenerator from '../views/ComputerGenerator/index.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -31,6 +32,11 @@ const router = createRouter({
       path: '/new-project',
       name: 'NewProject',
       component: NewProjectIndex
+    },
+    {
+      path: '/computer-generator',
+      name: 'ComputerGenerator',
+      component: ComputerGenerator
     },
     {
       path: '/points-admin',

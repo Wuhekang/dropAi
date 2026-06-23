@@ -234,3 +234,44 @@ export function downloadArtifact(downloadUrl) {
     timeout: 120000
   })
 }
+
+export function createComputerGenerationJob(data) {
+  return request.post('/computer-generator/create', data, { timeout: 120000 })
+}
+
+export function uploadComputerGenerationFiles(jobId, files = []) {
+  const formData = new FormData()
+  formData.append('jobId', jobId)
+  files.forEach(file => formData.append('files', file.raw || file))
+  return request.post('/computer-generator/upload', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 180000
+  })
+}
+
+export function startComputerGeneration(jobId) {
+  return request.post(`/computer-generator/start/${jobId}`, null, { timeout: 300000 })
+}
+
+export function getComputerGenerationStatus(jobId) {
+  return request.get(`/computer-generator/status/${jobId}`)
+}
+
+export function getComputerGenerationResult(jobId) {
+  return request.get(`/computer-generator/result/${jobId}`)
+}
+
+export function getComputerGenerationHistory() {
+  return request.get('/computer-generator/history')
+}
+
+export function deleteComputerGenerationJob(jobId) {
+  return request.delete(`/computer-generator/${jobId}`)
+}
+
+export function downloadComputerGenerationZip(jobId) {
+  return request.get(`/computer-generator/download/${jobId}`, {
+    responseType: 'blob',
+    timeout: 120000
+  })
+}

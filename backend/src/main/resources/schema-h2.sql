@@ -115,3 +115,48 @@ CREATE TABLE IF NOT EXISTS workflow_node (
 );
 
 ALTER TABLE rewrite_record ADD COLUMN IF NOT EXISTS user_id BIGINT;
+
+CREATE TABLE IF NOT EXISTS computer_generation_jobs (
+  id VARCHAR(64) PRIMARY KEY,
+  user_id BIGINT NOT NULL,
+  title VARCHAR(255) NOT NULL,
+  project_type VARCHAR(80),
+  tech_stack VARCHAR(120),
+  status VARCHAR(30) NOT NULL,
+  progress INT DEFAULT 0,
+  current_stage VARCHAR(80),
+  input_text CLOB,
+  uploaded_files CLOB,
+  output_zip_path VARCHAR(500),
+  frontend_path VARCHAR(500),
+  backend_path VARCHAR(500),
+  sql_path VARCHAR(500),
+  paper_path VARCHAR(500),
+  preview_url VARCHAR(500),
+  error_message CLOB,
+  points_cost INT DEFAULT 0,
+  points_charged BOOLEAN DEFAULT FALSE NOT NULL,
+  created_at TIMESTAMP NOT NULL,
+  updated_at TIMESTAMP NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS computer_generated_files (
+  id VARCHAR(64) PRIMARY KEY,
+  job_id VARCHAR(64) NOT NULL,
+  file_type VARCHAR(50),
+  file_name VARCHAR(500),
+  file_path VARCHAR(500),
+  file_size BIGINT DEFAULT 0,
+  created_at TIMESTAMP NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS computer_preview_instances (
+  id VARCHAR(64) PRIMARY KEY,
+  job_id VARCHAR(64) NOT NULL,
+  preview_id VARCHAR(64) NOT NULL,
+  preview_url VARCHAR(500),
+  preview_path VARCHAR(500),
+  status VARCHAR(30),
+  created_at TIMESTAMP NOT NULL,
+  expired_at TIMESTAMP
+);
