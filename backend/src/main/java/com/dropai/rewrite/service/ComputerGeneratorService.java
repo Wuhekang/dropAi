@@ -9,6 +9,8 @@ import com.dropai.rewrite.mapper.ComputerGeneratedFileMapper;
 import com.dropai.rewrite.mapper.ComputerGenerationJobMapper;
 import com.dropai.rewrite.mapper.ComputerPreviewInstanceMapper;
 import com.dropai.rewrite.modules.documentParser.DocumentParser;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
@@ -44,15 +46,20 @@ public class ComputerGeneratorService {
     private final ComputerPreviewInstanceMapper previewMapper;
     private final DocumentParser documentParser;
     private final PointService pointService;
+    private final MatrixDesignService matrixDesignService;
+    private final ObjectMapper objectMapper;
 
     public ComputerGeneratorService(ComputerGenerationJobMapper jobMapper, ComputerGeneratedFileMapper fileMapper,
                                     ComputerPreviewInstanceMapper previewMapper, DocumentParser documentParser,
-                                    PointService pointService) {
+                                    PointService pointService, MatrixDesignService matrixDesignService,
+                                    ObjectMapper objectMapper) {
         this.jobMapper = jobMapper;
         this.fileMapper = fileMapper;
         this.previewMapper = previewMapper;
         this.documentParser = documentParser;
         this.pointService = pointService;
+        this.matrixDesignService = matrixDesignService;
+        this.objectMapper = objectMapper;
     }
 
     @Transactional
@@ -216,6 +223,11 @@ public class ComputerGeneratorService {
 
     private ComputerProjectPlan analyze(ComputerGenerationJob job) {
         updateStage(job, 0, "RUNNING", "");
+        ComputerProjectPlan matrixPlan = generatePlanWithMatrix(job);
+        if (matrixPlan != null) {
+            updateStage(job, 1, "RUNNING", "");
+            return matrixPlan;
+        }
         String text = (job.getTitle() + "\n" + defaultText(job.getInputText(), "")).toLowerCase(Locale.ROOT);
         String domain = "通用业务管理";
         List<String> modules = new ArrayList<>(List.of("用户认证", "权限管理", "首页仪表盘", "消息中心", "个人中心"));
@@ -252,6 +264,57 @@ public class ComputerGeneratorService {
         );
         List<String> apis = modules.stream().map(module -> "/api/" + safeSlug(module) + " - CRUD、分页查询、统计接口").toList();
         return new ComputerProjectPlan(job.getTitle(), domain, modules, tables, apis);
+    }
+
+    private ComputerProjectPlan generatePlanWithMatrix(ComputerGenerationJob job) {
+        if (!matrixDesignService.apiKeyConfigured()) {
+            return null;
+        }
+        String instructions = """
+                你是 DropAI 的计算机毕业设计程序包生成规划器。请根据用户题目、任务书/开题报告文本和技术栈，生成可落盘的程序包规划。
+                必须主动补全合理需求，不能返回信息不足。不要把所有项目都写成学生管理系统。
+                只返回 JSON，不要 Markdown，不要解释。
+                JSON 结构：
+                {
+                  "domain": "业务场景名称",
+                  "modules": ["模块1", "模块2"],
+                  "tables": [{"name":"英文小写表名","comment":"中文表说明","fields":["id","name","status","created_at"]}],
+                  "apis": ["/api/example - 接口说明"],
+                  "paperOutline": ["摘要", "Abstract"],
+                  "implementationNotes": ["生成重点"]
+                }
+                表名必须是英文字母、数字、下划线，不要中文；至少 4 张表；模块至少 8 个；接口至少 8 个。
+                """;
+        String input = """
+                项目题目：%s
+                项目类型：%s
+                技术栈：%s
+                用户资料：
+                %s
+                """.formatted(job.getTitle(), job.getProjectType(), job.getTechStack(), trimForModel(job.getInputText()));
+        try {
+            String response = matrixDesignService.generate(instructions, input);
+            JsonNode root = objectMapper.readTree(stripJson(response));
+            String domain = root.path("domain").asText("");
+            List<String> modules = readStringList(root.path("modules"));
+            List<TablePlan> tables = new ArrayList<>();
+            for (JsonNode table : root.path("tables")) {
+                String name = table.path("name").asText("");
+                List<String> fields = readStringList(table.path("fields"));
+                if (name.matches("[a-zA-Z][a-zA-Z0-9_]{1,60}") && !fields.isEmpty()) {
+                    tables.add(new TablePlan(name.toLowerCase(Locale.ROOT), table.path("comment").asText(name), normalizeFields(fields)));
+                }
+            }
+            List<String> apis = readStringList(root.path("apis"));
+            if (domain.isBlank() || modules.size() < 5 || tables.size() < 3 || apis.size() < 3) {
+                return null;
+            }
+            return new ComputerProjectPlan(job.getTitle(), domain, modules, tables, apis);
+        } catch (Exception exception) {
+            job.setErrorMessage("万量矩阵规划失败，已回退规则生成：" + compact(exception.getMessage()));
+            jobMapper.updateById(job);
+            return null;
+        }
     }
 
     private Path writeSql(Path root, ComputerProjectPlan plan) throws IOException {
@@ -304,7 +367,9 @@ public class ComputerGeneratorService {
     private Path writePaper(Path root, ComputerProjectPlan plan, String techStack) throws IOException {
         Path dir = root.resolve("paper");
         Files.createDirectories(dir);
-        String md = "# " + plan.title() + "毕业论文\n\n## 摘要\n本文围绕" + plan.domain() + "场景，设计并实现一套包含前端、后端和数据库的毕业设计系统。\n\n" +
+        String md = generatePaperWithMatrix(plan, techStack);
+        if (md.isBlank()) {
+            md = "# " + plan.title() + "毕业论文\n\n## 摘要\n本文围绕" + plan.domain() + "场景，设计并实现一套包含前端、后端和数据库的毕业设计系统。\n\n" +
                 "## Abstract\nThis paper designs and implements a " + plan.domain() + " system with frontend, backend and database modules.\n\n" +
                 "## 绪论\n项目针对" + plan.domain() + "中的信息录入、流程处理、统计分析和权限控制问题展开。\n\n" +
                 "## 相关技术介绍\n技术栈：" + techStack + "。\n\n## 系统需求分析\n功能模块：" + String.join("、", plan.modules()) + "。\n\n" +
@@ -312,7 +377,33 @@ public class ComputerGeneratorService {
                 "## 数据库设计\n主要数据表：" + plan.tables().stream().map(TablePlan::name).reduce((a, b) -> a + "、" + b).orElse("") + "。\n\n" +
                 "## 系统详细设计\n接口包括：" + String.join("；", plan.apis()) + "。\n\n## 系统实现\n完成登录、CRUD、分页查询、统计看板和消息通知等页面。\n\n" +
                 "## 系统测试\n测试用例覆盖登录、数据新增、分页查询、异常输入和权限访问。\n\n## 结论\n系统满足" + plan.domain() + "毕业设计的完整交付要求。\n\n## 参考文献\n[1] Spring Boot 官方文档。\n[2] Vue 官方文档。\n\n## 致谢\n感谢指导教师在需求分析和系统设计阶段给予的帮助。\n";
+        }
         return write(dir.resolve("thesis.md"), md);
+    }
+
+    private String generatePaperWithMatrix(ComputerProjectPlan plan, String techStack) {
+        if (!matrixDesignService.apiKeyConfigured()) {
+            return "";
+        }
+        String instructions = """
+                你是计算机专业本科毕业论文写作助手。根据已规划的真实系统内容写论文 Markdown。
+                必须包含：摘要、Abstract、绪论、相关技术介绍、系统需求分析、系统总体设计、数据库设计、系统详细设计、系统实现、系统测试、结论、参考文献、致谢。
+                内容必须贴合项目题目、模块、表和接口，不要空泛描述。直接返回 Markdown。
+                """;
+        String input = """
+                题目：%s
+                业务场景：%s
+                技术栈：%s
+                模块：%s
+                数据表：%s
+                接口：%s
+                """.formatted(plan.title(), plan.domain(), techStack, plan.modules(), plan.tables(), plan.apis());
+        try {
+            String text = matrixDesignService.generate(instructions, input).trim();
+            return text.startsWith("#") ? text : "# " + plan.title() + "毕业论文\n\n" + text;
+        } catch (Exception exception) {
+            return "";
+        }
     }
 
     private ComputerPreviewInstance writePreview(Path root, ComputerProjectPlan plan, ComputerGenerationJob job) throws IOException {
@@ -490,6 +581,45 @@ public class ComputerGeneratorService {
 
     private static String clean(String value) {
         return value == null ? "" : value.trim();
+    }
+
+    private static String stripJson(String response) {
+        String text = defaultText(response, "").trim();
+        if (text.startsWith("```")) {
+            text = text.replaceFirst("^```(?:json)?", "").replaceFirst("```$", "").trim();
+        }
+        int start = text.indexOf('{');
+        int end = text.lastIndexOf('}');
+        return start >= 0 && end > start ? text.substring(start, end + 1) : text;
+    }
+
+    private static List<String> readStringList(JsonNode node) {
+        List<String> values = new ArrayList<>();
+        if (node == null || !node.isArray()) return values;
+        for (JsonNode item : node) {
+            String value = item.asText("").trim();
+            if (!value.isBlank()) values.add(value);
+        }
+        return values;
+    }
+
+    private static List<String> normalizeFields(List<String> fields) {
+        List<String> result = new ArrayList<>();
+        for (String field : fields) {
+            String normalized = field.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9_]", "_").replaceAll("_+", "_");
+            if (!normalized.isBlank() && normalized.matches("[a-z][a-z0-9_]{0,60}")) {
+                result.add(normalized);
+            }
+        }
+        if (!result.contains("id")) result.add(0, "id");
+        if (!result.contains("status")) result.add("status");
+        if (!result.contains("created_at")) result.add("created_at");
+        return result.stream().distinct().toList();
+    }
+
+    private static String trimForModel(String value) {
+        String text = defaultText(value, "");
+        return text.length() > 10000 ? text.substring(0, 10000) : text;
     }
 
     private static String defaultText(String value, String fallback) {
