@@ -30,6 +30,11 @@ public class PointSchemaInitializer implements ApplicationRunner {
             ensureUserPointColumns(connection);
         }
         createPointTables(product);
+        try (Connection connection = dataSource.getConnection()) {
+            boolean h2 = product.contains("h2");
+            ensurePointTransactionColumns(connection, h2);
+            ensureDocumentJobColumns(connection, h2);
+        }
         seedPricing();
     }
 
@@ -37,15 +42,34 @@ public class PointSchemaInitializer implements ApplicationRunner {
         if (!tableExists(connection, "user_account")) {
             return;
         }
-        if (ensureColumn(connection, "points", "INT NOT NULL DEFAULT 1000")) {
+        if (ensureColumn(connection, "user_account", "points", "INT NOT NULL DEFAULT 1000")) {
             jdbcTemplate.update("UPDATE user_account SET points = 1000 WHERE points IS NULL");
         }
-        if (ensureColumn(connection, "total_points", "INT NOT NULL DEFAULT 1000")) {
+        if (ensureColumn(connection, "user_account", "total_points", "INT NOT NULL DEFAULT 1000")) {
             jdbcTemplate.update("UPDATE user_account SET total_points = 1000 WHERE total_points IS NULL");
         }
-        if (ensureColumn(connection, "used_points", "INT NOT NULL DEFAULT 0")) {
+        if (ensureColumn(connection, "user_account", "used_points", "INT NOT NULL DEFAULT 0")) {
             jdbcTemplate.update("UPDATE user_account SET used_points = 0 WHERE used_points IS NULL");
         }
+    }
+
+    private void ensurePointTransactionColumns(Connection connection, boolean h2) throws Exception {
+        if (!tableExists(connection, "point_transactions")) {
+            return;
+        }
+        ensureColumn(connection, "point_transactions", "job_id",
+                h2 ? "VARCHAR(64)" : "VARCHAR(64) NULL COMMENT '关联任务ID' AFTER user_id");
+        safeExecute("CREATE INDEX idx_point_tx_job ON point_transactions (job_id)");
+    }
+
+    private void ensureDocumentJobColumns(Connection connection, boolean h2) throws Exception {
+        if (!tableExists(connection, "document_job")) {
+            return;
+        }
+        ensureColumn(connection, "document_job", "char_count", "INT DEFAULT 0");
+        ensureColumn(connection, "document_job", "cost_points", "INT DEFAULT 0");
+        ensureColumn(connection, "document_job", "points_charged",
+                h2 ? "BOOLEAN DEFAULT FALSE NOT NULL" : "TINYINT(1) NOT NULL DEFAULT 0");
     }
 
     private boolean tableExists(Connection connection, String table) throws Exception {
@@ -58,13 +82,13 @@ public class PointSchemaInitializer implements ApplicationRunner {
         return false;
     }
 
-    private boolean ensureColumn(Connection connection, String column, String definition) throws Exception {
-        if (columnExists(connection, "user_account", column)) {
+    private boolean ensureColumn(Connection connection, String table, String column, String definition) throws Exception {
+        if (columnExists(connection, table, column)) {
             return true;
         }
-        safeExecute("ALTER TABLE user_account ADD COLUMN " + column + " " + definition);
+        safeExecute("ALTER TABLE " + table + " ADD COLUMN " + column + " " + definition);
         try (Connection freshConnection = dataSource.getConnection()) {
-            return columnExists(freshConnection, "user_account", column);
+            return columnExists(freshConnection, table, column);
         }
     }
 
@@ -87,6 +111,7 @@ public class PointSchemaInitializer implements ApplicationRunner {
                 CREATE TABLE IF NOT EXISTS point_transactions (
                   id BIGINT AUTO_INCREMENT PRIMARY KEY,
                   user_id BIGINT NOT NULL,
+                  job_id VARCHAR(64),
                   feature_code VARCHAR(50) NOT NULL,
                   feature_name VARCHAR(100) NOT NULL,
                   points_change INT NOT NULL,
@@ -98,6 +123,7 @@ public class PointSchemaInitializer implements ApplicationRunner {
                 CREATE TABLE IF NOT EXISTS point_transactions (
                   id BIGINT PRIMARY KEY AUTO_INCREMENT,
                   user_id BIGINT NOT NULL,
+                  job_id VARCHAR(64),
                   feature_code VARCHAR(50) NOT NULL,
                   feature_name VARCHAR(100) NOT NULL,
                   points_change INT NOT NULL,
@@ -105,6 +131,7 @@ public class PointSchemaInitializer implements ApplicationRunner {
                   remark VARCHAR(255),
                   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                   INDEX idx_point_tx_user_created (user_id, created_at),
+                  INDEX idx_point_tx_job (job_id),
                   INDEX idx_point_tx_feature (feature_code)
                 ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
                 """);
@@ -160,6 +187,7 @@ public class PointSchemaInitializer implements ApplicationRunner {
                     String.valueOf(exception.getMostSpecificCause())).toLowerCase();
             if (message.contains("duplicate") ||
                     message.contains("already exists") ||
+                    message.contains("duplicate key name") ||
                     message.contains("重复")) {
                 return;
             }
