@@ -1,6 +1,8 @@
 package com.dropai.rewrite.controller;
 
 import com.dropai.rewrite.service.ComputerGeneratorService;
+import com.dropai.rewrite.service.ComputerGeneratorService.ComputerAnalyzeVO;
+import com.dropai.rewrite.service.ComputerGeneratorService.ComputerGenerationConfig;
 import com.dropai.rewrite.service.ComputerGeneratorService.ComputerJobVO;
 import com.dropai.rewrite.service.ComputerGeneratorService.CreateComputerJobRequest;
 import com.dropai.rewrite.service.PointsNotEnoughException;
@@ -38,6 +40,11 @@ public class ComputerGeneratorController {
         return Result.success(service.create(request));
     }
 
+    @PostMapping("/analyze")
+    public Result<ComputerAnalyzeVO> analyze(@RequestParam("files") List<MultipartFile> files) {
+        return Result.success(service.analyze(files));
+    }
+
     @PostMapping("/upload")
     public Result<ComputerJobVO> upload(@RequestParam String jobId,
                                         @RequestParam(value = "files", required = false) List<MultipartFile> files) {
@@ -45,8 +52,9 @@ public class ComputerGeneratorController {
     }
 
     @PostMapping("/start/{jobId}")
-    public Result<ComputerJobVO> start(@PathVariable String jobId) {
-        return Result.success(service.start(jobId));
+    public Result<ComputerJobVO> start(@PathVariable String jobId,
+                                       @RequestBody(required = false) ComputerGenerationConfig config) {
+        return Result.success(service.start(jobId, config));
     }
 
     @GetMapping("/status/{jobId}")

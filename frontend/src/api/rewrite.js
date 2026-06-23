@@ -249,8 +249,17 @@ export function uploadComputerGenerationFiles(jobId, files = []) {
   })
 }
 
-export function startComputerGeneration(jobId) {
-  return request.post(`/computer-generator/start/${jobId}`, null, { timeout: 300000 })
+export function analyzeComputerGenerationFiles(files = []) {
+  const formData = new FormData()
+  files.forEach(file => formData.append('files', file.raw || file))
+  return request.post('/computer-generator/analyze', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 240000
+  })
+}
+
+export function startComputerGeneration(jobId, config = null) {
+  return request.post(`/computer-generator/start/${jobId}`, config, { timeout: 300000 })
 }
 
 export function getComputerGenerationStatus(jobId) {

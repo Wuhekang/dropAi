@@ -63,6 +63,60 @@ public class ComputerGeneratorService {
     }
 
     @Transactional
+    public ComputerAnalyzeVO analyze(List<MultipartFile> files) {
+        Long userId = AuthContext.requireUserId();
+        List<MultipartFile> safeFiles = files == null ? List.of() : files;
+        if (safeFiles.isEmpty()) throw new IllegalArgumentException("请先上传任务书或开题报告");
+        List<DocumentParser.ParsedDocument> parsed = documentParser.parse(safeFiles, safeFiles.stream().map(file -> "TASK_BOOK").toList());
+        StringBuilder input = new StringBuilder();
+        List<String> names = new ArrayList<>();
+        for (DocumentParser.ParsedDocument doc : parsed) {
+            names.add(doc.fileName());
+            if (doc.textReadable()) {
+                input.append("\n\n【").append(doc.fileName()).append("】\n").append(doc.text());
+            }
+        }
+        if (input.isEmpty()) {
+            input.append("用户上传了计算机毕业设计资料，但未读取到完整文字。请根据文件名和常见毕业设计要求主动补全。");
+        }
+        String seedTitle = extractTitle(input.toString(), names);
+        ComputerGenerationJob temp = new ComputerGenerationJob();
+        temp.setId("preview");
+        temp.setUserId(userId);
+        temp.setTitle(seedTitle);
+        temp.setProjectType("自动识别");
+        temp.setTechStack("自动推荐");
+        temp.setInputText(input.toString());
+        ComputerProjectPlan plan = generatePlanWithMatrix(temp);
+        if (plan == null) {
+            plan = analyze(temp);
+        }
+        String projectType = recommendProjectType(plan, input.toString());
+        String techStack = recommendTechStack(projectType, input.toString());
+        int cost = estimateCost(projectType, true, true);
+        pointService.ensureEnoughCustom(userId, cost);
+
+        LocalDateTime now = LocalDateTime.now();
+        ComputerGenerationJob job = new ComputerGenerationJob();
+        job.setId("cg_" + UUID.randomUUID().toString().replace("-", ""));
+        job.setUserId(userId);
+        job.setTitle(plan.title());
+        job.setProjectType(projectType);
+        job.setTechStack(techStack);
+        job.setStatus("ANALYZED");
+        job.setProgress(0);
+        job.setCurrentStage("智能识别完成");
+        job.setInputText(input.toString().trim());
+        job.setUploadedFiles(String.join(",", names));
+        job.setPointsCost(cost);
+        job.setPointsCharged(false);
+        job.setCreatedAt(now);
+        job.setUpdatedAt(now);
+        jobMapper.insert(job);
+        return new ComputerAnalyzeVO(toVO(job, List.of(), null), toPlanVO(plan, projectType, techStack, cost));
+    }
+
+    @Transactional
     public ComputerJobVO create(CreateComputerJobRequest request) {
         Long userId = AuthContext.requireUserId();
         String title = clean(request.title());
@@ -112,17 +166,20 @@ public class ComputerGeneratorService {
     }
 
     @Transactional
-    public ComputerJobVO start(String jobId) {
+    public ComputerJobVO start(String jobId, ComputerGenerationConfig config) {
         ComputerGenerationJob job = requireOwnedJob(jobId);
         if ("SUCCESS".equals(job.getStatus())) return result(jobId);
         try {
+            if (config != null) {
+                applyConfig(job, config);
+            }
             if (!Boolean.TRUE.equals(job.getPointsCharged())) {
                 pointService.deductCustom(job.getUserId(), job.getId(), "COMPUTER_GENERATE", "计算机程序包生成",
                         value(job.getPointsCost()), "生成 " + job.getTitle());
                 job.setPointsCharged(true);
                 jobMapper.updateById(job);
             }
-            ComputerProjectPlan plan = analyze(job);
+            ComputerProjectPlan plan = config == null ? analyze(job) : planFromConfig(job, config);
             Path jobRoot = ROOT.resolve(job.getUserId().toString()).resolve(job.getId()).normalize();
             assertUnderRoot(jobRoot);
             recreateDirectory(jobRoot);
@@ -231,21 +288,27 @@ public class ComputerGeneratorService {
         String text = (job.getTitle() + "\n" + defaultText(job.getInputText(), "")).toLowerCase(Locale.ROOT);
         String domain = "通用业务管理";
         List<String> modules = new ArrayList<>(List.of("用户认证", "权限管理", "首页仪表盘", "消息中心", "个人中心"));
+        List<String> roles = new ArrayList<>(List.of("管理员", "普通用户"));
         if (containsAny(text, "宿舍", "寝室", "公寓")) {
             domain = "学生宿舍管理";
             modules.addAll(List.of("楼栋管理", "宿舍分配", "入住登记", "报修工单", "卫生检查"));
+            roles.addAll(List.of("学生", "宿舍管理员"));
         } else if (containsAny(text, "图书", "借阅", "书籍")) {
             domain = "图书管理";
             modules.addAll(List.of("图书档案", "借阅归还", "逾期提醒", "读者管理", "馆藏统计"));
+            roles.addAll(List.of("读者", "图书管理员"));
         } else if (containsAny(text, "商城", "订单", "商品")) {
             domain = "在线商城";
             modules.addAll(List.of("商品管理", "购物车", "订单处理", "支付记录", "库存统计"));
+            roles.addAll(List.of("商家", "会员用户"));
         } else if (containsAny(text, "预约", "挂号", "预订")) {
             domain = "预约管理";
             modules.addAll(List.of("资源排班", "预约申请", "审核确认", "签到核销", "预约统计"));
+            roles.addAll(List.of("预约用户", "审核员"));
         } else if (containsAny(text, "社团", "活动", "报名")) {
             domain = "社团管理";
             modules.addAll(List.of("社团档案", "成员管理", "活动发布", "报名审核", "经费记录"));
+            roles.addAll(List.of("社团负责人", "学生会员"));
         } else if (containsAny(text, "爬虫", "采集")) {
             domain = "Python 爬虫采集";
             modules.addAll(List.of("采集任务", "代理配置", "数据清洗", "结果入库", "采集监控"));
@@ -263,7 +326,9 @@ public class ComputerGeneratorService {
                 new TablePlan(base + "_notice", domain + "消息通知", List.of("id", "title", "content", "receiver_id", "read_flag", "created_at"))
         );
         List<String> apis = modules.stream().map(module -> "/api/" + safeSlug(module) + " - CRUD、分页查询、统计接口").toList();
-        return new ComputerProjectPlan(job.getTitle(), domain, modules, tables, apis);
+        List<String> pages = List.of("登录页", "首页仪表盘", "用户管理", "核心业务页", "数据统计页", "消息中心", "个人中心");
+        List<String> paperOutline = defaultPaperOutline();
+        return new ComputerProjectPlan(job.getTitle(), domain, modules, roles.stream().distinct().toList(), tables, pages, apis, paperOutline);
     }
 
     private ComputerProjectPlan generatePlanWithMatrix(ComputerGenerationJob job) {
@@ -278,7 +343,9 @@ public class ComputerGeneratorService {
                 {
                   "domain": "业务场景名称",
                   "modules": ["模块1", "模块2"],
+                  "roles": ["管理员", "普通用户"],
                   "tables": [{"name":"英文小写表名","comment":"中文表说明","fields":["id","name","status","created_at"]}],
+                  "pages": ["登录页", "首页仪表盘"],
                   "apis": ["/api/example - 接口说明"],
                   "paperOutline": ["摘要", "Abstract"],
                   "implementationNotes": ["生成重点"]
@@ -297,6 +364,7 @@ public class ComputerGeneratorService {
             JsonNode root = objectMapper.readTree(stripJson(response));
             String domain = root.path("domain").asText("");
             List<String> modules = readStringList(root.path("modules"));
+            List<String> roles = readStringList(root.path("roles"));
             List<TablePlan> tables = new ArrayList<>();
             for (JsonNode table : root.path("tables")) {
                 String name = table.path("name").asText("");
@@ -305,11 +373,15 @@ public class ComputerGeneratorService {
                     tables.add(new TablePlan(name.toLowerCase(Locale.ROOT), table.path("comment").asText(name), normalizeFields(fields)));
                 }
             }
+            List<String> pages = readStringList(root.path("pages"));
             List<String> apis = readStringList(root.path("apis"));
+            List<String> outline = readStringList(root.path("paperOutline"));
             if (domain.isBlank() || modules.size() < 5 || tables.size() < 3 || apis.size() < 3) {
                 return null;
             }
-            return new ComputerProjectPlan(job.getTitle(), domain, modules, tables, apis);
+            return new ComputerProjectPlan(job.getTitle(), domain, modules, roles.isEmpty() ? List.of("管理员", "普通用户") : roles,
+                    tables, pages.isEmpty() ? List.of("登录页", "首页仪表盘", "核心业务页", "数据统计页", "用户管理页") : pages,
+                    apis, outline.isEmpty() ? defaultPaperOutline() : outline);
         } catch (Exception exception) {
             job.setErrorMessage("万量矩阵规划失败，已回退规则生成：" + compact(exception.getMessage()));
             jobMapper.updateById(job);
@@ -375,7 +447,7 @@ public class ComputerGeneratorService {
                 "## 相关技术介绍\n技术栈：" + techStack + "。\n\n## 系统需求分析\n功能模块：" + String.join("、", plan.modules()) + "。\n\n" +
                 "## 系统总体设计\n系统采用前后端分离结构，后端提供统一 REST 接口，前端提供管理端和普通用户端。\n\n" +
                 "## 数据库设计\n主要数据表：" + plan.tables().stream().map(TablePlan::name).reduce((a, b) -> a + "、" + b).orElse("") + "。\n\n" +
-                "## 系统详细设计\n接口包括：" + String.join("；", plan.apis()) + "。\n\n## 系统实现\n完成登录、CRUD、分页查询、统计看板和消息通知等页面。\n\n" +
+                "## 系统详细设计\n接口包括：" + String.join("；", plan.apis()) + "。\n\n## 系统实现\n完成" + String.join("、", plan.pages()) + "等页面。\n\n" +
                 "## 系统测试\n测试用例覆盖登录、数据新增、分页查询、异常输入和权限访问。\n\n## 结论\n系统满足" + plan.domain() + "毕业设计的完整交付要求。\n\n## 参考文献\n[1] Spring Boot 官方文档。\n[2] Vue 官方文档。\n\n## 致谢\n感谢指导教师在需求分析和系统设计阶段给予的帮助。\n";
         }
         return write(dir.resolve("thesis.md"), md);
@@ -394,10 +466,12 @@ public class ComputerGeneratorService {
                 题目：%s
                 业务场景：%s
                 技术栈：%s
+                用户角色：%s
                 模块：%s
+                前端页面：%s
                 数据表：%s
                 接口：%s
-                """.formatted(plan.title(), plan.domain(), techStack, plan.modules(), plan.tables(), plan.apis());
+                """.formatted(plan.title(), plan.domain(), techStack, plan.roles(), plan.modules(), plan.pages(), plan.tables(), plan.apis());
         try {
             String text = matrixDesignService.generate(instructions, input).trim();
             return text.startsWith("#") ? text : "# " + plan.title() + "毕业论文\n\n" + text;
@@ -477,6 +551,39 @@ public class ComputerGeneratorService {
                 files.stream().map(file -> new GeneratedFileVO(file.getFileType(), file.getFileName(), value(file.getFileSize()),
                         "/api/computer-generator/download-file/" + job.getId() + "?fileName=" + urlEncode(file.getFileName()))).toList(),
                 preview == null ? null : preview.getPreviewUrl(), STAGES);
+    }
+
+    private ComputerPlanVO toPlanVO(ComputerProjectPlan plan, String projectType, String techStack, int cost) {
+        return new ComputerPlanVO(plan.title(), projectType, techStack, plan.roles(), plan.modules(),
+                plan.tables().stream().map(table -> new TablePlanVO(table.name(), table.comment(), table.fields())).toList(),
+                plan.pages(), plan.apis(), plan.paperOutline(), cost, true, true, true);
+    }
+
+    private ComputerProjectPlan planFromConfig(ComputerGenerationJob job, ComputerGenerationConfig config) {
+        List<TablePlan> tables = config.tables() == null ? List.of() : config.tables().stream()
+                .filter(table -> table.name() != null && table.name().matches("[a-zA-Z][a-zA-Z0-9_]{1,60}"))
+                .map(table -> new TablePlan(table.name().toLowerCase(Locale.ROOT), defaultText(table.comment(), table.name()), normalizeFields(table.fields() == null ? List.of() : table.fields())))
+                .toList();
+        if (tables.isEmpty()) tables = analyze(job).tables();
+        return new ComputerProjectPlan(
+                defaultText(config.title(), job.getTitle()),
+                defaultText(config.projectType(), job.getProjectType()),
+                nonEmpty(config.modules(), List.of("用户认证", "首页仪表盘", "核心业务管理", "数据统计")),
+                nonEmpty(config.roles(), List.of("管理员", "普通用户")),
+                tables,
+                nonEmpty(config.pages(), List.of("登录页", "首页仪表盘", "核心业务页", "数据统计页", "用户管理页")),
+                nonEmpty(config.apis(), tables.stream().map(table -> "/api/" + table.name() + " - CRUD、分页查询、统计接口").toList()),
+                nonEmpty(config.paperOutline(), defaultPaperOutline())
+        );
+    }
+
+    private void applyConfig(ComputerGenerationJob job, ComputerGenerationConfig config) {
+        job.setTitle(defaultText(config.title(), job.getTitle()));
+        job.setProjectType(defaultText(config.projectType(), job.getProjectType()));
+        job.setTechStack(defaultText(config.techStack(), job.getTechStack()));
+        job.setPointsCost(estimateCost(job.getProjectType(), config.generatePaper(), config.enablePreview()));
+        job.setUpdatedAt(LocalDateTime.now());
+        jobMapper.updateById(job);
     }
 
     private ComputerGenerationJob requireOwnedJob(String jobId) {
@@ -583,6 +690,44 @@ public class ComputerGeneratorService {
         return value == null ? "" : value.trim();
     }
 
+    private static String extractTitle(String input, List<String> names) {
+        String text = defaultText(input, "");
+        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("(?:题目|课题|项目名称)[:：\\s]*([^\\n。；;]{4,40})").matcher(text);
+        if (matcher.find()) return matcher.group(1).trim();
+        if (text.contains("宿舍")) return "学生宿舍管理系统";
+        if (text.contains("图书")) return "图书管理系统";
+        if (text.contains("商城")) return "在线商城系统";
+        if (text.contains("预约")) return "预约管理系统";
+        if (text.contains("社团")) return "社团管理系统";
+        if (text.contains("爬虫")) return "Python数据采集系统";
+        if (!names.isEmpty()) return names.get(0).replaceAll("\\.[^.]+$", "").replace("任务书", "").replace("开题报告", "") + "系统";
+        return "计算机毕业设计管理系统";
+    }
+
+    private static String recommendProjectType(ComputerProjectPlan plan, String input) {
+        String text = (plan.domain() + input).toLowerCase(Locale.ROOT);
+        if (text.contains("python") || text.contains("爬虫") || text.contains("数据分析")) return "Python Web 项目";
+        if (text.contains("小程序") || text.contains("微信")) return "微信小程序后台项目";
+        return "Java Web 项目";
+    }
+
+    private static String recommendTechStack(String projectType, String input) {
+        String text = defaultText(input, "").toLowerCase(Locale.ROOT);
+        if (projectType.contains("Python") && text.contains("django")) return "Django + MySQL";
+        if (projectType.contains("Python") && text.contains("fastapi")) return "FastAPI + Vue + MySQL";
+        if (projectType.contains("Python")) return "Flask + Vue + MySQL";
+        if (text.contains("thymeleaf")) return "Spring Boot + Thymeleaf + MySQL";
+        return "Spring Boot + Vue + MySQL";
+    }
+
+    private static List<String> defaultPaperOutline() {
+        return List.of("摘要", "Abstract", "绪论", "相关技术介绍", "系统需求分析", "系统总体设计", "数据库设计", "系统详细设计", "系统实现", "系统测试", "结论", "参考文献", "致谢");
+    }
+
+    private static List<String> nonEmpty(List<String> values, List<String> fallback) {
+        return values == null || values.isEmpty() ? fallback : values;
+    }
+
     private static String stripJson(String response) {
         String text = defaultText(response, "").trim();
         if (text.startsWith("```")) {
@@ -642,11 +787,23 @@ public class ComputerGeneratorService {
                                            boolean generateBackend, boolean generateAdmin, boolean generateUser,
                                            boolean generateTests, boolean generateReadme, boolean generateZip,
                                            boolean enablePreview) {}
+    public record ComputerAnalyzeVO(ComputerJobVO job, ComputerPlanVO plan) {}
+    public record ComputerPlanVO(String title, String projectType, String techStack, List<String> roles,
+                                 List<String> modules, List<TablePlanVO> tables, List<String> pages,
+                                 List<String> apis, List<String> paperOutline, int pointsCost,
+                                 boolean generatePaper, boolean generateTests, boolean enablePreview) {}
+    public record ComputerGenerationConfig(String title, String projectType, String techStack, List<String> roles,
+                                           List<String> modules, List<TablePlanVO> tables, List<String> pages,
+                                           List<String> apis, List<String> paperOutline,
+                                           boolean generatePaper, boolean generateTests, boolean enablePreview) {}
+    public record TablePlanVO(String name, String comment, List<String> fields) {}
     public record ComputerJobVO(String id, String title, String projectType, String techStack, String status,
                                 int progress, String currentStage, String errorMessage, int pointsCost,
                                 String previewUrl, String downloadUrl, List<GeneratedFileVO> files,
                                 String activePreviewUrl, List<String> stages) {}
     public record GeneratedFileVO(String fileType, String fileName, long fileSize, String downloadUrl) {}
-    private record ComputerProjectPlan(String title, String domain, List<String> modules, List<TablePlan> tables, List<String> apis) {}
+    private record ComputerProjectPlan(String title, String domain, List<String> modules, List<String> roles,
+                                       List<TablePlan> tables, List<String> pages, List<String> apis,
+                                       List<String> paperOutline) {}
     private record TablePlan(String name, String comment, List<String> fields) {}
 }

@@ -1,85 +1,61 @@
 <template>
   <main class="computer-page">
-    <header class="topbar">
+    <header class="hero">
       <div>
         <el-button text type="primary" @click="router.push('/dashboard')">返回工作台</el-button>
-        <span class="eyebrow">COMPUTER PROJECT GENERATOR</span>
+        <span class="eyebrow">COMPUTER PROJECT PACKAGE</span>
         <h1>计算机程序包生成</h1>
-        <p>根据任务书、开题报告或简短题目，生成前端、后端、SQL、论文、ZIP 成果包和静态网页预览。</p>
+        <p>上传任务书和开题报告，系统自动识别课题、技术栈、模块、数据库、页面、接口和论文结构，再一键生成成果包。</p>
       </div>
-      <el-tag size="large" type="success">MVP 规则补全生成</el-tag>
+      <el-tag size="large" type="success">万量矩阵智能识别</el-tag>
     </header>
 
     <section class="layout">
-      <el-card class="panel" shadow="never">
-        <template #header><strong>输入区</strong></template>
-        <el-form label-position="top">
-          <el-form-item label="项目题目">
-            <el-input v-model="form.title" placeholder="例如：学生宿舍管理系统" />
-          </el-form-item>
-          <div class="two-col">
-            <el-form-item label="项目类型">
-              <el-select v-model="form.projectType">
-                <el-option v-for="item in projectTypes" :key="item" :label="item" :value="item" />
-              </el-select>
-            </el-form-item>
-            <el-form-item label="技术栈">
-              <el-select v-model="form.techStack">
-                <el-option v-for="item in techStacks" :key="item" :label="item" :value="item" />
-              </el-select>
-            </el-form-item>
-          </div>
-          <el-form-item label="上传任务书 / 开题报告">
-            <el-upload
-              drag
-              action=""
-              multiple
-              :auto-upload="false"
-              :accept="'.docx,.txt,.pdf,.md'"
-              :file-list="files"
-              :on-change="onFileChange"
-              :on-remove="onFileRemove"
-            >
-              <div class="upload-copy">拖入 docx / txt / pdf 文件，或点击选择</div>
+      <el-card class="panel upload-panel" shadow="never">
+        <template #header><strong>文件上传区</strong></template>
+        <div class="upload-slots">
+          <div v-for="slot in uploadSlots" :key="slot.key" class="upload-slot">
+            <div>
+              <strong>{{ slot.label }}</strong>
+              <p>{{ slot.hint }}</p>
+            </div>
+            <el-upload action="" :auto-upload="false" :limit="1" :show-file-list="false" accept=".docx,.pdf,.txt,.md" :on-change="file => setFile(slot.key, file)">
+              <el-button type="primary" plain>选择文件</el-button>
             </el-upload>
-          </el-form-item>
-          <el-form-item label="补充需求">
-            <el-input v-model="form.inputText" type="textarea" :rows="5" placeholder="填写角色、模块、页面、数据统计、论文侧重点等要求" />
-          </el-form-item>
-        </el-form>
+            <span class="file-name">{{ files[slot.key]?.name || '未上传' }}</span>
+          </div>
+        </div>
+        <div class="main-actions">
+          <el-button type="primary" size="large" :loading="analyzing" :disabled="!uploadedFiles.length" @click="analyze">
+            智能识别
+          </el-button>
+          <el-button type="success" size="large" :loading="generating" :disabled="!plan || job?.status === 'SUCCESS'" @click="generate">
+            一键生成
+          </el-button>
+        </div>
+        <el-alert class="inline-alert" type="info" :closable="false" :title="plan ? `预计消耗 ${plan.pointsCost} 积分，生成前会再次校验。` : '请先上传任务书或开题报告，点击智能识别后再生成。'" />
       </el-card>
 
-      <el-card class="panel" shadow="never">
+      <el-card class="panel identify-panel" shadow="never">
         <template #header>
           <div class="panel-head">
-            <strong>生成配置</strong>
-            <el-tag>预计 {{ estimatedCost }} 积分</el-tag>
+            <strong>智能识别结果</strong>
+            <el-button :disabled="!plan" @click="openTune('all')">微调配置</el-button>
           </div>
         </template>
-        <div class="switch-grid">
-          <el-checkbox v-model="form.generatePaper">生成论文</el-checkbox>
-          <el-checkbox v-model="form.generateSql">生成 SQL 文件</el-checkbox>
-          <el-checkbox v-model="form.generateFrontend">生成前端页面</el-checkbox>
-          <el-checkbox v-model="form.generateBackend">生成后端接口</el-checkbox>
-          <el-checkbox v-model="form.generateAdmin">生成管理员端</el-checkbox>
-          <el-checkbox v-model="form.generateUser">生成普通用户端</el-checkbox>
-          <el-checkbox v-model="form.generateTests">生成测试用例</el-checkbox>
-          <el-checkbox v-model="form.generateReadme">生成运行说明</el-checkbox>
-          <el-checkbox v-model="form.generateZip">生成 ZIP 成果包</el-checkbox>
-          <el-checkbox v-model="form.enablePreview">开启网页预览</el-checkbox>
-        </div>
-        <el-alert class="inline-alert" type="info" :closable="false" :title="job ? `任务 ${job.id}：${statusText(job.status)}，${job.currentStage}` : '创建任务后会先校验积分，再开始生成。'" />
-        <div class="actions">
-          <el-button type="primary" size="large" :loading="generating" :disabled="!form.title.trim()" @click="generate">
-            创建并开始生成
-          </el-button>
-          <el-button :disabled="!job" @click="loadResult">刷新结果</el-button>
+        <el-empty v-if="!plan" description="智能识别后展示项目方案初稿" />
+        <div v-else class="result-list">
+          <div v-for="item in resultItems" :key="item.key" class="result-row">
+            <span>{{ item.label }}</span>
+            <b>{{ item.value }}</b>
+            <el-button text type="primary" @click="openTune(item.key)">微调</el-button>
+          </div>
         </div>
       </el-card>
     </section>
 
     <el-card class="panel progress-panel" shadow="never">
-      <template #header><strong>进度展示</strong></template>
+      <template #header><strong>生成进度区</strong></template>
       <el-steps :active="activeStep" finish-status="success" align-center>
         <el-step v-for="(stage, index) in stages" :key="stage" :title="stage" :status="stepStatus(index)" />
       </el-steps>
@@ -91,11 +67,11 @@
       <el-card class="panel" shadow="never">
         <template #header>
           <div class="panel-head">
-            <strong>成果展示</strong>
+            <strong>成果预览区</strong>
             <el-button type="success" :disabled="job?.status !== 'SUCCESS'" @click="downloadZip">下载完整 ZIP</el-button>
           </div>
         </template>
-        <el-empty v-if="!job?.files?.length" description="生成完成后展示成果文件" />
+        <el-empty v-if="!job?.files?.length" description="一键生成后展示下载文件" />
         <div v-else class="file-grid">
           <div v-for="file in importantFiles" :key="file.fileName" class="file-card">
             <b>{{ file.fileName }}</b>
@@ -103,37 +79,43 @@
             <el-button text type="primary" @click="downloadFile(file)">下载</el-button>
           </div>
         </div>
-        <el-tabs v-if="job?.status === 'SUCCESS'" class="result-tabs">
-          <el-tab-pane label="项目结构树">
-            <pre>{{ structureTree }}</pre>
-          </el-tab-pane>
-          <el-tab-pane label="数据库表预览">
-            <el-table :data="tablePreview" size="small">
-              <el-table-column prop="name" label="表名" />
-              <el-table-column prop="comment" label="说明" />
-              <el-table-column prop="fields" label="字段" min-width="220" />
-            </el-table>
-          </el-tab-pane>
-          <el-tab-pane label="接口列表">
-            <p v-for="api in apiPreview" :key="api" class="line">{{ api }}</p>
-          </el-tab-pane>
-          <el-tab-pane label="论文目录">
-            <p v-for="item in paperOutline" :key="item" class="line">{{ item }}</p>
-          </el-tab-pane>
-        </el-tabs>
       </el-card>
 
       <el-card class="panel preview-panel" shadow="never">
         <template #header>
           <div class="panel-head">
             <strong>网页预览</strong>
-            <el-segmented v-model="previewPage" :options="previewPages" @change="switchPreview" />
+            <el-segmented v-model="previewPage" :options="previewPages" />
           </div>
         </template>
         <iframe v-if="previewSrc" :src="previewSrc" sandbox="allow-same-origin allow-forms" title="生成项目预览" />
-        <el-empty v-else description="生成完成后可预览登录页、仪表盘和业务页面" />
+        <el-empty v-else description="生成完成后自动展示登录页、仪表盘、业务页、统计页和用户管理页" />
       </el-card>
     </section>
+
+    <el-dialog v-model="tuneVisible" title="微调配置" width="760px">
+      <el-form v-if="draft" label-position="top" class="tune-form">
+        <div class="two-col">
+          <el-form-item label="项目题目"><el-input v-model="draft.title" /></el-form-item>
+          <el-form-item label="技术栈"><el-select v-model="draft.techStack"><el-option v-for="item in techStacks" :key="item" :label="item" :value="item" /></el-select></el-form-item>
+        </div>
+        <el-form-item label="用户角色"><el-input v-model="rolesText" type="textarea" :rows="2" /></el-form-item>
+        <el-form-item label="功能模块"><el-input v-model="modulesText" type="textarea" :rows="3" /></el-form-item>
+        <el-form-item label="数据库表（每行：表名|说明|字段1,字段2）"><el-input v-model="tablesText" type="textarea" :rows="5" /></el-form-item>
+        <el-form-item label="页面列表"><el-input v-model="pagesText" type="textarea" :rows="2" /></el-form-item>
+        <el-form-item label="后端接口"><el-input v-model="apisText" type="textarea" :rows="3" /></el-form-item>
+        <el-form-item label="论文章节"><el-input v-model="outlineText" type="textarea" :rows="3" /></el-form-item>
+        <div class="switches">
+          <el-checkbox v-model="draft.generatePaper">生成论文</el-checkbox>
+          <el-checkbox v-model="draft.generateTests">生成测试用例</el-checkbox>
+          <el-checkbox v-model="draft.enablePreview">生成网页预览</el-checkbox>
+        </div>
+      </el-form>
+      <template #footer>
+        <el-button @click="tuneVisible = false">取消</el-button>
+        <el-button type="primary" @click="saveTune">保存微调</el-button>
+      </template>
+    </el-dialog>
   </main>
 </template>
 
@@ -142,151 +124,146 @@ import { computed, onBeforeUnmount, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  createComputerGenerationJob,
+  analyzeComputerGenerationFiles,
   downloadArtifact,
   downloadComputerGenerationZip,
   getComputerGenerationResult,
   getComputerGenerationStatus,
-  startComputerGeneration,
-  uploadComputerGenerationFiles
+  startComputerGeneration
 } from '../../api/rewrite'
 
 const router = useRouter()
-const projectTypes = ['Java Web 项目', 'Python Web 项目', 'Java + Python 混合项目', '微信小程序后台项目', '数据分析项目']
+const uploadSlots = [
+  { key: 'taskBook', label: '上传任务书', hint: '用于识别项目题目、角色、模块和业务规则。' },
+  { key: 'proposal', label: '上传开题报告', hint: '用于补充研究背景、技术路线和论文结构。' }
+]
 const techStacks = ['Spring Boot + Vue + MySQL', 'Spring Boot + Thymeleaf + MySQL', 'Flask + Vue + MySQL', 'Django + MySQL', 'FastAPI + Vue + MySQL']
 const stages = ['正在解析任务书', '正在识别项目类型', '正在生成数据库设计', '正在生成后端接口', '正在生成前端页面', '正在生成论文', '正在打包成果', '正在启动网页预览', '生成完成']
-const previewPages = [
-  { label: '登录', value: 'index.html' },
-  { label: '仪表盘', value: 'dashboard.html' },
-  { label: '业务', value: 'business.html' },
-  { label: '统计', value: 'statistics.html' },
-  { label: '用户', value: 'user.html' }
-]
-const form = reactive({
-  title: '',
-  projectType: projectTypes[0],
-  techStack: techStacks[0],
-  inputText: '',
-  generatePaper: true,
-  generateSql: true,
-  generateFrontend: true,
-  generateBackend: true,
-  generateAdmin: true,
-  generateUser: true,
-  generateTests: true,
-  generateReadme: true,
-  generateZip: true,
-  enablePreview: true
-})
-const files = ref([])
+const previewPages = [{ label: '登录页', value: 'index.html' }, { label: '仪表盘', value: 'dashboard.html' }, { label: '业务页', value: 'business.html' }, { label: '统计页', value: 'statistics.html' }, { label: '用户管理', value: 'user.html' }]
+const files = reactive({})
 const job = ref(null)
+const plan = ref(null)
+const analyzing = ref(false)
 const generating = ref(false)
 const previewPage = ref('index.html')
 const pollTimer = ref(null)
+const tuneVisible = ref(false)
+const draft = ref(null)
+const rolesText = ref('')
+const modulesText = ref('')
+const tablesText = ref('')
+const pagesText = ref('')
+const apisText = ref('')
+const outlineText = ref('')
 
-const estimatedCost = computed(() => {
-  let cost = form.projectType.includes('混合') ? 120 : 80
-  if (form.generatePaper) cost += 30
-  if (form.enablePreview) cost += 20
-  return cost
-})
+const uploadedFiles = computed(() => Object.values(files).filter(Boolean))
 const activeStep = computed(() => Math.max(0, stages.findIndex(stage => stage === job.value?.currentStage)))
-const importantFiles = computed(() => (job.value?.files || []).filter(file =>
-  /(^frontend\/|^backend-|^backend\/|^sql\/schema\.sql|^paper\/|\.zip$|README\.md$)/.test(file.fileName)
-))
+const importantFiles = computed(() => (job.value?.files || []).filter(file => /(^frontend\/|^backend-|^backend\/|^sql\/schema\.sql|^paper\/|\.zip$|README\.md$)/.test(file.fileName)))
 const previewSrc = computed(() => {
   const base = job.value?.activePreviewUrl || job.value?.previewUrl
-  if (!base) return ''
-  return base.replace(/\/[^/]+$/, `/${previewPage.value}`)
+  return base ? base.replace(/\/[^/]+$/, `/${previewPage.value}`) : ''
 })
-const structureTree = computed(() => ['frontend/', 'backend-java 或 backend-python/', 'sql/schema.sql', 'paper/thesis.md', 'preview/index.html', 'README.md'].join('\n'))
-const tablePreview = computed(() => {
-  const title = form.title || job.value?.title || '业务系统'
-  const domain = title.includes('宿舍') ? '宿舍' : title.includes('图书') ? '图书' : title.includes('商城') ? '商城' : '业务'
-  return [
-    { name: 'sys_user', comment: '系统用户', fields: 'id, username, password, role, phone, status' },
-    { name: `${domain}_record`, comment: `${domain}核心记录`, fields: 'id, name, code, owner_id, status, remark' },
-    { name: `${domain}_audit`, comment: `${domain}流程记录`, fields: 'id, record_id, action, operator_id, result' },
-    { name: `${domain}_notice`, comment: `${domain}消息通知`, fields: 'id, title, content, receiver_id, read_flag' }
-  ]
-})
-const apiPreview = computed(() => ['登录接口 /api/auth/login', '核心业务分页 /api/{module}/page', '新增业务记录 POST /api/{module}', '数据统计 GET /api/statistics', '文件上传 POST /api/files'])
-const paperOutline = ['摘要', 'Abstract', '绪论', '相关技术介绍', '系统需求分析', '系统总体设计', '数据库设计', '系统详细设计', '系统实现', '系统测试', '结论', '参考文献', '致谢']
+const resultItems = computed(() => plan.value ? [
+  { key: 'title', label: '项目题目', value: plan.value.title },
+  { key: 'projectType', label: '项目类型', value: plan.value.projectType },
+  { key: 'techStack', label: '推荐技术栈', value: plan.value.techStack },
+  { key: 'roles', label: '用户角色', value: (plan.value.roles || []).join('、') },
+  { key: 'modules', label: '功能模块', value: (plan.value.modules || []).join('、') },
+  { key: 'tables', label: '数据库表', value: (plan.value.tables || []).map(t => t.name).join('、') },
+  { key: 'pages', label: '前端页面', value: (plan.value.pages || []).join('、') },
+  { key: 'apis', label: '后端接口', value: `${(plan.value.apis || []).length} 个接口` },
+  { key: 'paperOutline', label: '论文章节', value: (plan.value.paperOutline || []).join('、') },
+  { key: 'pointsCost', label: '预计积分消耗', value: `${plan.value.pointsCost} 积分` }
+] : [])
 
-function onFileChange(file, list) { files.value = list }
-function onFileRemove(file, list) { files.value = list }
-async function generate() {
+function setFile(key, file) { files[key] = file.raw ? { raw: file.raw, name: file.name } : file }
+async function analyze() {
+  analyzing.value = true
   try {
-    await ElMessageBox.confirm(`预计消耗 ${estimatedCost.value} 积分，确认开始生成？`, '确认生成', { type: 'warning' })
+    const result = await analyzeComputerGenerationFiles(uploadedFiles.value)
+    job.value = result.job
+    plan.value = result.plan
+    ElMessage.success('智能识别完成，可直接一键生成或进行微调。')
+  } catch (error) {
+    ElMessage.error(error.message || '智能识别失败')
+  } finally { analyzing.value = false }
+}
+async function generate() {
+  if (!plan.value || !job.value?.id) return
+  try {
+    await ElMessageBox.confirm(`预计消耗 ${plan.value.pointsCost} 积分，确认一键生成完整成果包？`, '确认生成', { type: 'warning' })
   } catch { return }
   generating.value = true
   try {
-    job.value = await createComputerGenerationJob({ ...form })
-    if (files.value.length) job.value = await uploadComputerGenerationFiles(job.value.id, files.value)
     startPolling(job.value.id)
-    job.value = await startComputerGeneration(job.value.id)
+    job.value = await startComputerGeneration(job.value.id, plan.value)
     await loadResult()
-    ElMessage.success('计算机程序包生成完成')
+    ElMessage.success('成果包生成完成')
   } catch (error) {
     ElMessage.error(error.message || '生成失败')
-    if (job.value?.id) await loadResult()
+    await loadResult()
   } finally {
     generating.value = false
     stopPolling()
   }
 }
-async function loadResult() {
-  if (!job.value?.id) return
-  job.value = await getComputerGenerationResult(job.value.id)
+async function loadResult() { if (job.value?.id) job.value = await getComputerGenerationResult(job.value.id) }
+function openTune() {
+  if (!plan.value) return
+  draft.value = JSON.parse(JSON.stringify(plan.value))
+  rolesText.value = (draft.value.roles || []).join('、')
+  modulesText.value = (draft.value.modules || []).join('、')
+  pagesText.value = (draft.value.pages || []).join('、')
+  apisText.value = (draft.value.apis || []).join('\n')
+  outlineText.value = (draft.value.paperOutline || []).join('、')
+  tablesText.value = (draft.value.tables || []).map(t => `${t.name}|${t.comment || ''}|${(t.fields || []).join(',')}`).join('\n')
+  tuneVisible.value = true
 }
+function saveTune() {
+  draft.value.roles = splitList(rolesText.value)
+  draft.value.modules = splitList(modulesText.value)
+  draft.value.pages = splitList(pagesText.value)
+  draft.value.apis = apisText.value.split('\n').map(x => x.trim()).filter(Boolean)
+  draft.value.paperOutline = splitList(outlineText.value)
+  draft.value.tables = tablesText.value.split('\n').map(line => {
+    const [name, comment, fields] = line.split('|')
+    return { name: (name || '').trim(), comment: (comment || '').trim(), fields: (fields || '').split(',').map(x => x.trim()).filter(Boolean) }
+  }).filter(t => t.name)
+  plan.value = draft.value
+  tuneVisible.value = false
+  ElMessage.success('微调配置已保存')
+}
+function splitList(value) { return String(value || '').split(/[、,，\n]/).map(x => x.trim()).filter(Boolean) }
 function startPolling(jobId) {
   stopPolling()
   pollTimer.value = window.setInterval(async () => {
     try { job.value = await getComputerGenerationStatus(jobId) } catch (_) { stopPolling() }
   }, 900)
 }
-function stopPolling() {
-  if (pollTimer.value) window.clearInterval(pollTimer.value)
-  pollTimer.value = null
-}
+function stopPolling() { if (pollTimer.value) window.clearInterval(pollTimer.value); pollTimer.value = null }
 async function downloadZip() {
-  if (!job.value?.id) return
   const blob = await downloadComputerGenerationZip(job.value.id)
+  saveBlob(blob, `${job.value.title || 'computer-project'}.zip`)
+}
+async function downloadFile(file) { saveBlob(await downloadArtifact(file.downloadUrl), file.fileName.split('/').pop()) }
+function saveBlob(blob, fileName) {
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
-  link.download = `${job.value.title || 'computer-project'}.zip`
+  link.download = fileName
   link.click()
   URL.revokeObjectURL(url)
 }
-async function downloadFile(file) {
-  if (!file?.downloadUrl) return
-  const blob = await downloadArtifact(file.downloadUrl)
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = file.fileName.split('/').pop()
-  link.click()
-  URL.revokeObjectURL(url)
-}
-function switchPreview(value) { previewPage.value = value }
 function stepStatus(index) {
   if (job.value?.status === 'FAILED' && index === activeStep.value) return 'error'
   if (index < activeStep.value || job.value?.status === 'SUCCESS') return 'success'
   if (index === activeStep.value && job.value?.status === 'RUNNING') return 'process'
   return 'wait'
 }
-function statusText(status) {
-  return ({ PENDING: '等待中', RUNNING: '进行中', SUCCESS: '已完成', FAILED: '失败' })[status] || status || '未创建'
-}
 function formatSize(size) { return size > 1024 * 1024 ? `${(size / 1024 / 1024).toFixed(2)} MB` : `${Math.max(1, Math.round((size || 0) / 1024))} KB` }
 onBeforeUnmount(stopPolling)
 </script>
 
 <style scoped>
-.computer-page{min-height:100vh;padding:30px 24px 70px;background:linear-gradient(135deg,#f8fafc,#eef6ff 48%,#f5f3ff)}
-.topbar{max-width:1500px;margin:0 auto 24px;display:flex;align-items:flex-start;justify-content:space-between;gap:24px}.eyebrow{display:block;margin-top:16px;color:#2563eb;font-size:12px;font-weight:800;letter-spacing:.16em}.topbar h1{margin:10px 0 8px;font-size:38px}.topbar p{margin:0;color:#64748b;line-height:1.7}
-.layout,.result-layout{max-width:1500px;margin:0 auto;display:grid;grid-template-columns:1fr 1fr;gap:18px}.panel{border-radius:8px;border-color:#dbe5f4}.panel-head{display:flex;align-items:center;justify-content:space-between;gap:16px}.two-col{display:grid;grid-template-columns:1fr 1fr;gap:14px}.upload-copy{color:#64748b}.switch-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}.inline-alert{margin-top:16px}.actions{display:flex;gap:12px;margin-top:18px}.progress-panel{max-width:1500px;margin:18px auto}.result-layout{grid-template-columns:.9fr 1.1fr}.file-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}.file-card{padding:14px;border:1px solid #dbe5f4;border-radius:8px;background:#f8fafc}.file-card span{display:block;margin-top:6px;color:#64748b;font-size:12px}.result-tabs{margin-top:18px}pre{white-space:pre-wrap;margin:0;padding:16px;border-radius:8px;background:#0f172a;color:#e2e8f0}.line{margin:0 0 10px;color:#334155}.preview-panel iframe{width:100%;height:560px;border:1px solid #dbe5f4;border-radius:8px;background:white}
-@media(max-width:1050px){.layout,.result-layout{grid-template-columns:1fr}.topbar{display:block}.preview-panel iframe{height:460px}}
-@media(max-width:720px){.two-col,.switch-grid,.file-grid{grid-template-columns:1fr}.computer-page{padding:20px 12px 50px}.topbar h1{font-size:30px}.progress-panel :deep(.el-steps){display:none}}
+.computer-page{min-height:100vh;padding:30px 24px 70px;background:linear-gradient(135deg,#f8fafc,#eef6ff 48%,#f5f3ff)}.hero{max-width:1500px;margin:0 auto 24px;display:flex;align-items:flex-start;justify-content:space-between;gap:24px}.eyebrow{display:block;margin-top:16px;color:#2563eb;font-size:12px;font-weight:800;letter-spacing:.16em}.hero h1{margin:10px 0 8px;font-size:38px}.hero p{margin:0;color:#64748b;line-height:1.7}.layout,.result-layout{max-width:1500px;margin:0 auto;display:grid;grid-template-columns:.8fr 1.2fr;gap:18px}.panel{border-radius:8px;border-color:#dbe5f4}.panel-head{display:flex;align-items:center;justify-content:space-between;gap:16px}.upload-slots{display:grid;gap:14px}.upload-slot{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;padding:16px;border:1px solid #dbe5f4;border-radius:8px;background:#f8fafc}.upload-slot p{margin:5px 0 0;color:#64748b;font-size:13px}.file-name{grid-column:1/-1;color:#2563eb;font-size:13px}.main-actions{display:flex;gap:12px;margin-top:18px}.inline-alert{margin-top:16px}.result-list{display:grid;gap:10px}.result-row{display:grid;grid-template-columns:110px 1fr 60px;gap:12px;align-items:center;padding:12px;border:1px solid #e2e8f0;border-radius:8px;background:#fff}.result-row span{color:#64748b}.result-row b{font-weight:600;color:#172033;line-height:1.6}.progress-panel{max-width:1500px;margin:18px auto}.result-layout{grid-template-columns:.9fr 1.1fr}.file-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}.file-card{padding:14px;border:1px solid #dbe5f4;border-radius:8px;background:#f8fafc}.file-card span{display:block;margin-top:6px;color:#64748b;font-size:12px}.preview-panel iframe{width:100%;height:560px;border:1px solid #dbe5f4;border-radius:8px;background:white}.two-col{display:grid;grid-template-columns:1fr 1fr;gap:14px}.switches{display:flex;gap:18px;flex-wrap:wrap}@media(max-width:1050px){.layout,.result-layout{grid-template-columns:1fr}.hero{display:block}.preview-panel iframe{height:460px}}@media(max-width:720px){.upload-slot,.two-col,.file-grid{grid-template-columns:1fr}.computer-page{padding:20px 12px 50px}.hero h1{font-size:30px}.progress-panel :deep(.el-steps){display:none}.result-row{grid-template-columns:1fr}}
 </style>
