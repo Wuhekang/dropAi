@@ -125,6 +125,7 @@ CREATE TABLE IF NOT EXISTS computer_generation_jobs (
   status VARCHAR(30) NOT NULL,
   progress INT DEFAULT 0,
   current_stage VARCHAR(80),
+  current_file VARCHAR(500),
   input_text CLOB,
   uploaded_files CLOB,
   output_zip_path VARCHAR(500),

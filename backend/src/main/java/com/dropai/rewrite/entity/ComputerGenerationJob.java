@@ -15,6 +15,7 @@ public class ComputerGenerationJob {
     private String status;
     private Integer progress;
     private String currentStage;
+    private String currentFile;
     private String inputText;
     private String uploadedFiles;
     private String outputZipPath;
@@ -45,6 +46,8 @@ public class ComputerGenerationJob {
     public void setProgress(Integer progress) { this.progress = progress; }
     public String getCurrentStage() { return currentStage; }
     public void setCurrentStage(String currentStage) { this.currentStage = currentStage; }
+    public String getCurrentFile() { return currentFile; }
+    public void setCurrentFile(String currentFile) { this.currentFile = currentFile; }
     public String getInputText() { return inputText; }
     public void setInputText(String inputText) { this.inputText = inputText; }
     public String getUploadedFiles() { return uploadedFiles; }

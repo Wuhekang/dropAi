@@ -2,11 +2,14 @@ package com.dropai.rewrite.config;
 
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 
 @Component
 public class ComputerGeneratorSchemaInitializer implements ApplicationRunner {
@@ -23,6 +26,7 @@ public class ComputerGeneratorSchemaInitializer implements ApplicationRunner {
         try (Connection connection = dataSource.getConnection()) {
             boolean h2 = connection.getMetaData().getDatabaseProductName().toLowerCase().contains("h2");
             createTables(h2);
+            ensureColumns(connection, h2);
         }
     }
 
@@ -37,6 +41,7 @@ public class ComputerGeneratorSchemaInitializer implements ApplicationRunner {
                   status VARCHAR(30) NOT NULL,
                   progress INT DEFAULT 0,
                   current_stage VARCHAR(80),
+                  current_file VARCHAR(500),
                   input_text CLOB,
                   uploaded_files CLOB,
                   output_zip_path VARCHAR(500),
@@ -61,6 +66,7 @@ public class ComputerGeneratorSchemaInitializer implements ApplicationRunner {
                   status VARCHAR(30) NOT NULL COMMENT '任务状态',
                   progress INT DEFAULT 0 COMMENT '进度百分比',
                   current_stage VARCHAR(80) COMMENT '当前阶段',
+                  current_file VARCHAR(500) COMMENT '当前生成文件',
                   input_text LONGTEXT COMMENT '输入需求和解析文本',
                   uploaded_files LONGTEXT COMMENT '上传文件名',
                   output_zip_path VARCHAR(500) COMMENT 'ZIP路径',
@@ -127,5 +133,31 @@ public class ComputerGeneratorSchemaInitializer implements ApplicationRunner {
                   UNIQUE KEY uk_computer_preview_id (preview_id)
                 ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
                 """);
+    }
+
+    private void ensureColumns(Connection connection, boolean h2) throws SQLException {
+        if (!columnExists(connection, "computer_generation_jobs", "current_file")) {
+            safeExecute("ALTER TABLE computer_generation_jobs ADD COLUMN current_file " +
+                    (h2 ? "VARCHAR(500)" : "VARCHAR(500) COMMENT '当前生成文件'"));
+        }
+    }
+
+    private boolean columnExists(Connection connection, String tableName, String columnName) throws SQLException {
+        try (ResultSet columns = connection.getMetaData().getColumns(connection.getCatalog(), null, tableName, columnName)) {
+            if (columns.next()) return true;
+        }
+        try (ResultSet columns = connection.getMetaData().getColumns(connection.getCatalog(), null, tableName.toUpperCase(), columnName.toUpperCase())) {
+            return columns.next();
+        }
+    }
+
+    private void safeExecute(String sql) {
+        try {
+            jdbcTemplate.execute(sql);
+        } catch (DataAccessException exception) {
+            String message = String.valueOf(exception.getMessage()).toLowerCase();
+            if (message.contains("duplicate") || message.contains("already exists") || message.contains("重复")) return;
+            throw exception;
+        }
     }
 }

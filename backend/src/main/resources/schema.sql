@@ -155,6 +155,7 @@ CREATE TABLE IF NOT EXISTS computer_generation_jobs (
   status VARCHAR(30) NOT NULL COMMENT '任务状态',
   progress INT DEFAULT 0 COMMENT '进度百分比',
   current_stage VARCHAR(80) COMMENT '当前阶段',
+  current_file VARCHAR(500) COMMENT '当前生成文件',
   input_text LONGTEXT COMMENT '输入需求和解析文本',
   uploaded_files LONGTEXT COMMENT '上传文件名',
   output_zip_path VARCHAR(500) COMMENT 'ZIP路径',

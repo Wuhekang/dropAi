@@ -13,6 +13,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
+import org.springframework.core.task.TaskExecutor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -44,8 +45,8 @@ public class ComputerGeneratorService {
             "port scan", "bypass authentication", "bypass captcha", "proxy pool", "malware"
     );
     private static final List<String> STAGES = List.of(
-            "正在解析任务书", "正在识别项目类型", "正在生成数据库设计", "正在生成后端接口",
-            "正在生成前端页面", "正在生成论文", "正在打包成果", "正在启动网页预览", "生成完成"
+            "项目识别", "目录生成", "SQL生成", "后端生成", "前端生成",
+            "论文生成", "预览构建", "ZIP打包", "生成完成"
     );
     private static final Path ROOT = Paths.get("work", "computer-generator").toAbsolutePath().normalize();
 
@@ -56,11 +57,12 @@ public class ComputerGeneratorService {
     private final PointService pointService;
     private final MatrixDesignService matrixDesignService;
     private final ObjectMapper objectMapper;
+    private final TaskExecutor taskExecutor;
 
     public ComputerGeneratorService(ComputerGenerationJobMapper jobMapper, ComputerGeneratedFileMapper fileMapper,
                                     ComputerPreviewInstanceMapper previewMapper, DocumentParser documentParser,
                                     PointService pointService, MatrixDesignService matrixDesignService,
-                                    ObjectMapper objectMapper) {
+                                    ObjectMapper objectMapper, TaskExecutor taskExecutor) {
         this.jobMapper = jobMapper;
         this.fileMapper = fileMapper;
         this.previewMapper = previewMapper;
@@ -68,6 +70,7 @@ public class ComputerGeneratorService {
         this.pointService = pointService;
         this.matrixDesignService = matrixDesignService;
         this.objectMapper = objectMapper;
+        this.taskExecutor = taskExecutor;
     }
 
     @Transactional
@@ -115,6 +118,7 @@ public class ComputerGeneratorService {
         job.setStatus("ANALYZED");
         job.setProgress(0);
         job.setCurrentStage("智能识别完成");
+        job.setCurrentFile("");
         job.setInputText(input.toString().trim());
         job.setUploadedFiles(String.join(",", names));
         job.setPointsCost(cost);
@@ -178,55 +182,77 @@ public class ComputerGeneratorService {
     public ComputerJobVO start(String jobId, ComputerGenerationConfig config) {
         ComputerGenerationJob job = requireOwnedJob(jobId);
         if ("SUCCESS".equals(job.getStatus())) return result(jobId);
+        if ("RUNNING".equals(job.getStatus())) return status(jobId);
+        if (config != null) {
+            ensureCompliantRequirement(configToText(config));
+            applyConfig(job, config);
+        } else {
+            ensureCompliantRequirement(defaultText(job.getInputText(), "") + "\n" + defaultText(job.getTitle(), ""));
+        }
+        if (!Boolean.TRUE.equals(job.getPointsCharged())) {
+            pointService.deductCustom(job.getUserId(), job.getId(), "COMPUTER_GENERATE", "计算机程序包生成",
+                    value(job.getPointsCost()), "生成 " + job.getTitle());
+            job.setPointsCharged(true);
+        }
+        job.setStatus("RUNNING");
+        job.setProgress(1);
+        job.setCurrentStage("创建生成任务");
+        job.setCurrentFile("");
+        job.setErrorMessage("");
+        job.setUpdatedAt(LocalDateTime.now());
+        jobMapper.updateById(job);
+        ComputerGenerationConfig snapshot = config;
+        taskExecutor.execute(() -> runGenerationPipeline(jobId, snapshot));
+        return status(jobId);
+    }
+
+    private void runGenerationPipeline(String jobId, ComputerGenerationConfig config) {
+        ComputerGenerationJob job = jobMapper.selectById(jobId);
         try {
-            if (config != null) {
-                ensureCompliantRequirement(configToText(config));
-                applyConfig(job, config);
-            } else {
-                ensureCompliantRequirement(defaultText(job.getInputText(), "") + "\n" + defaultText(job.getTitle(), ""));
-            }
-            if (!Boolean.TRUE.equals(job.getPointsCharged())) {
-                pointService.deductCustom(job.getUserId(), job.getId(), "COMPUTER_GENERATE", "计算机程序包生成",
-                        value(job.getPointsCost()), "生成 " + job.getTitle());
-                job.setPointsCharged(true);
-                jobMapper.updateById(job);
-            }
-            ComputerProjectPlan plan = config == null ? analyze(job) : planFromConfig(job, config);
+            ComputerProjectPlan plan = config == null ? analyzeForBackground(job) : planFromConfig(job, config);
             Path jobRoot = ROOT.resolve(job.getUserId().toString()).resolve(job.getId()).normalize();
             assertUnderRoot(jobRoot);
             recreateDirectory(jobRoot);
+            fileMapper.delete(new LambdaQueryWrapper<ComputerGeneratedFile>().eq(ComputerGeneratedFile::getJobId, job.getId()));
+            previewMapper.delete(new LambdaQueryWrapper<ComputerPreviewInstance>().eq(ComputerPreviewInstance::getJobId, job.getId()));
 
-            updateStage(job, 1, "RUNNING", "");
-            writeReadme(jobRoot, plan, job);
-            updateStage(job, 2, "RUNNING", "");
-            Path sql = writeSql(jobRoot, plan);
-            updateStage(job, 3, "RUNNING", "");
-            Path backend = writeBackend(jobRoot, plan, job.getTechStack());
-            updateStage(job, 4, "RUNNING", "");
-            Path frontend = writeFrontend(jobRoot, plan);
-            updateStage(job, 5, "RUNNING", "");
-            Path paper = writePaper(jobRoot, plan, job.getTechStack());
+            List<FilePlan> queue = buildFileQueue(plan, job.getTechStack());
+            updateStage(job, "目录生成", 4, "project/");
+            int completed = 0;
+            List<FileSummary> summaries = new ArrayList<>();
+            for (FilePlan file : queue) {
+                int progress = 5 + Math.round((completed * 78f) / Math.max(queue.size(), 1));
+                updateStage(job, file.stage(), progress, file.path());
+                String content = generateValidatedFile(plan, job.getTechStack(), file, summaries);
+                Path written = write(jobRoot.resolve(file.path()), content);
+                summaries.add(new FileSummary(file.path(), summarize(content)));
+                insertFile(job.getId(), jobRoot, written);
+                completed++;
+            }
+            updateStage(job, "预览构建", 86, "preview/index.html");
             ComputerPreviewInstance preview = writePreview(jobRoot, plan, job);
-            updateStage(job, 6, "RUNNING", "");
-            Path zip = jobRoot.resolve("computer-project-package.zip");
+            updateStage(job, "ZIP打包", 94, "毕业设计成果包.zip");
+            Path zip = jobRoot.resolve("毕业设计成果包.zip");
             zip(jobRoot, zip);
-            updateStage(job, 7, "RUNNING", "");
-
+            fileMapper.delete(new LambdaQueryWrapper<ComputerGeneratedFile>().eq(ComputerGeneratedFile::getJobId, job.getId()));
+            insertFile(job.getId(), jobRoot, zip);
             job.setOutputZipPath(zip.toString());
-            job.setFrontendPath(frontend.toString());
-            job.setBackendPath(backend.toString());
-            job.setSqlPath(sql.toString());
-            job.setPaperPath(paper.toString());
+            job.setFrontendPath(jobRoot.resolve("frontend").toString());
+            job.setBackendPath(jobRoot.resolve("backend").toString());
+            job.setSqlPath(jobRoot.resolve("sql").toString());
+            job.setPaperPath(jobRoot.resolve("paper").toString());
             job.setPreviewUrl(preview.getPreviewUrl());
-            updateStage(job, 8, "SUCCESS", "");
-            registerFiles(job.getId(), jobRoot, zip);
-            return result(jobId);
-        } catch (Exception exception) {
-            job.setStatus("FAILED");
-            job.setErrorMessage(stageMessage(job) + "失败：" + compact(exception.getMessage()));
+            job.setCurrentFile("");
+            updateStage(job, "生成完成", 100, "");
+            job.setStatus("SUCCESS");
             job.setUpdatedAt(LocalDateTime.now());
             jobMapper.updateById(job);
-            throw new IllegalStateException(job.getErrorMessage(), exception);
+        } catch (Exception exception) {
+            ComputerGenerationJob failed = jobMapper.selectById(jobId);
+            failed.setStatus("FAILED");
+            failed.setErrorMessage(stageMessage(failed) + "失败：" + compact(exception.getMessage()));
+            failed.setUpdatedAt(LocalDateTime.now());
+            jobMapper.updateById(failed);
         }
     }
 
@@ -590,17 +616,21 @@ public class ComputerGeneratorService {
 
     private ComputerJobVO toVO(ComputerGenerationJob job, List<ComputerGeneratedFile> files, ComputerPreviewInstance preview) {
         return new ComputerJobVO(job.getId(), job.getTitle(), job.getProjectType(), job.getTechStack(), job.getStatus(),
-                value(job.getProgress()), stageMessage(job), job.getErrorMessage(), value(job.getPointsCost()),
+                value(job.getProgress()), stageMessage(job), defaultText(job.getCurrentFile(), ""),
+                job.getErrorMessage(), value(job.getPointsCost()),
                 job.getPreviewUrl(), "/api/computer-generator/download/" + job.getId(),
-                files.stream().map(file -> new GeneratedFileVO(file.getFileType(), file.getFileName(), value(file.getFileSize()),
+                files.stream().filter(file -> file.getFileName() != null && file.getFileName().endsWith(".zip"))
+                        .map(file -> new GeneratedFileVO(file.getFileType(), "毕业设计成果包.zip", value(file.getFileSize()),
                         "/api/computer-generator/download-file/" + job.getId() + "?fileName=" + urlEncode(file.getFileName()))).toList(),
                 preview == null ? null : preview.getPreviewUrl(), STAGES);
     }
 
     private ComputerPlanVO toPlanVO(ComputerProjectPlan plan, String projectType, String techStack, int cost) {
+        List<FilePlan> queue = buildFileQueue(plan, techStack);
         return new ComputerPlanVO(plan.title(), projectType, techStack, plan.roles(), plan.modules(),
                 plan.tables().stream().map(table -> new TablePlanVO(table.name(), table.comment(), table.fields())).toList(),
-                plan.pages(), plan.apis(), plan.paperOutline(), cost, true, true, true);
+                plan.pages(), plan.apis(), plan.paperOutline(), projectDirectoryTree(queue), queue.stream().map(FilePlan::path).toList(),
+                cost, true, true, true);
     }
 
     private ComputerProjectPlan planFromConfig(ComputerGenerationJob job, ComputerGenerationConfig config) {
@@ -630,6 +660,197 @@ public class ComputerGeneratorService {
         jobMapper.updateById(job);
     }
 
+    private ComputerProjectPlan analyzeForBackground(ComputerGenerationJob job) {
+        ComputerProjectPlan matrixPlan = generatePlanWithMatrix(job);
+        if (matrixPlan != null) return matrixPlan;
+        String type = recommendProjectType(new ComputerProjectPlan(job.getTitle(), defaultText(job.getProjectType(), "通用业务管理"), List.of(), List.of(), List.of(), List.of(), List.of(), List.of()), job.getInputText());
+        return planFromConfig(job, new ComputerGenerationConfig(job.getTitle(), type, job.getTechStack(),
+                List.of("管理员", "普通用户"), List.of("用户认证", "首页仪表盘", "核心业务管理", "数据统计"),
+                List.of(new TablePlanVO("sys_user", "系统用户", List.of("id", "username", "password_hash", "role", "status", "created_at")),
+                        new TablePlanVO("business_record", "业务记录", List.of("id", "name", "code", "status", "remark", "created_at"))),
+                List.of("登录页", "首页仪表盘", "核心业务页", "数据统计页", "用户管理页"),
+                List.of("/api/users - 用户管理接口", "/api/business-records - 业务记录接口"),
+                defaultPaperOutline(), true, true, true));
+    }
+
+    private List<FilePlan> buildFileQueue(ComputerProjectPlan plan, String techStack) {
+        List<FilePlan> queue = new ArrayList<>();
+        queue.add(new FilePlan("sql/schema.sql", "SQL生成", "数据库建表脚本"));
+        queue.add(new FilePlan("sql/data.sql", "SQL生成", "初始化演示数据"));
+        queue.add(new FilePlan("sql/init.sql", "SQL生成", "数据库初始化入口脚本"));
+        List<TablePlan> tables = ensureSystemSetupTable(plan.tables());
+        for (TablePlan table : tables) queue.add(new FilePlan("backend/src/main/java/com/dropai/generated/entity/" + className(table.name()) + ".java", "后端生成", table.comment() + "实体类"));
+        for (TablePlan table : tables) queue.add(new FilePlan("backend/src/main/java/com/dropai/generated/mapper/" + className(table.name()) + "Mapper.java", "后端生成", table.comment() + "Mapper"));
+        for (TablePlan table : tables) queue.add(new FilePlan("backend/src/main/java/com/dropai/generated/service/" + className(table.name()) + "Service.java", "后端生成", table.comment() + "业务接口"));
+        for (TablePlan table : tables) queue.add(new FilePlan("backend/src/main/java/com/dropai/generated/service/impl/" + className(table.name()) + "ServiceImpl.java", "后端生成", table.comment() + "业务实现"));
+        for (TablePlan table : tables) queue.add(new FilePlan("backend/src/main/java/com/dropai/generated/controller/" + className(table.name()) + "Controller.java", "后端生成", table.comment() + "REST接口"));
+        queue.add(new FilePlan("backend/src/main/java/com/dropai/generated/config/WebConfig.java", "后端生成", "跨域与Web配置"));
+        queue.add(new FilePlan("backend/pom.xml", "后端生成", "Maven工程配置"));
+        queue.add(new FilePlan("backend/src/main/java/com/dropai/generated/GeneratedApplication.java", "后端生成", "SpringBoot启动类"));
+        queue.add(new FilePlan("frontend/package.json", "前端生成", "前端依赖配置"));
+        queue.add(new FilePlan("frontend/vite.config.js", "前端生成", "Vite配置"));
+        queue.add(new FilePlan("frontend/index.html", "前端生成", "前端入口HTML"));
+        queue.add(new FilePlan("frontend/src/api/request.js", "前端生成", "Axios请求封装"));
+        queue.add(new FilePlan("frontend/src/router/index.js", "前端生成", "Vue Router路由"));
+        queue.add(new FilePlan("frontend/src/components/DataCard.vue", "前端生成", "通用数据卡片组件"));
+        queue.add(new FilePlan("frontend/src/views/Login.vue", "前端生成", "登录页"));
+        queue.add(new FilePlan("frontend/src/views/Dashboard.vue", "前端生成", "首页仪表盘"));
+        queue.add(new FilePlan("frontend/src/views/Business.vue", "前端生成", "核心业务管理页"));
+        queue.add(new FilePlan("frontend/src/views/Statistics.vue", "前端生成", "数据统计页"));
+        queue.add(new FilePlan("frontend/src/views/UserManage.vue", "前端生成", "用户管理页"));
+        queue.add(new FilePlan("frontend/src/App.vue", "前端生成", "根组件"));
+        queue.add(new FilePlan("frontend/src/main.js", "前端生成", "前端启动入口"));
+        queue.add(new FilePlan("README.md", "论文生成", "项目运行说明"));
+        queue.add(new FilePlan("paper/论文大纲.md", "论文生成", "论文大纲"));
+        queue.add(new FilePlan("paper/毕业论文.docx", "论文生成", "可打开的论文文档内容"));
+        return queue;
+    }
+
+    private String generateValidatedFile(ComputerProjectPlan plan, String techStack, FilePlan file, List<FileSummary> summaries) {
+        String fallback = fallbackFileContent(plan, techStack, file);
+        for (int attempt = 0; attempt < 3; attempt++) {
+            String content = attempt == 0 ? generateFileWithMatrix(plan, techStack, file, summaries) : fallback;
+            if (content == null || content.isBlank()) content = fallback;
+            if (validateFile(file, content, plan)) return content;
+        }
+        throw new IllegalStateException(file.path() + " 校验失败");
+    }
+
+    private String generateFileWithMatrix(ComputerProjectPlan plan, String techStack, FilePlan file, List<FileSummary> summaries) {
+        if (!matrixDesignService.apiKeyConfigured()) return "";
+        String instructions = """
+                你是全栈工程师。只生成当前文件的完整内容，不要解释，不要 Markdown 代码围栏。
+                生成内容必须是毕业设计/课程设计/管理系统/数据分析系统的合法合规代码。
+                不得生成安全测试、漏洞利用、扫描、爆破、绕过认证、代理池、未授权数据采集等内容。
+                代码必须可运行，并与给定数据库表、接口约定和命名规范一致。
+                """;
+        String input = """
+                项目题目：%s
+                技术栈：%s
+                用户角色：%s
+                功能模块：%s
+                数据库表：%s
+                后端接口：%s
+                当前文件路径：%s
+                当前文件职责：%s
+                已生成文件摘要：%s
+                """.formatted(plan.title(), techStack, plan.roles(), plan.modules(), plan.tables(), plan.apis(),
+                file.path(), file.responsibility(), summaries);
+        try {
+            return matrixDesignService.generate(instructions, input).replaceAll("^```[a-zA-Z]*\\s*", "").replaceAll("\\s*```$", "").trim();
+        } catch (Exception exception) {
+            return "";
+        }
+    }
+
+    private String fallbackFileContent(ComputerProjectPlan plan, String techStack, FilePlan file) {
+        String path = file.path();
+        if ("sql/schema.sql".equals(path)) return schemaSql(plan);
+        if ("sql/data.sql".equals(path)) return "INSERT INTO system_setup(setup_key,setup_value,status) VALUES ('admin_password_policy','FIRST_RUN_SET_PASSWORD','PENDING');\n";
+        if ("sql/init.sql".equals(path)) return "SOURCE schema.sql;\nSOURCE data.sql;\n";
+        if (path.endsWith("pom.xml")) return backendPom();
+        if (path.endsWith("GeneratedApplication.java")) return "package com.dropai.generated;\n\nimport org.springframework.boot.SpringApplication;\nimport org.springframework.boot.autoconfigure.SpringBootApplication;\n\n@SpringBootApplication\npublic class GeneratedApplication {\n    public static void main(String[] args) { SpringApplication.run(GeneratedApplication.class, args); }\n}\n";
+        if (path.endsWith("WebConfig.java")) return "package com.dropai.generated.config;\n\nimport org.springframework.context.annotation.Configuration;\nimport org.springframework.web.servlet.config.annotation.CorsRegistry;\nimport org.springframework.web.servlet.config.annotation.WebMvcConfigurer;\n\n@Configuration\npublic class WebConfig implements WebMvcConfigurer {\n    @Override public void addCorsMappings(CorsRegistry registry) { registry.addMapping(\"/api/**\").allowedOrigins(\"*\").allowedMethods(\"GET\",\"POST\",\"PUT\",\"DELETE\"); }\n}\n";
+        if (path.contains("/entity/")) return javaEntity(path, plan);
+        if (path.contains("/mapper/")) return javaMapper(path);
+        if (path.contains("/service/impl/")) return javaServiceImpl(path);
+        if (path.contains("/service/")) return javaService(path);
+        if (path.contains("/controller/")) return javaController(path);
+        if ("frontend/package.json".equals(path)) return "{\"scripts\":{\"dev\":\"vite --host 0.0.0.0\",\"build\":\"vite build\"},\"dependencies\":{\"@vitejs/plugin-vue\":\"latest\",\"vite\":\"latest\",\"vue\":\"latest\",\"vue-router\":\"latest\",\"axios\":\"latest\",\"element-plus\":\"latest\"},\"devDependencies\":{}}\n";
+        if ("frontend/vite.config.js".equals(path)) return "import { defineConfig } from 'vite'\nimport vue from '@vitejs/plugin-vue'\nexport default defineConfig({ plugins: [vue()], server: { port: 5173 } })\n";
+        if ("frontend/index.html".equals(path)) return "<div id=\"app\"></div><script type=\"module\" src=\"/src/main.js\"></script>\n";
+        if ("frontend/src/api/request.js".equals(path)) return "import axios from 'axios'\nexport const request = axios.create({ baseURL: '/api', timeout: 15000 })\nexport const listRecords = (name) => request.get(`/${name}`)\n";
+        if ("frontend/src/router/index.js".equals(path)) return "import { createRouter, createWebHistory } from 'vue-router'\nimport Login from '../views/Login.vue'\nimport Dashboard from '../views/Dashboard.vue'\nimport Business from '../views/Business.vue'\nimport Statistics from '../views/Statistics.vue'\nimport UserManage from '../views/UserManage.vue'\nexport default createRouter({ history: createWebHistory(), routes: [{path:'/',redirect:'/dashboard'},{path:'/login',component:Login},{path:'/dashboard',component:Dashboard},{path:'/business',component:Business},{path:'/statistics',component:Statistics},{path:'/users',component:UserManage}] })\n";
+        if (path.endsWith("DataCard.vue")) return vue("DataCard", "<article class=\"card\"><strong>{{ title }}</strong><span>{{ value }}</span></article>", "const props = defineProps({ title: String, value: [String, Number] })");
+        if (path.endsWith("Login.vue")) return vue("Login", "<main class=\"page\"><h1>" + plan.title() + "</h1><p>首次运行时创建管理员账户并设置强密码。</p><input placeholder=\"手机号\"/><input placeholder=\"密码\" type=\"password\"/><button>登录</button></main>", "");
+        if (path.endsWith("Dashboard.vue")) return vue("Dashboard", "<main class=\"page\"><h1>首页仪表盘</h1><section class=\"grid\"><DataCard title=\"用户\" value=\"128\"/><DataCard title=\"待办\" value=\"16\"/><DataCard title=\"通知\" value=\"9\"/></section></main>", "import DataCard from '../components/DataCard.vue'");
+        if (path.endsWith("Business.vue")) return vue("Business", "<main class=\"page\"><h1>核心业务管理</h1><ul><li v-for=\"item in modules\" :key=\"item\">{{ item }}</li></ul></main>", "const modules = " + toJsArray(plan.modules()));
+        if (path.endsWith("Statistics.vue")) return vue("Statistics", "<main class=\"page\"><h1>数据统计</h1><p>按月份、状态和业务类型展示趋势分析。</p></main>", "");
+        if (path.endsWith("UserManage.vue")) return vue("UserManage", "<main class=\"page\"><h1>用户管理</h1><p>角色：" + String.join("、", plan.roles()) + "</p></main>", "");
+        if (path.endsWith("App.vue")) return "<template><router-view /></template>\n<script setup></script>\n<style>body{margin:0;font-family:Arial,'Microsoft YaHei',sans-serif;background:#f5f7fb}.page{padding:32px}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.card{display:block;background:white;border:1px solid #dbe5f4;border-radius:8px;padding:18px}button{background:#2563eb;color:white;border:0;border-radius:6px;padding:10px 18px}</style>\n";
+        if (path.endsWith("main.js")) return "import { createApp } from 'vue'\nimport ElementPlus from 'element-plus'\nimport 'element-plus/dist/index.css'\nimport App from './App.vue'\nimport router from './router'\ncreateApp(App).use(router).use(ElementPlus).mount('#app')\n";
+        if ("README.md".equals(path)) return "# " + plan.title() + "\n\n## 项目简介\n" + plan.domain() + "毕业设计项目。\n\n## 运行说明\n1. 导入 sql/schema.sql 和 sql/data.sql。\n2. 启动 backend SpringBoot 服务。\n3. 进入 frontend 执行 npm install && npm run dev。\n\n## 安全说明\n系统首次启动时创建管理员账户并设置强密码，不提供默认弱密码。\n";
+        if (path.endsWith("论文大纲.md")) return "# 论文大纲\n\n" + String.join("\n", plan.paperOutline().stream().map(item -> "- " + item).toList()) + "\n";
+        if (path.endsWith("毕业论文.docx")) return "本文件为可由 Word 打开的毕业论文内容草稿。\n\n题目：" + plan.title() + "\n\n" + String.join("\n\n", plan.paperOutline()) + "\n";
+        return file.responsibility() + "\n";
+    }
+
+    private boolean validateFile(FilePlan file, String content, ComputerProjectPlan plan) {
+        if (content == null || content.trim().length() < 12) return false;
+        String path = file.path();
+        if (path.endsWith(".sql") && path.endsWith("schema.sql")) return content.toLowerCase(Locale.ROOT).contains("create table");
+        if (path.endsWith(".vue")) return content.contains("<template") && content.contains("<script");
+        if (path.contains("/controller/")) return content.contains("@RestController") && content.contains("@RequestMapping");
+        if (path.contains("/service/")) return content.contains("list") || content.contains("save") || content.contains("Service");
+        if (path.contains("/entity/")) return content.contains("class ") && plan.tables().stream().anyMatch(table -> content.contains(className(table.name())));
+        if (path.endsWith(".java")) return content.contains("package com.dropai.generated");
+        return true;
+    }
+
+    private String schemaSql(ComputerProjectPlan plan) {
+        StringBuilder sql = new StringBuilder("CREATE DATABASE IF NOT EXISTS dropai_generated DEFAULT CHARSET utf8mb4;\nUSE dropai_generated;\n\n");
+        for (TablePlan table : ensureSystemSetupTable(plan.tables())) {
+            sql.append("CREATE TABLE IF NOT EXISTS ").append(table.name()).append(" (\n");
+            List<String> fields = normalizeFields(table.fields());
+            for (int i = 0; i < fields.size(); i++) {
+                String field = fields.get(i);
+                String suffix = i == fields.size() - 1 ? "\n" : ",\n";
+                if ("id".equals(field)) sql.append("  id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键'").append(suffix);
+                else if (field.endsWith("_at")) sql.append("  ").append(field).append(" DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '时间字段'").append(suffix);
+                else if (field.endsWith("_id")) sql.append("  ").append(field).append(" BIGINT COMMENT '关联ID'").append(suffix);
+                else sql.append("  ").append(field).append(" VARCHAR(255) COMMENT '").append(field).append("'").append(suffix);
+            }
+            sql.append(") COMMENT='").append(table.comment()).append("';\n\n");
+        }
+        return sql.toString();
+    }
+
+    private String backendPom() {
+        return """
+                <project xmlns="http://maven.apache.org/POM/4.0.0">
+                  <modelVersion>4.0.0</modelVersion>
+                  <groupId>com.dropai</groupId><artifactId>generated-project</artifactId><version>1.0.0</version>
+                  <parent><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-parent</artifactId><version>3.3.5</version></parent>
+                  <properties><java.version>17</java.version></properties>
+                  <dependencies>
+                    <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-web</artifactId></dependency>
+                    <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-validation</artifactId></dependency>
+                    <dependency><groupId>com.mysql</groupId><artifactId>mysql-connector-j</artifactId><scope>runtime</scope></dependency>
+                  </dependencies>
+                </project>
+                """;
+    }
+
+    private String javaEntity(String path, ComputerProjectPlan plan) {
+        String name = path.substring(path.lastIndexOf('/') + 1).replace(".java", "");
+        TablePlan table = ensureSystemSetupTable(plan.tables()).stream().filter(item -> className(item.name()).equals(name)).findFirst().orElse(plan.tables().get(0));
+        StringBuilder code = new StringBuilder("package com.dropai.generated.entity;\n\npublic class " + name + " {\n");
+        for (String field : normalizeFields(table.fields())) code.append("    private String ").append(camel(field)).append(";\n");
+        code.append("}\n");
+        return code.toString();
+    }
+
+    private String javaMapper(String path) {
+        String name = path.substring(path.lastIndexOf('/') + 1).replace("Mapper.java", "");
+        return "package com.dropai.generated.mapper;\n\nimport com.dropai.generated.entity." + name + ";\nimport java.util.*;\n\npublic interface " + name + "Mapper {\n    List<" + name + "> list();\n    int insert(" + name + " entity);\n}\n";
+    }
+
+    private String javaService(String path) {
+        String name = path.substring(path.lastIndexOf('/') + 1).replace("Service.java", "");
+        return "package com.dropai.generated.service;\n\nimport com.dropai.generated.entity." + name + ";\nimport java.util.*;\n\npublic interface " + name + "Service {\n    List<" + name + "> list();\n    " + name + " save(" + name + " entity);\n}\n";
+    }
+
+    private String javaServiceImpl(String path) {
+        String name = path.substring(path.lastIndexOf('/') + 1).replace("ServiceImpl.java", "");
+        return "package com.dropai.generated.service.impl;\n\nimport com.dropai.generated.entity." + name + ";\nimport com.dropai.generated.service." + name + "Service;\nimport org.springframework.stereotype.Service;\nimport java.util.*;\n\n@Service\npublic class " + name + "ServiceImpl implements " + name + "Service {\n    private final List<" + name + "> data = new ArrayList<>();\n    public List<" + name + "> list(){ return data; }\n    public " + name + " save(" + name + " entity){ data.add(entity); return entity; }\n}\n";
+    }
+
+    private String javaController(String path) {
+        String name = path.substring(path.lastIndexOf('/') + 1).replace("Controller.java", "");
+        String slug = name.replaceAll("([a-z])([A-Z])", "$1-$2").toLowerCase(Locale.ROOT);
+        return "package com.dropai.generated.controller;\n\nimport com.dropai.generated.entity." + name + ";\nimport com.dropai.generated.service." + name + "Service;\nimport org.springframework.web.bind.annotation.*;\nimport java.util.*;\n\n@RestController\n@RequestMapping(\"/api/" + slug + "\")\npublic class " + name + "Controller {\n    private final " + name + "Service service;\n    public " + name + "Controller(" + name + "Service service){ this.service = service; }\n    @GetMapping public List<" + name + "> list(){ return service.list(); }\n    @PostMapping public " + name + " save(@RequestBody " + name + " entity){ return service.save(entity); }\n}\n";
+    }
+
     private ComputerGenerationJob requireOwnedJob(String jobId) {
         ComputerGenerationJob job = jobMapper.selectById(jobId);
         Long userId = AuthContext.requireUserId();
@@ -649,6 +870,15 @@ public class ComputerGeneratorService {
         job.setProgress(Math.min(100, Math.round((index + 1) * 100f / STAGES.size())));
         job.setStatus(status);
         job.setErrorMessage(error);
+        job.setUpdatedAt(LocalDateTime.now());
+        jobMapper.updateById(job);
+    }
+
+    private void updateStage(ComputerGenerationJob job, String stage, int progress, String currentFile) {
+        job.setCurrentStage(stage);
+        job.setCurrentFile(currentFile == null ? "" : currentFile);
+        job.setProgress(Math.max(0, Math.min(100, progress)));
+        job.setStatus("RUNNING");
         job.setUpdatedAt(LocalDateTime.now());
         jobMapper.updateById(job);
     }
@@ -844,6 +1074,46 @@ public class ComputerGeneratorService {
         return result;
     }
 
+    private static String projectDirectoryTree(List<FilePlan> queue) {
+        return """
+                project/
+                ├── frontend/
+                ├── backend/
+                ├── sql/
+                ├── paper/
+                ├── README.md
+                └── preview/
+
+                文件队列：
+                """ + String.join("\n", queue.stream().map(file -> "- " + file.path()).toList());
+    }
+
+    private static String summarize(String content) {
+        String value = defaultText(content, "").replaceAll("\\s+", " ").trim();
+        return value.length() > 180 ? value.substring(0, 180) + "..." : value;
+    }
+
+    private static String vue(String name, String templateBody, String script) {
+        return "<template>" + templateBody + "</template>\n<script setup>\n" + script + "\n</script>\n<style scoped>.page{padding:28px}.card{background:#fff;border:1px solid #dbe5f4;border-radius:8px;padding:16px;margin:10px}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}</style>\n";
+    }
+
+    private static String toJsArray(List<String> values) {
+        return "[" + String.join(",", values.stream().map(value -> "'" + value.replace("'", "") + "'").toList()) + "]";
+    }
+
+    private static String className(String tableName) {
+        StringBuilder result = new StringBuilder();
+        for (String part : defaultText(tableName, "record").split("_")) {
+            if (!part.isBlank()) result.append(part.substring(0, 1).toUpperCase(Locale.ROOT)).append(part.substring(1));
+        }
+        return result.isEmpty() ? "Record" : result.toString();
+    }
+
+    private static String camel(String field) {
+        String name = className(field);
+        return name.substring(0, 1).toLowerCase(Locale.ROOT) + name.substring(1);
+    }
+
     private static String trimForModel(String value) {
         String text = defaultText(value, "");
         return text.length() > 10000 ? text.substring(0, 10000) : text;
@@ -872,7 +1142,8 @@ public class ComputerGeneratorService {
     public record ComputerAnalyzeVO(ComputerJobVO job, ComputerPlanVO plan) {}
     public record ComputerPlanVO(String title, String projectType, String techStack, List<String> roles,
                                  List<String> modules, List<TablePlanVO> tables, List<String> pages,
-                                 List<String> apis, List<String> paperOutline, int pointsCost,
+                                 List<String> apis, List<String> paperOutline, String directoryTree,
+                                 List<String> fileQueue, int pointsCost,
                                  boolean generatePaper, boolean generateTests, boolean enablePreview) {}
     public record ComputerGenerationConfig(String title, String projectType, String techStack, List<String> roles,
                                            List<String> modules, List<TablePlanVO> tables, List<String> pages,
@@ -880,7 +1151,7 @@ public class ComputerGeneratorService {
                                            boolean generatePaper, boolean generateTests, boolean enablePreview) {}
     public record TablePlanVO(String name, String comment, List<String> fields) {}
     public record ComputerJobVO(String id, String title, String projectType, String techStack, String status,
-                                int progress, String currentStage, String errorMessage, int pointsCost,
+                                int progress, String currentStage, String currentFile, String errorMessage, int pointsCost,
                                 String previewUrl, String downloadUrl, List<GeneratedFileVO> files,
                                 String activePreviewUrl, List<String> stages) {}
     public record GeneratedFileVO(String fileType, String fileName, long fileSize, String downloadUrl) {}
@@ -888,4 +1159,6 @@ public class ComputerGeneratorService {
                                        List<TablePlan> tables, List<String> pages, List<String> apis,
                                        List<String> paperOutline) {}
     private record TablePlan(String name, String comment, List<String> fields) {}
+    private record FilePlan(String path, String stage, String responsibility) {}
+    private record FileSummary(String path, String summary) {}
 }
