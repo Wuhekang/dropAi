@@ -35,6 +35,14 @@ import java.util.zip.ZipOutputStream;
 
 @Service
 public class ComputerGeneratorService {
+    private static final String OUT_OF_SCOPE_MESSAGE = "该需求超出毕业设计与教学项目范围，仅支持合法合规的软件工程项目生成。";
+    private static final List<String> FORBIDDEN_REQUIREMENT_KEYWORDS = List.of(
+            "漏洞利用", "爆破", "撞库", "扫描工具", "端口扫描", "网络攻击", "攻击工具", "渗透",
+            "绕过认证", "绕过登录", "绕过访问控制", "验证码绕过", "绕过验证码",
+            "自动化账号注册", "代理池", "未授权数据采集", "未授权接口", "非法监控",
+            "恶意自动化", "木马", "后门", "shellcode", "exploit", "bruteforce", "credential stuffing",
+            "port scan", "bypass authentication", "bypass captcha", "proxy pool", "malware"
+    );
     private static final List<String> STAGES = List.of(
             "正在解析任务书", "正在识别项目类型", "正在生成数据库设计", "正在生成后端接口",
             "正在生成前端页面", "正在生成论文", "正在打包成果", "正在启动网页预览", "生成完成"
@@ -79,6 +87,7 @@ public class ComputerGeneratorService {
         if (input.isEmpty()) {
             input.append("用户上传了计算机毕业设计资料，但未读取到完整文字。请根据文件名和常见毕业设计要求主动补全。");
         }
+        ensureCompliantRequirement(input.toString());
         String seedTitle = extractTitle(input.toString(), names);
         ComputerGenerationJob temp = new ComputerGenerationJob();
         temp.setId("preview");
@@ -171,7 +180,10 @@ public class ComputerGeneratorService {
         if ("SUCCESS".equals(job.getStatus())) return result(jobId);
         try {
             if (config != null) {
+                ensureCompliantRequirement(configToText(config));
                 applyConfig(job, config);
+            } else {
+                ensureCompliantRequirement(defaultText(job.getInputText(), "") + "\n" + defaultText(job.getTitle(), ""));
             }
             if (!Boolean.TRUE.equals(job.getPointsCharged())) {
                 pointService.deductCustom(job.getUserId(), job.getId(), "COMPUTER_GENERATE", "计算机程序包生成",
@@ -309,9 +321,9 @@ public class ComputerGeneratorService {
             domain = "社团管理";
             modules.addAll(List.of("社团档案", "成员管理", "活动发布", "报名审核", "经费记录"));
             roles.addAll(List.of("社团负责人", "学生会员"));
-        } else if (containsAny(text, "爬虫", "采集")) {
-            domain = "Python 爬虫采集";
-            modules.addAll(List.of("采集任务", "代理配置", "数据清洗", "结果入库", "采集监控"));
+        } else if (containsAny(text, "公开数据", "数据处理", "数据集", "数据分析")) {
+            domain = "公开数据分析";
+            modules.addAll(List.of("数据导入", "数据清洗", "指标计算", "可视化看板", "报表导出"));
         } else if (containsAny(text, "数据", "可视化", "分析")) {
             domain = "数据分析可视化";
             modules.addAll(List.of("数据导入", "指标看板", "趋势分析", "图表配置", "报表导出"));
@@ -320,10 +332,11 @@ public class ComputerGeneratorService {
         }
         String base = domainSlug(domain);
         List<TablePlan> tables = List.of(
-                new TablePlan("sys_user", "系统用户", List.of("id", "username", "password", "role", "phone", "status", "created_at")),
+                new TablePlan("sys_user", "系统用户", List.of("id", "username", "password_hash", "role", "phone", "status", "created_at")),
                 new TablePlan(base + "_record", domain + "核心记录", List.of("id", "name", "code", "owner_id", "status", "remark", "created_at")),
                 new TablePlan(base + "_audit", domain + "流程记录", List.of("id", "record_id", "action", "operator_id", "result", "created_at")),
-                new TablePlan(base + "_notice", domain + "消息通知", List.of("id", "title", "content", "receiver_id", "read_flag", "created_at"))
+                new TablePlan(base + "_notice", domain + "消息通知", List.of("id", "title", "content", "receiver_id", "read_flag", "created_at")),
+                new TablePlan("system_setup", "系统初始化配置", List.of("id", "setup_key", "setup_value", "status", "created_at"))
         );
         List<String> apis = modules.stream().map(module -> "/api/" + safeSlug(module) + " - CRUD、分页查询、统计接口").toList();
         List<String> pages = List.of("登录页", "首页仪表盘", "用户管理", "核心业务页", "数据统计页", "消息中心", "个人中心");
@@ -336,11 +349,34 @@ public class ComputerGeneratorService {
             return null;
         }
         String instructions = """
-                你是 DropAI 的计算机毕业设计程序包生成规划器。请根据用户题目、任务书/开题报告文本和技术栈，生成可落盘的程序包规划。
+                你是一名资深软件架构师、毕业设计指导教师和全栈开发专家。
+                你的任务是根据用户上传的毕业设计任务书、开题报告，自动生成完整的软件工程项目方案。
+
+                项目定位：
+                本系统仅用于毕业设计辅助、课程设计辅助、教学演示项目、企业管理系统原型、数据分析与信息管理系统。
+                生成内容必须符合软件工程规范、数据安全规范、合法合规使用原则。
+
+                允许生成的项目类型：
+                管理系统：学生管理系统、图书管理系统、宿舍管理系统、医院预约系统、OA办公系统、CRM系统、ERP系统、电商商城系统。
+                数据分析系统：销售数据分析、财务数据分析、教学数据分析、物流数据分析。
+                智能应用：微信小程序、Web应用、SpringBoot项目、Vue项目、Python数据分析项目、Flask项目、Django项目。
+
+                禁止生成：漏洞利用工具、爆破工具、扫描工具、网络攻击工具、绕过认证工具、绕过访问控制工具、自动化账号注册工具、验证码绕过工具、代理池系统、未授权数据采集工具、非法监控工具、恶意自动化脚本。
+                如果任务书涉及上述内容，只返回 JSON：{"blocked":true,"message":"该需求超出毕业设计与教学项目范围，仅支持合法合规的软件工程项目生成。"}
+
+                数据处理规范：
+                允许公开数据分析、用户自行上传的数据处理、教学案例数据处理、合法授权的数据源接入。
+                禁止绕过登录的数据获取、绕过验证码的数据获取、未授权接口访问、访问受限制资源、高频自动化抓取。
+
+                安全规范：
+                禁止生成默认弱密码，例如 admin/admin123。
+                管理员账户设计必须为“首次启动时创建管理员账户”或“系统首次运行时要求用户设置密码”。
+
                 必须主动补全合理需求，不能返回信息不足。不要把所有项目都写成学生管理系统。
                 只返回 JSON，不要 Markdown，不要解释。
                 JSON 结构：
                 {
+                  "blocked": false,
                   "domain": "业务场景名称",
                   "modules": ["模块1", "模块2"],
                   "roles": ["管理员", "普通用户"],
@@ -350,6 +386,7 @@ public class ComputerGeneratorService {
                   "paperOutline": ["摘要", "Abstract"],
                   "implementationNotes": ["生成重点"]
                 }
+                输出目标是完整的软件工程项目设计方案，而不是网络工具、自动化采集工具、安全测试工具或攻击工具。
                 表名必须是英文字母、数字、下划线，不要中文；至少 4 张表；模块至少 8 个；接口至少 8 个。
                 """;
         String input = """
@@ -362,6 +399,9 @@ public class ComputerGeneratorService {
         try {
             String response = matrixDesignService.generate(instructions, input);
             JsonNode root = objectMapper.readTree(stripJson(response));
+            if (root.path("blocked").asBoolean(false)) {
+                throw new IllegalArgumentException(OUT_OF_SCOPE_MESSAGE);
+            }
             String domain = root.path("domain").asText("");
             List<String> modules = readStringList(root.path("modules"));
             List<String> roles = readStringList(root.path("roles"));
@@ -392,8 +432,9 @@ public class ComputerGeneratorService {
     private Path writeSql(Path root, ComputerProjectPlan plan) throws IOException {
         Path dir = root.resolve("sql");
         Files.createDirectories(dir);
+        List<TablePlan> tables = ensureSystemSetupTable(plan.tables());
         StringBuilder sql = new StringBuilder("CREATE DATABASE IF NOT EXISTS dropai_generated DEFAULT CHARSET utf8mb4;\nUSE dropai_generated;\n\n");
-        for (TablePlan table : plan.tables()) {
+        for (TablePlan table : tables) {
             sql.append("CREATE TABLE IF NOT EXISTS ").append(table.name()).append(" (\n");
             for (String field : table.fields()) {
                 if ("id".equals(field)) sql.append("  id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键',\n");
@@ -403,8 +444,8 @@ public class ComputerGeneratorService {
             }
             sql.append("  INDEX idx_").append(table.name()).append("_status (status)\n) COMMENT='").append(table.comment()).append("';\n\n");
         }
-        sql.append("INSERT INTO sys_user(username,password,role,phone,status) VALUES ('admin','admin123','ADMIN','13800000000','ENABLED');\n");
-        sql.append("INSERT INTO ").append(plan.tables().get(1).name()).append("(name,code,status,remark) VALUES ('示例").append(plan.domain()).append("记录','DEMO001','ACTIVE','系统生成示例数据');\n");
+        sql.append("INSERT INTO system_setup(setup_key,setup_value,status) VALUES ('admin_password_policy','FIRST_RUN_SET_PASSWORD','PENDING');\n");
+        sql.append("INSERT INTO ").append(tables.get(1).name()).append("(name,code,status,remark) VALUES ('示例").append(plan.domain()).append("记录','DEMO001','ACTIVE','系统生成示例数据');\n");
         return write(dir.resolve("schema.sql"), sql.toString());
     }
 
@@ -461,6 +502,9 @@ public class ComputerGeneratorService {
                 你是计算机专业本科毕业论文写作助手。根据已规划的真实系统内容写论文 Markdown。
                 必须包含：摘要、Abstract、绪论、相关技术介绍、系统需求分析、系统总体设计、数据库设计、系统详细设计、系统实现、系统测试、结论、参考文献、致谢。
                 内容必须贴合项目题目、模块、表和接口，不要空泛描述。直接返回 Markdown。
+                论文和方案仅面向毕业设计、课程设计、教学演示、企业管理系统原型、数据分析与信息管理系统。
+                不得生成网络工具、自动化采集工具、安全测试工具、攻击工具、漏洞利用、爆破、扫描、绕过认证、绕过验证码、代理池或未授权数据采集相关内容。
+                账号安全设计必须说明“首次启动时创建管理员账户”或“系统首次运行时要求用户设置密码”，不得出现默认弱密码。
                 """;
         String input = """
                 题目：%s
@@ -506,7 +550,7 @@ public class ComputerGeneratorService {
     }
 
     private void writeReadme(Path root, ComputerProjectPlan plan, ComputerGenerationJob job) throws IOException {
-        write(root.resolve("README.md"), "# " + plan.title() + "\n\n业务场景：" + plan.domain() + "\n\n目录包含 frontend、backend、sql、paper、preview。\n\n运行说明：导入 sql/schema.sql，启动后端，再运行前端 Vite 项目。\n");
+        write(root.resolve("README.md"), "# " + plan.title() + "\n\n业务场景：" + plan.domain() + "\n\n目录包含 frontend、backend、sql、paper、preview。\n\n运行说明：导入 sql/schema.sql，启动后端，再运行前端 Vite 项目。\n\n安全说明：系统首次运行时要求用户创建管理员账户并设置强密码，不提供默认管理员弱密码。\n");
     }
 
     private void registerFiles(String jobId, Path root, Path zip) throws IOException {
@@ -661,7 +705,7 @@ public class ComputerGeneratorService {
         if (text.contains("商品") || text.contains("订单")) return "orders";
         if (text.contains("预约") || text.contains("排班")) return "reservations";
         if (text.contains("社团") || text.contains("活动")) return "clubs";
-        if (text.contains("采集") || text.contains("爬虫")) return "crawlers";
+        if (text.contains("公开数据") || text.contains("数据处理")) return "datasets";
         if (text.contains("统计") || text.contains("分析")) return "analytics";
         return "business";
     }
@@ -672,7 +716,6 @@ public class ComputerGeneratorService {
         if (domain.contains("商城")) return "mall";
         if (domain.contains("预约")) return "reservation";
         if (domain.contains("社团")) return "club";
-        if (domain.contains("爬虫")) return "crawler";
         if (domain.contains("数据")) return "analytics";
         return "business";
     }
@@ -690,6 +733,36 @@ public class ComputerGeneratorService {
         return value == null ? "" : value.trim();
     }
 
+    private static void ensureCompliantRequirement(String text) {
+        String normalized = defaultText(text, "").toLowerCase(Locale.ROOT);
+        for (String keyword : FORBIDDEN_REQUIREMENT_KEYWORDS) {
+            if (normalized.contains(keyword.toLowerCase(Locale.ROOT))) {
+                throw new IllegalArgumentException(OUT_OF_SCOPE_MESSAGE);
+            }
+        }
+    }
+
+    private static String configToText(ComputerGenerationConfig config) {
+        if (config == null) return "";
+        StringBuilder text = new StringBuilder();
+        text.append(defaultText(config.title(), "")).append('\n')
+                .append(defaultText(config.projectType(), "")).append('\n')
+                .append(defaultText(config.techStack(), "")).append('\n')
+                .append(config.roles()).append('\n')
+                .append(config.modules()).append('\n')
+                .append(config.pages()).append('\n')
+                .append(config.apis()).append('\n')
+                .append(config.paperOutline()).append('\n');
+        if (config.tables() != null) {
+            for (TablePlanVO table : config.tables()) {
+                text.append(table.name()).append(' ')
+                        .append(table.comment()).append(' ')
+                        .append(table.fields()).append('\n');
+            }
+        }
+        return text.toString();
+    }
+
     private static String extractTitle(String input, List<String> names) {
         String text = defaultText(input, "");
         java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("(?:题目|课题|项目名称)[:：\\s]*([^\\n。；;]{4,40})").matcher(text);
@@ -699,14 +772,14 @@ public class ComputerGeneratorService {
         if (text.contains("商城")) return "在线商城系统";
         if (text.contains("预约")) return "预约管理系统";
         if (text.contains("社团")) return "社团管理系统";
-        if (text.contains("爬虫")) return "Python数据采集系统";
+        if (text.contains("公开数据") || text.contains("数据处理")) return "公开数据分析系统";
         if (!names.isEmpty()) return names.get(0).replaceAll("\\.[^.]+$", "").replace("任务书", "").replace("开题报告", "") + "系统";
         return "计算机毕业设计管理系统";
     }
 
     private static String recommendProjectType(ComputerProjectPlan plan, String input) {
         String text = (plan.domain() + input).toLowerCase(Locale.ROOT);
-        if (text.contains("python") || text.contains("爬虫") || text.contains("数据分析")) return "Python Web 项目";
+        if (text.contains("python") || text.contains("数据分析") || text.contains("公开数据")) return "Python Web 项目";
         if (text.contains("小程序") || text.contains("微信")) return "微信小程序后台项目";
         return "Java Web 项目";
     }
@@ -760,6 +833,15 @@ public class ComputerGeneratorService {
         if (!result.contains("status")) result.add("status");
         if (!result.contains("created_at")) result.add("created_at");
         return result.stream().distinct().toList();
+    }
+
+    private static List<TablePlan> ensureSystemSetupTable(List<TablePlan> tables) {
+        List<TablePlan> result = new ArrayList<>(tables == null ? List.of() : tables);
+        boolean exists = result.stream().anyMatch(table -> "system_setup".equalsIgnoreCase(table.name()));
+        if (!exists) {
+            result.add(new TablePlan("system_setup", "系统初始化配置", List.of("id", "setup_key", "setup_value", "status", "created_at")));
+        }
+        return result;
     }
 
     private static String trimForModel(String value) {
