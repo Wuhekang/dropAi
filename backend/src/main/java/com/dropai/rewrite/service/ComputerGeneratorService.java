@@ -216,14 +216,15 @@ public class ComputerGeneratorService {
             fileMapper.delete(new LambdaQueryWrapper<ComputerGeneratedFile>().eq(ComputerGeneratedFile::getJobId, job.getId()));
             previewMapper.delete(new LambdaQueryWrapper<ComputerPreviewInstance>().eq(ComputerPreviewInstance::getJobId, job.getId()));
 
-            List<FilePlan> queue = buildFileQueue(plan, job.getTechStack());
+            TechProfile tech = identifyTechProfile(plan, job.getProjectType(), job.getTechStack(), job.getInputText());
+            List<FilePlan> queue = buildFileQueue(plan, tech);
             updateStage(job, "目录生成", 4, "project/");
             int completed = 0;
             List<FileSummary> summaries = new ArrayList<>();
             for (FilePlan file : queue) {
                 int progress = 5 + Math.round((completed * 78f) / Math.max(queue.size(), 1));
                 updateStage(job, file.stage(), progress, file.path());
-                String content = generateValidatedFile(plan, job.getTechStack(), file, summaries);
+                String content = generateValidatedFile(plan, tech, file, summaries);
                 Path written = write(jobRoot.resolve(file.path()), content);
                 summaries.add(new FileSummary(file.path(), summarize(content)));
                 insertFile(job.getId(), jobRoot, written);
@@ -626,10 +627,13 @@ public class ComputerGeneratorService {
     }
 
     private ComputerPlanVO toPlanVO(ComputerProjectPlan plan, String projectType, String techStack, int cost) {
-        List<FilePlan> queue = buildFileQueue(plan, techStack);
-        return new ComputerPlanVO(plan.title(), projectType, techStack, plan.roles(), plan.modules(),
+        TechProfile tech = identifyTechProfile(plan, projectType, techStack, "");
+        List<FilePlan> queue = buildFileQueue(plan, tech);
+        return new ComputerPlanVO(plan.title(), tech.projectType(), tech.displayStack(), plan.roles(), plan.modules(),
                 plan.tables().stream().map(table -> new TablePlanVO(table.name(), table.comment(), table.fields())).toList(),
-                plan.pages(), plan.apis(), plan.paperOutline(), projectDirectoryTree(queue), queue.stream().map(FilePlan::path).toList(),
+                plan.pages(), plan.apis(), plan.paperOutline(), tech.language(), tech.frontendStack(), tech.backendStack(),
+                tech.databaseType(), tech.needMiniprogram(), tech.needDesktop(), tech.needDataAnalysis(),
+                projectDirectoryTree(queue), queue.stream().map(FilePlanVO::from).toList(),
                 cost, true, true, true);
     }
 
@@ -654,7 +658,13 @@ public class ComputerGeneratorService {
     private void applyConfig(ComputerGenerationJob job, ComputerGenerationConfig config) {
         job.setTitle(defaultText(config.title(), job.getTitle()));
         job.setProjectType(defaultText(config.projectType(), job.getProjectType()));
-        job.setTechStack(defaultText(config.techStack(), job.getTechStack()));
+        String configuredStack = defaultText(config.techStack(), "");
+        if (configuredStack.isBlank()) {
+            List<String> stackParts = List.of(defaultText(config.programmingLanguage(), ""), defaultText(config.backendStack(), ""), defaultText(config.frontendStack(), ""), defaultText(config.databaseType(), ""))
+                    .stream().filter(part -> !part.isBlank()).toList();
+            configuredStack = String.join(" | ", stackParts);
+        }
+        job.setTechStack(defaultText(configuredStack, job.getTechStack()));
         job.setPointsCost(estimateCost(job.getProjectType(), config.generatePaper(), config.enablePreview()));
         job.setUpdatedAt(LocalDateTime.now());
         jobMapper.updateById(job);
@@ -665,7 +675,8 @@ public class ComputerGeneratorService {
         if (matrixPlan != null) return matrixPlan;
         String type = recommendProjectType(new ComputerProjectPlan(job.getTitle(), defaultText(job.getProjectType(), "通用业务管理"), List.of(), List.of(), List.of(), List.of(), List.of(), List.of()), job.getInputText());
         return planFromConfig(job, new ComputerGenerationConfig(job.getTitle(), type, job.getTechStack(),
-                List.of("管理员", "普通用户"), List.of("用户认证", "首页仪表盘", "核心业务管理", "数据统计"),
+                List.of("管理员", "普通用户"), null, null, null, null, false, false, false,
+                List.of("用户认证", "首页仪表盘", "核心业务管理", "数据统计"),
                 List.of(new TablePlanVO("sys_user", "系统用户", List.of("id", "username", "password_hash", "role", "status", "created_at")),
                         new TablePlanVO("business_record", "业务记录", List.of("id", "name", "code", "status", "remark", "created_at"))),
                 List.of("登录页", "首页仪表盘", "核心业务页", "数据统计页", "用户管理页"),
@@ -673,69 +684,264 @@ public class ComputerGeneratorService {
                 defaultPaperOutline(), true, true, true));
     }
 
-    private List<FilePlan> buildFileQueue(ComputerProjectPlan plan, String techStack) {
+    private TechProfile identifyTechProfile(ComputerProjectPlan plan, String projectType, String techStack, String inputText) {
+        String text = (defaultText(projectType, "") + " " + defaultText(techStack, "") + " " + defaultText(inputText, "") + " " + plan.domain()).toLowerCase(Locale.ROOT);
+        boolean miniprogram = containsAny(text, "微信", "小程序", "miniprogram", "wxapp");
+        boolean analysis = containsAny(text, "pandas", "streamlit", "dash", "matplotlib", "数据分析", "可视化大屏", "财务分析", "销售分析", "教学数据", "物流数据", "公开数据");
+        boolean desktop = containsAny(text, "桌面端", "桌面应用", "electron", "javafx", "winform");
+        String normalizedType = defaultText(projectType, recommendProjectType(plan, inputText));
+        String language = "Java";
+        String backend = "SpringBoot 3.x + MyBatis-Plus";
+        String frontend = "Vue3 + Element Plus + Vite";
+        String database = text.contains("sqlite") ? "SQLite" : "MySQL 8";
+        if (analysis) {
+            normalizedType = "Python数据分析项目";
+            language = "Python";
+            backend = "Flask dashboard";
+            frontend = "Jinja2 + ECharts";
+            database = text.contains("mysql") ? "MySQL" : "SQLite";
+        } else if (miniprogram) {
+            normalizedType = "微信小程序项目";
+            language = "JavaScript";
+            backend = text.contains("node") || text.contains("express") ? "Node.js + Express" : "SpringBoot 3.x";
+            frontend = "微信原生小程序";
+            database = "MySQL";
+        } else if (containsAny(text, "django")) {
+            normalizedType = "Django项目";
+            language = "Python";
+            backend = "Django + Django ORM";
+            frontend = "Vue3 + Element Plus";
+        } else if (containsAny(text, "flask")) {
+            normalizedType = "Flask项目";
+            language = "Python";
+            backend = "Flask + SQLAlchemy";
+            frontend = text.contains("jinja") ? "Jinja2 templates" : "Vue3 + Element Plus";
+        } else if (containsAny(text, "node", "express")) {
+            normalizedType = "Node.js Express项目";
+            language = "JavaScript";
+            backend = "Node.js + Express + Sequelize";
+            frontend = text.contains("react") ? "React" : "Vue3 + Element Plus";
+            database = text.contains("mysql") ? "MySQL" : "SQLite";
+        }
+        String stack = language + " | backend: " + backend + " | frontend: " + frontend + " | database: " + database;
+        return new TechProfile(normalizedType, language, backend, frontend, database, miniprogram, desktop, analysis, stack);
+    }
+
+    private List<FilePlan> buildFileQueue(ComputerProjectPlan plan, TechProfile tech) {
         List<FilePlan> queue = new ArrayList<>();
-        queue.add(new FilePlan("sql/schema.sql", "SQL生成", "数据库建表脚本"));
-        queue.add(new FilePlan("sql/data.sql", "SQL生成", "初始化演示数据"));
-        queue.add(new FilePlan("sql/init.sql", "SQL生成", "数据库初始化入口脚本"));
-        List<TablePlan> tables = ensureSystemSetupTable(plan.tables());
-        for (TablePlan table : tables) queue.add(new FilePlan("backend/src/main/java/com/dropai/generated/entity/" + className(table.name()) + ".java", "后端生成", table.comment() + "实体类"));
-        for (TablePlan table : tables) queue.add(new FilePlan("backend/src/main/java/com/dropai/generated/mapper/" + className(table.name()) + "Mapper.java", "后端生成", table.comment() + "Mapper"));
-        for (TablePlan table : tables) queue.add(new FilePlan("backend/src/main/java/com/dropai/generated/service/" + className(table.name()) + "Service.java", "后端生成", table.comment() + "业务接口"));
-        for (TablePlan table : tables) queue.add(new FilePlan("backend/src/main/java/com/dropai/generated/service/impl/" + className(table.name()) + "ServiceImpl.java", "后端生成", table.comment() + "业务实现"));
-        for (TablePlan table : tables) queue.add(new FilePlan("backend/src/main/java/com/dropai/generated/controller/" + className(table.name()) + "Controller.java", "后端生成", table.comment() + "REST接口"));
-        queue.add(new FilePlan("backend/src/main/java/com/dropai/generated/config/WebConfig.java", "后端生成", "跨域与Web配置"));
-        queue.add(new FilePlan("backend/pom.xml", "后端生成", "Maven工程配置"));
-        queue.add(new FilePlan("backend/src/main/java/com/dropai/generated/GeneratedApplication.java", "后端生成", "SpringBoot启动类"));
-        queue.add(new FilePlan("frontend/package.json", "前端生成", "前端依赖配置"));
-        queue.add(new FilePlan("frontend/vite.config.js", "前端生成", "Vite配置"));
-        queue.add(new FilePlan("frontend/index.html", "前端生成", "前端入口HTML"));
-        queue.add(new FilePlan("frontend/src/api/request.js", "前端生成", "Axios请求封装"));
-        queue.add(new FilePlan("frontend/src/router/index.js", "前端生成", "Vue Router路由"));
-        queue.add(new FilePlan("frontend/src/components/DataCard.vue", "前端生成", "通用数据卡片组件"));
-        queue.add(new FilePlan("frontend/src/views/Login.vue", "前端生成", "登录页"));
-        queue.add(new FilePlan("frontend/src/views/Dashboard.vue", "前端生成", "首页仪表盘"));
-        queue.add(new FilePlan("frontend/src/views/Business.vue", "前端生成", "核心业务管理页"));
-        queue.add(new FilePlan("frontend/src/views/Statistics.vue", "前端生成", "数据统计页"));
-        queue.add(new FilePlan("frontend/src/views/UserManage.vue", "前端生成", "用户管理页"));
-        queue.add(new FilePlan("frontend/src/App.vue", "前端生成", "根组件"));
-        queue.add(new FilePlan("frontend/src/main.js", "前端生成", "前端启动入口"));
-        queue.add(new FilePlan("README.md", "论文生成", "项目运行说明"));
-        queue.add(new FilePlan("paper/论文大纲.md", "论文生成", "论文大纲"));
-        queue.add(new FilePlan("paper/毕业论文.docx", "论文生成", "可打开的论文文档内容"));
+        int priority = 1;
+        priority = addFile(queue, "sql/schema.sql", "SQL生成", "数据库建表脚本", List.of(), priority);
+        priority = addFile(queue, "sql/data.sql", "SQL生成", "初始化演示数据", List.of("sql/schema.sql"), priority);
+        priority = addFile(queue, "sql/init.sql", "SQL生成", "数据库初始化入口脚本", List.of("sql/schema.sql", "sql/data.sql"), priority);
+        if (tech.needDataAnalysis()) {
+            priority = buildAnalysisQueue(queue, plan, priority);
+        } else if (tech.needMiniprogram()) {
+            priority = buildMiniprogramQueue(queue, plan, tech, priority);
+        } else if (tech.backendStack().contains("Django")) {
+            priority = buildDjangoQueue(queue, plan, priority);
+        } else if (tech.backendStack().contains("Flask")) {
+            priority = buildFlaskQueue(queue, plan, priority);
+        } else if (tech.backendStack().contains("Express")) {
+            priority = buildNodeQueue(queue, plan, priority);
+        } else {
+            priority = buildSpringVueQueue(queue, plan, priority);
+        }
+        priority = addFile(queue, "README.md", "论文生成", "项目运行说明", List.of(), priority);
+        priority = addFile(queue, "paper/论文大纲.md", "论文生成", "论文大纲", List.of("README.md"), priority);
+        addFile(queue, "paper/毕业论文.docx", "论文生成", "可打开的论文文档内容", List.of("paper/论文大纲.md"), priority);
         return queue;
     }
 
-    private String generateValidatedFile(ComputerProjectPlan plan, String techStack, FilePlan file, List<FileSummary> summaries) {
-        String fallback = fallbackFileContent(plan, techStack, file);
+    private int buildSpringVueQueue(List<FilePlan> queue, ComputerProjectPlan plan, int priority) {
+        priority = addFile(queue, "backend/pom.xml", "后端生成", "Maven工程配置", List.of(), priority);
+        priority = addFile(queue, "backend/src/main/resources/application.yml", "后端生成", "SpringBoot运行配置", List.of("backend/pom.xml"), priority);
+        priority = addFile(queue, "backend/src/main/java/com/dropai/generated/GeneratedApplication.java", "后端生成", "SpringBoot启动类", List.of("backend/pom.xml"), priority);
+        priority = addFile(queue, "backend/src/main/java/com/dropai/generated/common/Result.java", "后端生成", "统一响应对象", List.of(), priority);
+        priority = addFile(queue, "backend/src/main/java/com/dropai/generated/common/PageResult.java", "后端生成", "分页响应对象", List.of(), priority);
+        priority = addFile(queue, "backend/src/main/java/com/dropai/generated/common/BusinessException.java", "后端生成", "业务异常对象", List.of(), priority);
+        priority = addFile(queue, "backend/src/main/java/com/dropai/generated/dto/LoginRequest.java", "后端生成", "登录请求DTO", List.of(), priority);
+        priority = addFile(queue, "backend/src/main/java/com/dropai/generated/dto/PageQuery.java", "后端生成", "分页查询DTO", List.of(), priority);
+        priority = addFile(queue, "backend/src/main/java/com/dropai/generated/config/WebConfig.java", "后端生成", "Web与跨域配置", List.of(), priority);
+        priority = addFile(queue, "backend/src/main/java/com/dropai/generated/config/CorsConfig.java", "后端生成", "跨域配置", List.of(), priority);
+        priority = addFile(queue, "backend/src/main/java/com/dropai/generated/config/MyBatisPlusConfig.java", "后端生成", "MyBatis-Plus配置", List.of(), priority);
+        for (TablePlan table : ensureSystemSetupTable(plan.tables())) {
+            String name = className(table.name());
+            priority = addFile(queue, "backend/src/main/java/com/dropai/generated/entity/" + name + ".java", "后端生成", table.comment() + "实体类", List.of("sql/schema.sql"), priority);
+            priority = addFile(queue, "backend/src/main/java/com/dropai/generated/mapper/" + name + "Mapper.java", "后端生成", table.comment() + "Mapper接口", List.of("backend/src/main/java/com/dropai/generated/entity/" + name + ".java"), priority);
+            priority = addFile(queue, "backend/src/main/resources/mapper/" + name + "Mapper.xml", "后端生成", table.comment() + "Mapper XML", List.of("backend/src/main/java/com/dropai/generated/mapper/" + name + "Mapper.java"), priority);
+            priority = addFile(queue, "backend/src/main/java/com/dropai/generated/service/" + name + "Service.java", "后端生成", table.comment() + "业务接口", List.of("backend/src/main/java/com/dropai/generated/entity/" + name + ".java"), priority);
+            priority = addFile(queue, "backend/src/main/java/com/dropai/generated/service/impl/" + name + "ServiceImpl.java", "后端生成", table.comment() + "业务实现", List.of("backend/src/main/java/com/dropai/generated/service/" + name + "Service.java"), priority);
+            priority = addFile(queue, "backend/src/main/java/com/dropai/generated/controller/" + name + "Controller.java", "后端生成", table.comment() + "REST接口", List.of("backend/src/main/java/com/dropai/generated/service/" + name + "Service.java"), priority);
+        }
+        return buildVueQueue(queue, plan, priority);
+    }
+
+    private int buildVueQueue(List<FilePlan> queue, ComputerProjectPlan plan, int priority) {
+        priority = addFile(queue, "frontend/package.json", "前端生成", "前端依赖配置", List.of(), priority);
+        priority = addFile(queue, "frontend/vite.config.js", "前端生成", "Vite配置", List.of("frontend/package.json"), priority);
+        priority = addFile(queue, "frontend/index.html", "前端生成", "前端入口HTML", List.of("frontend/package.json"), priority);
+        priority = addFile(queue, "frontend/src/api/request.js", "前端生成", "Axios请求封装", List.of(), priority);
+        for (TablePlan table : ensureSystemSetupTable(plan.tables())) {
+            priority = addFile(queue, "frontend/src/api/" + table.name() + ".js", "前端生成", table.comment() + "接口封装", List.of("frontend/src/api/request.js"), priority);
+        }
+        priority = addFile(queue, "frontend/src/router/index.js", "前端生成", "Vue Router路由", List.of(), priority);
+        priority = addFile(queue, "frontend/src/components/DataCard.vue", "前端生成", "通用数据卡片组件", List.of(), priority);
+        priority = addFile(queue, "frontend/src/views/Login.vue", "前端生成", "登录页", List.of("frontend/src/api/request.js"), priority);
+        priority = addFile(queue, "frontend/src/views/Dashboard.vue", "前端生成", "首页仪表盘", List.of("frontend/src/components/DataCard.vue"), priority);
+        priority = addFile(queue, "frontend/src/views/Business.vue", "前端生成", "核心业务管理页", List.of("frontend/src/api/request.js"), priority);
+        priority = addFile(queue, "frontend/src/views/Statistics.vue", "前端生成", "数据统计页", List.of("frontend/src/components/DataCard.vue"), priority);
+        priority = addFile(queue, "frontend/src/views/UserManage.vue", "前端生成", "用户管理页", List.of("frontend/src/api/request.js"), priority);
+        for (TablePlan table : plan.tables()) {
+            priority = addFile(queue, "frontend/src/views/" + className(table.name()) + "Manage.vue", "前端生成", table.comment() + "独立管理页", List.of("frontend/src/api/" + table.name() + ".js"), priority);
+        }
+        priority = addFile(queue, "frontend/src/App.vue", "前端生成", "根组件", List.of("frontend/src/router/index.js"), priority);
+        return addFile(queue, "frontend/src/main.js", "前端生成", "前端启动入口", List.of("frontend/src/App.vue"), priority);
+    }
+
+    private int buildSpringBackendQueue(List<FilePlan> queue, ComputerProjectPlan plan, int priority) {
+        priority = addFile(queue, "backend/pom.xml", "后端生成", "Maven工程配置", List.of(), priority);
+        priority = addFile(queue, "backend/src/main/resources/application.yml", "后端生成", "SpringBoot运行配置", List.of("backend/pom.xml"), priority);
+        priority = addFile(queue, "backend/src/main/java/com/dropai/generated/GeneratedApplication.java", "后端生成", "SpringBoot启动类", List.of("backend/pom.xml"), priority);
+        priority = addFile(queue, "backend/src/main/java/com/dropai/generated/common/Result.java", "后端生成", "统一响应对象", List.of(), priority);
+        priority = addFile(queue, "backend/src/main/java/com/dropai/generated/config/WebConfig.java", "后端生成", "Web与跨域配置", List.of(), priority);
+        for (TablePlan table : ensureSystemSetupTable(plan.tables())) {
+            String name = className(table.name());
+            priority = addFile(queue, "backend/src/main/java/com/dropai/generated/entity/" + name + ".java", "后端生成", table.comment() + "实体类", List.of("sql/schema.sql"), priority);
+            priority = addFile(queue, "backend/src/main/java/com/dropai/generated/service/" + name + "Service.java", "后端生成", table.comment() + "业务接口", List.of("backend/src/main/java/com/dropai/generated/entity/" + name + ".java"), priority);
+            priority = addFile(queue, "backend/src/main/java/com/dropai/generated/service/impl/" + name + "ServiceImpl.java", "后端生成", table.comment() + "业务实现", List.of("backend/src/main/java/com/dropai/generated/service/" + name + "Service.java"), priority);
+            priority = addFile(queue, "backend/src/main/java/com/dropai/generated/controller/" + name + "Controller.java", "后端生成", table.comment() + "REST接口", List.of("backend/src/main/java/com/dropai/generated/service/" + name + "Service.java"), priority);
+        }
+        return priority;
+    }
+
+    private int buildFlaskQueue(List<FilePlan> queue, ComputerProjectPlan plan, int priority) {
+        priority = addFile(queue, "backend/requirements.txt", "后端生成", "Flask依赖清单", List.of(), priority);
+        priority = addFile(queue, "backend/config.py", "后端生成", "Flask配置", List.of("backend/requirements.txt"), priority);
+        priority = addFile(queue, "backend/app.py", "后端生成", "Flask应用入口", List.of("backend/config.py"), priority);
+        priority = addFile(queue, "backend/utils/response.py", "后端生成", "统一响应工具", List.of(), priority);
+        priority = addFile(queue, "backend/models/__init__.py", "后端生成", "模型包初始化", List.of(), priority);
+        for (TablePlan table : ensureSystemSetupTable(plan.tables())) {
+            priority = addFile(queue, "backend/models/" + table.name() + ".py", "后端生成", table.comment() + "SQLAlchemy模型", List.of("sql/schema.sql"), priority);
+            priority = addFile(queue, "backend/services/" + table.name() + "_service.py", "后端生成", table.comment() + "业务服务", List.of("backend/models/" + table.name() + ".py"), priority);
+            priority = addFile(queue, "backend/routes/" + table.name() + "_routes.py", "后端生成", table.comment() + "Flask路由", List.of("backend/services/" + table.name() + "_service.py"), priority);
+        }
+        priority = addFile(queue, "backend/templates/index.html", "后端生成", "Flask模板首页", List.of("backend/app.py"), priority);
+        return buildVueQueue(queue, plan, priority);
+    }
+
+    private int buildDjangoQueue(List<FilePlan> queue, ComputerProjectPlan plan, int priority) {
+        priority = addFile(queue, "backend/requirements.txt", "后端生成", "Django依赖清单", List.of(), priority);
+        priority = addFile(queue, "backend/manage.py", "后端生成", "Django管理入口", List.of("backend/requirements.txt"), priority);
+        priority = addFile(queue, "backend/config/settings.py", "后端生成", "Django配置", List.of("backend/requirements.txt"), priority);
+        priority = addFile(queue, "backend/config/urls.py", "后端生成", "Django总路由", List.of("backend/config/settings.py"), priority);
+        priority = addFile(queue, "backend/config/wsgi.py", "后端生成", "WSGI入口", List.of("backend/config/settings.py"), priority);
+        for (TablePlan table : ensureSystemSetupTable(plan.tables())) {
+            String app = table.name();
+            priority = addFile(queue, "backend/apps/" + app + "/models.py", "后端生成", table.comment() + "Django模型", List.of("sql/schema.sql"), priority);
+            priority = addFile(queue, "backend/apps/" + app + "/serializers.py", "后端生成", table.comment() + "序列化器", List.of("backend/apps/" + app + "/models.py"), priority);
+            priority = addFile(queue, "backend/apps/" + app + "/views.py", "后端生成", table.comment() + "视图接口", List.of("backend/apps/" + app + "/serializers.py"), priority);
+            priority = addFile(queue, "backend/apps/" + app + "/urls.py", "后端生成", table.comment() + "应用路由", List.of("backend/apps/" + app + "/views.py"), priority);
+        }
+        return buildVueQueue(queue, plan, priority);
+    }
+
+    private int buildNodeQueue(List<FilePlan> queue, ComputerProjectPlan plan, int priority) {
+        return buildVueQueue(queue, plan, buildNodeBackendQueue(queue, plan, priority));
+    }
+
+    private int buildNodeBackendQueue(List<FilePlan> queue, ComputerProjectPlan plan, int priority) {
+        priority = addFile(queue, "backend/package.json", "后端生成", "Node依赖配置", List.of(), priority);
+        priority = addFile(queue, "backend/config/database.js", "后端生成", "数据库配置", List.of("backend/package.json"), priority);
+        priority = addFile(queue, "backend/utils/response.js", "后端生成", "统一响应工具", List.of(), priority);
+        priority = addFile(queue, "backend/middleware/auth.js", "后端生成", "认证中间件", List.of(), priority);
+        priority = addFile(queue, "backend/middleware/errorHandler.js", "后端生成", "错误处理中间件", List.of(), priority);
+        for (TablePlan table : ensureSystemSetupTable(plan.tables())) {
+            priority = addFile(queue, "backend/models/" + table.name() + ".js", "后端生成", table.comment() + "Sequelize模型", List.of("backend/config/database.js"), priority);
+            priority = addFile(queue, "backend/services/" + table.name() + "Service.js", "后端生成", table.comment() + "业务服务", List.of("backend/models/" + table.name() + ".js"), priority);
+            priority = addFile(queue, "backend/controllers/" + table.name() + "Controller.js", "后端生成", table.comment() + "控制器", List.of("backend/services/" + table.name() + "Service.js"), priority);
+            priority = addFile(queue, "backend/routes/" + table.name() + "Routes.js", "后端生成", table.comment() + "路由", List.of("backend/controllers/" + table.name() + "Controller.js"), priority);
+        }
+        priority = addFile(queue, "backend/app.js", "后端生成", "Express应用入口", List.of("backend/package.json"), priority);
+        return priority;
+    }
+
+    private int buildMiniprogramQueue(List<FilePlan> queue, ComputerProjectPlan plan, TechProfile tech, int priority) {
+        priority = addFile(queue, "miniprogram/app.json", "小程序生成", "小程序全局配置", List.of(), priority);
+        priority = addFile(queue, "miniprogram/app.js", "小程序生成", "小程序入口脚本", List.of("miniprogram/app.json"), priority);
+        priority = addFile(queue, "miniprogram/app.wxss", "小程序生成", "小程序全局样式", List.of("miniprogram/app.json"), priority);
+        priority = addFile(queue, "miniprogram/utils/request.js", "小程序生成", "小程序请求封装", List.of(), priority);
+        priority = addFile(queue, "miniprogram/api/index.js", "小程序生成", "业务接口封装", List.of("miniprogram/utils/request.js"), priority);
+        for (String page : List.of("login", "index", "business", "statistics", "mine")) {
+            priority = addFile(queue, "miniprogram/pages/" + page + "/" + page + ".json", "小程序生成", page + "页面配置", List.of("miniprogram/app.json"), priority);
+            priority = addFile(queue, "miniprogram/pages/" + page + "/" + page + ".wxml", "小程序生成", page + "页面结构", List.of("miniprogram/pages/" + page + "/" + page + ".json"), priority);
+            priority = addFile(queue, "miniprogram/pages/" + page + "/" + page + ".js", "小程序生成", page + "页面逻辑", List.of("miniprogram/api/index.js"), priority);
+            priority = addFile(queue, "miniprogram/pages/" + page + "/" + page + ".wxss", "小程序生成", page + "页面样式", List.of("miniprogram/pages/" + page + "/" + page + ".wxml"), priority);
+        }
+        return tech.backendStack().contains("Express") ? buildNodeBackendQueue(queue, plan, priority) : buildSpringBackendQueue(queue, plan, priority);
+    }
+
+    private int buildAnalysisQueue(List<FilePlan> queue, ComputerProjectPlan plan, int priority) {
+        priority = addFile(queue, "analysis/requirements.txt", "分析生成", "Python分析依赖", List.of(), priority);
+        priority = addFile(queue, "analysis/data/sample.csv", "分析生成", "示例数据集", List.of(), priority);
+        priority = addFile(queue, "analysis/scripts/load_data.py", "分析生成", "数据读取脚本", List.of("analysis/data/sample.csv"), priority);
+        priority = addFile(queue, "analysis/scripts/clean_data.py", "分析生成", "数据清洗脚本", List.of("analysis/scripts/load_data.py"), priority);
+        priority = addFile(queue, "analysis/scripts/analyze.py", "分析生成", "统计分析脚本", List.of("analysis/scripts/clean_data.py"), priority);
+        priority = addFile(queue, "analysis/scripts/build_charts.py", "分析生成", "图表生成脚本", List.of("analysis/scripts/analyze.py"), priority);
+        priority = addFile(queue, "analysis/main.py", "分析生成", "分析主入口", List.of("analysis/scripts/build_charts.py"), priority);
+        priority = addFile(queue, "analysis/notebooks/README.md", "分析生成", "Notebook说明", List.of("analysis/main.py"), priority);
+        priority = addFile(queue, "analysis/charts/.gitkeep", "分析生成", "图表输出目录占位", List.of(), priority);
+        priority = addFile(queue, "analysis/README.md", "分析生成", "分析工程说明", List.of("analysis/main.py"), priority);
+        priority = addFile(queue, "dashboard/app.py", "预览构建", "Flask分析看板入口", List.of("analysis/main.py"), priority);
+        priority = addFile(queue, "dashboard/templates/index.html", "预览构建", "分析看板页面", List.of("dashboard/app.py"), priority);
+        return addFile(queue, "dashboard/static/style.css", "预览构建", "分析看板样式", List.of("dashboard/templates/index.html"), priority);
+    }
+
+    private int addFile(List<FilePlan> queue, String path, String stage, String responsibility, List<String> dependsOn, int priority) {
+        queue.add(new FilePlan(path, fileType(path), responsibility, dependsOn, priority, stage));
+        return priority + 1;
+    }
+
+    private String generateValidatedFile(ComputerProjectPlan plan, TechProfile tech, FilePlan file, List<FileSummary> summaries) {
+        String fallback = fallbackFileContent(plan, tech, file);
         for (int attempt = 0; attempt < 3; attempt++) {
-            String content = attempt == 0 ? generateFileWithMatrix(plan, techStack, file, summaries) : fallback;
+            String content = attempt == 0 ? generateFileWithMatrix(plan, tech, file, summaries) : fallback;
             if (content == null || content.isBlank()) content = fallback;
             if (validateFile(file, content, plan)) return content;
         }
         throw new IllegalStateException(file.path() + " 校验失败");
     }
 
-    private String generateFileWithMatrix(ComputerProjectPlan plan, String techStack, FilePlan file, List<FileSummary> summaries) {
+    private String generateFileWithMatrix(ComputerProjectPlan plan, TechProfile tech, FilePlan file, List<FileSummary> summaries) {
         if (!matrixDesignService.apiKeyConfigured()) return "";
         String instructions = """
                 你是全栈工程师。只生成当前文件的完整内容，不要解释，不要 Markdown 代码围栏。
                 生成内容必须是毕业设计/课程设计/管理系统/数据分析系统的合法合规代码。
                 不得生成安全测试、漏洞利用、扫描、爆破、绕过认证、代理池、未授权数据采集等内容。
-                代码必须可运行，并与给定数据库表、接口约定和命名规范一致。
+                代码必须可运行，并与给定语言、框架、数据库表、接口约定和命名规范一致。
                 """;
         String input = """
                 项目题目：%s
-                技术栈：%s
+                项目类型：%s
+                编程语言：%s
+                后端技术栈：%s
+                前端技术栈：%s
+                数据库：%s
+                是否小程序：%s
+                是否桌面端：%s
+                是否数据分析：%s
                 用户角色：%s
                 功能模块：%s
                 数据库表：%s
                 后端接口：%s
                 当前文件路径：%s
+                当前文件类型：%s
                 当前文件职责：%s
+                依赖文件：%s
                 已生成文件摘要：%s
-                """.formatted(plan.title(), techStack, plan.roles(), plan.modules(), plan.tables(), plan.apis(),
-                file.path(), file.responsibility(), summaries);
+                """.formatted(plan.title(), tech.projectType(), tech.language(), tech.backendStack(), tech.frontendStack(),
+                tech.databaseType(), tech.needMiniprogram(), tech.needDesktop(), tech.needDataAnalysis(),
+                plan.roles(), plan.modules(), plan.tables(), plan.apis(), file.path(), file.type(),
+                file.responsibility(), file.dependsOn(), summaries);
         try {
             return matrixDesignService.generate(instructions, input).replaceAll("^```[a-zA-Z]*\\s*", "").replaceAll("\\s*```$", "").trim();
         } catch (Exception exception) {
@@ -743,11 +949,20 @@ public class ComputerGeneratorService {
         }
     }
 
-    private String fallbackFileContent(ComputerProjectPlan plan, String techStack, FilePlan file) {
+    private String fallbackFileContent(ComputerProjectPlan plan, TechProfile tech, FilePlan file) {
         String path = file.path();
         if ("sql/schema.sql".equals(path)) return schemaSql(plan);
         if ("sql/data.sql".equals(path)) return "INSERT INTO system_setup(setup_key,setup_value,status) VALUES ('admin_password_policy','FIRST_RUN_SET_PASSWORD','PENDING');\n";
         if ("sql/init.sql".equals(path)) return "SOURCE schema.sql;\nSOURCE data.sql;\n";
+        if (path.endsWith("application.yml")) return "server:\n  port: 8080\nspring:\n  datasource:\n    url: jdbc:mysql://localhost:3306/dropai_generated?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai\n    username: root\n    password: ${DB_PASSWORD:}\n  jackson:\n    time-zone: Asia/Shanghai\nmybatis-plus:\n  mapper-locations: classpath*:mapper/*.xml\n";
+        if (path.endsWith("Result.java")) return "package com.dropai.generated.common;\n\npublic record Result<T>(int code, String message, T data) {\n    public static <T> Result<T> ok(T data) { return new Result<>(200, \"success\", data); }\n    public static <T> Result<T> fail(String message) { return new Result<>(500, message, null); }\n}\n";
+        if (path.endsWith("PageResult.java")) return "package com.dropai.generated.common;\n\nimport java.util.List;\n\npublic record PageResult<T>(long total, List<T> records) {}\n";
+        if (path.endsWith("BusinessException.java")) return "package com.dropai.generated.common;\n\npublic class BusinessException extends RuntimeException {\n    public BusinessException(String message) { super(message); }\n}\n";
+        if (path.endsWith("LoginRequest.java")) return "package com.dropai.generated.dto;\n\npublic record LoginRequest(String username, String password) {}\n";
+        if (path.endsWith("PageQuery.java")) return "package com.dropai.generated.dto;\n\npublic record PageQuery(int pageNum, int pageSize, String keyword) {}\n";
+        if (path.endsWith("CorsConfig.java")) return "package com.dropai.generated.config;\n\nimport org.springframework.context.annotation.Configuration;\n\n@Configuration\npublic class CorsConfig {}\n";
+        if (path.endsWith("MyBatisPlusConfig.java")) return "package com.dropai.generated.config;\n\nimport org.springframework.context.annotation.Configuration;\n\n@Configuration\npublic class MyBatisPlusConfig {}\n";
+        if (path.endsWith("Mapper.xml")) return mapperXml(path);
         if (path.endsWith("pom.xml")) return backendPom();
         if (path.endsWith("GeneratedApplication.java")) return "package com.dropai.generated;\n\nimport org.springframework.boot.SpringApplication;\nimport org.springframework.boot.autoconfigure.SpringBootApplication;\n\n@SpringBootApplication\npublic class GeneratedApplication {\n    public static void main(String[] args) { SpringApplication.run(GeneratedApplication.class, args); }\n}\n";
         if (path.endsWith("WebConfig.java")) return "package com.dropai.generated.config;\n\nimport org.springframework.context.annotation.Configuration;\nimport org.springframework.web.servlet.config.annotation.CorsRegistry;\nimport org.springframework.web.servlet.config.annotation.WebMvcConfigurer;\n\n@Configuration\npublic class WebConfig implements WebMvcConfigurer {\n    @Override public void addCorsMappings(CorsRegistry registry) { registry.addMapping(\"/api/**\").allowedOrigins(\"*\").allowedMethods(\"GET\",\"POST\",\"PUT\",\"DELETE\"); }\n}\n";
@@ -756,10 +971,42 @@ public class ComputerGeneratorService {
         if (path.contains("/service/impl/")) return javaServiceImpl(path);
         if (path.contains("/service/")) return javaService(path);
         if (path.contains("/controller/")) return javaController(path);
+        if (path.endsWith("requirements.txt")) return pythonRequirements(path, tech);
+        if (path.endsWith("config.py")) return "import os\n\nDATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///dropai_generated.db')\nSECRET_KEY = os.getenv('SECRET_KEY', 'change-me-on-first-run')\n";
+        if (path.endsWith("app.py") && path.startsWith("backend/")) return flaskApp(plan);
+        if (path.contains("backend/models/") && path.endsWith(".py")) return pythonModel(path, plan);
+        if (path.contains("backend/services/") && path.endsWith(".py")) return pythonService(path);
+        if (path.contains("backend/routes/") && path.endsWith(".py")) return pythonRoute(path);
+        if (path.endsWith("utils/response.py")) return "def ok(data=None, message='success'):\n    return {'code': 200, 'message': message, 'data': data}\n\ndef fail(message):\n    return {'code': 500, 'message': message, 'data': None}\n";
+        if (path.endsWith("manage.py")) return "#!/usr/bin/env python\nimport os\nimport sys\n\nif __name__ == '__main__':\n    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')\n    from django.core.management import execute_from_command_line\n    execute_from_command_line(sys.argv)\n";
+        if (path.endsWith("settings.py")) return "SECRET_KEY='first-run-change-me'\nDEBUG=True\nROOT_URLCONF='config.urls'\nINSTALLED_APPS=['django.contrib.contenttypes','rest_framework']\nDATABASES={'default':{'ENGINE':'django.db.backends.sqlite3','NAME':'db.sqlite3'}}\nDEFAULT_AUTO_FIELD='django.db.models.BigAutoField'\n";
+        if (path.endsWith("wsgi.py")) return "import os\nfrom django.core.wsgi import get_wsgi_application\nos.environ.setdefault('DJANGO_SETTINGS_MODULE','config.settings')\napplication=get_wsgi_application()\n";
+        if (path.endsWith("urls.py") && path.contains("backend/config/")) return "from django.urls import path\nurlpatterns=[]\n";
+        if (path.contains("backend/apps/") && path.endsWith("models.py")) return djangoModels(path, plan);
+        if (path.contains("backend/apps/") && path.endsWith("serializers.py")) return "from rest_framework import serializers\n\nclass GeneratedSerializer(serializers.Serializer):\n    id = serializers.IntegerField(required=False)\n    name = serializers.CharField(required=False)\n    status = serializers.CharField(required=False)\n";
+        if (path.contains("backend/apps/") && path.endsWith("views.py")) return "from rest_framework.views import APIView\nfrom rest_framework.response import Response\n\nclass ListCreateView(APIView):\n    def get(self, request):\n        return Response({'code': 200, 'data': []})\n    def post(self, request):\n        return Response({'code': 200, 'data': request.data})\n";
+        if (path.contains("backend/apps/") && path.endsWith("urls.py")) return "from django.urls import path\nfrom .views import ListCreateView\nurlpatterns=[path('', ListCreateView.as_view())]\n";
+        if (path.equals("backend/package.json")) return "{\"scripts\":{\"dev\":\"node app.js\",\"start\":\"node app.js\"},\"dependencies\":{\"cors\":\"latest\",\"express\":\"latest\",\"sequelize\":\"latest\",\"sqlite3\":\"latest\"},\"devDependencies\":{}}\n";
+        if (path.endsWith("database.js")) return "const { Sequelize } = require('sequelize')\nmodule.exports = new Sequelize({ dialect: 'sqlite', storage: './dropai_generated.sqlite', logging: false })\n";
+        if (path.endsWith("response.js")) return "exports.ok = (data) => ({ code: 200, message: 'success', data })\nexports.fail = (message) => ({ code: 500, message, data: null })\n";
+        if (path.endsWith("auth.js")) return "module.exports = (req, res, next) => { next() }\n";
+        if (path.endsWith("errorHandler.js")) return "module.exports = (err, req, res, next) => { res.status(500).json({ code: 500, message: err.message }) }\n";
+        if (path.contains("backend/models/") && path.endsWith(".js")) return nodeModel(path);
+        if (path.contains("backend/services/") && path.endsWith(".js")) return nodeService(path);
+        if (path.contains("backend/controllers/") && path.endsWith(".js")) return nodeController(path);
+        if (path.contains("backend/routes/") && path.endsWith(".js")) return nodeRoute(path);
+        if (path.equals("backend/app.js")) return nodeApp(plan);
+        if (path.startsWith("miniprogram/")) return miniprogramFile(path, plan);
+        if (path.startsWith("analysis/") || path.startsWith("dashboard/")) return analysisFile(path, plan);
         if ("frontend/package.json".equals(path)) return "{\"scripts\":{\"dev\":\"vite --host 0.0.0.0\",\"build\":\"vite build\"},\"dependencies\":{\"@vitejs/plugin-vue\":\"latest\",\"vite\":\"latest\",\"vue\":\"latest\",\"vue-router\":\"latest\",\"axios\":\"latest\",\"element-plus\":\"latest\"},\"devDependencies\":{}}\n";
         if ("frontend/vite.config.js".equals(path)) return "import { defineConfig } from 'vite'\nimport vue from '@vitejs/plugin-vue'\nexport default defineConfig({ plugins: [vue()], server: { port: 5173 } })\n";
         if ("frontend/index.html".equals(path)) return "<div id=\"app\"></div><script type=\"module\" src=\"/src/main.js\"></script>\n";
         if ("frontend/src/api/request.js".equals(path)) return "import axios from 'axios'\nexport const request = axios.create({ baseURL: '/api', timeout: 15000 })\nexport const listRecords = (name) => request.get(`/${name}`)\n";
+        if (path.startsWith("frontend/src/api/") && path.endsWith(".js")) {
+            String name = path.substring(path.lastIndexOf('/') + 1).replace(".js", "");
+            String api = name.replace("_", "-");
+            return "import { request } from './request'\nexport const list = () => request.get('/" + api + "')\nexport const save = (data) => request.post('/" + api + "', data)\n";
+        }
         if ("frontend/src/router/index.js".equals(path)) return "import { createRouter, createWebHistory } from 'vue-router'\nimport Login from '../views/Login.vue'\nimport Dashboard from '../views/Dashboard.vue'\nimport Business from '../views/Business.vue'\nimport Statistics from '../views/Statistics.vue'\nimport UserManage from '../views/UserManage.vue'\nexport default createRouter({ history: createWebHistory(), routes: [{path:'/',redirect:'/dashboard'},{path:'/login',component:Login},{path:'/dashboard',component:Dashboard},{path:'/business',component:Business},{path:'/statistics',component:Statistics},{path:'/users',component:UserManage}] })\n";
         if (path.endsWith("DataCard.vue")) return vue("DataCard", "<article class=\"card\"><strong>{{ title }}</strong><span>{{ value }}</span></article>", "const props = defineProps({ title: String, value: [String, Number] })");
         if (path.endsWith("Login.vue")) return vue("Login", "<main class=\"page\"><h1>" + plan.title() + "</h1><p>首次运行时创建管理员账户并设置强密码。</p><input placeholder=\"手机号\"/><input placeholder=\"密码\" type=\"password\"/><button>登录</button></main>", "");
@@ -767,9 +1014,13 @@ public class ComputerGeneratorService {
         if (path.endsWith("Business.vue")) return vue("Business", "<main class=\"page\"><h1>核心业务管理</h1><ul><li v-for=\"item in modules\" :key=\"item\">{{ item }}</li></ul></main>", "const modules = " + toJsArray(plan.modules()));
         if (path.endsWith("Statistics.vue")) return vue("Statistics", "<main class=\"page\"><h1>数据统计</h1><p>按月份、状态和业务类型展示趋势分析。</p></main>", "");
         if (path.endsWith("UserManage.vue")) return vue("UserManage", "<main class=\"page\"><h1>用户管理</h1><p>角色：" + String.join("、", plan.roles()) + "</p></main>", "");
+        if (path.startsWith("frontend/src/views/") && path.endsWith("Manage.vue")) {
+            String name = path.substring(path.lastIndexOf('/') + 1).replace(".vue", "");
+            return vue(name, "<main class=\"page\"><h1>" + name + "</h1><p>支持分页查询、新增、编辑、状态维护和导出。</p></main>", "");
+        }
         if (path.endsWith("App.vue")) return "<template><router-view /></template>\n<script setup></script>\n<style>body{margin:0;font-family:Arial,'Microsoft YaHei',sans-serif;background:#f5f7fb}.page{padding:32px}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.card{display:block;background:white;border:1px solid #dbe5f4;border-radius:8px;padding:18px}button{background:#2563eb;color:white;border:0;border-radius:6px;padding:10px 18px}</style>\n";
         if (path.endsWith("main.js")) return "import { createApp } from 'vue'\nimport ElementPlus from 'element-plus'\nimport 'element-plus/dist/index.css'\nimport App from './App.vue'\nimport router from './router'\ncreateApp(App).use(router).use(ElementPlus).mount('#app')\n";
-        if ("README.md".equals(path)) return "# " + plan.title() + "\n\n## 项目简介\n" + plan.domain() + "毕业设计项目。\n\n## 运行说明\n1. 导入 sql/schema.sql 和 sql/data.sql。\n2. 启动 backend SpringBoot 服务。\n3. 进入 frontend 执行 npm install && npm run dev。\n\n## 安全说明\n系统首次启动时创建管理员账户并设置强密码，不提供默认弱密码。\n";
+        if ("README.md".equals(path)) return readme(plan, tech);
         if (path.endsWith("论文大纲.md")) return "# 论文大纲\n\n" + String.join("\n", plan.paperOutline().stream().map(item -> "- " + item).toList()) + "\n";
         if (path.endsWith("毕业论文.docx")) return "本文件为可由 Word 打开的毕业论文内容草稿。\n\n题目：" + plan.title() + "\n\n" + String.join("\n\n", plan.paperOutline()) + "\n";
         return file.responsibility() + "\n";
@@ -777,13 +1028,25 @@ public class ComputerGeneratorService {
 
     private boolean validateFile(FilePlan file, String content, ComputerProjectPlan plan) {
         if (content == null || content.trim().length() < 12) return false;
+        String trimmed = content.trim().toLowerCase(Locale.ROOT);
+        if (trimmed.startsWith("说明") || trimmed.startsWith("以下") || trimmed.contains("伪代码")) return false;
         String path = file.path();
+        if (!file.type().equals(fileType(path))) return false;
         if (path.endsWith(".sql") && path.endsWith("schema.sql")) return content.toLowerCase(Locale.ROOT).contains("create table");
+        if (path.endsWith("data.sql")) return content.toLowerCase(Locale.ROOT).contains("insert");
+        if (path.endsWith("init.sql")) return content.toLowerCase(Locale.ROOT).contains("schema.sql");
         if (path.endsWith(".vue")) return content.contains("<template") && content.contains("<script");
         if (path.contains("/controller/")) return content.contains("@RestController") && content.contains("@RequestMapping");
         if (path.contains("/service/")) return content.contains("list") || content.contains("save") || content.contains("Service");
         if (path.contains("/entity/")) return content.contains("class ") && plan.tables().stream().anyMatch(table -> content.contains(className(table.name())));
         if (path.endsWith(".java")) return content.contains("package com.dropai.generated");
+        if (path.endsWith(".py")) return content.contains("def ") || content.contains("class ") || content.contains("import ");
+        if (path.endsWith("requirements.txt")) return content.contains("\n");
+        if (path.endsWith(".js")) return content.contains("module.exports") || content.contains("export ") || content.contains("import ") || content.contains("Page(") || content.contains("App(") || content.contains("require(");
+        if (path.endsWith(".json")) return content.trim().startsWith("{");
+        if (path.endsWith(".wxml")) return content.contains("<view") || content.contains("<text");
+        if (path.endsWith(".html")) return content.contains("<");
+        if (path.endsWith("README.md")) return content.contains("运行") && content.contains("目录");
         return true;
     }
 
@@ -849,6 +1112,122 @@ public class ComputerGeneratorService {
         String name = path.substring(path.lastIndexOf('/') + 1).replace("Controller.java", "");
         String slug = name.replaceAll("([a-z])([A-Z])", "$1-$2").toLowerCase(Locale.ROOT);
         return "package com.dropai.generated.controller;\n\nimport com.dropai.generated.entity." + name + ";\nimport com.dropai.generated.service." + name + "Service;\nimport org.springframework.web.bind.annotation.*;\nimport java.util.*;\n\n@RestController\n@RequestMapping(\"/api/" + slug + "\")\npublic class " + name + "Controller {\n    private final " + name + "Service service;\n    public " + name + "Controller(" + name + "Service service){ this.service = service; }\n    @GetMapping public List<" + name + "> list(){ return service.list(); }\n    @PostMapping public " + name + " save(@RequestBody " + name + " entity){ return service.save(entity); }\n}\n";
+    }
+
+    private String mapperXml(String path) {
+        String mapper = path.substring(path.lastIndexOf('/') + 1).replace(".xml", "");
+        return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE mapper PUBLIC \"-//mybatis.org//DTD Mapper 3.0//EN\" \"https://mybatis.org/dtd/mybatis-3-mapper.dtd\">\n<mapper namespace=\"com.dropai.generated.mapper." + mapper + "\">\n</mapper>\n";
+    }
+
+    private String pythonRequirements(String path, TechProfile tech) {
+        if (path.startsWith("analysis/")) return "pandas\nmatplotlib\nflask\n";
+        if (tech.backendStack().contains("Django")) return "django\ndjangorestframework\nmysqlclient\n";
+        return "flask\nflask-cors\nsqlalchemy\npymysql\n";
+    }
+
+    private String flaskApp(ComputerProjectPlan plan) {
+        return "from flask import Flask, jsonify\nfrom flask_cors import CORS\n\napp = Flask(__name__)\nCORS(app)\n\n@app.get('/api/health')\ndef health():\n    return jsonify({'code': 200, 'data': {'project': '" + plan.title() + "', 'status': 'ok'}})\n\nif __name__ == '__main__':\n    app.run(host='0.0.0.0', port=5000, debug=True)\n";
+    }
+
+    private String pythonModel(String path, ComputerProjectPlan plan) {
+        String table = path.substring(path.lastIndexOf('/') + 1).replace(".py", "");
+        TablePlan tablePlan = tableByName(plan, table);
+        StringBuilder code = new StringBuilder("from sqlalchemy import Column, Integer, String, DateTime\nfrom sqlalchemy.orm import declarative_base\nfrom datetime import datetime\n\nBase = declarative_base()\n\nclass " + className(table) + "(Base):\n    __tablename__ = '" + table + "'\n");
+        for (String field : normalizeFields(tablePlan.fields())) {
+            if ("id".equals(field)) code.append("    id = Column(Integer, primary_key=True, autoincrement=True)\n");
+            else if (field.endsWith("_at")) code.append("    ").append(field).append(" = Column(DateTime, default=datetime.utcnow)\n");
+            else code.append("    ").append(field).append(" = Column(String(255))\n");
+        }
+        return code.toString();
+    }
+
+    private String pythonService(String path) {
+        String name = path.substring(path.lastIndexOf('/') + 1).replace("_service.py", "");
+        return "def list_items():\n    return []\n\ndef create_item(payload):\n    payload = dict(payload or {})\n    payload.setdefault('status', 'ACTIVE')\n    payload.setdefault('module', '" + name + "')\n    return payload\n";
+    }
+
+    private String pythonRoute(String path) {
+        String name = path.substring(path.lastIndexOf('/') + 1).replace("_routes.py", "");
+        return "from flask import Blueprint, request\nfrom services." + name + "_service import list_items, create_item\nfrom utils.response import ok\n\nbp = Blueprint('" + name + "', __name__, url_prefix='/api/" + name.replace("_", "-") + "')\n\n@bp.get('')\ndef list_api():\n    return ok(list_items())\n\n@bp.post('')\ndef create_api():\n    return ok(create_item(request.json))\n";
+    }
+
+    private String djangoModels(String path, ComputerProjectPlan plan) {
+        String table = path.split("/apps/")[1].split("/")[0];
+        TablePlan tablePlan = tableByName(plan, table);
+        StringBuilder code = new StringBuilder("from django.db import models\n\nclass " + className(table) + "(models.Model):\n");
+        for (String field : normalizeFields(tablePlan.fields())) {
+            if ("id".equals(field)) continue;
+            if (field.endsWith("_at")) code.append("    ").append(field).append(" = models.DateTimeField(auto_now_add=True)\n");
+            else code.append("    ").append(field).append(" = models.CharField(max_length=255, blank=True, default='')\n");
+        }
+        code.append("    class Meta:\n        db_table = '").append(table).append("'\n");
+        return code.toString();
+    }
+
+    private String nodeModel(String path) {
+        String table = path.substring(path.lastIndexOf('/') + 1).replace(".js", "");
+        return "const { DataTypes } = require('sequelize')\nconst sequelize = require('../config/database')\nmodule.exports = sequelize.define('" + className(table) + "', { name: DataTypes.STRING, status: DataTypes.STRING, remark: DataTypes.STRING }, { tableName: '" + table + "', timestamps: false })\n";
+    }
+
+    private String nodeService(String path) {
+        String table = path.substring(path.lastIndexOf('/') + 1).replace("Service.js", "");
+        return "exports.list = async () => []\nexports.create = async (payload) => ({ ...payload, status: payload.status || 'ACTIVE', module: '" + table + "' })\n";
+    }
+
+    private String nodeController(String path) {
+        String table = path.substring(path.lastIndexOf('/') + 1).replace("Controller.js", "");
+        return "const service = require('../services/" + table + "Service')\nexports.list = async (req, res, next) => { try { res.json({ code: 200, data: await service.list() }) } catch (e) { next(e) } }\nexports.create = async (req, res, next) => { try { res.json({ code: 200, data: await service.create(req.body) }) } catch (e) { next(e) } }\n";
+    }
+
+    private String nodeRoute(String path) {
+        String table = path.substring(path.lastIndexOf('/') + 1).replace("Routes.js", "");
+        return "const router = require('express').Router()\nconst controller = require('../controllers/" + table + "Controller')\nrouter.get('/', controller.list)\nrouter.post('/', controller.create)\nmodule.exports = router\n";
+    }
+
+    private String nodeApp(ComputerProjectPlan plan) {
+        StringBuilder code = new StringBuilder("const express = require('express')\nconst cors = require('cors')\nconst errorHandler = require('./middleware/errorHandler')\nconst app = express()\napp.use(cors())\napp.use(express.json())\napp.get('/api/health', (req, res) => res.json({ code: 200, data: '" + plan.title() + "' }))\n");
+        for (TablePlan table : ensureSystemSetupTable(plan.tables())) {
+            code.append("app.use('/api/").append(table.name().replace("_", "-")).append("', require('./routes/").append(table.name()).append("Routes'))\n");
+        }
+        code.append("app.use(errorHandler)\napp.listen(3000, () => console.log('server started on 3000'))\n");
+        return code.toString();
+    }
+
+    private String miniprogramFile(String path, ComputerProjectPlan plan) {
+        if (path.endsWith("app.json")) return "{\"pages\":[\"pages/login/login\",\"pages/index/index\",\"pages/business/business\",\"pages/statistics/statistics\",\"pages/mine/mine\"],\"window\":{\"navigationBarTitleText\":\"" + plan.title() + "\"}}\n";
+        if (path.endsWith("app.js")) return "App({ globalData: { baseUrl: 'http://localhost:8080/api' } })\n";
+        if (path.endsWith("app.wxss")) return "page{background:#f6f8fb;color:#172033}.card{background:#fff;margin:20rpx;padding:24rpx;border-radius:12rpx}\n";
+        if (path.endsWith("utils/request.js")) return "const request = (url, data = {}, method = 'GET') => new Promise((resolve, reject) => wx.request({ url: getApp().globalData.baseUrl + url, data, method, success: resolve, fail: reject }))\nmodule.exports = { request }\n";
+        if (path.endsWith("api/index.js")) return "const { request } = require('../utils/request')\nmodule.exports = { listBusiness: () => request('/business-record') }\n";
+        if (path.endsWith(".json")) return "{\"navigationBarTitleText\":\"" + plan.title() + "\"}\n";
+        if (path.endsWith(".wxml")) return "<view class=\"card\"><text>" + plan.title() + "</text><view>" + plan.domain() + "</view></view>\n";
+        if (path.endsWith(".wxss")) return ".card{background:#fff;margin:24rpx;padding:24rpx;border-radius:12rpx}text{font-weight:bold}\n";
+        return "Page({ data: { title: '" + plan.title() + "', modules: " + toJsArray(plan.modules()) + " }, onLoad() {} })\n";
+    }
+
+    private String analysisFile(String path, ComputerProjectPlan plan) {
+        if (path.endsWith("requirements.txt")) return "pandas\nmatplotlib\nflask\n";
+        if (path.endsWith("sample.csv")) return "month,category,amount,status\n2026-01,A,1200,done\n2026-02,B,1680,done\n";
+        if (path.endsWith("load_data.py")) return "import pandas as pd\n\ndef load_data(path='analysis/data/sample.csv'):\n    return pd.read_csv(path)\n";
+        if (path.endsWith("clean_data.py")) return "def clean_data(df):\n    return df.dropna().copy()\n";
+        if (path.endsWith("analyze.py")) return "def summarize(df):\n    return df.groupby('category')['amount'].sum().reset_index()\n";
+        if (path.endsWith("build_charts.py")) return "import matplotlib.pyplot as plt\n\ndef build_chart(summary, output='analysis/charts/summary.png'):\n    summary.plot(kind='bar', x='category', y='amount')\n    plt.tight_layout()\n    plt.savefig(output)\n";
+        if (path.endsWith("analysis/main.py")) return "from scripts.load_data import load_data\nfrom scripts.clean_data import clean_data\nfrom scripts.analyze import summarize\nfrom scripts.build_charts import build_chart\n\ndf = clean_data(load_data())\nsummary = summarize(df)\nbuild_chart(summary)\nprint(summary)\n";
+        if (path.endsWith("dashboard/app.py")) return "from flask import Flask, render_template\napp = Flask(__name__)\n@app.get('/')\ndef index():\n    return render_template('index.html', title='" + plan.title() + "')\nif __name__ == '__main__':\n    app.run(port=5000, debug=True)\n";
+        if (path.endsWith("index.html")) return "<!doctype html><html><head><link rel=\"stylesheet\" href=\"/static/style.css\"></head><body><h1>{{ title }}</h1><section>数据分析看板</section></body></html>\n";
+        if (path.endsWith("style.css")) return "body{font-family:Arial,'Microsoft YaHei',sans-serif;background:#f6f8fb;color:#172033;padding:32px}section{background:#fff;border:1px solid #dbe5f4;border-radius:8px;padding:24px}\n";
+        return "# " + plan.title() + " 数据分析工程\n\n运行：python analysis/main.py\n";
+    }
+
+    private String readme(ComputerProjectPlan plan, TechProfile tech) {
+        return "# " + plan.title() + "\n\n## 项目简介\n" + plan.domain() + "毕业设计项目。\n\n## 技术栈\n- 编程语言：" + tech.language() + "\n- 后端：" + tech.backendStack() + "\n- 前端：" + tech.frontendStack() + "\n- 数据库：" + tech.databaseType() + "\n\n## 目录说明\n- backend/miniprogram/frontend/analysis/dashboard：按识别技术栈生成的运行工程\n- sql：数据库初始化脚本\n- paper：论文大纲与论文内容\n- preview：静态网页预览\n\n## 运行说明\n1. 按需导入 sql/schema.sql 和 sql/data.sql。\n2. 根据 backend、frontend、miniprogram 或 analysis 目录内文件启动对应工程。\n3. 网页预览可直接打开 preview 下的 index.html。\n\n## 安全说明\n系统首次启动时创建管理员账户并设置强密码，不提供默认弱密码。\n";
+    }
+
+    private TablePlan tableByName(ComputerProjectPlan plan, String tableName) {
+        return ensureSystemSetupTable(plan.tables()).stream()
+                .filter(table -> table.name().equalsIgnoreCase(tableName))
+                .findFirst()
+                .orElseGet(() -> new TablePlan(tableName, tableName, List.of("id", "name", "status", "created_at")));
     }
 
     private ComputerGenerationJob requireOwnedJob(String jobId) {
@@ -978,6 +1357,10 @@ public class ComputerGeneratorService {
         text.append(defaultText(config.title(), "")).append('\n')
                 .append(defaultText(config.projectType(), "")).append('\n')
                 .append(defaultText(config.techStack(), "")).append('\n')
+                .append(defaultText(config.programmingLanguage(), "")).append('\n')
+                .append(defaultText(config.frontendStack(), "")).append('\n')
+                .append(defaultText(config.backendStack(), "")).append('\n')
+                .append(defaultText(config.databaseType(), "")).append('\n')
                 .append(config.roles()).append('\n')
                 .append(config.modules()).append('\n')
                 .append(config.pages()).append('\n')
@@ -1009,18 +1392,25 @@ public class ComputerGeneratorService {
 
     private static String recommendProjectType(ComputerProjectPlan plan, String input) {
         String text = (plan.domain() + input).toLowerCase(Locale.ROOT);
-        if (text.contains("python") || text.contains("数据分析") || text.contains("公开数据")) return "Python Web 项目";
-        if (text.contains("小程序") || text.contains("微信")) return "微信小程序后台项目";
-        return "Java Web 项目";
+        if (containsAny(text, "微信", "小程序", "miniprogram", "wxapp")) return "微信小程序项目";
+        if (containsAny(text, "node", "express", "koa", "api服务", "轻量web")) return "Node.js Express项目";
+        if (containsAny(text, "django")) return "Django项目";
+        if (containsAny(text, "flask")) return "Flask项目";
+        if (containsAny(text, "streamlit", "dash", "pandas", "matplotlib", "数据分析", "可视化大屏", "财务分析", "销售分析", "教学数据", "物流数据", "公开数据")) return "Python数据分析项目";
+        if (text.contains("python")) return "Python Web项目";
+        return "Java Web项目";
     }
 
     private static String recommendTechStack(String projectType, String input) {
         String text = defaultText(input, "").toLowerCase(Locale.ROOT);
-        if (projectType.contains("Python") && text.contains("django")) return "Django + MySQL";
-        if (projectType.contains("Python") && text.contains("fastapi")) return "FastAPI + Vue + MySQL";
-        if (projectType.contains("Python")) return "Flask + Vue + MySQL";
-        if (text.contains("thymeleaf")) return "Spring Boot + Thymeleaf + MySQL";
-        return "Spring Boot + Vue + MySQL";
+        if (projectType.contains("微信小程序")) return "微信原生小程序 + SpringBoot + MySQL";
+        if (projectType.contains("Node")) return "Node.js + Express + Sequelize + SQLite";
+        if (projectType.contains("Django")) return "Django + Django ORM + MySQL";
+        if (projectType.contains("Flask")) return "Flask + SQLAlchemy + MySQL + Vue3";
+        if (projectType.contains("Python数据分析")) return "Python + pandas + matplotlib + Flask + SQLite";
+        if (projectType.contains("Python")) return text.contains("django") ? "Django + MySQL" : "Flask + Vue3 + MySQL";
+        if (text.contains("thymeleaf")) return "Spring Boot 3.x + Thymeleaf + MySQL 8";
+        return "Spring Boot 3.x + MyBatis-Plus + Vue3 + Element Plus + MySQL 8";
     }
 
     private static List<String> defaultPaperOutline() {
@@ -1075,17 +1465,17 @@ public class ComputerGeneratorService {
     }
 
     private static String projectDirectoryTree(List<FilePlan> queue) {
-        return """
-                project/
-                ├── frontend/
-                ├── backend/
-                ├── sql/
-                ├── paper/
-                ├── README.md
-                └── preview/
-
-                文件队列：
-                """ + String.join("\n", queue.stream().map(file -> "- " + file.path()).toList());
+        List<String> roots = queue.stream()
+                .map(file -> file.path().contains("/") ? file.path().substring(0, file.path().indexOf('/')) + "/" : file.path())
+                .distinct()
+                .sorted()
+                .toList();
+        return "project/\n" +
+                String.join("\n", roots.stream().map(root -> "├── " + root).toList()) +
+                "\n\n文件队列：\n" +
+                String.join("\n", queue.stream()
+                        .map(file -> "- [" + file.priority() + "] " + file.path() + " (" + file.type() + ") - " + file.responsibility())
+                        .toList());
     }
 
     private static String summarize(String content) {
@@ -1099,6 +1489,27 @@ public class ComputerGeneratorService {
 
     private static String toJsArray(List<String> values) {
         return "[" + String.join(",", values.stream().map(value -> "'" + value.replace("'", "") + "'").toList()) + "]";
+    }
+
+    private static String fileType(String path) {
+        String lower = defaultText(path, "").toLowerCase(Locale.ROOT);
+        if (lower.endsWith(".java")) return "java";
+        if (lower.endsWith(".vue")) return "vue";
+        if (lower.endsWith(".sql")) return "sql";
+        if (lower.endsWith(".py")) return "python";
+        if (lower.endsWith(".js")) return "js";
+        if (lower.endsWith(".json")) return "json";
+        if (lower.endsWith(".md")) return "md";
+        if (lower.endsWith(".docx")) return "docx";
+        if (lower.endsWith(".html")) return "html";
+        if (lower.endsWith(".xml")) return "xml";
+        if (lower.endsWith(".yml") || lower.endsWith(".yaml")) return "yaml";
+        if (lower.endsWith(".wxss")) return "wxss";
+        if (lower.endsWith(".wxml")) return "wxml";
+        if (lower.endsWith(".css")) return "css";
+        if (lower.endsWith(".csv")) return "csv";
+        if (lower.endsWith(".txt")) return "txt";
+        return "text";
     }
 
     private static String className(String tableName) {
@@ -1142,14 +1553,23 @@ public class ComputerGeneratorService {
     public record ComputerAnalyzeVO(ComputerJobVO job, ComputerPlanVO plan) {}
     public record ComputerPlanVO(String title, String projectType, String techStack, List<String> roles,
                                  List<String> modules, List<TablePlanVO> tables, List<String> pages,
-                                 List<String> apis, List<String> paperOutline, String directoryTree,
-                                 List<String> fileQueue, int pointsCost,
+                                 List<String> apis, List<String> paperOutline, String programmingLanguage,
+                                 String frontendStack, String backendStack, String databaseType,
+                                 boolean needMiniprogram, boolean needDesktop, boolean needDataAnalysis,
+                                 String directoryTree, List<FilePlanVO> fileQueue, int pointsCost,
                                  boolean generatePaper, boolean generateTests, boolean enablePreview) {}
     public record ComputerGenerationConfig(String title, String projectType, String techStack, List<String> roles,
+                                           String programmingLanguage, String frontendStack, String backendStack, String databaseType,
+                                           boolean needMiniprogram, boolean needDesktop, boolean needDataAnalysis,
                                            List<String> modules, List<TablePlanVO> tables, List<String> pages,
                                            List<String> apis, List<String> paperOutline,
                                            boolean generatePaper, boolean generateTests, boolean enablePreview) {}
     public record TablePlanVO(String name, String comment, List<String> fields) {}
+    public record FilePlanVO(String path, String type, String description, List<String> dependsOn, int priority) {
+        static FilePlanVO from(FilePlan file) {
+            return new FilePlanVO(file.path(), file.type(), file.responsibility(), file.dependsOn(), file.priority());
+        }
+    }
     public record ComputerJobVO(String id, String title, String projectType, String techStack, String status,
                                 int progress, String currentStage, String currentFile, String errorMessage, int pointsCost,
                                 String previewUrl, String downloadUrl, List<GeneratedFileVO> files,
@@ -1159,6 +1579,9 @@ public class ComputerGeneratorService {
                                        List<TablePlan> tables, List<String> pages, List<String> apis,
                                        List<String> paperOutline) {}
     private record TablePlan(String name, String comment, List<String> fields) {}
-    private record FilePlan(String path, String stage, String responsibility) {}
+    private record TechProfile(String projectType, String language, String backendStack, String frontendStack,
+                               String databaseType, boolean needMiniprogram, boolean needDesktop,
+                               boolean needDataAnalysis, String displayStack) {}
+    private record FilePlan(String path, String type, String responsibility, List<String> dependsOn, int priority, String stage) {}
     private record FileSummary(String path, String summary) {}
 }

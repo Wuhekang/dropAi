@@ -69,6 +69,18 @@
             </div>
             <pre>{{ plan.directoryTree }}</pre>
           </div>
+          <div class="queue-box">
+            <div class="tree-head">
+              <span>文件生成队列</span>
+              <small>{{ plan.fileQueue?.length || 0 }} 个文件</small>
+            </div>
+            <el-table :data="plan.fileQueue || []" size="small" max-height="280">
+              <el-table-column prop="priority" label="#" width="56" />
+              <el-table-column prop="path" label="文件路径" min-width="260" show-overflow-tooltip />
+              <el-table-column prop="type" label="类型" width="90" />
+              <el-table-column prop="description" label="职责" min-width="180" show-overflow-tooltip />
+            </el-table>
+          </div>
         </div>
       </el-card>
     </section>
@@ -203,6 +215,13 @@ const resultItems = computed(() => plan.value ? [
   { key: 'title', label: '项目题目', value: plan.value.title },
   { key: 'projectType', label: '项目类型', value: plan.value.projectType },
   { key: 'techStack', label: '推荐技术栈', value: plan.value.techStack },
+  { key: 'programmingLanguage', label: '编程语言', value: plan.value.programmingLanguage },
+  { key: 'backendStack', label: '后端技术栈', value: plan.value.backendStack },
+  { key: 'frontendStack', label: '前端技术栈', value: plan.value.frontendStack },
+  { key: 'databaseType', label: '数据库类型', value: plan.value.databaseType },
+  { key: 'needMiniprogram', label: '小程序', value: plan.value.needMiniprogram ? '需要' : '不需要' },
+  { key: 'needDesktop', label: '桌面端', value: plan.value.needDesktop ? '需要' : '不需要' },
+  { key: 'needDataAnalysis', label: '数据分析', value: plan.value.needDataAnalysis ? '需要' : '不需要' },
   { key: 'roles', label: '用户角色', value: (plan.value.roles || []).join('、') },
   { key: 'modules', label: '功能模块', value: (plan.value.modules || []).join('、') },
   { key: 'tables', label: '数据库表', value: (plan.value.tables || []).map(t => t.name).join('、') },
@@ -325,5 +344,5 @@ onBeforeUnmount(stopPolling)
 </script>
 
 <style scoped>
-.computer-page{min-height:100vh;padding:30px 24px 70px;background:#f6f8fb}.hero{max-width:1500px;margin:0 auto 24px;display:flex;align-items:flex-start;justify-content:space-between;gap:24px}.eyebrow{display:block;margin-top:16px;color:#2563eb;font-size:12px;font-weight:800;letter-spacing:.12em}.hero h1{margin:10px 0 8px;font-size:38px}.hero p{margin:0;color:#64748b;line-height:1.7}.layout,.result-layout{max-width:1500px;margin:0 auto;display:grid;grid-template-columns:.8fr 1.2fr;gap:18px}.panel{border-radius:8px;border-color:#dbe5f4}.panel-head{display:flex;align-items:center;justify-content:space-between;gap:16px}.upload-slots{display:grid;gap:14px}.upload-slot{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;padding:16px;border:1px solid #dbe5f4;border-radius:8px;background:#fff}.upload-slot p{margin:5px 0 0;color:#64748b;font-size:13px}.file-name{grid-column:1/-1;color:#2563eb;font-size:13px}.main-actions{display:flex;gap:12px;margin-top:18px}.inline-alert{margin-top:16px}.result-list{display:grid;gap:10px}.result-row{display:grid;grid-template-columns:110px 1fr 60px;gap:12px;align-items:center;padding:12px;border:1px solid #e2e8f0;border-radius:8px;background:#fff}.result-row span,.tree-head span{color:#64748b}.result-row b{font-weight:600;color:#172033;line-height:1.6}.tree-box{padding:12px;border:1px solid #e2e8f0;border-radius:8px;background:#fff}.tree-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}.tree-box pre{max-height:260px;overflow:auto;margin:0;padding:12px;border-radius:8px;background:#0f172a;color:#e2e8f0;font-size:12px;line-height:1.55}.progress-panel{max-width:1500px;margin:18px auto}.current-file{margin:16px 0 10px;padding:10px 12px;border-radius:8px;background:#eff6ff;color:#1d4ed8;font-size:13px}.result-layout{grid-template-columns:.9fr 1.1fr}.file-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}.file-card{padding:14px;border:1px solid #dbe5f4;border-radius:8px;background:#fff}.file-card span{display:block;margin-top:6px;color:#64748b;font-size:12px}.preview-panel iframe{width:100%;height:560px;border:1px solid #dbe5f4;border-radius:8px;background:white}.two-col{display:grid;grid-template-columns:1fr 1fr;gap:14px}.switches{display:flex;gap:18px;flex-wrap:wrap}@media(max-width:1050px){.layout,.result-layout{grid-template-columns:1fr}.hero{display:block}.preview-panel iframe{height:460px}}@media(max-width:720px){.upload-slot,.two-col,.file-grid{grid-template-columns:1fr}.computer-page{padding:20px 12px 50px}.hero h1{font-size:30px}.progress-panel :deep(.el-steps){display:none}.result-row{grid-template-columns:1fr}}
+.computer-page{min-height:100vh;padding:30px 24px 70px;background:#f6f8fb}.hero{max-width:1500px;margin:0 auto 24px;display:flex;align-items:flex-start;justify-content:space-between;gap:24px}.eyebrow{display:block;margin-top:16px;color:#2563eb;font-size:12px;font-weight:800;letter-spacing:.12em}.hero h1{margin:10px 0 8px;font-size:38px}.hero p{margin:0;color:#64748b;line-height:1.7}.layout,.result-layout{max-width:1500px;margin:0 auto;display:grid;grid-template-columns:.8fr 1.2fr;gap:18px}.panel{border-radius:8px;border-color:#dbe5f4}.panel-head{display:flex;align-items:center;justify-content:space-between;gap:16px}.upload-slots{display:grid;gap:14px}.upload-slot{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;padding:16px;border:1px solid #dbe5f4;border-radius:8px;background:#fff}.upload-slot p{margin:5px 0 0;color:#64748b;font-size:13px}.file-name{grid-column:1/-1;color:#2563eb;font-size:13px}.main-actions{display:flex;gap:12px;margin-top:18px}.inline-alert{margin-top:16px}.result-list{display:grid;gap:10px}.result-row{display:grid;grid-template-columns:110px 1fr 60px;gap:12px;align-items:center;padding:12px;border:1px solid #e2e8f0;border-radius:8px;background:#fff}.result-row span,.tree-head span{color:#64748b}.result-row b{font-weight:600;color:#172033;line-height:1.6}.tree-box,.queue-box{padding:12px;border:1px solid #e2e8f0;border-radius:8px;background:#fff}.tree-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}.tree-head small{color:#64748b}.tree-box pre{max-height:260px;overflow:auto;margin:0;padding:12px;border-radius:8px;background:#0f172a;color:#e2e8f0;font-size:12px;line-height:1.55}.progress-panel{max-width:1500px;margin:18px auto}.current-file{margin:16px 0 10px;padding:10px 12px;border-radius:8px;background:#eff6ff;color:#1d4ed8;font-size:13px}.result-layout{grid-template-columns:.9fr 1.1fr}.file-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}.file-card{padding:14px;border:1px solid #dbe5f4;border-radius:8px;background:#fff}.file-card span{display:block;margin-top:6px;color:#64748b;font-size:12px}.preview-panel iframe{width:100%;height:560px;border:1px solid #dbe5f4;border-radius:8px;background:white}.two-col{display:grid;grid-template-columns:1fr 1fr;gap:14px}.switches{display:flex;gap:18px;flex-wrap:wrap}@media(max-width:1050px){.layout,.result-layout{grid-template-columns:1fr}.hero{display:block}.preview-panel iframe{height:460px}}@media(max-width:720px){.upload-slot,.two-col,.file-grid{grid-template-columns:1fr}.computer-page{padding:20px 12px 50px}.hero h1{font-size:30px}.progress-panel :deep(.el-steps){display:none}.result-row{grid-template-columns:1fr}}
 </style>
