@@ -325,106 +325,35 @@ public class ComputerGeneratorService {
             updateStage(job, 1, "RUNNING", "");
             return matrixPlan;
         }
-        String text = (job.getTitle() + "\n" + defaultText(job.getInputText(), "")).toLowerCase(Locale.ROOT);
-        if (isSmartStudentAffairs(text)) {
-            return smartStudentAffairsPlan(job.getTitle());
-        }
-        String domain = "通用业务管理";
-        List<String> modules = new ArrayList<>(List.of("用户认证", "权限管理", "首页仪表盘", "消息中心", "个人中心"));
-        List<String> roles = new ArrayList<>(List.of("管理员", "普通用户"));
-        if (containsAny(text, "宿舍", "寝室", "公寓")) {
-            domain = "学生宿舍管理";
-            modules.addAll(List.of("楼栋管理", "宿舍分配", "入住登记", "报修工单", "卫生检查"));
-            roles.addAll(List.of("学生", "宿舍管理员"));
-        } else if (containsAny(text, "图书", "借阅", "书籍")) {
-            domain = "图书管理";
-            modules.addAll(List.of("图书档案", "借阅归还", "逾期提醒", "读者管理", "馆藏统计"));
-            roles.addAll(List.of("读者", "图书管理员"));
-        } else if (containsAny(text, "商城", "订单", "商品")) {
-            domain = "在线商城";
-            modules.addAll(List.of("商品管理", "购物车", "订单处理", "支付记录", "库存统计"));
-            roles.addAll(List.of("商家", "会员用户"));
-        } else if (containsAny(text, "预约", "挂号", "预订")) {
-            domain = "预约管理";
-            modules.addAll(List.of("资源排班", "预约申请", "审核确认", "签到核销", "预约统计"));
-            roles.addAll(List.of("预约用户", "审核员"));
-        } else if (containsAny(text, "社团", "活动", "报名")) {
-            domain = "社团管理";
-            modules.addAll(List.of("社团档案", "成员管理", "活动发布", "报名审核", "经费记录"));
-            roles.addAll(List.of("社团负责人", "学生会员"));
-        } else if (containsAny(text, "公开数据", "数据处理", "数据集", "数据分析")) {
-            domain = "公开数据分析";
-            modules.addAll(List.of("数据导入", "数据清洗", "指标计算", "可视化看板", "报表导出"));
-        } else if (containsAny(text, "数据", "可视化", "分析")) {
-            domain = "数据分析可视化";
-            modules.addAll(List.of("数据导入", "指标看板", "趋势分析", "图表配置", "报表导出"));
-        } else {
-            modules.addAll(List.of("业务档案", "流程审批", "数据统计", "文件管理", "系统配置"));
-        }
-        String base = domainSlug(domain);
-        List<TablePlan> tables = genericTables(base, domain);
-        List<String> apis = modules.stream().map(module -> "/api/" + safeSlug(module) + " - CRUD、分页查询、统计接口").toList();
-        List<String> pages = pagesFromModules(modules, tables);
-        List<String> paperOutline = defaultPaperOutline();
-        return new ComputerProjectPlan(job.getTitle(), domain, modules, roles.stream().distinct().toList(), tables, pages, apis, paperOutline);
+        return buildPlanFromRequirement(job, null);
     }
 
     private ComputerProjectPlan normalizeDomainPlan(ComputerGenerationJob job, ComputerProjectPlan plan) {
-        String text = (job.getTitle() + "\n" + defaultText(job.getInputText(), "") + "\n" + plan.domain() + "\n" + plan.modules()).toLowerCase(Locale.ROOT);
-        if (isSmartStudentAffairs(text) || usesGenericBusinessTables(plan)) {
-            if (isSmartStudentAffairs(text)) return smartStudentAffairsPlan(defaultText(plan.title(), job.getTitle()));
-        }
+        if (usesGenericBusinessTables(plan)) return buildPlanFromRequirement(job, plan);
         return plan;
     }
 
-    private static boolean isSmartStudentAffairs(String text) {
-        return containsAny(text, "学工", "高校智能", "习题", "答题", "错题", "ai聊天", "大模型", "心理分析", "学生工作");
-    }
-
     private static boolean usesGenericBusinessTables(ComputerProjectPlan plan) {
-        return plan.tables().stream().anyMatch(table -> table.name().matches("(?i).*(business_record|business_audit|business_notice).*"));
+        return plan.tables().stream().anyMatch(table -> table.name().matches("(?i).*(business_record|business_audit|business_notice|record|audit)$"));
     }
 
-    private static ComputerProjectPlan smartStudentAffairsPlan(String title) {
-        List<String> modules = List.of(
-                "用户认证与权限管理", "学生信息管理", "教师信息管理", "习题管理", "习题发布", "学生答题",
-                "答题记录", "AI错题分析", "AI聊天", "心理分析", "聊天记录", "系统公告", "数据统计", "操作日志"
-        );
-        List<String> roles = List.of("管理员", "教师", "学生");
-        List<TablePlan> tables = List.of(
-                new TablePlan("sys_user", "系统用户", List.of("id", "username", "password_hash", "role", "phone", "status", "created_at")),
-                new TablePlan("student_profile", "学生信息", List.of("id", "user_id", "student_no", "college", "major", "grade", "status", "created_at")),
-                new TablePlan("teacher_profile", "教师信息", List.of("id", "user_id", "teacher_no", "college", "title", "status", "created_at")),
-                new TablePlan("exercise", "习题", List.of("id", "title", "content", "answer", "difficulty", "creator_id", "status", "created_at")),
-                new TablePlan("exercise_publish", "习题发布", List.of("id", "exercise_id", "teacher_id", "target_class", "start_time", "end_time", "status", "created_at")),
-                new TablePlan("answer_record", "答题记录", List.of("id", "exercise_id", "student_id", "answer_content", "score", "is_correct", "status", "created_at")),
-                new TablePlan("wrong_question_analysis", "AI错题分析", List.of("id", "student_id", "answer_record_id", "analysis_result", "suggestion", "status", "created_at")),
-                new TablePlan("ai_chat_session", "AI聊天会话", List.of("id", "user_id", "session_title", "scene_type", "safety_notice", "status", "created_at")),
-                new TablePlan("ai_chat_message", "AI聊天消息", List.of("id", "session_id", "sender_type", "message_content", "safety_level", "status", "created_at")),
-                new TablePlan("psychological_analysis", "心理辅助分析", List.of("id", "student_id", "source_text", "analysis_result", "risk_level", "suggestion", "status", "created_at")),
-                new TablePlan("system_notice", "系统公告", List.of("id", "title", "content", "publisher_id", "publish_time", "status", "created_at")),
-                new TablePlan("operation_log", "操作日志", List.of("id", "user_id", "operation", "target_type", "target_id", "ip_address", "status", "created_at"))
-        );
-        List<String> pages = List.of(
-                "Login", "Dashboard", "StudentManage", "TeacherManage", "ExerciseManage", "ExercisePublish",
-                "AnswerPractice", "AnswerRecord", "WrongQuestionAnalysis", "AiChat", "PsychologicalAnalysis",
-                "NoticeManage", "Statistics", "UserManage"
-        );
-        List<String> apis = List.of(
-                "/api/auth - 登录与权限接口",
-                "/api/students - 学生信息接口",
-                "/api/teachers - 教师信息接口",
-                "/api/exercises - 习题管理接口",
-                "/api/exercise-publishes - 习题发布接口",
-                "/api/answer-records - 学生答题与答题记录接口",
-                "/api/wrong-question-analyses - AI错题分析接口",
-                "/api/ai-chat - AI聊天接口",
-                "/api/psychological-analyses - 心理辅助分析接口",
-                "/api/notices - 系统公告接口",
-                "/api/statistics - 数据统计接口"
-        );
-        return new ComputerProjectPlan(defaultText(title, "基于大模型的高校智能学工系统的设计与实现"), "高校智能学工系统",
-                modules, roles, tables, pages, apis, defaultPaperOutline());
+    private ComputerProjectPlan buildPlanFromRequirement(ComputerGenerationJob job, ComputerProjectPlan seed) {
+        String source = defaultText(job.getTitle(), "") + "\n" + defaultText(job.getInputText(), "") + "\n" +
+                (seed == null ? "" : seed.domain() + "\n" + seed.modules() + "\n" + seed.roles());
+        String domain = seed == null || seed.domain().isBlank() || "通用业务管理".equals(seed.domain())
+                ? extractDomain(source, job.getTitle())
+                : seed.domain();
+        List<String> roles = mergeDistinct(seed == null ? List.of() : seed.roles(), extractRoles(source));
+        List<DomainEntity> entities = extractDomainEntities(source, seed == null ? List.of() : seed.modules());
+        List<TablePlan> tables = domainTables(entities, domain);
+        List<String> modules = mergeDistinct(seed == null ? List.of() : seed.modules(), entities.stream().map(DomainEntity::module).toList());
+        if (!modules.contains("用户认证与权限管理")) modules = prepend(modules, "用户认证与权限管理");
+        if (!modules.contains("数据统计")) modules = append(modules, "数据统计");
+        List<String> pages = domainPages(entities);
+        List<String> apis = domainApis(entities, tables);
+        return new ComputerProjectPlan(defaultText(job.getTitle(), seed == null ? "计算机毕业设计管理系统" : seed.title()),
+                domain, modules, roles.isEmpty() ? List.of("管理员", "普通用户") : roles,
+                tables, pages, apis, seed == null || seed.paperOutline().isEmpty() ? defaultPaperOutline() : seed.paperOutline());
     }
 
     private static List<TablePlan> genericTables(String base, String domain) {
@@ -447,6 +376,127 @@ public class ComputerGeneratorService {
         }
         pages.add("Statistics");
         return pages.stream().distinct().toList();
+    }
+
+    private static String extractDomain(String source, String title) {
+        String cleanTitle = defaultText(title, "").replaceAll("(的设计与实现|设计与实现|系统|平台|项目)$", "").trim();
+        if (!cleanTitle.isBlank()) return cleanTitle;
+        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("([\u4e00-\u9fa5A-Za-z0-9]{2,30})(系统|平台|项目)").matcher(defaultText(source, ""));
+        return matcher.find() ? matcher.group(1) : "任务书驱动软件工程项目";
+    }
+
+    private static List<String> extractRoles(String source) {
+        List<String> roles = new ArrayList<>();
+        for (String role : List.of("管理员", "教师", "学生", "医生", "患者", "读者", "图书管理员", "宿舍管理员", "商家", "会员", "客户", "员工", "财务人员", "审核员")) {
+            if (source.contains(role)) roles.add(role);
+        }
+        if (!roles.contains("管理员")) roles.add(0, "管理员");
+        return roles.stream().distinct().toList();
+    }
+
+    private static List<DomainEntity> extractDomainEntities(String source, List<String> seedModules) {
+        String text = defaultText(source, "") + "\n" + defaultText(String.join("\n", seedModules == null ? List.of() : seedModules), "");
+        List<DomainEntity> entities = new ArrayList<>();
+        for (DomainEntity candidate : domainVocabulary()) {
+            if (containsAny(text, candidate.keywords().toArray(String[]::new))) entities.add(candidate);
+        }
+        if (entities.stream().noneMatch(entity -> "sys_user".equals(entity.table()))) {
+            entities.add(0, new DomainEntity("用户", "用户认证与权限管理", "sys_user", "系统用户",
+                    List.of("id", "username", "password_hash", "role", "phone", "status", "created_at"), "UserManage", List.of("用户", "登录", "权限")));
+        }
+        if (entities.size() < 3) {
+            String base = domainSlug(extractDomain(text, ""));
+            entities.add(new DomainEntity("事项", "核心事项管理", base + "_item", "核心事项",
+                    List.of("id", "name", "code", "owner_id", "status", "remark", "created_at"), className(base + "_item") + "Manage", List.of()));
+            entities.add(new DomainEntity("流程", "流程记录管理", base + "_process", "流程记录",
+                    List.of("id", "item_id", "action", "operator_id", "result", "status", "created_at"), className(base + "_process") + "Manage", List.of()));
+        }
+        if (text.contains("公告") || text.contains("通知") || entities.size() < 6) {
+            entities.add(new DomainEntity("公告", "系统公告", "system_notice", "系统公告",
+                    List.of("id", "title", "content", "publisher_id", "publish_time", "status", "created_at"), "NoticeManage", List.of("公告", "通知")));
+        }
+        entities.add(new DomainEntity("日志", "操作日志", "operation_log", "操作日志",
+                List.of("id", "user_id", "operation", "target_type", "target_id", "ip_address", "status", "created_at"), "OperationLog", List.of("日志", "操作记录")));
+        return distinctEntities(entities);
+    }
+
+    private static List<DomainEntity> domainVocabulary() {
+        return List.of(
+                new DomainEntity("用户", "用户认证与权限管理", "sys_user", "系统用户", List.of("id", "username", "password_hash", "role", "phone", "status", "created_at"), "UserManage", List.of("用户", "登录", "权限", "管理员")),
+                new DomainEntity("学生", "学生信息管理", "student_profile", "学生信息", List.of("id", "user_id", "student_no", "college", "major", "grade", "status", "created_at"), "StudentManage", List.of("学生")),
+                new DomainEntity("教师", "教师信息管理", "teacher_profile", "教师信息", List.of("id", "user_id", "teacher_no", "college", "title", "status", "created_at"), "TeacherManage", List.of("教师", "老师")),
+                new DomainEntity("习题", "习题管理", "exercise", "习题", List.of("id", "title", "content", "answer", "difficulty", "creator_id", "status", "created_at"), "ExerciseManage", List.of("习题", "题库", "试题")),
+                new DomainEntity("习题发布", "习题发布", "exercise_publish", "习题发布", List.of("id", "exercise_id", "teacher_id", "target_class", "start_time", "end_time", "status", "created_at"), "ExercisePublish", List.of("习题发布", "作业发布", "发布习题")),
+                new DomainEntity("答题记录", "答题记录", "answer_record", "答题记录", List.of("id", "exercise_id", "student_id", "answer_content", "score", "is_correct", "status", "created_at"), "AnswerRecord", List.of("答题", "答题记录", "学生答题")),
+                new DomainEntity("错题分析", "AI错题分析", "wrong_question_analysis", "AI错题分析", List.of("id", "student_id", "answer_record_id", "analysis_result", "suggestion", "status", "created_at"), "WrongQuestionAnalysis", List.of("错题", "错题分析")),
+                new DomainEntity("AI聊天会话", "AI聊天", "ai_chat_session", "AI聊天会话", List.of("id", "user_id", "session_title", "scene_type", "safety_notice", "status", "created_at"), "AiChat", List.of("AI聊天", "大模型", "智能问答", "聊天")),
+                new DomainEntity("AI聊天消息", "聊天记录", "ai_chat_message", "AI聊天消息", List.of("id", "session_id", "sender_type", "message_content", "safety_level", "status", "created_at"), "AiChat", List.of("聊天记录", "AI聊天", "聊天")),
+                new DomainEntity("心理分析", "心理分析", "psychological_analysis", "心理辅助分析", List.of("id", "student_id", "source_text", "analysis_result", "risk_level", "suggestion", "status", "created_at"), "PsychologicalAnalysis", List.of("心理", "心理分析")),
+                new DomainEntity("图书", "图书档案", "book", "图书", List.of("id", "isbn", "title", "author", "category", "stock", "status", "created_at"), "BookManage", List.of("图书", "书籍")),
+                new DomainEntity("借阅", "借阅归还", "borrow_record", "借阅记录", List.of("id", "book_id", "reader_id", "borrow_time", "return_time", "status", "created_at"), "BorrowRecord", List.of("借阅", "归还")),
+                new DomainEntity("医生", "医生管理", "doctor", "医生", List.of("id", "name", "department", "title", "phone", "status", "created_at"), "DoctorManage", List.of("医生")),
+                new DomainEntity("患者", "患者管理", "patient", "患者", List.of("id", "name", "phone", "gender", "id_card", "status", "created_at"), "PatientManage", List.of("患者", "病人")),
+                new DomainEntity("预约", "预约管理", "appointment", "预约", List.of("id", "user_id", "resource_id", "appointment_time", "audit_status", "status", "created_at"), "AppointmentManage", List.of("预约", "挂号", "预订")),
+                new DomainEntity("商品", "商品管理", "product", "商品", List.of("id", "name", "category", "price", "stock", "status", "created_at"), "ProductManage", List.of("商品")),
+                new DomainEntity("订单", "订单管理", "order_info", "订单", List.of("id", "order_no", "user_id", "total_amount", "pay_status", "status", "created_at"), "OrderManage", List.of("订单")),
+                new DomainEntity("宿舍", "宿舍管理", "dormitory", "宿舍", List.of("id", "building", "room_no", "capacity", "used_count", "status", "created_at"), "DormitoryManage", List.of("宿舍", "寝室", "公寓")),
+                new DomainEntity("报修", "报修管理", "repair_order", "报修工单", List.of("id", "user_id", "target_location", "description", "handler_id", "status", "created_at"), "RepairManage", List.of("报修", "维修")),
+                new DomainEntity("公告", "系统公告", "system_notice", "系统公告", List.of("id", "title", "content", "publisher_id", "publish_time", "status", "created_at"), "NoticeManage", List.of("公告", "通知"))
+        );
+    }
+
+    private static List<DomainEntity> distinctEntities(List<DomainEntity> entities) {
+        List<DomainEntity> result = new ArrayList<>();
+        for (DomainEntity entity : entities) {
+            if (result.stream().noneMatch(item -> item.table().equals(entity.table()))) result.add(entity);
+        }
+        return result;
+    }
+
+    private static List<TablePlan> domainTables(List<DomainEntity> entities, String domain) {
+        return entities.stream().map(entity -> new TablePlan(entity.table(), entity.comment(), entity.fields())).toList();
+    }
+
+    private static List<String> domainPages(List<DomainEntity> entities) {
+        List<String> pages = new ArrayList<>(List.of("Login", "Dashboard"));
+        pages.addAll(entities.stream()
+                .map(DomainEntity::page)
+                .filter(page -> !page.equals("OperationLog"))
+                .toList());
+        pages.add("Statistics");
+        return pages.stream().distinct().toList();
+    }
+
+    private static List<String> domainApis(List<DomainEntity> entities, List<TablePlan> tables) {
+        List<String> apis = new ArrayList<>();
+        apis.add("/api/auth - 登录、退出、权限校验接口");
+        for (DomainEntity entity : entities) {
+            if (!"operation_log".equals(entity.table())) {
+                apis.add("/api/" + entity.table().replace("_", "-") + " - " + entity.comment() + "接口");
+            }
+        }
+        apis.add("/api/statistics - 数据统计接口");
+        return apis.stream().distinct().toList();
+    }
+
+    private static List<String> mergeDistinct(List<String> first, List<String> second) {
+        List<String> values = new ArrayList<>();
+        if (first != null) values.addAll(first);
+        if (second != null) values.addAll(second);
+        return values.stream().filter(value -> value != null && !value.isBlank()).distinct().toList();
+    }
+
+    private static List<String> prepend(List<String> values, String value) {
+        List<String> result = new ArrayList<>();
+        result.add(value);
+        result.addAll(values);
+        return result.stream().distinct().toList();
+    }
+
+    private static List<String> append(List<String> values, String value) {
+        List<String> result = new ArrayList<>(values);
+        result.add(value);
+        return result.stream().distinct().toList();
     }
 
     private ComputerProjectPlan generatePlanWithMatrix(ComputerGenerationJob job) {
@@ -479,7 +529,7 @@ public class ComputerGeneratorService {
 
                 必须主动补全合理需求，不能返回信息不足。不要把所有项目都写成学生管理系统。
                 必须先从任务书中提取业务名词，再生成数据库表、后端类名、前端页面名。
-                表名和模块名必须体现具体业务领域，例如学工系统应包含 student_profile、teacher_profile、exercise、answer_record、ai_chat_session 等。
+                表名和模块名必须体现任务书中的具体业务实体，先抽取领域模型，再规划表、类、页面和接口。
                 禁止使用 business_record、business_audit、business_notice、record、audit 这类万能泛化模块替代真实业务模块。
                 每个项目生成出来的文件名、表名、页面名必须明显不同。
                 只返回 JSON，不要 Markdown，不要解释。
@@ -1743,6 +1793,8 @@ public class ComputerGeneratorService {
                                        List<TablePlan> tables, List<String> pages, List<String> apis,
                                        List<String> paperOutline) {}
     private record TablePlan(String name, String comment, List<String> fields) {}
+    private record DomainEntity(String name, String module, String table, String comment, List<String> fields,
+                                String page, List<String> keywords) {}
     private record TechProfile(String projectType, String language, String backendStack, String frontendStack,
                                String databaseType, boolean needMiniprogram, boolean needDesktop,
                                boolean needDataAnalysis, String displayStack) {}
