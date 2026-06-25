@@ -321,10 +321,14 @@ public class ComputerGeneratorService {
         updateStage(job, 0, "RUNNING", "");
         ComputerProjectPlan matrixPlan = generatePlanWithMatrix(job);
         if (matrixPlan != null) {
+            matrixPlan = normalizeDomainPlan(job, matrixPlan);
             updateStage(job, 1, "RUNNING", "");
             return matrixPlan;
         }
         String text = (job.getTitle() + "\n" + defaultText(job.getInputText(), "")).toLowerCase(Locale.ROOT);
+        if (isSmartStudentAffairs(text)) {
+            return smartStudentAffairsPlan(job.getTitle());
+        }
         String domain = "通用业务管理";
         List<String> modules = new ArrayList<>(List.of("用户认证", "权限管理", "首页仪表盘", "消息中心", "个人中心"));
         List<String> roles = new ArrayList<>(List.of("管理员", "普通用户"));
@@ -358,17 +362,91 @@ public class ComputerGeneratorService {
             modules.addAll(List.of("业务档案", "流程审批", "数据统计", "文件管理", "系统配置"));
         }
         String base = domainSlug(domain);
-        List<TablePlan> tables = List.of(
-                new TablePlan("sys_user", "系统用户", List.of("id", "username", "password_hash", "role", "phone", "status", "created_at")),
-                new TablePlan(base + "_record", domain + "核心记录", List.of("id", "name", "code", "owner_id", "status", "remark", "created_at")),
-                new TablePlan(base + "_audit", domain + "流程记录", List.of("id", "record_id", "action", "operator_id", "result", "created_at")),
-                new TablePlan(base + "_notice", domain + "消息通知", List.of("id", "title", "content", "receiver_id", "read_flag", "created_at")),
-                new TablePlan("system_setup", "系统初始化配置", List.of("id", "setup_key", "setup_value", "status", "created_at"))
-        );
+        List<TablePlan> tables = genericTables(base, domain);
         List<String> apis = modules.stream().map(module -> "/api/" + safeSlug(module) + " - CRUD、分页查询、统计接口").toList();
-        List<String> pages = List.of("登录页", "首页仪表盘", "用户管理", "核心业务页", "数据统计页", "消息中心", "个人中心");
+        List<String> pages = pagesFromModules(modules, tables);
         List<String> paperOutline = defaultPaperOutline();
         return new ComputerProjectPlan(job.getTitle(), domain, modules, roles.stream().distinct().toList(), tables, pages, apis, paperOutline);
+    }
+
+    private ComputerProjectPlan normalizeDomainPlan(ComputerGenerationJob job, ComputerProjectPlan plan) {
+        String text = (job.getTitle() + "\n" + defaultText(job.getInputText(), "") + "\n" + plan.domain() + "\n" + plan.modules()).toLowerCase(Locale.ROOT);
+        if (isSmartStudentAffairs(text) || usesGenericBusinessTables(plan)) {
+            if (isSmartStudentAffairs(text)) return smartStudentAffairsPlan(defaultText(plan.title(), job.getTitle()));
+        }
+        return plan;
+    }
+
+    private static boolean isSmartStudentAffairs(String text) {
+        return containsAny(text, "学工", "高校智能", "习题", "答题", "错题", "ai聊天", "大模型", "心理分析", "学生工作");
+    }
+
+    private static boolean usesGenericBusinessTables(ComputerProjectPlan plan) {
+        return plan.tables().stream().anyMatch(table -> table.name().matches("(?i).*(business_record|business_audit|business_notice).*"));
+    }
+
+    private static ComputerProjectPlan smartStudentAffairsPlan(String title) {
+        List<String> modules = List.of(
+                "用户认证与权限管理", "学生信息管理", "教师信息管理", "习题管理", "习题发布", "学生答题",
+                "答题记录", "AI错题分析", "AI聊天", "心理分析", "聊天记录", "系统公告", "数据统计", "操作日志"
+        );
+        List<String> roles = List.of("管理员", "教师", "学生");
+        List<TablePlan> tables = List.of(
+                new TablePlan("sys_user", "系统用户", List.of("id", "username", "password_hash", "role", "phone", "status", "created_at")),
+                new TablePlan("student_profile", "学生信息", List.of("id", "user_id", "student_no", "college", "major", "grade", "status", "created_at")),
+                new TablePlan("teacher_profile", "教师信息", List.of("id", "user_id", "teacher_no", "college", "title", "status", "created_at")),
+                new TablePlan("exercise", "习题", List.of("id", "title", "content", "answer", "difficulty", "creator_id", "status", "created_at")),
+                new TablePlan("exercise_publish", "习题发布", List.of("id", "exercise_id", "teacher_id", "target_class", "start_time", "end_time", "status", "created_at")),
+                new TablePlan("answer_record", "答题记录", List.of("id", "exercise_id", "student_id", "answer_content", "score", "is_correct", "status", "created_at")),
+                new TablePlan("wrong_question_analysis", "AI错题分析", List.of("id", "student_id", "answer_record_id", "analysis_result", "suggestion", "status", "created_at")),
+                new TablePlan("ai_chat_session", "AI聊天会话", List.of("id", "user_id", "session_title", "scene_type", "safety_notice", "status", "created_at")),
+                new TablePlan("ai_chat_message", "AI聊天消息", List.of("id", "session_id", "sender_type", "message_content", "safety_level", "status", "created_at")),
+                new TablePlan("psychological_analysis", "心理辅助分析", List.of("id", "student_id", "source_text", "analysis_result", "risk_level", "suggestion", "status", "created_at")),
+                new TablePlan("system_notice", "系统公告", List.of("id", "title", "content", "publisher_id", "publish_time", "status", "created_at")),
+                new TablePlan("operation_log", "操作日志", List.of("id", "user_id", "operation", "target_type", "target_id", "ip_address", "status", "created_at"))
+        );
+        List<String> pages = List.of(
+                "Login", "Dashboard", "StudentManage", "TeacherManage", "ExerciseManage", "ExercisePublish",
+                "AnswerPractice", "AnswerRecord", "WrongQuestionAnalysis", "AiChat", "PsychologicalAnalysis",
+                "NoticeManage", "Statistics", "UserManage"
+        );
+        List<String> apis = List.of(
+                "/api/auth - 登录与权限接口",
+                "/api/students - 学生信息接口",
+                "/api/teachers - 教师信息接口",
+                "/api/exercises - 习题管理接口",
+                "/api/exercise-publishes - 习题发布接口",
+                "/api/answer-records - 学生答题与答题记录接口",
+                "/api/wrong-question-analyses - AI错题分析接口",
+                "/api/ai-chat - AI聊天接口",
+                "/api/psychological-analyses - 心理辅助分析接口",
+                "/api/notices - 系统公告接口",
+                "/api/statistics - 数据统计接口"
+        );
+        return new ComputerProjectPlan(defaultText(title, "基于大模型的高校智能学工系统的设计与实现"), "高校智能学工系统",
+                modules, roles, tables, pages, apis, defaultPaperOutline());
+    }
+
+    private static List<TablePlan> genericTables(String base, String domain) {
+        String safeBase = "business".equals(base) ? "workflow" : base;
+        return List.of(
+                new TablePlan("sys_user", "系统用户", List.of("id", "username", "password_hash", "role", "phone", "status", "created_at")),
+                new TablePlan(safeBase + "_item", domain + "业务事项", List.of("id", "name", "code", "owner_id", "status", "remark", "created_at")),
+                new TablePlan(safeBase + "_process", domain + "流程节点", List.of("id", "item_id", "action", "operator_id", "result", "created_at")),
+                new TablePlan("system_notice", domain + "系统公告", List.of("id", "title", "content", "receiver_id", "read_flag", "created_at")),
+                new TablePlan("operation_log", "操作日志", List.of("id", "user_id", "operation", "target_type", "target_id", "status", "created_at"))
+        );
+    }
+
+    private static List<String> pagesFromModules(List<String> modules, List<TablePlan> tables) {
+        List<String> pages = new ArrayList<>(List.of("Login", "Dashboard", "UserManage"));
+        for (TablePlan table : tables) {
+            if (!"sys_user".equals(table.name()) && !"operation_log".equals(table.name())) {
+                pages.add(className(table.name()) + "Manage");
+            }
+        }
+        pages.add("Statistics");
+        return pages.stream().distinct().toList();
     }
 
     private ComputerProjectPlan generatePlanWithMatrix(ComputerGenerationJob job) {
@@ -400,6 +478,10 @@ public class ComputerGeneratorService {
                 管理员账户设计必须为“首次启动时创建管理员账户”或“系统首次运行时要求用户设置密码”。
 
                 必须主动补全合理需求，不能返回信息不足。不要把所有项目都写成学生管理系统。
+                必须先从任务书中提取业务名词，再生成数据库表、后端类名、前端页面名。
+                表名和模块名必须体现具体业务领域，例如学工系统应包含 student_profile、teacher_profile、exercise、answer_record、ai_chat_session 等。
+                禁止使用 business_record、business_audit、business_notice、record、audit 这类万能泛化模块替代真实业务模块。
+                每个项目生成出来的文件名、表名、页面名必须明显不同。
                 只返回 JSON，不要 Markdown，不要解释。
                 JSON 结构：
                 {
@@ -672,15 +754,15 @@ public class ComputerGeneratorService {
 
     private ComputerProjectPlan analyzeForBackground(ComputerGenerationJob job) {
         ComputerProjectPlan matrixPlan = generatePlanWithMatrix(job);
-        if (matrixPlan != null) return matrixPlan;
+        if (matrixPlan != null) return normalizeDomainPlan(job, matrixPlan);
         String type = recommendProjectType(new ComputerProjectPlan(job.getTitle(), defaultText(job.getProjectType(), "通用业务管理"), List.of(), List.of(), List.of(), List.of(), List.of(), List.of()), job.getInputText());
         return planFromConfig(job, new ComputerGenerationConfig(job.getTitle(), type, job.getTechStack(),
                 List.of("管理员", "普通用户"), null, null, null, null, false, false, false,
                 List.of("用户认证", "首页仪表盘", "核心业务管理", "数据统计"),
                 List.of(new TablePlanVO("sys_user", "系统用户", List.of("id", "username", "password_hash", "role", "status", "created_at")),
-                        new TablePlanVO("business_record", "业务记录", List.of("id", "name", "code", "status", "remark", "created_at"))),
+                        new TablePlanVO("workflow_item", "流程事项", List.of("id", "name", "code", "status", "remark", "created_at"))),
                 List.of("登录页", "首页仪表盘", "核心业务页", "数据统计页", "用户管理页"),
-                List.of("/api/users - 用户管理接口", "/api/business-records - 业务记录接口"),
+                List.of("/api/users - 用户管理接口", "/api/workflow-items - 流程事项接口"),
                 defaultPaperOutline(), true, true, true));
     }
 
@@ -764,6 +846,12 @@ public class ComputerGeneratorService {
         priority = addFile(queue, "backend/src/main/java/com/dropai/generated/config/WebConfig.java", "后端生成", "Web与跨域配置", List.of(), priority);
         priority = addFile(queue, "backend/src/main/java/com/dropai/generated/config/CorsConfig.java", "后端生成", "跨域配置", List.of(), priority);
         priority = addFile(queue, "backend/src/main/java/com/dropai/generated/config/MyBatisPlusConfig.java", "后端生成", "MyBatis-Plus配置", List.of(), priority);
+        if (hasAiModules(plan)) {
+            priority = addFile(queue, "backend/src/main/java/com/dropai/generated/config/AiModelConfig.java", "后端生成", "大模型配置，API Key从环境变量读取", List.of("backend/src/main/resources/application.yml"), priority);
+            priority = addFile(queue, "backend/src/main/java/com/dropai/generated/service/AiAnalysisService.java", "后端生成", "AI分析服务接口", List.of("backend/src/main/java/com/dropai/generated/config/AiModelConfig.java"), priority);
+            priority = addFile(queue, "backend/src/main/java/com/dropai/generated/service/impl/AiAnalysisServiceImpl.java", "后端生成", "AI错题与心理辅助分析实现", List.of("backend/src/main/java/com/dropai/generated/service/AiAnalysisService.java"), priority);
+            priority = addFile(queue, "backend/src/main/java/com/dropai/generated/controller/AiChatController.java", "后端生成", "AI聊天接口与内容安全提示", List.of("backend/src/main/java/com/dropai/generated/service/AiAnalysisService.java"), priority);
+        }
         for (TablePlan table : ensureSystemSetupTable(plan.tables())) {
             String name = className(table.name());
             priority = addFile(queue, "backend/src/main/java/com/dropai/generated/entity/" + name + ".java", "后端生成", table.comment() + "实体类", List.of("sql/schema.sql"), priority);
@@ -791,7 +879,14 @@ public class ComputerGeneratorService {
         priority = addFile(queue, "frontend/src/views/Business.vue", "前端生成", "核心业务管理页", List.of("frontend/src/api/request.js"), priority);
         priority = addFile(queue, "frontend/src/views/Statistics.vue", "前端生成", "数据统计页", List.of("frontend/src/components/DataCard.vue"), priority);
         priority = addFile(queue, "frontend/src/views/UserManage.vue", "前端生成", "用户管理页", List.of("frontend/src/api/request.js"), priority);
+        for (String page : plan.pages()) {
+            String component = pageComponentName(page);
+            if (!List.of("Login", "Dashboard", "Statistics", "UserManage").contains(component)) {
+                priority = addFile(queue, "frontend/src/views/" + component + ".vue", "前端生成", page + "页面", List.of("frontend/src/api/request.js"), priority);
+            }
+        }
         for (TablePlan table : plan.tables()) {
+            if (hasPageForTable(plan.pages(), table.name())) continue;
             priority = addFile(queue, "frontend/src/views/" + className(table.name()) + "Manage.vue", "前端生成", table.comment() + "独立管理页", List.of("frontend/src/api/" + table.name() + ".js"), priority);
         }
         priority = addFile(queue, "frontend/src/App.vue", "前端生成", "根组件", List.of("frontend/src/router/index.js"), priority);
@@ -804,6 +899,12 @@ public class ComputerGeneratorService {
         priority = addFile(queue, "backend/src/main/java/com/dropai/generated/GeneratedApplication.java", "后端生成", "SpringBoot启动类", List.of("backend/pom.xml"), priority);
         priority = addFile(queue, "backend/src/main/java/com/dropai/generated/common/Result.java", "后端生成", "统一响应对象", List.of(), priority);
         priority = addFile(queue, "backend/src/main/java/com/dropai/generated/config/WebConfig.java", "后端生成", "Web与跨域配置", List.of(), priority);
+        if (hasAiModules(plan)) {
+            priority = addFile(queue, "backend/src/main/java/com/dropai/generated/config/AiModelConfig.java", "后端生成", "大模型配置，API Key从环境变量读取", List.of("backend/src/main/resources/application.yml"), priority);
+            priority = addFile(queue, "backend/src/main/java/com/dropai/generated/service/AiAnalysisService.java", "后端生成", "AI分析服务接口", List.of("backend/src/main/java/com/dropai/generated/config/AiModelConfig.java"), priority);
+            priority = addFile(queue, "backend/src/main/java/com/dropai/generated/service/impl/AiAnalysisServiceImpl.java", "后端生成", "AI错题与心理辅助分析实现", List.of("backend/src/main/java/com/dropai/generated/service/AiAnalysisService.java"), priority);
+            priority = addFile(queue, "backend/src/main/java/com/dropai/generated/controller/AiChatController.java", "后端生成", "AI聊天接口与内容安全提示", List.of("backend/src/main/java/com/dropai/generated/service/AiAnalysisService.java"), priority);
+        }
         for (TablePlan table : ensureSystemSetupTable(plan.tables())) {
             String name = className(table.name());
             priority = addFile(queue, "backend/src/main/java/com/dropai/generated/entity/" + name + ".java", "后端生成", table.comment() + "实体类", List.of("sql/schema.sql"), priority);
@@ -897,6 +998,7 @@ public class ComputerGeneratorService {
     }
 
     private int addFile(List<FilePlan> queue, String path, String stage, String responsibility, List<String> dependsOn, int priority) {
+        if (queue.stream().anyMatch(file -> file.path().equals(path))) return priority;
         queue.add(new FilePlan(path, fileType(path), responsibility, dependsOn, priority, stage));
         return priority + 1;
     }
@@ -954,7 +1056,7 @@ public class ComputerGeneratorService {
         if ("sql/schema.sql".equals(path)) return schemaSql(plan);
         if ("sql/data.sql".equals(path)) return "INSERT INTO system_setup(setup_key,setup_value,status) VALUES ('admin_password_policy','FIRST_RUN_SET_PASSWORD','PENDING');\n";
         if ("sql/init.sql".equals(path)) return "SOURCE schema.sql;\nSOURCE data.sql;\n";
-        if (path.endsWith("application.yml")) return "server:\n  port: 8080\nspring:\n  datasource:\n    url: jdbc:mysql://localhost:3306/dropai_generated?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai\n    username: root\n    password: ${DB_PASSWORD:}\n  jackson:\n    time-zone: Asia/Shanghai\nmybatis-plus:\n  mapper-locations: classpath*:mapper/*.xml\n";
+        if (path.endsWith("application.yml")) return "server:\n  port: 8080\nspring:\n  datasource:\n    url: jdbc:mysql://localhost:3306/dropai_generated?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai\n    username: root\n    password: ${DB_PASSWORD:}\n  jackson:\n    time-zone: Asia/Shanghai\nmybatis-plus:\n  mapper-locations: classpath*:mapper/*.xml\nai:\n  provider: openai-compatible\n  api-key: ${OPENAI_API_KEY:}\n  safety-notice: AI分析仅用于学习辅助与心理状态参考，不替代专业诊断或治疗建议。\n";
         if (path.endsWith("Result.java")) return "package com.dropai.generated.common;\n\npublic record Result<T>(int code, String message, T data) {\n    public static <T> Result<T> ok(T data) { return new Result<>(200, \"success\", data); }\n    public static <T> Result<T> fail(String message) { return new Result<>(500, message, null); }\n}\n";
         if (path.endsWith("PageResult.java")) return "package com.dropai.generated.common;\n\nimport java.util.List;\n\npublic record PageResult<T>(long total, List<T> records) {}\n";
         if (path.endsWith("BusinessException.java")) return "package com.dropai.generated.common;\n\npublic class BusinessException extends RuntimeException {\n    public BusinessException(String message) { super(message); }\n}\n";
@@ -962,6 +1064,10 @@ public class ComputerGeneratorService {
         if (path.endsWith("PageQuery.java")) return "package com.dropai.generated.dto;\n\npublic record PageQuery(int pageNum, int pageSize, String keyword) {}\n";
         if (path.endsWith("CorsConfig.java")) return "package com.dropai.generated.config;\n\nimport org.springframework.context.annotation.Configuration;\n\n@Configuration\npublic class CorsConfig {}\n";
         if (path.endsWith("MyBatisPlusConfig.java")) return "package com.dropai.generated.config;\n\nimport org.springframework.context.annotation.Configuration;\n\n@Configuration\npublic class MyBatisPlusConfig {}\n";
+        if (path.endsWith("AiModelConfig.java")) return aiModelConfig();
+        if (path.endsWith("AiAnalysisService.java")) return "package com.dropai.generated.service;\n\npublic interface AiAnalysisService {\n    String analyzeWrongQuestion(String question, String answer);\n    String analyzePsychologicalState(String text);\n    String chat(String message);\n}\n";
+        if (path.endsWith("AiAnalysisServiceImpl.java")) return aiAnalysisServiceImpl();
+        if (path.endsWith("AiChatController.java")) return aiChatController();
         if (path.endsWith("Mapper.xml")) return mapperXml(path);
         if (path.endsWith("pom.xml")) return backendPom();
         if (path.endsWith("GeneratedApplication.java")) return "package com.dropai.generated;\n\nimport org.springframework.boot.SpringApplication;\nimport org.springframework.boot.autoconfigure.SpringBootApplication;\n\n@SpringBootApplication\npublic class GeneratedApplication {\n    public static void main(String[] args) { SpringApplication.run(GeneratedApplication.class, args); }\n}\n";
@@ -1038,7 +1144,7 @@ public class ComputerGeneratorService {
         if (path.endsWith(".vue")) return content.contains("<template") && content.contains("<script");
         if (path.contains("/controller/")) return content.contains("@RestController") && content.contains("@RequestMapping");
         if (path.contains("/service/")) return content.contains("list") || content.contains("save") || content.contains("Service");
-        if (path.contains("/entity/")) return content.contains("class ") && plan.tables().stream().anyMatch(table -> content.contains(className(table.name())));
+        if (path.contains("/entity/")) return content.contains("class ") && ensureSystemSetupTable(plan.tables()).stream().anyMatch(table -> content.contains(className(table.name())));
         if (path.endsWith(".java")) return content.contains("package com.dropai.generated");
         if (path.endsWith(".py")) return content.contains("def ") || content.contains("class ") || content.contains("import ");
         if (path.endsWith("requirements.txt")) return content.contains("\n");
@@ -1112,6 +1218,18 @@ public class ComputerGeneratorService {
         String name = path.substring(path.lastIndexOf('/') + 1).replace("Controller.java", "");
         String slug = name.replaceAll("([a-z])([A-Z])", "$1-$2").toLowerCase(Locale.ROOT);
         return "package com.dropai.generated.controller;\n\nimport com.dropai.generated.entity." + name + ";\nimport com.dropai.generated.service." + name + "Service;\nimport org.springframework.web.bind.annotation.*;\nimport java.util.*;\n\n@RestController\n@RequestMapping(\"/api/" + slug + "\")\npublic class " + name + "Controller {\n    private final " + name + "Service service;\n    public " + name + "Controller(" + name + "Service service){ this.service = service; }\n    @GetMapping public List<" + name + "> list(){ return service.list(); }\n    @PostMapping public " + name + " save(@RequestBody " + name + " entity){ return service.save(entity); }\n}\n";
+    }
+
+    private String aiModelConfig() {
+        return "package com.dropai.generated.config;\n\nimport org.springframework.beans.factory.annotation.Value;\nimport org.springframework.context.annotation.Configuration;\n\n@Configuration\npublic class AiModelConfig {\n    @Value(\"${ai.api-key:${OPENAI_API_KEY:}}\")\n    private String apiKey;\n\n    @Value(\"${ai.safety-notice:AI分析仅用于学习辅助与心理状态参考，不替代专业诊断或治疗建议。}\")\n    private String safetyNotice;\n\n    public String getApiKey() { return apiKey; }\n    public String getSafetyNotice() { return safetyNotice; }\n}\n";
+    }
+
+    private String aiAnalysisServiceImpl() {
+        return "package com.dropai.generated.service.impl;\n\nimport com.dropai.generated.config.AiModelConfig;\nimport com.dropai.generated.service.AiAnalysisService;\nimport org.springframework.stereotype.Service;\n\n@Service\npublic class AiAnalysisServiceImpl implements AiAnalysisService {\n    private final AiModelConfig config;\n    public AiAnalysisServiceImpl(AiModelConfig config) { this.config = config; }\n\n    @Override\n    public String analyzeWrongQuestion(String question, String answer) {\n        return config.getSafetyNotice() + \" 当前结果仅帮助学生理解错因、归纳知识点并给出练习建议。\";\n    }\n\n    @Override\n    public String analyzePsychologicalState(String text) {\n        return config.getSafetyNotice() + \" 本功能只做学习压力和心理状态辅助观察，不输出医学诊断结论。\";\n    }\n\n    @Override\n    public String chat(String message) {\n        return config.getSafetyNotice() + \" 我会围绕学习规划、习题讲解和校园服务提供合规帮助。\";\n    }\n}\n";
+    }
+
+    private String aiChatController() {
+        return "package com.dropai.generated.controller;\n\nimport com.dropai.generated.service.AiAnalysisService;\nimport org.springframework.web.bind.annotation.*;\nimport java.util.Map;\n\n@RestController\n@RequestMapping(\"/api/ai-chat\")\npublic class AiChatController {\n    private final AiAnalysisService aiAnalysisService;\n    public AiChatController(AiAnalysisService aiAnalysisService) { this.aiAnalysisService = aiAnalysisService; }\n\n    @PostMapping(\"/chat\")\n    public Map<String, String> chat(@RequestBody Map<String, String> body) {\n        return Map.of(\"reply\", aiAnalysisService.chat(body.getOrDefault(\"message\", \"\")));\n    }\n\n    @PostMapping(\"/wrong-question-analysis\")\n    public Map<String, String> wrongQuestion(@RequestBody Map<String, String> body) {\n        return Map.of(\"result\", aiAnalysisService.analyzeWrongQuestion(body.getOrDefault(\"question\", \"\"), body.getOrDefault(\"answer\", \"\")));\n    }\n\n    @PostMapping(\"/psychological-analysis\")\n    public Map<String, String> psychological(@RequestBody Map<String, String> body) {\n        return Map.of(\"result\", aiAnalysisService.analyzePsychologicalState(body.getOrDefault(\"text\", \"\")));\n    }\n}\n";
     }
 
     private String mapperXml(String path) {
@@ -1489,6 +1607,52 @@ public class ComputerGeneratorService {
 
     private static String toJsArray(List<String> values) {
         return "[" + String.join(",", values.stream().map(value -> "'" + value.replace("'", "") + "'").toList()) + "]";
+    }
+
+    private static boolean hasAiModules(ComputerProjectPlan plan) {
+        String text = (plan.domain() + " " + plan.modules() + " " + plan.tables()).toLowerCase(Locale.ROOT);
+        return containsAny(text, "ai", "大模型", "错题", "聊天", "心理");
+    }
+
+    private static boolean hasPageForTable(List<String> pages, String tableName) {
+        String expected = pageNameForTable(tableName);
+        return pages.stream().map(ComputerGeneratorService::pageComponentName).anyMatch(expected::equals);
+    }
+
+    private static String pageNameForTable(String tableName) {
+        return switch (tableName) {
+            case "student_profile" -> "StudentManage";
+            case "teacher_profile" -> "TeacherManage";
+            case "exercise" -> "ExerciseManage";
+            case "exercise_publish" -> "ExercisePublish";
+            case "answer_record" -> "AnswerRecord";
+            case "wrong_question_analysis" -> "WrongQuestionAnalysis";
+            case "ai_chat_session", "ai_chat_message" -> "AiChat";
+            case "psychological_analysis" -> "PsychologicalAnalysis";
+            case "system_notice" -> "NoticeManage";
+            case "sys_user" -> "UserManage";
+            default -> className(tableName) + "Manage";
+        };
+    }
+
+    private static String pageComponentName(String page) {
+        String value = defaultText(page, "Business").trim();
+        if (value.matches("[A-Z][A-Za-z0-9]*")) return value;
+        if (containsAny(value, "登录")) return "Login";
+        if (containsAny(value, "仪表盘", "首页")) return "Dashboard";
+        if (containsAny(value, "学生")) return "StudentManage";
+        if (containsAny(value, "教师")) return "TeacherManage";
+        if (containsAny(value, "习题发布")) return "ExercisePublish";
+        if (containsAny(value, "习题")) return "ExerciseManage";
+        if (containsAny(value, "学生答题", "答题练习")) return "AnswerPractice";
+        if (containsAny(value, "答题记录")) return "AnswerRecord";
+        if (containsAny(value, "错题")) return "WrongQuestionAnalysis";
+        if (containsAny(value, "AI聊天", "聊天")) return "AiChat";
+        if (containsAny(value, "心理")) return "PsychologicalAnalysis";
+        if (containsAny(value, "公告", "通知")) return "NoticeManage";
+        if (containsAny(value, "统计")) return "Statistics";
+        if (containsAny(value, "用户", "权限")) return "UserManage";
+        return className(value.replace("页面", "").replace("管理", "")) + "Manage";
     }
 
     private static String fileType(String path) {
