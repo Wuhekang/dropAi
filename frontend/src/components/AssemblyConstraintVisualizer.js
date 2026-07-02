@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 
 function textOf(part = {}) {
-  return `${part.partName || ''} ${part.name || ''} ${part.category || ''} ${part.type || ''}`.toLowerCase()
+  return `${part.partName || ''} ${part.name || ''} ${part.category || ''} ${part.type || ''} ${part.geometry || ''}`.toLowerCase()
 }
 
 function clamp(value, min, max) {
@@ -38,9 +38,9 @@ function extractAssemblyEnvelope(project = {}, dims) {
     return Number.isFinite(value) ? value : undefined
   }
   return {
-    x: get(/总长|长度|整机长/) || Number(project.totalLength) || Number(project.length) || dims.length * 1000,
-    y: get(/总高|高度|整机高/) || Number(project.totalHeight) || Number(project.height) || dims.height * 1000,
-    z: get(/总宽|宽度|整机宽/) || Number(project.totalWidth) || Number(project.width) || dims.width * 1000
+    x: get(/总长|整机长|长度/) || Number(project.totalLength) || Number(project.length) || dims.length * 1000,
+    y: get(/总高|整机高|高度/) || Number(project.totalHeight) || Number(project.height) || dims.height * 1000,
+    z: get(/总宽|整机宽|宽度/) || Number(project.totalWidth) || Number(project.width) || dims.width * 1000
   }
 }
 
@@ -50,28 +50,29 @@ function normalizeSize(part = {}, envelope, dims) {
   const sy = size.y ?? size.height ?? part.height
   const sz = size.z ?? size.width ?? part.depth
   const name = textOf(part)
-  let fallback = { x: dims.length * 0.22, y: dims.height * 0.22, z: dims.width * 0.22 }
-  if (/履带/.test(name)) fallback = { x: dims.length * 0.72, y: dims.height * 0.28, z: dims.width * 0.16 }
-  if (/机架|车架/.test(name)) fallback = { x: dims.length * 0.72, y: dims.height * 0.2, z: dims.width * 0.58 }
-  if (/外壳|防护/.test(name)) fallback = { x: dims.length * 0.48, y: dims.height * 0.22, z: dims.width * 0.42 }
-  if (/磁|吸附/.test(name)) fallback = { x: dims.length * 0.24, y: dims.height * 0.1, z: dims.width * 0.16 }
-  if (/刷|清扫/.test(name)) fallback = { x: dims.length * 0.18, y: dims.height * 0.3, z: dims.height * 0.3 }
-  if (/检测|传感器/.test(name)) fallback = { x: dims.length * 0.24, y: dims.height * 0.24, z: dims.width * 0.22 }
-  if (/电机/.test(name)) fallback = { x: dims.length * 0.18, y: dims.height * 0.18, z: dims.height * 0.18 }
-  if (/减速/.test(name)) fallback = { x: dims.length * 0.17, y: dims.height * 0.2, z: dims.width * 0.18 }
+  let fallback = { x: dims.length * 0.2, y: dims.height * 0.18, z: dims.width * 0.18 }
+  if (/履带|track/.test(name)) fallback = { x: dims.length * 0.68, y: dims.height * 0.24, z: dims.width * 0.13 }
+  if (/机架|车架|frame/.test(name)) fallback = { x: dims.length * 0.66, y: dims.height * 0.16, z: dims.width * 0.5 }
+  if (/外壳|防护|cover|shell/.test(name)) fallback = { x: dims.length * 0.42, y: dims.height * 0.2, z: dims.width * 0.36 }
+  if (/磁|吸附|magnet/.test(name)) fallback = { x: dims.length * 0.22, y: dims.height * 0.08, z: dims.width * 0.14 }
+  if (/刷|清扫|brush/.test(name)) fallback = { x: dims.length * 0.14, y: dims.height * 0.28, z: dims.height * 0.28 }
+  if (/检测|传感|sensor|导轨|滑轨|rail/.test(name)) fallback = { x: dims.length * 0.22, y: dims.height * 0.2, z: dims.width * 0.18 }
+  if (/电机|motor/.test(name)) fallback = { x: dims.length * 0.16, y: dims.height * 0.16, z: dims.height * 0.16 }
+  if (/减速|reducer|gear/.test(name)) fallback = { x: dims.length * 0.15, y: dims.height * 0.18, z: dims.width * 0.16 }
+
   const result = {
     x: Number.isFinite(Number(sx)) ? Math.abs(mmToScene(sx, envelope.x, dims.length)) : fallback.x,
     y: Number.isFinite(Number(sy)) ? Math.abs(mmToScene(sy, envelope.y, dims.height)) : fallback.y,
     z: Number.isFinite(Number(sz)) ? Math.abs(mmToScene(sz, envelope.z, dims.width)) : fallback.z
   }
   return {
-    x: clamp(result.x, 0.08, dims.length * 0.9),
-    y: clamp(result.y, 0.06, dims.height * 0.75),
-    z: clamp(result.z, 0.06, dims.width * 0.9)
+    x: clamp(result.x, 0.08, dims.length * 0.82),
+    y: clamp(result.y, 0.05, dims.height * 0.55),
+    z: clamp(result.z, 0.05, dims.width * 0.72)
   }
 }
 
-function normalizePosition(part = {}, constraint = {}, envelope, dims, index, totals) {
+function normalizePosition(part = {}, constraint = {}, envelope, dims, index) {
   const source = part.position || constraint.position || {}
   let x = Number.isFinite(Number(source.x)) ? mmToScene(source.x, envelope.x, dims.length) : 0
   let y = Number.isFinite(Number(source.z)) ? mmToScene(source.z, envelope.y, dims.height) : 0
@@ -82,50 +83,47 @@ function normalizePosition(part = {}, constraint = {}, envelope, dims, index, to
   const plane = `${constraint.symmetryPlane || ''}`.toLowerCase()
 
   if (!part.position && !constraint.position) {
-    if (/机架|车架/.test(text)) [x, y, z] = [0, 0, 0]
-    else if (/左.*履带|left.*track/.test(text)) [x, y, z] = [0, -dims.height * 0.16, -dims.width * 0.44]
-    else if (/右.*履带|right.*track/.test(text)) [x, y, z] = [0, -dims.height * 0.16, dims.width * 0.44]
-    else if (/履带/.test(text)) [x, y, z] = [0, -dims.height * 0.16, index % 2 === 0 ? -dims.width * 0.44 : dims.width * 0.44]
-    else if (/磁|吸附/.test(text)) [x, y, z] = [(-0.24 + (index % 3) * 0.24) * dims.length, -dims.height * 0.36, 0]
-    else if (/刷|清扫/.test(text)) [x, y, z] = [-dims.length * 0.52, -dims.height * 0.02, 0]
-    else if (/检测|传感器/.test(text)) [x, y, z] = [-dims.length * 0.43, dims.height * 0.2, 0]
-    else if (/外壳|防护/.test(text)) [x, y, z] = [dims.length * 0.05, dims.height * 0.23, 0]
-    else if (/电机/.test(text)) [x, y, z] = [dims.length * 0.28, dims.height * 0.03, index % 2 === 0 ? -dims.width * 0.28 : dims.width * 0.28]
-    else if (/减速/.test(text)) [x, y, z] = [dims.length * 0.18, dims.height * 0.02, index % 2 === 0 ? -dims.width * 0.28 : dims.width * 0.28]
-    else if (/驱动轮/.test(text)) [x, y, z] = [dims.length * 0.34, -dims.height * 0.16, index % 2 === 0 ? -dims.width * 0.44 : dims.width * 0.44]
-    else if (/从动轮/.test(text)) [x, y, z] = [-dims.length * 0.34, -dims.height * 0.16, index % 2 === 0 ? -dims.width * 0.44 : dims.width * 0.44]
-    else if (/支重轮|滚轮/.test(text)) [x, y, z] = [(-0.16 + (index % 3) * 0.16) * dims.length, -dims.height * 0.18, index % 2 === 0 ? -dims.width * 0.44 : dims.width * 0.44]
-    else [x, y, z] = [0, dims.height * 0.08, 0]
+    if (/机架|车架|frame/.test(text)) [x, y, z] = [0, 0, 0]
+    else if (/左.*履带|left.*track/.test(text)) [x, y, z] = [0, -dims.height * 0.18, -dims.width * 0.38]
+    else if (/右.*履带|right.*track/.test(text)) [x, y, z] = [0, -dims.height * 0.18, dims.width * 0.38]
+    else if (/履带|track/.test(text)) [x, y, z] = [0, -dims.height * 0.18, index % 2 === 0 ? -dims.width * 0.38 : dims.width * 0.38]
+    else if (/磁|吸附|magnet/.test(text)) [x, y, z] = [(-0.2 + (index % 3) * 0.2) * dims.length, -dims.height * 0.34, 0]
+    else if (/刷|清扫|brush/.test(text)) [x, y, z] = [-dims.length * 0.42, -dims.height * 0.04, 0]
+    else if (/检测|传感|sensor/.test(text)) [x, y, z] = [-dims.length * 0.34, dims.height * 0.18, 0]
+    else if (/外壳|防护|cover|shell/.test(text)) [x, y, z] = [0, dims.height * 0.2, 0]
+    else if (/电机|motor/.test(text)) [x, y, z] = [dims.length * 0.24, dims.height * 0.02, index % 2 === 0 ? -dims.width * 0.22 : dims.width * 0.22]
+    else if (/减速|reducer|gear/.test(text)) [x, y, z] = [dims.length * 0.12, dims.height * 0.02, index % 2 === 0 ? -dims.width * 0.22 : dims.width * 0.22]
+    else if (/驱动轮|drive.*wheel/.test(text)) [x, y, z] = [dims.length * 0.32, -dims.height * 0.18, index % 2 === 0 ? -dims.width * 0.38 : dims.width * 0.38]
+    else if (/从动轮|idler|follower/.test(text)) [x, y, z] = [-dims.length * 0.32, -dims.height * 0.18, index % 2 === 0 ? -dims.width * 0.38 : dims.width * 0.38]
+    else if (/支重轮|滚轮|roller/.test(text)) [x, y, z] = [(-0.14 + (index % 3) * 0.14) * dims.length, -dims.height * 0.2, index % 2 === 0 ? -dims.width * 0.38 : dims.width * 0.38]
+    else [x, y, z] = [0, dims.height * 0.05, 0]
   }
 
-  if (face.includes('bottom') || /底|下/.test(face)) y = Math.min(y, -dims.height * 0.26)
-  if (face.includes('top') || /顶|上/.test(face)) y = Math.max(y, dims.height * 0.22)
-  if (face.includes('front') || /前/.test(face)) x = Math.min(x, -dims.length * 0.36)
-  if (face.includes('rear') || /后/.test(face)) x = Math.max(x, dims.length * 0.28)
-  if (axis.includes('track') || /履带|轮系/.test(axis)) y = Math.min(y, -dims.height * 0.14)
-  if (plane.includes('left') || /左/.test(plane)) z = -Math.abs(z || dims.width * 0.44)
-  if (plane.includes('right') || /右/.test(plane)) z = Math.abs(z || dims.width * 0.44)
+  if (face.includes('bottom') || /底|下/.test(face)) y = Math.min(y, -dims.height * 0.28)
+  if (face.includes('top') || /顶|上/.test(face)) y = Math.max(y, dims.height * 0.18)
+  if (face.includes('front') || /前/.test(face)) x = Math.min(x, -dims.length * 0.32)
+  if (face.includes('rear') || /后/.test(face)) x = Math.max(x, dims.length * 0.25)
+  if (axis.includes('track') || /履带|轮系/.test(axis)) y = Math.min(y, -dims.height * 0.15)
+  if (plane.includes('left') || /左/.test(plane)) z = -Math.abs(z || dims.width * 0.38)
+  if (plane.includes('right') || /右/.test(plane)) z = Math.abs(z || dims.width * 0.38)
 
   const offset = Number(constraint.offsetDistance)
   if (Number.isFinite(offset)) y += mmToScene(offset, envelope.y, dims.height)
 
   return {
-    x: clamp(x, -dims.length * 0.62, dims.length * 0.62),
-    y: clamp(y, -dims.height * 0.46, dims.height * 0.52),
-    z: clamp(z, -dims.width * 0.58, dims.width * 0.58)
+    x: clamp(x, -dims.length * 0.5, dims.length * 0.5),
+    y: clamp(y, -dims.height * 0.42, dims.height * 0.45),
+    z: clamp(z, -dims.width * 0.5, dims.width * 0.5)
   }
 }
 
 function normalizeRotation(part = {}, constraint = {}) {
   const source = part.rotation || constraint.rotation || {}
-  const rx = Number(source.x) || 0
-  const ry = Number(source.y) || 0
-  const rz = Number(source.z) || 0
-  return { x: rx, y: ry, z: rz }
+  return { x: Number(source.x) || 0, y: Number(source.y) || 0, z: Number(source.z) || 0 }
 }
 
 function compareAssemblyOrder(a, b) {
-  const order = ['机架', 'frame', '履带', 'track', '驱动轮', '从动轮', '支重轮', '磁', '吸附', '电机', '减速', '刷', '清扫', '检测', '外壳']
+  const order = ['机架', 'frame', '履带', 'track', '驱动轮', '从动轮', '支重轮', '磁', '吸附', '电机', 'motor', '减速', 'reducer', '刷', '清扫', '检测', 'sensor', '外壳', 'cover']
   const aa = textOf(a)
   const bb = textOf(b)
   const ai = order.findIndex(k => aa.includes(k))
@@ -140,14 +138,13 @@ export function buildAssemblyTransforms(project = {}, dims) {
   const constraints = Array.isArray(project.assemblyConstraints) ? project.assemblyConstraints : []
   const envelope = extractAssemblyEnvelope(project, dims)
   const sorted = [...components].sort(compareAssemblyOrder)
-  const totals = { count: sorted.length }
   return sorted.map((part, index) => {
     const constraint = findConstraint(part, constraints)
     return {
       part,
       constraint,
       size: normalizeSize(part, envelope, dims),
-      position: normalizePosition(part, constraint, envelope, dims, index, totals),
+      position: normalizePosition(part, constraint, envelope, dims, index),
       rotation: normalizeRotation(part, constraint),
       hasConstraint: Boolean(Object.keys(constraint).length || part.position)
     }
@@ -170,20 +167,11 @@ export function applyTransform(object, transform) {
 
 export function addConstraintGuides(group, dims) {
   const centerLine = new THREE.BufferGeometry().setFromPoints([
-    new THREE.Vector3(-dims.length * 0.56, -dims.height * 0.44, 0),
-    new THREE.Vector3(dims.length * 0.56, -dims.height * 0.44, 0)
+    new THREE.Vector3(-dims.length * 0.5, -dims.height * 0.44, 0),
+    new THREE.Vector3(dims.length * 0.5, -dims.height * 0.44, 0)
   ])
-  const line = new THREE.Line(centerLine, new THREE.LineDashedMaterial({ color: 0x60a5fa, dashSize: 0.08, gapSize: 0.04, transparent: true, opacity: 0.6 }))
+  const line = new THREE.Line(centerLine, new THREE.LineDashedMaterial({ color: 0x60a5fa, dashSize: 0.08, gapSize: 0.04, transparent: true, opacity: 0.35 }))
   line.computeLineDistances()
   line.name = '整机长度基准线'
   group.add(line)
-
-  const plane = new THREE.Mesh(
-    new THREE.PlaneGeometry(dims.length * 0.96, dims.height * 0.72),
-    new THREE.MeshBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.04, side: THREE.DoubleSide })
-  )
-  plane.name = '整机对称基准面'
-  plane.rotation.y = Math.PI / 2
-  plane.position.set(0, 0, 0)
-  group.add(plane)
 }

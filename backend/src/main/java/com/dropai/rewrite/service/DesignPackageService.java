@@ -56,6 +56,8 @@ public class DesignPackageService {
         List<Generated> generated = new ArrayList<>();
         generated.add(generateOne("model_3d.json", "application/json", () -> exportEngine.model3d(project)));
         generated.addAll(generateGroup(List.of("assembly.dxf"), () -> drawingEngine.drawAssemblyDrawing(project)));
+        generated.addAll(generateGroup(List.of("cad_preview.svg", "cad_preview.png"), () -> drawingEngine.drawAssemblyPreview(project)));
+        generated.addAll(generateGroup(List.of("preview.svg", "preview.png"), () -> drawingEngine.drawConceptPreview(project)));
         generated.addAll(generateGroup(List.of("part_01.dxf", "part_02.dxf", "part_03.dxf", "part_04.dxf", "part_05.dxf"), () -> drawingEngine.drawPartDrawing(project)));
         generated.add(generateOne("paper.docx", DOCX, () -> paperEngine.generatePaper(project)));
 

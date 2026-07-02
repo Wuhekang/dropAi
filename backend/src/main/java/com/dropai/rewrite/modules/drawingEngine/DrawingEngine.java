@@ -35,6 +35,24 @@ public class DrawingEngine {
         return files;
     }
 
+    public List<DrawingArtifact> drawAssemblyPreview(DesignProject project) {
+        validateDrawingPlan(project);
+        Canvas assembly = assemblyCanvas(project);
+        java.util.ArrayList<DrawingArtifact> files = new java.util.ArrayList<>();
+        files.add(new DrawingArtifact("cad_preview.svg", assembly.svg(false).getBytes(StandardCharsets.UTF_8), "image/svg+xml"));
+        files.add(new DrawingArtifact("cad_preview.png", render(assembly, Color.WHITE, false), "image/png"));
+        return files;
+    }
+
+    public List<DrawingArtifact> drawConceptPreview(DesignProject project) {
+        Canvas concept = conceptRenderGenerator.draw(project);
+        java.util.ArrayList<DrawingArtifact> files = new java.util.ArrayList<>();
+        files.add(new DrawingArtifact("preview.svg", concept.svg(true).getBytes(StandardCharsets.UTF_8), "image/svg+xml"));
+        files.add(new DrawingArtifact("preview.png", render(concept, new Color(243, 247, 251), true), "image/png"));
+        return files;
+    }
+
+
     private Canvas assemblyCanvas(DesignProject project) {
         Canvas canvas = new Canvas(project.getProjectTitle(), "总装图", "ZZ-00");
         DrawingLayoutOptimizer.Layout layout = layoutOptimizer.optimize(project);
