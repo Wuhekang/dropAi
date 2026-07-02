@@ -199,6 +199,8 @@ public class DesignProject {
         private String parentAssembly = "";
         private String mountTo = "";
         private String constraintType = "";
+        private String modelingMethod = "feature_based_parametric";
+        private List<String> featureTree = new ArrayList<>();
         private List<String> mateReferences = new ArrayList<>();
         private Rotation rotation = new Rotation();
 
@@ -226,6 +228,8 @@ public class DesignProject {
         public String getParentAssembly() { return parentAssembly; } public void setParentAssembly(String v) { parentAssembly = v; }
         public String getMountTo() { return mountTo; } public void setMountTo(String v) { mountTo = v; }
         public String getConstraintType() { return constraintType; } public void setConstraintType(String v) { constraintType = v; }
+        public String getModelingMethod() { return modelingMethod; } public void setModelingMethod(String v) { modelingMethod = v; }
+        public List<String> getFeatureTree() { return featureTree; } public void setFeatureTree(List<String> v) { featureTree = safe(v); }
         public List<String> getMateReferences() { return mateReferences; } public void setMateReferences(List<String> v) { mateReferences = safe(v); }
         public Rotation getRotation() { return rotation; } public void setRotation(Rotation v) { rotation = v == null ? new Rotation() : v; }
     }
@@ -321,6 +325,8 @@ public class DesignProject {
         private java.util.Map<String, Object> dimensions = new java.util.LinkedHashMap<>();
         private String generatedBy = "";
         private List<String> geometryFeatures = new ArrayList<>();
+        private List<String> featureTree = new ArrayList<>();
+        private String modelingMethod = "feature_based_parametric";
         private String material = "";
         private String process = "";
         private int quantity = 1;
@@ -344,6 +350,8 @@ public class DesignProject {
         public java.util.Map<String, Object> getDimensions() { return dimensions; } public void setDimensions(java.util.Map<String, Object> v) { dimensions = v == null ? new java.util.LinkedHashMap<>() : new java.util.LinkedHashMap<>(v); }
         public String getGeneratedBy() { return generatedBy; } public void setGeneratedBy(String v) { generatedBy = v; }
         public List<String> getGeometryFeatures() { return geometryFeatures; } public void setGeometryFeatures(List<String> v) { geometryFeatures = safe(v); }
+        public List<String> getFeatureTree() { return featureTree; } public void setFeatureTree(List<String> v) { featureTree = safe(v); }
+        public String getModelingMethod() { return modelingMethod; } public void setModelingMethod(String v) { modelingMethod = v; }
         public String getMaterial() { return material; } public void setMaterial(String v) { material = v; }
         public String getProcess() { return process; } public void setProcess(String v) { process = v; }
         public int getQuantity() { return quantity; } public void setQuantity(int v) { quantity = v; }

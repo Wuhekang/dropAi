@@ -1,6 +1,7 @@
 package com.dropai.rewrite.modules.standardPartSelector;
 
 import com.dropai.rewrite.modules.model.DesignProject;
+import com.dropai.rewrite.modules.parametricStandardPartGeometryGenerator.ParametricStandardPartGeometryGenerator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -18,6 +19,7 @@ public class StandardPartSelector {
 
     private final StandardPartCache cache;
     private final OnlineStandardPartProvider onlineProvider;
+    private final ParametricStandardPartGeometryGenerator featureGenerator = new ParametricStandardPartGeometryGenerator();
 
     public StandardPartSelector(StandardPartCache cache, OnlineStandardPartProvider onlineProvider) {
         this.cache = cache;
@@ -110,6 +112,8 @@ public class StandardPartSelector {
         part.setMaterial("标准件");
         part.setProcess(processDescription(part));
         part.setGeometryFeatures(geometryFeatures(part));
+        part.setFeatureTree(featureGenerator.resolveFeatureTree(part));
+        part.setModelingMethod("feature_based_parametric");
         part.setQuantity(quantity(result.getCategory(), originalName));
         part.setParentStructure(parent);
         return part;

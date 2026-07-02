@@ -27,6 +27,8 @@ public class AssemblyConstraintEngine {
                     function(part), part.getMaterial(), Math.max(1, part.getQuantity()),
                     layout.x(), layout.y(), layout.z(), layout.sx(), layout.sy(), layout.sz(), index < 16);
             component.setGeometry(geometryGenerator.resolveGeometry(part));
+            component.setFeatureTree(geometryGenerator.resolveFeatureTree(part));
+            component.setModelingMethod("feature_based_parametric");
             component.setPartId("P%03d".formatted(index + 1));
             component.setParentAssembly(parentAssembly(part));
             component.setMountTo(layout.mountTo());

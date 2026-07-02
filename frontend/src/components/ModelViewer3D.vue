@@ -24,19 +24,32 @@ function setupScene() {
   scene.background = new THREE.Color(0x0f172a)
   camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100)
   camera.position.set(4.6, 3.2, 5.2)
-  renderer = new THREE.WebGLRenderer({ antialias: true })
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+  renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' })
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2.5))
   renderer.shadowMap.enabled = true
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap
+  renderer.outputColorSpace = THREE.SRGBColorSpace
+  renderer.toneMapping = THREE.ACESFilmicToneMapping
+  renderer.toneMappingExposure = 1.08
   wrap.value.appendChild(renderer.domElement)
   controls = new OrbitControls(camera, renderer.domElement)
   controls.enableDamping = true
-  controls.minDistance = 2.5
-  controls.maxDistance = 12
+  controls.dampingFactor = 0.08
+  controls.screenSpacePanning = true
+  controls.minDistance = 0.02
+  controls.maxDistance = 10000
   scene.add(new THREE.HemisphereLight(0xdbeafe, 0x1e293b, 1.4))
   const key = new THREE.DirectionalLight(0xffffff, 2.4)
   key.position.set(5, 8, 4)
   key.castShadow = true
+  key.shadow.mapSize.width = 2048
+  key.shadow.mapSize.height = 2048
+  key.shadow.camera.near = 0.1
+  key.shadow.camera.far = 60
   scene.add(key)
+  const fill = new THREE.DirectionalLight(0x93c5fd, 0.85)
+  fill.position.set(-4, 3, -5)
+  scene.add(fill)
   const grid = new THREE.GridHelper(8, 16, 0x334155, 0x1e293b)
   grid.position.y = -1
   scene.add(grid)
@@ -58,6 +71,7 @@ function setModel() {
   }
   statusMessage.value = hasModelData(props.project) ? '' : '暂无模型数据，已展示演示模型'
   scene.add(model.value)
+  fitCameraToModel(model.value)
 }
 
 function hasModelData(project = {}) {
@@ -80,8 +94,30 @@ function resize() {
 }
 
 function resetView() {
-  camera.position.set(4.6, 3.2, 5.2)
-  controls.target.set(0, 0, 0)
+  fitCameraToModel(model.value)
+}
+
+function fitCameraToModel(object) {
+  if (!object || !camera || !controls) return
+  const box = new THREE.Box3().setFromObject(object)
+  if (box.isEmpty()) {
+    camera.position.set(4.6, 3.2, 5.2)
+    controls.target.set(0, 0, 0)
+    controls.update()
+    return
+  }
+  const size = box.getSize(new THREE.Vector3())
+  const center = box.getCenter(new THREE.Vector3())
+  const radius = Math.max(size.x, size.y, size.z, 0.5)
+  const distance = radius / Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5)) * 1.2
+  camera.near = Math.max(distance / 500, 0.001)
+  camera.far = Math.max(distance * 500, 1000)
+  camera.position.set(center.x + distance * 0.9, center.y + distance * 0.58, center.z + distance * 0.95)
+  camera.lookAt(center)
+  camera.updateProjectionMatrix()
+  controls.target.copy(center)
+  controls.minDistance = Math.max(radius * 0.03, 0.01)
+  controls.maxDistance = Math.max(radius * 80, 1000)
   controls.update()
 }
 

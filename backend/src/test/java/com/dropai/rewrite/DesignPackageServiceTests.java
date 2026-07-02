@@ -73,8 +73,11 @@ class DesignPackageServiceTests {
         assertEquals("success", result.getStatus());
         assertTrue(result.getArtifacts().stream().allMatch(item -> "success".equals(item.getStatus())));
         assertTrue(result.getArtifacts().stream().allMatch(item -> item.getSize() > 0 && item.getDownloadUrl() != null));
-        assertEquals(12, result.getArtifacts().size());
+        assertEquals(15, result.getArtifacts().size());
         assertTrue(result.getArtifacts().stream().anyMatch(item -> "model_3d.json".equals(item.getName())));
+        assertTrue(result.getArtifacts().stream().anyMatch(item -> "model.step".equals(item.getName())));
+        assertTrue(result.getArtifacts().stream().anyMatch(item -> "model.gltf".equals(item.getName())));
+        assertTrue(result.getArtifacts().stream().anyMatch(item -> "model.stl".equals(item.getName())));
         assertTrue(result.getArtifacts().stream().anyMatch(item -> "paper.docx".equals(item.getName())));
         assertTrue(result.getArtifacts().stream().anyMatch(item -> "assembly.dxf".equals(item.getName())));
         assertTrue(result.getArtifacts().stream().anyMatch(item -> "cad_preview.svg".equals(item.getName())));

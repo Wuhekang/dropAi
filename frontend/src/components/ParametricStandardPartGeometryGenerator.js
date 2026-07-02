@@ -226,6 +226,61 @@ function drawTrackAssembly(group, name, size, position) {
   return g
 }
 
+function drawWheel(group, name, size, position) {
+  const [sx, sy, sz] = size
+  const g = localGroup(group, name, position)
+  const radius = Math.max(sy, sz) * 0.36
+  const width = Math.max(sx * 0.38, 0.08)
+  cylinder(g, 'wheel rim', radius, width, [0, 0, 0], 0x334155, 'x', 1, 48)
+  cylinder(g, 'wheel hub', radius * 0.42, width * 1.12, [0, 0, 0], 0x94a3b8, 'x', 1, 36)
+  cylinder(g, 'shaft bore', radius * 0.18, width * 1.18, [0, 0, 0], 0x020617, 'x', 0.95, 28)
+  torus(g, 'outer retaining shoulder', radius * 0.92, radius * 0.035, [-width * 0.52, 0, 0], 0x64748b, 'x')
+  torus(g, 'inner retaining shoulder', radius * 0.92, radius * 0.035, [width * 0.52, 0, 0], 0x64748b, 'x')
+  for (let i = 0; i < 8; i += 1) {
+    const a = (Math.PI * 2 * i) / 8
+    const spoke = cube(g, 'wheel spoke', [width * 0.16, radius * 0.08, radius * 0.62], [0, Math.cos(a) * radius * 0.38, Math.sin(a) * radius * 0.38], 0xcbd5e1)
+    spoke.rotation.x = -a
+  }
+  cube(g, 'keyway slot marker', [width * 0.55, radius * 0.1, radius * 0.18], [0, radius * 0.48, 0], 0x111827)
+  return g
+}
+
+function drawFrame(group, name, size, position) {
+  const [sx, sy, sz] = size
+  const g = localGroup(group, name, position)
+  cube(g, 'left side plate', [sx, sy * 0.18, sz * 0.07], [0, 0, -sz * 0.42], 0x334155)
+  cube(g, 'right side plate', [sx, sy * 0.18, sz * 0.07], [0, 0, sz * 0.42], 0x334155)
+  for (let i = -2; i <= 2; i += 1) cube(g, 'cross beam', [sx * 0.07, sy * 0.14, sz * 0.86], [i * sx * 0.18, 0, 0], 0x475569)
+  cube(g, 'top mounting plate', [sx * 0.56, sy * 0.08, sz * 0.46], [0, sy * 0.18, 0], 0x64748b)
+  for (const z of [-sz * 0.24, sz * 0.24]) {
+    const rib = cube(g, 'diagonal reinforcing rib', [sx * 0.48, sy * 0.05, sz * 0.035], [0, sy * 0.12, z], 0x94a3b8)
+    rib.rotation.y = z > 0 ? 0.18 : -0.18
+  }
+  for (let i = -2; i <= 2; i += 1) for (const z of [-sz * 0.34, sz * 0.34]) cylinder(g, 'frame mounting hole', Math.min(sy, sz) * 0.035, sy * 0.09, [i * sx * 0.16, sy * 0.22, z], 0x020617, 'y', 1, 16)
+  return g
+}
+
+function drawCover(group, name, size, position) {
+  const [sx, sy, sz] = size
+  const g = localGroup(group, name, position)
+  cube(g, 'thin protective cover body', [sx, sy * 0.6, sz], [0, 0, 0], 0x0ea5e9, 0.66)
+  cube(g, 'rounded service hatch', [sx * 0.38, sy * 0.035, sz * 0.42], [sx * 0.06, sy * 0.33, 0], 0x38bdf8, 0.82)
+  for (let i = -3; i <= 3; i += 1) cube(g, 'ventilation slot', [sx * 0.05, sy * 0.03, sz * 0.42], [i * sx * 0.06, sy * 0.36, -sz * 0.22], 0x020617, 0.68)
+  for (const x of [-sx * 0.44, sx * 0.44]) for (const z of [-sz * 0.42, sz * 0.42]) cylinder(g, 'cover screw hole', Math.min(sy, sz) * 0.03, sy * 0.07, [x, sy * 0.32, z], 0x020617, 'y', 1, 14)
+  return g
+}
+
+function drawFeaturedPlate(group, name, size, position) {
+  const [sx, sy, sz] = size
+  const g = localGroup(group, name, position)
+  cube(g, 'featured plate base extrusion', [sx, sy * 0.18, sz], [0, 0, 0], 0x64748b)
+  cube(g, 'bent front flange', [sx, sy * 0.28, sz * 0.04], [0, sy * 0.16, -sz * 0.5], 0x475569)
+  cube(g, 'bent rear flange', [sx, sy * 0.28, sz * 0.04], [0, sy * 0.16, sz * 0.5], 0x475569)
+  for (let i = -2; i <= 2; i += 1) cylinder(g, 'plate mounting hole', Math.min(sy, sz) * 0.035, sy * 0.2, [i * sx * 0.16, sy * 0.1, 0], 0x020617, 'y', 1, 16)
+  cube(g, 'stiffening rib', [sx * 0.68, sy * 0.28, sz * 0.04], [0, sy * 0.22, 0], 0x94a3b8)
+  return g
+}
+
 function drawBrush(group, name, size, position) {
   const [sx, sy, sz] = size
   const g = localGroup(group, name, position)
@@ -277,9 +332,13 @@ export function drawParametricStandardPartGeometry(group, part, size, position, 
   if (geometry.includes('PIN')) return drawPin(group, name, size, position)
   if (geometry.includes('SPRING')) return drawSpring(group, name, size, position)
   if (geometry.includes('TRACK')) return drawTrackAssembly(group, name, size, position)
+  if (geometry.includes('WHEEL')) return drawWheel(group, name, size, position)
   if (geometry.includes('BRUSH') || name.includes('刷')) return drawBrush(group, name, size, position)
   if (geometry.includes('MAGNET') || name.includes('磁')) return drawMagnetModule(group, name, size, position)
   if (geometry.includes('SENSOR_RAIL') || name.includes('检测') || name.includes('传感')) return drawSensorBracket(group, name, size, position)
+  if (geometry.includes('FRAME')) return drawFrame(group, name, size, position)
+  if (geometry.includes('COVER')) return drawCover(group, name, size, position)
+  if (geometry.includes('PLATE_FEATURED') || geometry.includes('PLATE')) return drawFeaturedPlate(group, name, size, position)
   cube(group, name, size, position, fallbackColor, 0.88)
   return null
 }
@@ -289,6 +348,7 @@ export function hasParametricGeometry(part = {}) {
   const name = String(part.name || '')
   return [
     'BEARING', 'MOTOR', 'GEARBOX', 'REDUCER', 'RAIL', 'COUPLING', 'BOLT',
-    'FLANGE', 'SHAFT', 'KEY', 'PIN', 'SPRING', 'TRACK', 'BRUSH', 'MAGNET', 'SENSOR_RAIL'
-  ].some(key => geometry.includes(key)) || ['刷', '磁', '检测', '传感'].some(key => name.includes(key))
+    'FLANGE', 'SHAFT', 'KEY', 'PIN', 'SPRING', 'TRACK', 'WHEEL', 'BRUSH',
+    'MAGNET', 'SENSOR_RAIL', 'FRAME', 'COVER', 'PLATE_FEATURED'
+  ].some(key => geometry.includes(key)) || ['刷', '磁', '检测', '传感', '机架', '外壳', '履带', '轮'].some(key => name.includes(key))
 }

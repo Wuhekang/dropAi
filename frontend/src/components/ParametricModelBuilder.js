@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { addBox, addCylinder, addLine, createMechanicalPrimitive, semanticCategory } from './MechanicalPrimitiveLibrary.js'
 import { createNonStandardShape, nonStandardCategory } from './NonStandardShapeGenerator.js'
+import { drawParametricStandardPartGeometry, hasParametricGeometry } from './ParametricStandardPartGeometryGenerator.js'
 import { addConstraintGuides, applyTransform, buildAssemblyTransforms } from './AssemblyConstraintVisualizer.js'
 
 function readParam(project, patterns, fallback) {
@@ -64,6 +65,19 @@ function isStandardPart(part = {}) {
 }
 
 function createPartShape(part, size) {
+  if (hasParametricGeometry(part) || Array.isArray(part.featureTree) && part.featureTree.length > 2) {
+    const group = new THREE.Group()
+    group.name = part.partName || part.name || '特征参数化零件'
+    const created = drawParametricStandardPartGeometry(group, part, [size.x, size.y, size.z], [0, 0, 0])
+    group.userData = {
+      ...part,
+      modelingMethod: 'feature_based_parametric',
+      featureTree: part.featureTree || [],
+      parametricGeometry: true,
+      featureMeshCount: countMeshes(group)
+    }
+    if (created || group.children.length) return group
+  }
   if (isStandardPart(part)) return createMechanicalPrimitive(part, size)
   const nonStandard = nonStandardCategory(part)
   if (nonStandard !== 'generic') return createNonStandardShape(part, size)
@@ -87,14 +101,18 @@ function inputComponentCount(project = {}) {
 
 function buildFromAssembly(group, project, dims) {
   const transforms = buildAssemblyTransforms(project, dims)
-  if (!transforms.length) return { built: false, renderableComponents: 0 }
+  if (!transforms.length) return { built: false, renderableComponents: 0, featureBasedParts: 0 }
 
+  let featureBasedParts = 0
   transforms.forEach(transform => {
     const shape = createPartShape(transform.part, transform.size)
+    if (shape.userData?.parametricGeometry || Array.isArray(transform.part.featureTree) && transform.part.featureTree.length > 2) {
+      featureBasedParts += 1
+    }
     applyTransform(shape, transform)
     group.add(shape)
   })
-  return { built: true, renderableComponents: transforms.length }
+  return { built: true, renderableComponents: transforms.length, featureBasedParts }
 }
 
 function addDimensionHints(group, dims) {
@@ -146,6 +164,7 @@ export function buildParametricMechanicalModel(project = {}) {
   console.info('[DropAI 3D] render diagnostics', {
     assemblyComponents,
     renderableComponents: assemblyResult.renderableComponents,
+    featureBasedParts: assemblyResult.featureBasedParts || 0,
     meshCount,
     source: assemblyResult.built ? 'AssemblyTree/Components' : 'FallbackModel'
   })
@@ -155,7 +174,9 @@ export function buildParametricMechanicalModel(project = {}) {
     renderableComponents: assemblyResult.renderableComponents,
     meshCount,
     hasScatteredLayout: false,
-    usesMechanicalPrimitiveLibrary: true
+    usesMechanicalPrimitiveLibrary: true,
+    modelingMethod: 'feature_based_parametric',
+    featureBasedParts: assemblyResult.featureBasedParts || 0
   }
   return group
 }

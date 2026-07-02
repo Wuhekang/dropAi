@@ -31,6 +31,8 @@ public class UnknownPartResolver {
         part.setMaterial(material(input.getName()));
         part.setProcess(process(input.getName()));
         part.setGeometryFeatures(features(input.getName()));
+        part.setFeatureTree(features(input.getName()));
+        part.setModelingMethod("feature_based_parametric");
         return part;
     }
 

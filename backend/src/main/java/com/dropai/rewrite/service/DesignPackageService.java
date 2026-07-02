@@ -12,9 +12,11 @@ import com.dropai.rewrite.modules.exportEngine.ExportEngine;
 import com.dropai.rewrite.modules.model.DesignProject;
 import com.dropai.rewrite.modules.paperEngine.PaperEngine;
 import com.dropai.rewrite.modules.parameterEngine.ParameterEngine;
+import com.dropai.rewrite.modules.stepExportEngine.StepExportEngine;
 import com.dropai.rewrite.modules.swMacroEngine.SwMacroEngine;
 import com.dropai.rewrite.modules.structureEngine.StructureEngine;
 import com.dropai.rewrite.vo.DesignPackageVO;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -35,14 +37,25 @@ public class DesignPackageService {
     private final PaperEngine paperEngine; private final ExportEngine exportEngine; private final DocumentJobMapper mapper;
     private final TaskDrivenDesignPipeline designPipeline;
     private final PointService pointService;
+    private final StepExportEngine stepExportEngine;
 
+    @Autowired
     public DesignPackageService(ParameterEngine parameterEngine, CalculationEngine calculationEngine, DesignEnhancementEngine designEnhancementEngine, StructureEngine structureEngine, DrawingEngine drawingEngine,
                                 SwMacroEngine swMacroEngine, PaperEngine paperEngine, ExportEngine exportEngine, DocumentJobMapper mapper,
-                                TaskDrivenDesignPipeline designPipeline, PointService pointService) {
+                                TaskDrivenDesignPipeline designPipeline, PointService pointService, StepExportEngine stepExportEngine) {
         this.parameterEngine = parameterEngine; this.calculationEngine = calculationEngine; this.designEnhancementEngine = designEnhancementEngine; this.structureEngine = structureEngine; this.drawingEngine = drawingEngine;
         this.swMacroEngine = swMacroEngine; this.paperEngine = paperEngine; this.exportEngine = exportEngine; this.mapper = mapper;
         this.designPipeline = designPipeline;
         this.pointService = pointService;
+        this.stepExportEngine = stepExportEngine;
+    }
+
+    public DesignPackageService(ParameterEngine parameterEngine, CalculationEngine calculationEngine, DesignEnhancementEngine designEnhancementEngine, StructureEngine structureEngine, DrawingEngine drawingEngine,
+                                SwMacroEngine swMacroEngine, PaperEngine paperEngine, ExportEngine exportEngine, DocumentJobMapper mapper,
+                                TaskDrivenDesignPipeline designPipeline, PointService pointService) {
+        this(parameterEngine, calculationEngine, designEnhancementEngine, structureEngine, drawingEngine,
+                swMacroEngine, paperEngine, exportEngine, mapper, designPipeline, pointService,
+                new StepExportEngine(new com.fasterxml.jackson.databind.ObjectMapper()));
     }
 
     public DesignPackageVO generate(DesignProject input) {
@@ -55,6 +68,9 @@ public class DesignPackageService {
         log.info("开始生成成果包 title={} parameters={}", project.getProjectTitle(), project.allParameters().size());
         List<Generated> generated = new ArrayList<>();
         generated.add(generateOne("model_3d.json", "application/json", () -> exportEngine.model3d(project)));
+        generated.add(generateOne("model.step", "application/step", () -> stepExportEngine.exportStepPlan(project)));
+        generated.add(generateOne("model.gltf", "model/gltf+json", () -> stepExportEngine.exportGltfPlan(project)));
+        generated.add(generateOne("model.stl", "model/stl", () -> stepExportEngine.exportStlPlan(project)));
         generated.addAll(generateGroup(List.of("assembly.dxf"), () -> drawingEngine.drawAssemblyDrawing(project)));
         generated.addAll(generateGroup(List.of("cad_preview.svg", "cad_preview.png"), () -> drawingEngine.drawAssemblyPreview(project)));
         generated.addAll(generateGroup(List.of("preview.svg", "preview.png"), () -> drawingEngine.drawConceptPreview(project)));
@@ -156,6 +172,9 @@ public class DesignPackageService {
         if (name.endsWith(".pdf")) return "application/pdf";
         if (name.endsWith(".zip")) return "application/zip";
         if (name.endsWith(".json")) return "application/json";
+        if (name.endsWith(".step") || name.endsWith(".stp")) return "application/step";
+        if (name.endsWith(".gltf")) return "model/gltf+json";
+        if (name.endsWith(".stl")) return "model/stl";
         return "text/plain";
     }
     private String fileType(String name) {
