@@ -1,11 +1,15 @@
 package com.dropai.rewrite.modules.designPipeline;
 
 import com.dropai.rewrite.modules.assemblyBuilder.AssemblyBuilder;
+import com.dropai.rewrite.modules.assemblyPlannerAgent.AssemblyPlannerAgent;
 import com.dropai.rewrite.modules.bomGenerator.BOMGenerator;
 import com.dropai.rewrite.modules.calculationEngine.CalculationEngine;
 import com.dropai.rewrite.modules.drawingPlanBuilder.DrawingPlanBuilder;
+import com.dropai.rewrite.modules.drawingPlannerAgent.DrawingPlannerAgent;
+import com.dropai.rewrite.modules.mechanicalDesignAgent.MechanicalDesignAgent;
 import com.dropai.rewrite.modules.model.DesignProject;
 import com.dropai.rewrite.modules.nonStandardPartGenerator.NonStandardPartGenerator;
+import com.dropai.rewrite.modules.partGeneratorAgent.PartGeneratorAgent;
 import com.dropai.rewrite.modules.partResolver.PartResolver;
 import com.dropai.rewrite.modules.parameterEngine.ParameterEngine;
 import com.dropai.rewrite.modules.projectAnalyzer.ProjectAnalyzer;
@@ -23,6 +27,10 @@ public class TaskDrivenDesignPipeline {
     private final ProjectAnalyzer projectAnalyzer;
     private final RequirementCompleter requirementCompleter;
     private final StructureTreeBuilder structureTreeBuilder;
+    private final MechanicalDesignAgent mechanicalDesignAgent = new MechanicalDesignAgent();
+    private final PartGeneratorAgent partGeneratorAgent = new PartGeneratorAgent();
+    private final AssemblyPlannerAgent assemblyPlannerAgent = new AssemblyPlannerAgent();
+    private final DrawingPlannerAgent drawingPlannerAgent = new DrawingPlannerAgent();
     private final PartResolver partResolver;
     private final AssemblyBuilder assemblyBuilder;
     private final BOMGenerator bomGenerator;
@@ -72,11 +80,14 @@ public class TaskDrivenDesignPipeline {
         project = requirementCompleter.complete(project);
         project = projectAnalyzer.analyze(project);
         project = structureTreeBuilder.build(project);
-        project = partResolver.resolve(project);
+        project = mechanicalDesignAgent.design(project);
+        project = partGeneratorAgent.generate(project, partResolver);
         project = assemblyBuilder.build(project);
+        project = assemblyPlannerAgent.plan(project);
         project = bomGenerator.generate(project);
         project = calculationEngine.calculate(project);
         project = bomGenerator.generate(project);
+        project = drawingPlannerAgent.plan(project);
         project = drawingPlanBuilder.build(project);
         score(project);
         project.getEnhancementNotes().removeIf(item -> item != null && item.contains("任务书驱动结构树流水线"));

@@ -2,93 +2,114 @@ package com.dropai.rewrite.modules.drawingEngine;
 
 import com.dropai.rewrite.modules.model.DesignProject;
 
-class ConceptRenderGenerator {
-    DrawingEngine.Canvas draw(DesignProject project) {
-        DrawingEngine.Canvas c = new DrawingEngine.Canvas(project.getProjectTitle(), "\u8bbe\u5907\u7ed3\u6784\u793a\u610f\u56fe", "FA-01");
-        c.text("TEXT", 50, 548, 8.5, trim(project.getProjectTitle(), 34));
-        c.text("TEXT", 50, 524, 4.6, "Color concept diagram - \u5f69\u8272\u65b9\u6848\u56fe\u7528\u4e8e\u8bba\u6587\u548c\u7b54\u8fa9\u5c55\u793a\uff1bCAD\u5de5\u7a0b\u56fe\u5355\u72ec\u751f\u6210\u3002");
+import java.util.Comparator;
+import java.util.List;
 
-        drawMachine(c);
-        drawLabels(c);
-        drawLegend(c);
+class ConceptRenderGenerator {
+    private final EngineeringSemanticLayer semanticLayer = new EngineeringSemanticLayer();
+
+    DrawingEngine.Canvas draw(DesignProject project) {
+        DrawingEngine.Canvas c = new DrawingEngine.Canvas(project.getProjectTitle(), "整机装配爆炸图", "FA-01");
+        c.text("TEXT", 50, 548, 8.5, trim(project.getProjectTitle(), 34));
+        c.text("TEXT", 50, 524, 4.6, "整机装配爆炸图：用于展示零件编号、装配层级和安装关系；正式尺寸以CAD工程图为准。");
+        drawAxis(c);
+        drawExplodedAssembly(c, project);
+        drawPartList(c, project);
         return c;
     }
 
-    private void drawMachine(DrawingEngine.Canvas c) {
-        c.fillRect("BASE", 96, 150, 520, 70);
-        c.rect("BASE", 96, 150, 520, 70);
-        c.text("TEXT", 308, 190, 5.2, "\u5c65\u5e26\u673a\u6784");
+    private void drawAxis(DrawingEngine.Canvas c) {
+        c.line("CENTER", 74, 92, 178, 92);
+        c.line("CENTER", 74, 92, 74, 172);
+        c.line("CENTER", 74, 92, 126, 132);
+        c.text("TEXT", 184, 92, 4, "X 装配长度");
+        c.text("TEXT", 78, 178, 4, "Z 高度");
+        c.text("TEXT", 132, 138, 4, "Y 宽度");
+    }
 
-        c.fillRect("FRAME", 146, 230, 430, 118);
-        c.rect("FRAME", 146, 230, 430, 118);
-        c.text("TEXT", 324, 294, 5.2, "\u673a\u67b6");
+    private void drawExplodedAssembly(DrawingEngine.Canvas c, DesignProject project) {
+        List<DesignProject.Component> parts = project.getComponents().stream()
+                .sorted(Comparator.comparing(DesignProject.Component::isKeyPart).reversed()
+                        .thenComparingInt(DesignProject.Component::getSequence))
+                .limit(10)
+                .toList();
+        double cx = 360;
+        double cy = 280;
+        c.rect("FRAME", cx - 120, cy - 42, 240, 84);
+        c.text("TEXT", cx - 30, cy + 6, 4.6, "基准机架");
 
-        c.fillRect("FUNCTION", 94, 250, 62, 78);
-        c.rect("FUNCTION", 94, 250, 62, 78);
-        c.circle("FUNCTION", 125, 289, 24);
-        c.text("TEXT", 101, 342, 4.3, "\u6e05\u626b\u7cfb\u7edf");
-
-        c.fillRect("JOINT", 132, 166, 50, 38);
-        c.fillRect("JOINT", 526, 166, 50, 38);
-        c.circle("JOINT", 157, 185, 19);
-        c.circle("JOINT", 551, 185, 19);
-
-        for (int i = 0; i < 5; i++) {
-            double x = 225 + i * 56;
-            c.circle("JOINT", x, 184, 13);
+        for (int i = 0; i < parts.size(); i++) {
+            DesignProject.Component part = parts.get(i);
+            double angle = Math.PI * 2 * i / Math.max(1, parts.size());
+            double px = cx + Math.cos(angle) * (175 + (i % 2) * 28);
+            double py = cy + Math.sin(angle) * (118 + (i % 3) * 12);
+            drawPartSymbol(c, part, px, py);
+            c.line("ANNOTATION", cx, cy, px, py);
+            c.circle("ANNOTATION", px - 18, py + 18, 8);
+            c.text("ANNOTATION", px - 21, py + 15, 3.2, String.valueOf(part.getSequence()));
         }
-
-        c.fillRect("INTERFACE", 410, 360, 112, 64);
-        c.rect("INTERFACE", 410, 360, 112, 64);
-        c.text("TEXT", 425, 393, 4.6, "\u63a7\u5236\u7bb1");
-
-        c.fillRect("SUPPORT", 210, 364, 126, 44);
-        c.rect("SUPPORT", 210, 364, 126, 44);
-        c.text("TEXT", 228, 391, 4.5, "\u68c0\u6d4b\u7cfb\u7edf");
-
-        c.fillRect("FUNCTION", 246, 118, 214, 26);
-        c.rect("FUNCTION", 246, 118, 214, 26);
-        c.text("TEXT", 287, 136, 4.2, "\u5438\u9644\u7cfb\u7edf");
-
-        c.line("STRUCTURE", 250, 230, 214, 408);
-        c.line("STRUCTURE", 482, 230, 522, 424);
     }
 
-    private void drawLabels(DrawingEngine.Canvas c) {
-        label(c, "\u5c65\u5e26\u673a\u6784", 356, 185, 70, 166);
-        label(c, "\u6e05\u626b\u7cfb\u7edf", 124, 290, 52, 322);
-        label(c, "\u68c0\u6d4b\u7cfb\u7edf", 272, 386, 205, 444);
-        label(c, "\u5438\u9644\u7cfb\u7edf", 352, 132, 274, 90);
-        label(c, "\u63a7\u5236\u7bb1", 466, 392, 560, 444);
-        label(c, "\u673a\u67b6", 358, 290, 608, 304);
+    private void drawPartSymbol(DrawingEngine.Canvas c, DesignProject.Component part, double x, double y) {
+        String category = semanticLayer.semanticOf(part).category();
+        switch (category) {
+            case "track" -> {
+                c.rect("BASE", x - 38, y - 14, 76, 28);
+                c.circle("BASE", x - 26, y, 12);
+                c.circle("BASE", x + 26, y, 12);
+            }
+            case "wheel", "bearing" -> {
+                c.circle("JOINT", x, y, 18);
+                c.circle("JOINT", x, y, 8);
+            }
+            case "motor" -> {
+                c.rect("FUNCTION", x - 28, y - 14, 42, 28);
+                c.circle("FUNCTION", x + 18, y, 13);
+                c.line("CENTER", x + 30, y, x + 45, y);
+            }
+            case "reducer" -> {
+                c.rect("FUNCTION", x - 26, y - 18, 52, 36);
+                c.line("CENTER", x - 38, y, x + 38, y);
+            }
+            case "brush" -> {
+                c.circle("FUNCTION", x, y, 24);
+                for (int i = 0; i < 12; i++) {
+                    double a = Math.PI * 2 * i / 12;
+                    c.line("FUNCTION", x, y, x + Math.cos(a) * 30, y + Math.sin(a) * 30);
+                }
+            }
+            case "magnet" -> {
+                c.rect("INTERFACE", x - 34, y - 12, 68, 24);
+                for (int i = 0; i < 4; i++) c.rect("INTERFACE", x - 26 + i * 17, y - 7, 10, 14);
+            }
+            case "sensor", "rail" -> {
+                c.rect("SUPPORT", x - 36, y - 10, 72, 20);
+                c.rect("SUPPORT", x - 16, y + 10, 32, 20);
+            }
+            case "cover" -> c.rect("STRUCTURE", x - 42, y - 20, 84, 40);
+            default -> c.rect("FRAME", x - 34, y - 16, 68, 32);
+        }
+        c.text("TEXT", x - 34, y - 30, 3.4, trim(semanticLayer.drawingLabel(part), 10));
     }
 
-    private void label(DrawingEngine.Canvas c, String text, double x, double y, double tx, double ty) {
-        c.line("ANNOTATION", x, y, tx, ty);
-        c.circle("ANNOTATION", x, y, 3);
-        c.text("ANNOTATION", tx + 4, ty, 4.4, text);
-    }
-
-    private void drawLegend(DrawingEngine.Canvas c) {
-        double x = 640;
-        double y = 382;
-        c.text("TEXT", x, y + 64, 5.2, "Functional areas / \u529f\u80fd\u533a\u57df");
-        swatch(c, "BASE", x, y + 34, "\u884c\u8d70\u673a\u6784");
-        swatch(c, "FRAME", x, y + 8, "\u627f\u8f7d\u673a\u67b6");
-        swatch(c, "FUNCTION", x, y - 18, "\u5de5\u4f5c\u6a21\u5757");
-        swatch(c, "SUPPORT", x, y - 44, "\u68c0\u6d4b\u6a21\u5757");
-        swatch(c, "INTERFACE", x, y - 70, "\u63a7\u5236\u63a5\u53e3");
-        c.text("TEXT", 56, 64, 4.2, "\u672c\u56fe\u7528\u4e8e\u8bf4\u660e\u8bbe\u5907\u7ed3\u6784\uff0c\u5df2\u7701\u7565\u5c3a\u5bf8\u94fe\u548cBOM\u3002");
-    }
-
-    private void swatch(DrawingEngine.Canvas c, String layer, double x, double y, String text) {
-        c.fillRect(layer, x, y, 24, 14);
-        c.rect(layer, x, y, 24, 14);
-        c.text("TEXT", x + 34, y + 12, 4.0, text);
+    private void drawPartList(DrawingEngine.Canvas c, DesignProject project) {
+        double x = 620;
+        double y = 450;
+        c.text("TEXT", x, y + 32, 5.2, "装配明细");
+        c.rect("TABLE", x - 8, y - 150, 165, 172);
+        int row = 0;
+        for (DesignProject.Component part : project.getComponents().stream()
+                .sorted(Comparator.comparingInt(DesignProject.Component::getSequence))
+                .limit(9)
+                .toList()) {
+            c.text("TEXT", x, y - row * 17, 3.4, part.getSequence() + "  " + trim(semanticLayer.drawingLabel(part), 12));
+            row++;
+        }
+        c.text("TEXT", 56, 64, 4.2, "爆炸图表达装配层级和相对安装关系，不作为尺寸检验图。");
     }
 
     private String trim(String value, int n) {
-        if (value == null || value.isBlank()) return "\u6f14\u793a\u8bbe\u5907\u7ed3\u6784\u793a\u610f\u56fe";
+        if (value == null || value.isBlank()) return "机械装配图";
         return value.length() > n ? value.substring(0, n) + "..." : value;
     }
 }

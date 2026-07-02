@@ -36,6 +36,14 @@ public class ParametricStandardPartGeometryGenerator {
     }
 
     private String inferNonStandardGeometry(String name) {
+        if (containsAny(name, "履带", "履带板", "左侧履带", "右侧履带")) return "TRACK_PARAMETRIC";
+        if (containsAny(name, "驱动轮", "从动轮", "支重轮", "滚轮", "轮轴")) return "WHEEL_PARAMETRIC";
+        if (containsAny(name, "清扫", "刷盘", "圆盘清扫刷", "刷毛")) return "BRUSH_PARAMETRIC";
+        if (containsAny(name, "磁", "吸附")) return "MAGNET_MODULE_PARAMETRIC";
+        if (containsAny(name, "检测", "传感", "导轨", "滑轨", "滑块")) return "SENSOR_RAIL_PARAMETRIC";
+        if (containsAny(name, "机架", "主板", "侧板", "横梁", "底板", "连接板", "安装板", "安装座", "支架")) return "FRAME";
+        if (containsAny(name, "外壳", "防护", "盖板", "电池舱", "控制模块")) return "COVER";
+        if (containsAny(name, "灰斗", "导流板", "检修门", "观察窗", "扩散段")) return "PLATE_FEATURED";
         if (containsAny(name, "履带", "灞ュ甫", "鐏炪儱鐢")) return "TRACK_PARAMETRIC";
         if (containsAny(name, "滚轮", "支重轮", "驱动轮", "从动轮", "杞", "婊氳疆", "鏀噸杞")) return "WHEEL_PARAMETRIC";
         if (containsAny(name, "清扫", "刷", "鍒", "娓呮壂")) return "BRUSH_PARAMETRIC";

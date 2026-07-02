@@ -37,7 +37,8 @@ public class StandardPartSelector {
 
     private void collect(DesignProject.StructureNode node, String parent, DesignProject project, List<DesignProject.DesignPart> parts) {
         if (node == null) return;
-        if (!isRoot(node.getName())) parts.add(resolvePart(node.getName(), parent, project));
+        boolean groupingNode = node.getChildren() != null && !node.getChildren().isEmpty();
+        if (!isRoot(node.getName()) && !groupingNode) parts.add(resolvePart(node.getName(), parent, project));
         for (DesignProject.StructureNode child : node.getChildren()) collect(child, node.getName(), project, parts);
     }
 
@@ -147,6 +148,20 @@ public class StandardPartSelector {
     }
 
     private String standardCategory(String name) {
+        if (containsAny(name, "轴承", "bearing")) return "bearing";
+        if (containsAny(name, "电机", "驱动电机", "伺服", "motor")) return "motor";
+        if (containsAny(name, "减速器", "减速机", "reducer", "gearbox")) return "reducer";
+        if (containsAny(name, "导轨", "滑轨", "滑块", "rail", "linear guide")) return "rail";
+        if (containsAny(name, "联轴器", "coupling")) return "coupling";
+        if (containsAny(name, "螺栓", "螺钉", "紧固螺栓", "固定螺栓", "bolt", "screw")) return "bolt";
+        if (containsAny(name, "链轮", "sprocket")) return "sprocket";
+        if (containsAny(name, "同步带轮", "timing pulley")) return "timing_pulley";
+        if (containsAny(name, "滚轮", "支重轮", "驱动轮", "从动轮", "轮", "roller", "wheel")) return "roller";
+        if (containsAny(name, "传动轴", "轮轴", "刷盘连接轴", "轴", "shaft")) return "shaft";
+        if (containsAny(name, "定位销", "销", "pin")) return "pin";
+        if (containsAny(name, "键", "key")) return "key";
+        if (containsAny(name, "弹簧", "spring")) return "spring";
+        if (containsAny(name, "法兰", "flange")) return "flange";
         if (containsAny(name, "轴承", "bearing")) return "bearing";
         if (containsAny(name, "电机", "驱动", "伺服", "motor")) return "motor";
         if (containsAny(name, "减速器", "减速机", "reducer", "gearbox")) return "reducer";
