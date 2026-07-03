@@ -44,7 +44,7 @@ ai:
     temperature: 0.35
     connect-timeout-seconds: 10
     read-timeout-seconds: 120
-    document-concurrency: ${DOUBAO_DOCUMENT_CONCURRENCY:2}
+    document-concurrency: ${DOUBAO_DOCUMENT_CONCURRENCY:32}
   matrix-design:
     enabled: ${MATRIX_DESIGN_ENABLED:true}
     api-key: ${MATRIX_API_KEY:${OPENAI_API_KEY:}}
