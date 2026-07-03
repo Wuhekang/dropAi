@@ -43,7 +43,7 @@ public class DrawingPlanBuilder {
         plan.setParameterTable(parameterTable(project));
         plan.setTechnicalRequirements(technicalRequirements());
         score(plan);
-        qualityGate(plan);
+        qualityGate(project, plan);
         project.setDrawingPlan(plan);
         return project;
     }
@@ -244,7 +244,7 @@ public class DrawingPlanBuilder {
                 "质量分=" + Math.max(0, score)));
     }
 
-    private void qualityGate(DesignProject.DrawingPlan plan) {
+    private void qualityGate(DesignProject project, DesignProject.DrawingPlan plan) {
         if (plan.getMainView().getVisibleParts().size() < 3
                 || plan.getTopView().getVisibleParts().size() < 3
                 || plan.getSideView().getVisibleParts().size() < 3
@@ -252,7 +252,11 @@ public class DrawingPlanBuilder {
                 || plan.getTopView().getVisibleParts().size() > MAX_TOP_PARTS
                 || plan.getSideView().getVisibleParts().size() > MAX_SIDE_PARTS
                 || plan.getBomTable().isEmpty()) {
-            throw new IllegalStateException("三视图核心部件规划不清晰，禁止生成CAD图纸");
+            if ("engineering".equalsIgnoreCase(project.getDesignDepth())) {
+                throw new IllegalStateException("工程版需要补充完整图纸规划后生成。");
+            }
+            plan.getQualityNotes().add("任务书未明确完整图纸规划，系统将按毕业设计版自动补全总装图和关键零件图，补全内容可在下一步修改确认。");
+            project.getEnhancementNotes().add("毕业设计版CAD门禁已切换为参考补全模式：资料不完整时继续生成方案级三视图和关键零件图。");
         }
     }
 

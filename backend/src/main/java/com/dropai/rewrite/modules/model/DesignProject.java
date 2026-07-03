@@ -40,6 +40,7 @@ public class DesignProject {
     private AssemblyNode assemblyTree = new AssemblyNode("整机", "root");
     private List<AssemblyConstraint> assemblyConstraints = new ArrayList<>();
     private DrawingPlan drawingPlan = new DrawingPlan();
+    private DesignReference designReference = new DesignReference();
 
     public String getProjectId() { return projectId; }
     public void setProjectId(String projectId) { this.projectId = projectId; }
@@ -113,6 +114,8 @@ public class DesignProject {
     public void setAssemblyConstraints(List<AssemblyConstraint> value) { assemblyConstraints = safe(value); }
     public DrawingPlan getDrawingPlan() { return drawingPlan; }
     public void setDrawingPlan(DrawingPlan value) { drawingPlan = value == null ? new DrawingPlan() : value; }
+    public DesignReference getDesignReference() { return designReference; }
+    public void setDesignReference(DesignReference value) { designReference = value == null ? new DesignReference() : value; }
 
     public List<Parameter> allParameters() {
         List<Parameter> result = new ArrayList<>();
@@ -463,5 +466,22 @@ public class DesignProject {
         public List<String> getLabels() { return labels; } public void setLabels(List<String> v) { labels = safe(v); }
         public List<String> getCenterLines() { return centerLines; } public void setCenterLines(List<String> v) { centerLines = safe(v); }
         public List<String> getSectionMarkers() { return sectionMarkers; } public void setSectionMarkers(List<String> v) { sectionMarkers = safe(v); }
+    }
+
+    public static class DesignReference {
+        private String referenceMode = "";
+        private List<String> searchedKeywords = new ArrayList<>();
+        private List<String> similarDevices = new ArrayList<>();
+        private List<String> commonStructures = new ArrayList<>();
+        private List<String> recommendedDrawings = new ArrayList<>();
+        private List<Parameter> recommendedParameters = new ArrayList<>();
+        private List<String> completionNotes = new ArrayList<>();
+        public String getReferenceMode() { return referenceMode; } public void setReferenceMode(String v) { referenceMode = v; }
+        public List<String> getSearchedKeywords() { return searchedKeywords; } public void setSearchedKeywords(List<String> v) { searchedKeywords = safe(v); }
+        public List<String> getSimilarDevices() { return similarDevices; } public void setSimilarDevices(List<String> v) { similarDevices = safe(v); }
+        public List<String> getCommonStructures() { return commonStructures; } public void setCommonStructures(List<String> v) { commonStructures = safe(v); }
+        public List<String> getRecommendedDrawings() { return recommendedDrawings; } public void setRecommendedDrawings(List<String> v) { recommendedDrawings = safe(v); }
+        public List<Parameter> getRecommendedParameters() { return recommendedParameters; } public void setRecommendedParameters(List<Parameter> v) { recommendedParameters = safe(v); }
+        public List<String> getCompletionNotes() { return completionNotes; } public void setCompletionNotes(List<String> v) { completionNotes = safe(v); }
     }
 }

@@ -5,7 +5,7 @@
         <el-button text type="primary" @click="router.push('/dashboard')">返回工作台</el-button>
         <span class="eyebrow">GRADUATION DESIGN PACKAGE</span>
         <h1>完整毕业设计成果包</h1>
-        <p>先读取任务书、开题报告、模板、参考文献和参考图，识别真实设计目标后再生成参数表、CAD图纸和论文。</p>
+        <p>先读取任务书和开题报告，识别真实设计目标；毕业设计版会自动参考同类机械结构补全参数、总装图和关键零件图。</p>
       </div>
       <el-tag size="large" type="warning">方案级成果，需工程校核</el-tag>
     </header>
@@ -75,11 +75,11 @@
             </el-form-item>
             <el-form-item label="设计深度">
               <el-radio-group v-model="project.designDepth">
-                <el-radio-button label="normal">普通版</el-radio-button>
                 <el-radio-button label="graduation">毕业设计版</el-radio-button>
                 <el-radio-button label="engineering">工程版</el-radio-button>
               </el-radio-group>
-              <p class="field-tip">毕业设计版会自动补充加强筋、法兰、支架、安装孔、检修门和标准件，细节分不足时禁止生成CAD。</p>
+              <p class="field-tip" v-if="project.designDepth === 'graduation'">毕业设计版允许任务书不完整，系统会自动补全总装图、三视图和五张关键零件图，补全内容可在下一步修改确认。</p>
+              <p class="field-tip" v-else>工程版严格依据任务书和开题报告，缺少关键参数、结构或图纸规划时需要补充完整后生成。</p>
             </el-form-item>
             <el-form-item label="项目类别">
               <el-input v-model="project.projectCategory" placeholder="例如：机械类毕业设计" />
@@ -253,8 +253,6 @@
             <el-empty v-else description="CAD预览图未返回，请检查 cad_preview.png / cad_preview.svg 是否生成成功" />
             <artifact-list :items="groups.cad" @download="download" />
           </el-tab-pane>
-          <el-tab-pane label="方案展示图"><artifact-list :items="groups.showcase" @download="download" /></el-tab-pane>
-          <el-tab-pane label="SolidWorks宏"><artifact-list :items="groups.macro" @download="download" /></el-tab-pane>
           <el-tab-pane label="论文与计算书"><artifact-list :items="groups.document" @download="download" /></el-tab-pane>
           <el-tab-pane label="成果包与参数"><artifact-list :items="groups.package" @download="download" /></el-tab-pane>
         </el-tabs>
@@ -284,9 +282,9 @@ const ArtifactList = defineComponent({
 })
 
 const router = useRouter()
-const steps = ['上传资料', 'AI识别', '参数确认', '设计计算', '总体方案', 'CAD总装图', '零件图', 'SW宏', '论文预览', '成果包']
+const steps = ['上传资料', 'AI识别', '参数确认', '设计计算', '3D模型', '总装图', '零件图', '论文预览', '成果包']
 const uploadSlots = [
-  { key: 'taskBook', label: '任务书', type: 'TASK_BOOK', hint: '优先用于识别题目、设备和参数', accept: '.docx,.pdf,.txt,.md' },
+  { key: 'taskBook', label: '任务书', type: 'TASK_BOOK', hint: '必传，用于识别题目、设备类型和基本要求', accept: '.docx,.pdf,.txt,.md' },
   { key: 'proposal', label: '开题报告', type: 'PROPOSAL', hint: '可选，用于补充设计背景和研究内容', accept: '.docx,.pdf,.txt,.md' }
 ]
 const designTypeOptions = ['机械结构设计', '机械传动设计', '环保设备结构设计', '输送设备设计', '自动化设备设计', 'PLC控制设计', '机电一体化设计']
@@ -325,14 +323,12 @@ const uploadedFiles = computed(() => Object.values(files).filter(file => file?.r
 const successCount = computed(() => artifacts.value.filter(x => x.status === 'success').length)
 const failedCount = computed(() => artifacts.value.filter(x => x.status === 'failed').length)
 const completionText = computed(() => artifacts.value.length ? `${Math.round(successCount.value / Math.max(1, artifacts.value.length) * 100)}%` : '--')
-const activeStep = computed(() => packageStatus.value === 'success' ? 10 : artifacts.value.length ? 8 : targetConfirmed.value ? 3 : analysisStatus.value === 'success' ? 2 : uploadedFiles.value.length ? 1 : 0)
+const activeStep = computed(() => packageStatus.value === 'success' ? steps.length : artifacts.value.length ? 7 : targetConfirmed.value ? 3 : analysisStatus.value === 'success' ? 2 : uploadedFiles.value.length ? 1 : 0)
 const analysisStatusText = computed(() => ({ pending: '待识别', running: '正在解析资料', success: '已识别设计目标', failed: '识别失败' })[analysisStatus.value] || analysisStatus.value)
 const canConfirmTarget = computed(() => Boolean(project.projectTitle?.trim() && project.equipmentName?.trim() && project.designType?.trim() && parameters.value.length))
 const hasSuggestedParameters = computed(() => parameters.value.some(row => row.category === 'suggested'))
 const groups = computed(() => ({
   cad: artifacts.value.filter(x => /\.dxf$/i.test(x.fileName) || /^cad_preview\.(svg|png)$/i.test(x.fileName) || (/^(?!preview\.)[a-z0-9_]+\.(svg|png)$/i.test(x.fileName) && x.fileName !== 'preview.png' && x.fileName !== 'preview.svg')),
-  showcase: artifacts.value.filter(x => /^preview\.(svg|png)$/i.test(x.fileName)),
-  macro: artifacts.value.filter(x => /\.(bas|txt)$/i.test(x.fileName)),
   document: artifacts.value.filter(x => /\.(docx|pdf)$/i.test(x.fileName)),
   package: artifacts.value.filter(x => /\.(zip|json)$/i.test(x.fileName))
 }))
@@ -418,6 +414,7 @@ async function analyze() {
   try {
     const form = new FormData()
     if (project.projectTitle?.trim()) form.append('title', project.projectTitle.trim())
+    form.append('designDepth', project.designDepth || 'graduation')
     uploadedFiles.value.forEach(file => { form.append('files', file.raw); form.append('types', file.type) })
     const result = await analyzeDesignPackage(form)
     applyAnalysisResult(result)

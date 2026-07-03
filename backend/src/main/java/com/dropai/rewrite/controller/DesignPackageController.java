@@ -42,6 +42,7 @@ public class DesignPackageController {
 
     @PostMapping("/analyze")
     public Result<DesignAnalysisResultVO> analyze(@RequestParam(defaultValue = "") String title,
+                                                  @RequestParam(defaultValue = "graduation") String designDepth,
                                                   @RequestParam("files") List<MultipartFile> files,
                                                   @RequestParam(value = "types", required = false) List<String> types) {
         List<DocumentParser.ParsedDocument> documents = documentParser.parse(files, types == null ? List.of() : types);
@@ -55,7 +56,9 @@ public class DesignPackageController {
                 .noneMatch(DocumentParser.ParsedDocument::textReadable)) {
             throw new IllegalArgumentException("任务书未读取到可用文字内容，请上传可读取的任务书文档。");
         }
-        DesignProject project = designPipeline.analyzeNewTask(designAnalyzer.analyze(title, generationSources));
+        DesignProject analyzed = designAnalyzer.analyze(title, generationSources);
+        analyzed.setDesignDepth("engineering".equalsIgnoreCase(designDepth) ? "engineering" : "graduation");
+        DesignProject project = designPipeline.analyzeNewTask(analyzed);
         return Result.success(DesignAnalysisResultVO.of(project, documents));
     }
 

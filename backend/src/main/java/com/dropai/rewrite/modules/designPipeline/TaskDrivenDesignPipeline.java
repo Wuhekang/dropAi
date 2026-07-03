@@ -6,6 +6,7 @@ import com.dropai.rewrite.modules.bomGenerator.BOMGenerator;
 import com.dropai.rewrite.modules.calculationEngine.CalculationEngine;
 import com.dropai.rewrite.modules.drawingPlanBuilder.DrawingPlanBuilder;
 import com.dropai.rewrite.modules.drawingPlannerAgent.DrawingPlannerAgent;
+import com.dropai.rewrite.modules.designReferenceAgent.DesignReferenceAgent;
 import com.dropai.rewrite.modules.mechanicalDesignAgent.MechanicalDesignAgent;
 import com.dropai.rewrite.modules.model.DesignProject;
 import com.dropai.rewrite.modules.nonStandardPartGenerator.NonStandardPartGenerator;
@@ -26,6 +27,7 @@ public class TaskDrivenDesignPipeline {
     private final ParameterEngine parameterEngine;
     private final ProjectAnalyzer projectAnalyzer;
     private final RequirementCompleter requirementCompleter;
+    private final DesignReferenceAgent designReferenceAgent;
     private final StructureTreeBuilder structureTreeBuilder;
     private final MechanicalDesignAgent mechanicalDesignAgent = new MechanicalDesignAgent();
     private final PartGeneratorAgent partGeneratorAgent = new PartGeneratorAgent();
@@ -42,7 +44,7 @@ public class TaskDrivenDesignPipeline {
                                     StandardPartSelector standardPartSelector, NonStandardPartGenerator nonStandardPartGenerator,
                                     AssemblyBuilder assemblyBuilder, BOMGenerator bomGenerator,
                                     CalculationEngine calculationEngine, DrawingPlanBuilder drawingPlanBuilder) {
-        this(sessionReset, parameterEngine, projectAnalyzer, new RequirementCompleter(), structureTreeBuilder,
+        this(sessionReset, parameterEngine, projectAnalyzer, new RequirementCompleter(), new DesignReferenceAgent(), structureTreeBuilder,
                 standardPartSelector, nonStandardPartGenerator, assemblyBuilder, bomGenerator, calculationEngine,
                 drawingPlanBuilder);
     }
@@ -50,6 +52,7 @@ public class TaskDrivenDesignPipeline {
     @Autowired
     public TaskDrivenDesignPipeline(ProjectSessionReset sessionReset, ParameterEngine parameterEngine,
                                     ProjectAnalyzer projectAnalyzer, RequirementCompleter requirementCompleter,
+                                    DesignReferenceAgent designReferenceAgent,
                                     StructureTreeBuilder structureTreeBuilder,
                                     StandardPartSelector standardPartSelector, NonStandardPartGenerator nonStandardPartGenerator,
                                     AssemblyBuilder assemblyBuilder, BOMGenerator bomGenerator,
@@ -58,6 +61,7 @@ public class TaskDrivenDesignPipeline {
         this.parameterEngine = parameterEngine;
         this.projectAnalyzer = projectAnalyzer;
         this.requirementCompleter = requirementCompleter;
+        this.designReferenceAgent = designReferenceAgent;
         this.structureTreeBuilder = structureTreeBuilder;
         this.partResolver = new PartResolver(standardPartSelector, nonStandardPartGenerator);
         this.assemblyBuilder = assemblyBuilder;
@@ -75,9 +79,15 @@ public class TaskDrivenDesignPipeline {
     }
 
     private DesignProject run(DesignProject project) {
+        normalizeDepth(project);
         project = parameterEngine.normalize(project);
         project = projectAnalyzer.analyze(project);
-        project = requirementCompleter.complete(project);
+        if (isEngineering(project)) {
+            validateEngineeringInput(project);
+        } else {
+            project = designReferenceAgent.complete(project);
+            project = requirementCompleter.complete(project);
+        }
         project = projectAnalyzer.analyze(project);
         project = structureTreeBuilder.build(project);
         project = mechanicalDesignAgent.design(project);
@@ -93,6 +103,28 @@ public class TaskDrivenDesignPipeline {
         project.getEnhancementNotes().removeIf(item -> item != null && item.contains("任务书驱动结构树流水线"));
         project.getEnhancementNotes().add("任务书驱动结构树流水线：StructureTree + StandardPartSelector + NonStandardPartGenerator + AssemblyTree 已生成当前项目专属结构。");
         return project;
+    }
+
+    private void normalizeDepth(DesignProject project) {
+        if (project.getDesignDepth() == null || project.getDesignDepth().isBlank() || "normal".equals(project.getDesignDepth())) {
+            project.setDesignDepth("graduation");
+        }
+    }
+
+    private boolean isEngineering(DesignProject project) {
+        return "engineering".equalsIgnoreCase(project.getDesignDepth());
+    }
+
+    private void validateEngineeringInput(DesignProject project) {
+        if (blank(project.getEquipmentName())) throw new IllegalStateException("工程版需要补充完整设备名称后生成。");
+        long structures = project.getMainStructures().stream().filter(item -> !blank(item)).count();
+        if (structures < 3) throw new IllegalStateException("工程版需要补充完整结构组成后生成。");
+        if (project.allParameters().size() < 3) throw new IllegalStateException("工程版需要补充关键设计参数后生成。");
+        if (project.getDrawingViews().isEmpty()) throw new IllegalStateException("工程版需要补充完整图纸规划后生成。");
+    }
+
+    private boolean blank(String value) {
+        return value == null || value.isBlank();
     }
 
     private void score(DesignProject project) {

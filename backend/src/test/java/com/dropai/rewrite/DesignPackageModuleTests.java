@@ -67,18 +67,32 @@ class DesignPackageModuleTests {
         assertTrue(project.getMainStructures().contains("灰斗"));
         assertTrue(project.getMainStructures().contains("检修门"));
         assertTrue(project.getMainStructures().contains("加强筋"));
-        assertTrue(project.getSuggestedParameters().stream().anyMatch(p -> "总长".equals(p.getName()) && "系统建议".equals(p.getSource())));
+        assertTrue(project.getSuggestedParameters().stream().anyMatch(p -> "总长".equals(p.getName()) && "系统参考补全".equals(p.getSource())));
         assertTrue(project.getSuggestedParameters().stream().anyMatch(p -> "设计风量".equals(p.getName()) && String.valueOf(p.getValue()).contains("3000~6000")));
         assertTrue(project.getSuggestedParameters().stream()
                 .filter(p -> List.of("总长", "总宽", "总高", "箱体板厚", "灰斗角度", "进出口尺寸", "设计风量", "气流速度", "停留时间").contains(p.getName()))
-                .allMatch(p -> p.getBasis() != null && p.getBasis().contains("方案级建议")));
+                .allMatch(p -> p.getBasis() != null && (p.getBasis().contains("系统参考补全") || p.getBasis().contains("方案级建议"))));
         assertTrue(project.getVerificationItems().contains("任务书部分参数未明确，系统已生成方案级建议值，可在下一步修改确认。"));
+        assertTrue(project.getVerificationItems().contains("任务书未明确完整图纸规划，系统将按毕业设计版自动补全总装图和关键零件图，补全内容可在下一步修改确认。"));
+        assertTrue(project.getDesignReference().getReferenceMode().equals("graduation_design"));
+        assertTrue(project.getDesignReference().getRecommendedDrawings().contains("箱体零件图"));
 
         List<String> chamberFiles = fileNames(new DrawingEngine().drawAssemblyDrawing(project));
         assertTrue(chamberFiles.contains("assembly.dxf"), chamberFiles::toString);
         assertFalse(chamberFiles.contains("shell_structure.png"));
         assertFalse(chamberFiles.contains("inlet_outlet.png"));
         assertFalse(chamberFiles.contains("track_mechanism.png"));
+    }
+
+    @Test
+    void engineeringDepthRequiresCompleteInputs() {
+        DesignProject input = new DesignProject();
+        input.setDesignDepth("engineering");
+        input.setProjectTitle("重力沉降室设计");
+
+        IllegalStateException error = assertThrows(IllegalStateException.class, () -> pipeline().analyzeNewTask(input));
+
+        assertTrue(error.getMessage().contains("工程版需要补充"));
     }
 
     @Test

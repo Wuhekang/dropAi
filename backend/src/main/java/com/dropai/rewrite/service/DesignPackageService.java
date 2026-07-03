@@ -12,7 +12,6 @@ import com.dropai.rewrite.modules.exportEngine.ExportEngine;
 import com.dropai.rewrite.modules.model.DesignProject;
 import com.dropai.rewrite.modules.paperEngine.PaperEngine;
 import com.dropai.rewrite.modules.parameterEngine.ParameterEngine;
-import com.dropai.rewrite.modules.stepExportEngine.StepExportEngine;
 import com.dropai.rewrite.modules.swMacroEngine.SwMacroEngine;
 import com.dropai.rewrite.modules.structureEngine.StructureEngine;
 import com.dropai.rewrite.vo.DesignPackageVO;
@@ -31,31 +30,20 @@ import java.util.function.Supplier;
 public class DesignPackageService {
     private static final Logger log = LoggerFactory.getLogger(DesignPackageService.class);
     private static final String DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-    private static final long MIN_ZIP_HEAP_BYTES = 700L * 1024 * 1024;
     private final ParameterEngine parameterEngine; private final CalculationEngine calculationEngine;
     private final DesignEnhancementEngine designEnhancementEngine; private final StructureEngine structureEngine; private final DrawingEngine drawingEngine; private final SwMacroEngine swMacroEngine;
     private final PaperEngine paperEngine; private final ExportEngine exportEngine; private final DocumentJobMapper mapper;
     private final TaskDrivenDesignPipeline designPipeline;
     private final PointService pointService;
-    private final StepExportEngine stepExportEngine;
 
     @Autowired
     public DesignPackageService(ParameterEngine parameterEngine, CalculationEngine calculationEngine, DesignEnhancementEngine designEnhancementEngine, StructureEngine structureEngine, DrawingEngine drawingEngine,
                                 SwMacroEngine swMacroEngine, PaperEngine paperEngine, ExportEngine exportEngine, DocumentJobMapper mapper,
-                                TaskDrivenDesignPipeline designPipeline, PointService pointService, StepExportEngine stepExportEngine) {
+                                TaskDrivenDesignPipeline designPipeline, PointService pointService) {
         this.parameterEngine = parameterEngine; this.calculationEngine = calculationEngine; this.designEnhancementEngine = designEnhancementEngine; this.structureEngine = structureEngine; this.drawingEngine = drawingEngine;
         this.swMacroEngine = swMacroEngine; this.paperEngine = paperEngine; this.exportEngine = exportEngine; this.mapper = mapper;
         this.designPipeline = designPipeline;
         this.pointService = pointService;
-        this.stepExportEngine = stepExportEngine;
-    }
-
-    public DesignPackageService(ParameterEngine parameterEngine, CalculationEngine calculationEngine, DesignEnhancementEngine designEnhancementEngine, StructureEngine structureEngine, DrawingEngine drawingEngine,
-                                SwMacroEngine swMacroEngine, PaperEngine paperEngine, ExportEngine exportEngine, DocumentJobMapper mapper,
-                                TaskDrivenDesignPipeline designPipeline, PointService pointService) {
-        this(parameterEngine, calculationEngine, designEnhancementEngine, structureEngine, drawingEngine,
-                swMacroEngine, paperEngine, exportEngine, mapper, designPipeline, pointService,
-                new StepExportEngine(new com.fasterxml.jackson.databind.ObjectMapper()));
     }
 
     public DesignPackageVO generate(DesignProject input) {
@@ -68,14 +56,14 @@ public class DesignPackageService {
         log.info("开始生成成果包 title={} parameters={}", project.getProjectTitle(), project.allParameters().size());
         List<Generated> generated = new ArrayList<>();
         generated.add(generateOne("model_3d.json", "application/json", () -> exportEngine.model3d(project)));
-        generated.add(generateOne("model.step", "application/step", () -> stepExportEngine.exportStepPlan(project)));
-        generated.add(generateOne("model.gltf", "model/gltf+json", () -> stepExportEngine.exportGltfPlan(project)));
-        generated.add(generateOne("model.stl", "model/stl", () -> stepExportEngine.exportStlPlan(project)));
         generated.addAll(generateGroup(List.of("assembly.dxf"), () -> drawingEngine.drawAssemblyDrawing(project)));
         generated.addAll(generateGroup(List.of("cad_preview.svg", "cad_preview.png"), () -> drawingEngine.drawAssemblyPreview(project)));
-        generated.addAll(generateGroup(List.of("preview.svg", "preview.png"), () -> drawingEngine.drawConceptPreview(project)));
         generated.addAll(generateGroup(List.of("part_01.dxf", "part_02.dxf", "part_03.dxf", "part_04.dxf", "part_05.dxf"), () -> drawingEngine.drawPartDrawing(project)));
         generated.add(generateOne("paper.docx", DOCX, () -> paperEngine.generatePaper(project)));
+        generated.add(generateOne("project_package.zip", "application/zip", () -> exportEngine.zip(generated.stream()
+                .filter(Generated::success)
+                .map(Generated::artifact)
+                .toList())));
 
         DesignPackageVO result = new DesignPackageVO();
         result.setProject(project);
@@ -172,26 +160,11 @@ public class DesignPackageService {
         if (name.endsWith(".pdf")) return "application/pdf";
         if (name.endsWith(".zip")) return "application/zip";
         if (name.endsWith(".json")) return "application/json";
-        if (name.endsWith(".step") || name.endsWith(".stp")) return "application/step";
-        if (name.endsWith(".gltf")) return "model/gltf+json";
-        if (name.endsWith(".stl")) return "model/stl";
         return "text/plain";
     }
     private String fileType(String name) {
         int dot = name == null ? -1 : name.lastIndexOf('.');
         return dot < 0 ? "file" : name.substring(dot + 1).toLowerCase();
-    }
-    private boolean shouldGenerateZip() {
-        String configured = System.getenv("DROP_AI_PACKAGE_ZIP_ENABLED");
-        if (configured != null && !configured.isBlank()) {
-            return Boolean.parseBoolean(configured);
-        }
-        long maxMemory = Runtime.getRuntime().maxMemory();
-        boolean enabled = maxMemory >= MIN_ZIP_HEAP_BYTES;
-        if (!enabled) {
-            log.warn("跳过成果包ZIP生成 maxHeap={} threshold={}", maxMemory, MIN_ZIP_HEAP_BYTES);
-        }
-        return enabled;
     }
     private String readable(Exception exception) {
         String message = exception.getMessage();
