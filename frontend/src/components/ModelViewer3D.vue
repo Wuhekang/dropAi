@@ -2,11 +2,18 @@
   <div ref="wrap" class="model-viewer" @mouseenter="hovering = true" @mouseleave="hovering = false">
     <ModelControls @reset="resetView" @fullscreen="fullscreen" />
     <div v-if="statusMessage" class="model-status">{{ statusMessage }}</div>
+    <div v-if="debugVisible && qualityInfo" class="model-debug">
+      <span>{{ '\u6a21\u578b\u5b8c\u6574\u5ea6\uff1a' }}{{ qualityInfo.qualityScore ?? 0 }}</span>
+      <span>{{ '\u6838\u5fc3\u7ed3\u6784\uff1a' }}{{ qualityInfo.coreStructureCount ?? 0 }}/{{ qualityInfo.requiredCoreCount ?? 0 }}</span>
+      <span>{{ '\u96f6\u4ef6\u6570\u91cf\uff1a' }}{{ qualityInfo.partCount ?? 0 }}</span>
+      <span>{{ '\u60ac\u6d6e\u96f6\u4ef6\uff1a' }}{{ (qualityInfo.floatingParts || []).length }}</span>
+      <span>{{ '\u8d28\u91cf\u72b6\u6001\uff1a' }}{{ qualityInfo.success ? '\u901a\u8fc7' : qualityInfo.code }}</span>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { buildParametricMechanicalModel } from './ParametricModelBuilder'
@@ -17,7 +24,9 @@ const wrap = ref(null)
 const hovering = ref(false)
 const model = shallowRef(null)
 const statusMessage = ref('')
+const qualityInfo = ref(null)
 let renderer, scene, camera, controls, frameId, observer
+const debugVisible = computed(() => import.meta.env.DEV || props.project?.debugModelQuality)
 
 function setupScene() {
   scene = new THREE.Scene()
@@ -66,10 +75,19 @@ function setModel() {
   try {
     model.value = buildParametricMechanicalModel(props.project)
   } catch (error) {
-    console.error('3D方案模型生成失败，已切换到演示模型', error)
+    console.error('3D model generation failed, switched to demo model', error)
     model.value = buildParametricMechanicalModel({})
   }
-  statusMessage.value = hasModelData(props.project) ? '' : '暂无模型数据，已展示演示模型'
+  qualityInfo.value = model.value?.userData?.quality || null
+  if (model.value?.userData?.qualityFailed) {
+    statusMessage.value = '\u6a21\u578b\u5b8c\u6574\u6027\u4e0d\u8db3\uff0c\u8bf7\u68c0\u67e5\u4efb\u52a1\u4e66\u6216\u964d\u4f4e\u751f\u6210\u8981\u6c42'
+    return
+  }
+  if (model.value?.userData?.repairedByModelRepairAgent || model.value?.userData?.repairedBy === 'ModelRepairAgent') {
+    statusMessage.value = '\u6a21\u578b\u5b8c\u6574\u6027\u6821\u9a8c\u672a\u901a\u8fc7\uff0c\u5df2\u81ea\u52a8\u8865\u5168\u540e\u5c55\u793a'
+  } else {
+    statusMessage.value = hasModelData(props.project) ? '' : '\u6682\u65e0\u6a21\u578b\u6570\u636e\uff0c\u5df2\u5c55\u793a\u6f14\u793a\u6a21\u578b'
+  }
   scene.add(model.value)
   fitCameraToModel(model.value)
 }
@@ -140,4 +158,5 @@ onBeforeUnmount(() => {
 .model-viewer:fullscreen{width:100vw;height:100vh;border-radius:0}
 canvas{display:block;width:100%;height:100%}
 .model-status{position:absolute;left:16px;bottom:16px;max-width:calc(100% - 32px);padding:8px 12px;border-radius:8px;background:rgba(15,23,42,.76);color:#dbeafe;font-size:13px;line-height:1.4;pointer-events:none}
+.model-debug{position:absolute;left:16px;top:16px;display:grid;gap:4px;max-width:260px;padding:10px 12px;border-radius:8px;background:rgba(15,23,42,.78);color:#dbeafe;font-size:12px;line-height:1.35;pointer-events:none}
 </style>

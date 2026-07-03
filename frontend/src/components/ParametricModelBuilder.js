@@ -3,6 +3,8 @@ import { addBox, addCylinder, addLine, createMechanicalPrimitive, semanticCatego
 import { createNonStandardShape, nonStandardCategory } from './NonStandardShapeGenerator.js'
 import { drawParametricStandardPartGeometry, hasParametricGeometry } from './ParametricStandardPartGeometryGenerator.js'
 import { addConstraintGuides, applyTransform, buildAssemblyTransforms } from './AssemblyConstraintVisualizer.js'
+import { evaluateModelQuality, modelDeviceType } from './ModelQualityGate.js'
+import { repairModel } from './ModelRepairAgent.js'
 
 function readParam(project, patterns, fallback) {
   const params = []
@@ -126,6 +128,10 @@ function isCrawlerRobotProject(project = {}) {
   return /爬壁|履带|磁吸|油罐|机器人|清扫|检测/.test(text)
 }
 
+function isSettlingChamberProject(project = {}) {
+  return modelDeviceType(project) === 'settling_chamber'
+}
+
 function buildGenericMechanicalAssembly(group, dims) {
   addBox(group, '机架', [dims.length * 0.66, dims.height * 0.16, dims.width * 0.42], [0, 0, 0], 0x334155)
   const motor = createMechanicalPrimitive({ name: '驱动电机', category: 'motor', partType: 'standard' }, { x: dims.length * 0.18, y: dims.height * 0.18, z: dims.height * 0.18 })
@@ -136,7 +142,7 @@ function buildGenericMechanicalAssembly(group, dims) {
   group.add(reducer)
 }
 
-export function buildParametricMechanicalModel(project = {}) {
+function buildRawMechanicalModel(project = {}) {
   const group = new THREE.Group()
   group.name = '机械设备装配模型'
   const dims = sceneDims(project)
@@ -147,6 +153,11 @@ export function buildParametricMechanicalModel(project = {}) {
   const assemblyResult = buildFromAssembly(group, project, dims)
   if (!assemblyResult.built) {
     if (isCrawlerRobotProject(project)) drawRobotFallback(group, dims)
+    else if (isSettlingChamberProject(project)) {
+      const repaired = repairModel(project, group, { deviceType: 'settling_chamber' })
+      group.add(repaired)
+      assemblyResult.featureBasedParts = Math.max(assemblyResult.featureBasedParts || 0, repaired.userData?.featureBasedParts || 0)
+    }
     else buildGenericMechanicalAssembly(group, dims)
   }
 
@@ -177,6 +188,44 @@ export function buildParametricMechanicalModel(project = {}) {
     usesMechanicalPrimitiveLibrary: true,
     modelingMethod: 'feature_based_parametric',
     featureBasedParts: assemblyResult.featureBasedParts || 0
+  }
+  return group
+}
+
+function errorPlaceholder(quality) {
+  const group = new THREE.Group()
+  group.name = '模型质量未通过占位'
+  group.userData = {
+    source: 'quality_failed_placeholder',
+    quality,
+    qualityFailed: true,
+    code: 'MODEL_QUALITY_FAILED'
+  }
+  return group
+}
+
+export function buildParametricMechanicalModel(project = {}) {
+  let group = buildRawMechanicalModel(project)
+  let quality = evaluateModelQuality(project, group, group.userData)
+  let repaired = false
+  let attempts = 0
+  while (!quality.success && attempts < 2) {
+    attempts += 1
+    console.warn('[DropAI 3D] ModelQualityGate failed; invoking ModelRepairAgent', quality)
+    group = repairModel(project, group, quality)
+    repaired = true
+    quality = evaluateModelQuality(project, group, group.userData)
+  }
+  if (!quality.success) {
+    console.error('[DropAI 3D] MODEL_QUALITY_FAILED', quality)
+    return errorPlaceholder(quality)
+  }
+  group.userData = {
+    ...group.userData,
+    quality,
+    qualityPassed: true,
+    repairAttempts: attempts,
+    repairedByModelRepairAgent: repaired
   }
   return group
 }

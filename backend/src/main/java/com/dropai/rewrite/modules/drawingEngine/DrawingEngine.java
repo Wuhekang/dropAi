@@ -26,6 +26,8 @@ public class DrawingEngine {
     private final EngineeringSemanticLayer semanticLayer = new EngineeringSemanticLayer();
     private final DimensionSourceValidator dimensionSourceValidator = new DimensionSourceValidator();
     private final DrawingLayoutOptimizer layoutOptimizer = new DrawingLayoutOptimizer();
+    private final MechanicalDrawingAgent mechanicalDrawingAgent = new MechanicalDrawingAgent();
+    private final MechanicalViewComposer mechanicalViewComposer = new MechanicalViewComposer();
 
     public List<DrawingArtifact> drawAssemblyDrawing(DesignProject project) {
         validateDrawingPlan(project);
@@ -54,6 +56,19 @@ public class DrawingEngine {
 
 
     private Canvas assemblyCanvas(DesignProject project) {
+        Canvas candidate = projectedAssemblyCanvas(project);
+        MechanicalDrawingAgent.DrawingRepairPlan repairPlan = mechanicalDrawingAgent.audit(project, candidate);
+        if (repairPlan.requiredRedraw()) {
+            project.getEnhancementNotes().removeIf(note -> note != null && note.startsWith("MechanicalDrawingAgent:"));
+            project.getEnhancementNotes().add("MechanicalDrawingAgent: CAD three-view quality score="
+                    + repairPlan.drawingQualityScore() + ", redraw applied; failedReasons="
+                    + String.join(",", repairPlan.failedReasons()));
+            return mechanicalViewComposer.compose(project, repairPlan, mechanicalDrawingAgent.deviceType(project));
+        }
+        return candidate;
+    }
+
+    private Canvas projectedAssemblyCanvas(DesignProject project) {
         Canvas canvas = new Canvas(project.getProjectTitle(), "总装图", "ZZ-00");
         DrawingLayoutOptimizer.Layout layout = layoutOptimizer.optimize(project);
         frame(canvas);
@@ -526,7 +541,7 @@ public class DrawingEngine {
         void text(String layer, double x, double y, double size, String text) { shapes.add(new Shape("TEXT", layer, x, y, 0, 0, size, text == null ? "" : text)); }
         String dxf() {
             StringBuilder builder = new StringBuilder("0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1027\n0\nENDSEC\n0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLAYER\n70\n20\n");
-            for (String layer : List.of("FRAME", "TITLE", "BODY", "SUPPORT", "INTERFACE", "FUNCTION", "STRUCTURE", "OUTLINE", "CENTER", "DIMENSION", "ANNOTATION", "TABLE", "TEXT", "HATCH", "JOINT", "HIDDEN", "TOLERANCE")) {
+            for (String layer : List.of("FRAME", "TITLE", "BODY", "SUPPORT", "INTERFACE", "FUNCTION", "STRUCTURE", "OUTLINE", "CENTER", "DIMENSION", "ANNOTATION", "TABLE", "TEXT", "HATCH", "JOINT", "HIDDEN", "SECTION", "TOLERANCE")) {
                 builder.append("0\nLAYER\n2\n").append(layer).append("\n70\n0\n62\n7\n6\nCONTINUOUS\n");
             }
             builder.append("0\nENDTAB\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n");

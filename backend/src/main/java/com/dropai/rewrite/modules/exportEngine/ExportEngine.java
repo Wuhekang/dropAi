@@ -2,6 +2,7 @@ package com.dropai.rewrite.modules.exportEngine;
 
 import com.dropai.rewrite.modules.drawingEngine.DrawingArtifact;
 import com.dropai.rewrite.modules.model.DesignProject;
+import com.dropai.rewrite.modules.modelQualityGate.ModelQualityGate;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 
@@ -15,7 +16,13 @@ import java.util.zip.ZipOutputStream;
 @Service
 public class ExportEngine {
     private final ObjectMapper objectMapper;
-    public ExportEngine(ObjectMapper objectMapper) { this.objectMapper = objectMapper; }
+    private final ModelQualityGate modelQualityGate;
+    public ExportEngine() { this(new ObjectMapper(), new ModelQualityGate()); }
+    public ExportEngine(ObjectMapper objectMapper) { this(objectMapper, new ModelQualityGate()); }
+    public ExportEngine(ObjectMapper objectMapper, ModelQualityGate modelQualityGate) {
+        this.objectMapper = objectMapper;
+        this.modelQualityGate = modelQualityGate;
+    }
 
     public List<DrawingArtifact> appendManifests(DesignProject project, List<DrawingArtifact> artifacts) {
         List<DrawingArtifact> result = new ArrayList<>(artifacts);
@@ -35,7 +42,8 @@ public class ExportEngine {
                     "structureTree", project.getStructureTree(),
                     "components", project.getComponents(),
                     "assemblyTree", project.getAssemblyTree(),
-                    "assemblyConstraints", project.getAssemblyConstraints()
+                    "assemblyConstraints", project.getAssemblyConstraints(),
+                    "modelQuality", modelQualityGate.evaluate(project)
             ));
         } catch (Exception e) {
             throw new IllegalStateException("生成3D模型数据失败", e);
