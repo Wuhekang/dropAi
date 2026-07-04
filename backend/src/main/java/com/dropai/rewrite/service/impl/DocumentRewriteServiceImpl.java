@@ -14,9 +14,6 @@ import com.dropai.rewrite.vo.DocumentRewriteJobVO;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.apache.poi.xwpf.usermodel.XWPFParagraph;
 import org.apache.poi.xwpf.usermodel.XWPFRun;
-import org.apache.poi.xwpf.usermodel.XWPFTable;
-import org.apache.poi.xwpf.usermodel.XWPFTableCell;
-import org.apache.poi.xwpf.usermodel.XWPFTableRow;
 import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTRPr;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
@@ -475,7 +472,11 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             if (isTrailingProtectedSectionTitle(trimmed)) {
                 break;
             }
-            if (isAbstractSectionTitle(trimmed) || isBodyStartTitle(trimmed)) {
+            if (isAbstractSectionTitle(trimmed)) {
+                inBody = false;
+                continue;
+            }
+            if (isBodyStartTitle(trimmed)) {
                 inBody = true;
                 continue;
             }
@@ -553,26 +554,10 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             for (RewriteTarget target : collectRewriteTargets(countingJob, collectParagraphs(document))) {
                 chunks.add(target.text());
             }
-            chunks.addAll(collectTableTexts(document));
             return normalizeChargeText(String.join("\n", chunks)).length();
         } catch (IOException exception) {
             throw new IllegalStateException("文档字符数解析失败：" + exception.getMessage(), exception);
         }
-    }
-
-    private List<String> collectTableTexts(XWPFDocument document) {
-        List<String> texts = new ArrayList<>();
-        for (XWPFTable table : document.getTables()) {
-            for (XWPFTableRow row : table.getRows()) {
-                for (XWPFTableCell cell : row.getTableCells()) {
-                    String text = normalizeChargeText(cell.getText());
-                    if (!text.isBlank() && !isCatalogLine(text) && !isTrailingProtectedSectionTitle(text)) {
-                        texts.add(text);
-                    }
-                }
-            }
-        }
-        return texts;
     }
 
     private String normalizeChargeText(String text) {
@@ -752,7 +737,7 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
         if ("目录".equals(trimmed) || "目 录".equals(trimmed)) {
             return false;
         }
-        return isAbstractSectionTitle(trimmed) || isBodyStartTitle(trimmed);
+        return isBodyStartTitle(trimmed);
     }
 
     private boolean isHeadingParagraph(XWPFParagraph paragraph, String text) {
