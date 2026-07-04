@@ -115,9 +115,12 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
                 || (!rewriteOnlyType && risk.getScore() >= 45)) {
             rules.add("低扰动局部改写");
             rules.add("禁止语义扩写");
+            rules.add("仅处理正文自然语言段落");
+            rules.add("保护摘要关键词标题代码表格公式引用");
+            rules.add("每300字最多新增约30字");
             rules.add("保留原句结构可还原");
             rules.add("减少模板化连接词");
-            rules.add("句长变化控制在原句正负10%左右");
+            rules.add("避免句式完全对齐");
         }
         if ("扩写".equals(rewriteType)) {
             rules.add("只补充解释性表达，不添加未经提供的案例和数据");
