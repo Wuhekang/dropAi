@@ -56,6 +56,45 @@ public class NoticeService {
                 .stream().map(SystemNoticeVO::of).toList();
     }
 
+    public SystemNoticeVO adminLatest() {
+        requireAdmin();
+        SystemNotice notice = noticeMapper.selectOne(new LambdaQueryWrapper<SystemNotice>()
+                .orderByDesc(SystemNotice::getUpdatedAt)
+                .last("LIMIT 1"));
+        return notice == null ? null : SystemNoticeVO.of(notice);
+    }
+
+    @Transactional
+    public SystemNoticeVO save(SystemNoticeDTO dto) {
+        requireAdmin();
+        SystemNotice notice = dto.getId() == null ? null : noticeMapper.selectById(dto.getId());
+        if (notice == null) {
+            notice = new SystemNotice();
+            notice.setCreatedBy(AuthContext.requireUserId());
+            notice.setCreatedAt(LocalDateTime.now());
+        }
+        apply(notice, dto);
+        notice.setUpdatedAt(LocalDateTime.now());
+        if (notice.getId() == null) {
+            noticeMapper.insert(notice);
+        } else {
+            noticeMapper.updateById(notice);
+        }
+        return SystemNoticeVO.of(notice);
+    }
+
+    @Transactional
+    public SystemNoticeVO publishById(Long id) {
+        requireAdmin();
+        SystemNotice notice = noticeMapper.selectById(id);
+        if (notice == null) throw new IllegalArgumentException("\u516c\u544a\u4e0d\u5b58\u5728");
+        notice.setStatus("active");
+        notice.setIsPopup(true);
+        notice.setUpdatedAt(LocalDateTime.now());
+        noticeMapper.updateById(notice);
+        return SystemNoticeVO.of(notice);
+    }
+
     @Transactional
     public SystemNoticeVO publish(SystemNoticeDTO dto) {
         requireAdmin();

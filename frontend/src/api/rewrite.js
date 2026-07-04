@@ -172,6 +172,22 @@ export function updateNotice(id, data) {
   return request.put(`/notices/admin/${id}`, data)
 }
 
+export function getAdminNoticeLatest() {
+  return request.get('/admin/notice/latest')
+}
+
+export function saveAdminNotice(data) {
+  const payload = {
+    ...data,
+    is_popup: data?.isPopup
+  }
+  return request.post('/admin/notice/save', payload)
+}
+
+export function publishAdminNotice(id) {
+  return request.post(`/admin/notice/publish/${id}`)
+}
+
 export function submitRewrite(data) {
   return request.post('/rewrite/submit', data)
 }

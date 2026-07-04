@@ -5,7 +5,6 @@ import DashboardIndex from '../views/Dashboard/index.vue'
 import NewProjectIndex from '../views/NewProject/index.vue'
 import PointsAdmin from '../views/PointsAdmin.vue'
 import RechargeIndex from '../views/Recharge/index.vue'
-import AdminNotice from '../views/AdminNotice.vue'
 import ComputerGenerator from '../views/ComputerGenerator/index.vue'
 
 const router = createRouter({
@@ -49,11 +48,6 @@ const router = createRouter({
       path: '/recharge',
       name: 'Recharge',
       component: RechargeIndex
-    },
-    {
-      path: '/admin/notice',
-      name: 'AdminNotice',
-      component: AdminNotice
     }
   ]
 })
@@ -62,7 +56,7 @@ router.beforeEach((to) => {
   const loggedIn = Boolean(sessionStorage.getItem('dropai_token'))
   if (to.path !== '/login' && !loggedIn) return '/login'
   if (to.path === '/login' && loggedIn) return '/dashboard'
-  if ((to.path === '/points-admin' || to.path.startsWith('/admin/')) && sessionStorage.getItem('dropai_role')?.toLowerCase() !== 'admin') {
+  if (to.path === '/points-admin' && sessionStorage.getItem('dropai_role')?.toLowerCase() !== 'admin') {
     return '/dashboard'
   }
 })

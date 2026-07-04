@@ -1,6 +1,16 @@
 <template>
   <router-view />
 
+  <div v-if="showAdminNoticeEntry" class="admin-quick-entry">
+    <el-tooltip content="系统公告管理" placement="bottom">
+      <el-button type="warning" :icon="Bell" @click="adminNoticeVisible = true">
+        公告
+      </el-button>
+    </el-tooltip>
+  </div>
+
+  <admin-notice-modal v-model="adminNoticeVisible" />
+
   <el-dialog
     v-model="rechargeVisible"
     title="积分不足，无法继续生成"
@@ -33,18 +43,27 @@
 </template>
 
 <script setup>
+import { Bell } from '@element-plus/icons-vue'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import AdminNoticeModal from './components/AdminNoticeModal.vue'
 import { getLatestNotice, markNoticeRead } from './api/rewrite'
 
 const router = useRouter()
 const route = useRoute()
 
+const adminNoticeVisible = ref(false)
 const rechargeVisible = ref(false)
 const shortage = ref({ currentPoints: 0, requiredPoints: 0, missingPoints: 0 })
 const noticeVisible = ref(false)
 const notice = ref(null)
 const noticeLoading = ref(false)
+
+const showAdminNoticeEntry = computed(() => {
+  const token = sessionStorage.getItem('dropai_token')
+  const role = sessionStorage.getItem('dropai_role')
+  return Boolean(token) && route.path !== '/login' && role?.toLowerCase() === 'admin'
+})
 
 function handlePointShortage(event) {
   shortage.value = {
@@ -75,6 +94,7 @@ function escapeHtml(value = '') {
 function renderMarkdown(markdown = '') {
   const lines = escapeHtml(markdown).split(/\r?\n/)
   let inList = false
+  let inCode = false
   const html = []
   const closeList = () => {
     if (inList) {
@@ -85,6 +105,16 @@ function renderMarkdown(markdown = '') {
   const inline = (text) => text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
   for (const raw of lines) {
     const line = raw.trim()
+    if (line.startsWith('```')) {
+      closeList()
+      html.push(inCode ? '</code></pre>' : '<pre><code>')
+      inCode = !inCode
+      continue
+    }
+    if (inCode) {
+      html.push(`${raw}\n`)
+      continue
+    }
     if (!line) {
       closeList()
       continue
@@ -121,6 +151,7 @@ function renderMarkdown(markdown = '') {
     html.push(`<p>${inline(line)}</p>`)
   }
   closeList()
+  if (inCode) html.push('</code></pre>')
   return html.join('')
 }
 
@@ -166,6 +197,17 @@ watch(
 </script>
 
 <style scoped>
+.admin-quick-entry {
+  position: fixed;
+  top: 18px;
+  right: 132px;
+  z-index: 2100;
+}
+
+.admin-quick-entry :deep(.el-button) {
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.12);
+}
+
 .recharge-summary {
   display: grid;
   gap: 12px;
@@ -201,5 +243,20 @@ watch(
   border: none;
   border-top: 1px solid #e5e7eb;
   margin: 16px 0;
+}
+
+.notice-content :deep(pre) {
+  overflow: auto;
+  padding: 12px;
+  border-radius: 8px;
+  background: #0f172a;
+  color: #e5e7eb;
+}
+
+@media (max-width: 720px) {
+  .admin-quick-entry {
+    top: 12px;
+    right: 12px;
+  }
 }
 </style>
