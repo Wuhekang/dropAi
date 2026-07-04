@@ -8,12 +8,41 @@ const request = axios.create({
 
 const recentMessages = new Map()
 
+function parsePointShortage(message = '') {
+  const numbers = String(message).match(/\d+/g)?.map(Number) || []
+  if (numbers.length >= 3) {
+    return {
+      currentPoints: numbers[0],
+      requiredPoints: numbers[1],
+      missingPoints: numbers[2]
+    }
+  }
+  if (numbers.length >= 2) {
+    const requiredPoints = numbers[0]
+    const currentPoints = numbers[1]
+    return {
+      currentPoints,
+      requiredPoints,
+      missingPoints: Math.max(0, requiredPoints - currentPoints)
+    }
+  }
+  return { currentPoints: 0, requiredPoints: 0, missingPoints: 0 }
+}
+
+function emitPointShortage(result, message) {
+  window.dispatchEvent(new CustomEvent('dropai:points-not-enough', {
+    detail: {
+      ...parsePointShortage(message),
+      message,
+      data: result?.data || null
+    }
+  }))
+}
+
 function showApiError(message) {
   const now = Date.now()
   const lastShownAt = recentMessages.get(message) || 0
-  if (now - lastShownAt < 1800) {
-    return
-  }
+  if (now - lastShownAt < 1800) return
   recentMessages.set(message, now)
   ElMessage.error(message)
 }
@@ -26,6 +55,13 @@ function logApiError(error) {
     status: error.response?.status,
     responseData: error.response?.data
   })
+}
+
+function rejectApiError(message, code, responseData) {
+  const apiError = new Error(message)
+  apiError.code = code
+  apiError.responseData = responseData
+  return Promise.reject(apiError)
 }
 
 request.interceptors.request.use((config) => {
@@ -42,8 +78,11 @@ request.interceptors.response.use(
     const result = response.data
     if (result && result.code !== 200) {
       const message = result.message || '请求失败'
+      if (result.code === 'POINTS_NOT_ENOUGH') {
+        emitPointShortage(result, message)
+      }
       showApiError(message)
-      return Promise.reject(new Error(message))
+      return rejectApiError(message, result.code, result)
     }
     return result.data
   },
@@ -52,19 +91,20 @@ request.interceptors.response.use(
     if (error.response?.status === 401) {
       sessionStorage.removeItem('dropai_token')
       sessionStorage.removeItem('dropai_username')
+      sessionStorage.removeItem('dropai_role')
       if (window.location.pathname !== '/login') window.location.href = '/login'
     }
     const serverMessage = error.response?.data?.message
     let message = serverMessage || error.message || '网络请求异常'
     if (error.response?.status === 429 || String(message).includes('429')) {
-      message = '大模型接口请求频率受限，请稍后重试或更换可用API Key。'
+      message = '大模型接口请求频率受限，请稍后重试或更换可用 API Key。'
     } else if (error.code === 'ECONNABORTED') {
-      message = '处理时间超过 120 秒，请稍后查看任务进度或缩短文本'
+      message = '处理时间超过 120 秒，请稍后查看任务进度或缩短文本。'
     } else if (!error.response) {
-      message = '无法连接后端服务，请确认服务已启动'
+      message = '无法连接后端服务，请确认服务已启动。'
     }
     showApiError(message)
-    return Promise.reject(new Error(message))
+    return rejectApiError(message, error.response?.data?.code, error.response?.data)
   }
 )
 
@@ -96,6 +136,42 @@ export function updateFeaturePricing(featureCode, data) {
   return request.put(`/points/pricing/${featureCode}`, data)
 }
 
+export function getRechargePlans() {
+  return request.get('/recharge/plans')
+}
+
+export function createRechargeOrder(data) {
+  return request.post('/recharge/orders', data)
+}
+
+export function getRechargeOrders() {
+  return request.get('/recharge/orders')
+}
+
+export function mockPayRechargeOrder(orderNo) {
+  return request.post(`/recharge/orders/${orderNo}/mock-pay`)
+}
+
+export function getLatestNotice() {
+  return request.get('/notices/latest')
+}
+
+export function markNoticeRead(noticeId) {
+  return request.post(`/notices/${noticeId}/read`)
+}
+
+export function getAdminNotices() {
+  return request.get('/notices/admin')
+}
+
+export function publishNotice(data) {
+  return request.post('/notices/admin', data)
+}
+
+export function updateNotice(id, data) {
+  return request.put(`/notices/admin/${id}`, data)
+}
+
 export function submitRewrite(data) {
   return request.post('/rewrite/submit', data)
 }
@@ -105,9 +181,7 @@ export function analyzeText(data) {
 }
 
 export function getAiStatus() {
-  return request.get('/rewrite/ai/status', {
-    timeout: 180000
-  })
+  return request.get('/rewrite/ai/status', { timeout: 180000 })
 }
 
 export function getRewriteList() {
@@ -129,9 +203,7 @@ export function uploadDocument(file, mode, platform = 'GENERAL', requestId = '')
   formData.append('platform', platform)
   if (requestId) formData.append('requestId', requestId)
   return request.post('/document/rewrite/upload', formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data'
-    },
+    headers: { 'Content-Type': 'multipart/form-data' },
     timeout: 120000
   })
 }
@@ -151,9 +223,7 @@ export function precheckDocument(file, mode = 'humanize') {
   formData.append('file', file)
   formData.append('mode', mode)
   return request.post('/document/precheck', formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data'
-    },
+    headers: { 'Content-Type': 'multipart/form-data' },
     timeout: 120000
   })
 }
@@ -214,9 +284,7 @@ export function downloadEngineeringDxf(params) {
 }
 
 export function generateDesignPackage(project) {
-  return request.post('/design-packages/generate', project, {
-    timeout: 300000
-  })
+  return request.post('/design-packages/generate', project, { timeout: 300000 })
 }
 
 export function analyzeDesignPackage(data) {

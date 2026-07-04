@@ -6,12 +6,15 @@ import com.dropai.rewrite.dto.FeaturePricingUpdateDTO;
 import com.dropai.rewrite.entity.FeaturePricing;
 import com.dropai.rewrite.entity.PointTransaction;
 import com.dropai.rewrite.entity.UserAccount;
+import com.dropai.rewrite.entity.UserPointsLog;
 import com.dropai.rewrite.mapper.FeaturePricingMapper;
 import com.dropai.rewrite.mapper.PointTransactionMapper;
 import com.dropai.rewrite.mapper.UserAccountMapper;
+import com.dropai.rewrite.mapper.UserPointsLogMapper;
 import com.dropai.rewrite.vo.FeaturePricingVO;
 import com.dropai.rewrite.vo.PointAccountVO;
 import com.dropai.rewrite.vo.PointTransactionVO;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,11 +36,23 @@ public class PointService {
     private final UserAccountMapper userMapper;
     private final FeaturePricingMapper pricingMapper;
     private final PointTransactionMapper transactionMapper;
+    private final UserPointsLogMapper pointsLogMapper;
 
-    public PointService(UserAccountMapper userMapper, FeaturePricingMapper pricingMapper, PointTransactionMapper transactionMapper) {
+    public PointService(UserAccountMapper userMapper,
+                        FeaturePricingMapper pricingMapper,
+                        PointTransactionMapper transactionMapper) {
+        this(userMapper, pricingMapper, transactionMapper, null);
+    }
+
+    @Autowired
+    public PointService(UserAccountMapper userMapper,
+                        FeaturePricingMapper pricingMapper,
+                        PointTransactionMapper transactionMapper,
+                        UserPointsLogMapper pointsLogMapper) {
         this.userMapper = userMapper;
         this.pricingMapper = pricingMapper;
         this.transactionMapper = transactionMapper;
+        this.pointsLogMapper = pointsLogMapper;
     }
 
     @Transactional
@@ -65,7 +80,7 @@ public class PointService {
         }
         int balance = currentPoints(userId);
         if (balance < costPoints) {
-            throw new PointsNotEnoughException("积分不足，预计需要 " + costPoints + " 积分，当前仅有 " + balance + " 积分");
+            throw new PointsNotEnoughException(pointsNotEnoughMessage(balance, costPoints));
         }
     }
 
@@ -75,18 +90,22 @@ public class PointService {
             return;
         }
         ensureEnoughCustom(userId, costPoints);
+        int before = currentPoints(userId);
         int updated = userMapper.deductPoints(userId, costPoints);
         if (updated <= 0) {
-            throw new PointsNotEnoughException("积分不足，预计需要 " + costPoints + " 积分");
+            throw new PointsNotEnoughException(pointsNotEnoughMessage(before, costPoints));
         }
         UserAccount after = requireUser(userId);
+        int afterPoints = value(after.getPoints());
+        recordPointsLog(userId, -costPoints, before, afterPoints, featureCode);
+
         PointTransaction transaction = new PointTransaction();
         transaction.setUserId(userId);
         transaction.setJobId(jobId);
         transaction.setFeatureCode(featureCode);
         transaction.setFeatureName(featureName);
         transaction.setPointsChange(-costPoints);
-        transaction.setBalanceAfter(value(after.getPoints()));
+        transaction.setBalanceAfter(afterPoints);
         transaction.setRemark(remark == null ? "" : remark);
         transaction.setCreatedAt(LocalDateTime.now());
         transactionMapper.insert(transaction);
@@ -123,7 +142,9 @@ public class PointService {
         requireAdmin();
         FeaturePricing pricing = requirePricing(featureCode);
         if (dto.getCostPoints() != null) {
-            if (dto.getCostPoints() < 0) throw new IllegalArgumentException("功能积分不能为负数");
+            if (dto.getCostPoints() < 0) {
+                throw new IllegalArgumentException("\u529f\u80fd\u79ef\u5206\u4e0d\u80fd\u4e3a\u8d1f\u6570");
+            }
             pricing.setCostPoints(dto.getCostPoints());
         }
         if (dto.getEnabled() != null) pricing.setEnabled(dto.getEnabled());
@@ -143,26 +164,30 @@ public class PointService {
         int balance = value(user.getPoints());
         int cost = value(pricing.getCostPoints());
         if (!Boolean.TRUE.equals(pricing.getEnabled())) {
-            throw new IllegalStateException("该功能暂未启用");
+            throw new IllegalStateException("\u8be5\u529f\u80fd\u6682\u672a\u542f\u7528");
         }
         if (balance < cost) {
-            throw new PointsNotEnoughException("积分不足");
+            throw new PointsNotEnoughException(pointsNotEnoughMessage(balance, cost));
         }
     }
 
     private void deduct(Long userId, FeaturePricing pricing, String remark) {
         int cost = value(pricing.getCostPoints());
         if (cost <= 0) return;
+        int before = currentPoints(userId);
         int updated = userMapper.deductPoints(userId, cost);
-        if (updated <= 0) throw new PointsNotEnoughException("积分不足");
+        if (updated <= 0) throw new PointsNotEnoughException(pointsNotEnoughMessage(before, cost));
         UserAccount after = requireUser(userId);
+        int afterPoints = value(after.getPoints());
+        recordPointsLog(userId, -cost, before, afterPoints, pricing.getFeatureCode());
+
         PointTransaction transaction = new PointTransaction();
         transaction.setUserId(userId);
         transaction.setJobId(null);
         transaction.setFeatureCode(pricing.getFeatureCode());
         transaction.setFeatureName(pricing.getFeatureName());
         transaction.setPointsChange(-cost);
-        transaction.setBalanceAfter(value(after.getPoints()));
+        transaction.setBalanceAfter(afterPoints);
         transaction.setRemark(remark == null ? "" : remark);
         transaction.setCreatedAt(LocalDateTime.now());
         transactionMapper.insert(transaction);
@@ -171,13 +196,13 @@ public class PointService {
     private FeaturePricing requirePricing(String featureCode) {
         FeaturePricing pricing = pricingMapper.selectOne(new LambdaQueryWrapper<FeaturePricing>()
                 .eq(FeaturePricing::getFeatureCode, featureCode));
-        if (pricing == null) throw new IllegalStateException("功能价格未配置：" + featureCode);
+        if (pricing == null) throw new IllegalStateException("\u529f\u80fd\u4ef7\u683c\u672a\u914d\u7f6e\uff1a" + featureCode);
         return pricing;
     }
 
     private UserAccount requireUser(Long userId) {
         UserAccount user = userMapper.selectById(userId);
-        if (user == null) throw new IllegalStateException("用户不存在");
+        if (user == null) throw new IllegalStateException("\u7528\u6237\u4e0d\u5b58\u5728");
         if (user.getPoints() == null || user.getTotalPoints() == null || user.getUsedPoints() == null) {
             user.setPoints(user.getPoints() == null ? 0 : user.getPoints());
             user.setTotalPoints(user.getTotalPoints() == null ? user.getPoints() : user.getTotalPoints());
@@ -190,8 +215,29 @@ public class PointService {
     private void requireAdmin() {
         UserAccount user = requireUser(AuthContext.requireUserId());
         if (!"ADMIN".equalsIgnoreCase(user.getRole())) {
-            throw new IllegalStateException("无管理员权限");
+            throw new IllegalStateException("\u65e0\u7ba1\u7406\u5458\u6743\u9650");
         }
+    }
+
+    private void recordPointsLog(Long userId, int change, int before, int after, String reason) {
+        if (pointsLogMapper == null) {
+            return;
+        }
+        UserPointsLog log = new UserPointsLog();
+        log.setUserId(userId);
+        log.setChangeAmount(change);
+        log.setBeforePoints(before);
+        log.setAfterPoints(after);
+        log.setReason(reason);
+        log.setCreatedAt(LocalDateTime.now());
+        pointsLogMapper.insert(log);
+    }
+
+    private String pointsNotEnoughMessage(int balance, int cost) {
+        int missing = Math.max(0, cost - balance);
+        return "\u79ef\u5206\u4e0d\u8db3\uff0c\u5f53\u524d\u79ef\u5206\uff1a" + balance +
+                "\uff0c\u6240\u9700\u79ef\u5206\uff1a" + cost +
+                "\uff0c\u8fd8\u5dee\uff1a" + missing + "\u79ef\u5206";
     }
 
     private int value(Integer value) {

@@ -15,6 +15,8 @@ public class UserAccount {
     private Integer points;
     private Integer totalPoints;
     private Integer usedPoints;
+    private LocalDateTime lastNoticeTime;
+    private Long noticeReadId;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
@@ -32,6 +34,10 @@ public class UserAccount {
     public void setTotalPoints(Integer totalPoints) { this.totalPoints = totalPoints; }
     public Integer getUsedPoints() { return usedPoints; }
     public void setUsedPoints(Integer usedPoints) { this.usedPoints = usedPoints; }
+    public LocalDateTime getLastNoticeTime() { return lastNoticeTime; }
+    public void setLastNoticeTime(LocalDateTime lastNoticeTime) { this.lastNoticeTime = lastNoticeTime; }
+    public Long getNoticeReadId() { return noticeReadId; }
+    public void setNoticeReadId(Long noticeReadId) { this.noticeReadId = noticeReadId; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }
