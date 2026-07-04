@@ -113,10 +113,11 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
                 || "深度降低AI写作痕迹".equals(rewriteType)
                 || "双降".equals(rewriteType)
                 || (!rewriteOnlyType && risk.getScore() >= 45)) {
-            rules.add("重构段落信息结构");
-            rules.add("降低解释密度");
+            rules.add("低扰动局部改写");
+            rules.add("禁止语义扩写");
+            rules.add("保留原句结构可还原");
             rules.add("减少模板化连接词");
-            rules.add("避免连续三句使用相同结构");
+            rules.add("句长变化控制在原句正负10%左右");
         }
         if ("扩写".equals(rewriteType)) {
             rules.add("只补充解释性表达，不添加未经提供的案例和数据");
