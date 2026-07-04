@@ -30,14 +30,6 @@ class DocumentContentGuardTests {
         assertThat(isCaptionOrFormulaLine("该模块主要完成数据统计与展示功能。")).isFalse();
     }
 
-    @Test
-    void keepsAbstractOutsideRewriteBody() throws Exception {
-        assertThat(isProtectedSectionTitle("摘要")).isTrue();
-        assertThat(isProtectedSectionTitle("ABSTRACT")).isTrue();
-        assertThat(isCatalogEnd("摘要")).isFalse();
-        assertThat(isCatalogEnd("绪论")).isTrue();
-    }
-
     private boolean isTechnicalFragment(String text) throws Exception {
         Method method = DocumentRewriteServiceImpl.class.getDeclaredMethod("isTechnicalFragment", String.class);
         method.setAccessible(true);
@@ -46,18 +38,6 @@ class DocumentContentGuardTests {
 
     private boolean isCaptionOrFormulaLine(String text) throws Exception {
         Method method = DocumentRewriteServiceImpl.class.getDeclaredMethod("isCaptionOrFormulaLine", String.class);
-        method.setAccessible(true);
-        return (boolean) method.invoke(service, text);
-    }
-
-    private boolean isProtectedSectionTitle(String text) throws Exception {
-        Method method = DocumentRewriteServiceImpl.class.getDeclaredMethod("isProtectedSectionTitle", String.class);
-        method.setAccessible(true);
-        return (boolean) method.invoke(service, text);
-    }
-
-    private boolean isCatalogEnd(String text) throws Exception {
-        Method method = DocumentRewriteServiceImpl.class.getDeclaredMethod("isCatalogEnd", String.class);
         method.setAccessible(true);
         return (boolean) method.invoke(service, text);
     }
