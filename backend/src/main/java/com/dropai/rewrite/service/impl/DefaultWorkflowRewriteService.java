@@ -113,6 +113,8 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
                 || "深度降低AI写作痕迹".equals(rewriteType)
                 || "双降".equals(rewriteType)
                 || (!rewriteOnlyType && risk.getScore() >= 45)) {
+            rules.add("重构段落信息结构");
+            rules.add("降低解释密度");
             rules.add("减少模板化连接词");
             rules.add("避免连续三句使用相同结构");
         }
@@ -140,8 +142,7 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
         return polished
                 .replace("非常", "较为")
                 .replace("很多", "较多")
-                .replace("大概", "可能")
-                .replace("我认为", "本文认为");
+                .replace("大概", "可能");
     }
 
     private String humanizeExpression(String text, boolean useModelHumanize) {
