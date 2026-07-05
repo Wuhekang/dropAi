@@ -3,7 +3,7 @@
     <header class="page-header">
       <div>
         <h1>积分充值</h1>
-        <p>选择套餐后完成支付，积分到账后可继续生成任务。</p>
+        <p>选择套餐后跳转易支付收银台，支付成功后积分自动到账。</p>
       </div>
       <div class="balance">
         <span>当前积分</span>
@@ -14,9 +14,10 @@
     <section class="plans">
       <button
         v-for="plan in plans"
-        :key="plan.amount"
+        :key="plan.planId || plan.amount"
         class="plan-card"
-        :class="{ active: selected?.amount === plan.amount }"
+        :class="{ active: selected?.planId === plan.planId }"
+        type="button"
         @click="selected = plan"
       >
         <span v-if="plan.recommended" class="badge">推荐</span>
@@ -26,23 +27,33 @@
     </section>
 
     <section class="pay-panel">
-      <h2>支付方式</h2>
-      <el-radio-group v-model="payMethod">
-        <el-radio-button label="alipay_mock">支付宝</el-radio-button>
-        <el-radio-button label="wechat_reserved">微信支付</el-radio-button>
-      </el-radio-group>
-      <el-button type="primary" :loading="paying" :disabled="!selected" @click="createAndPay">
-        确认充值 {{ selected?.points || 0 }} 积分
+      <div class="section-head">
+        <div>
+          <h2>在线支付</h2>
+          <p>订单创建后将进入易支付页面，可使用支付宝或微信完成付款。</p>
+        </div>
+        <el-select v-model="payType" class="pay-type">
+          <el-option label="支付宝" value="alipay" />
+          <el-option label="微信支付" value="wxpay" />
+          <el-option label="QQ钱包" value="qqpay" />
+        </el-select>
+      </div>
+
+      <el-button type="primary" size="large" :loading="creating" :disabled="!selected" @click="createAndRedirect">
+        立即充值 {{ selected?.points || 0 }} 积分
       </el-button>
-      <p class="hint">当前为模拟支付接口，支付成功后会立即写入积分。</p>
+      <p class="hint">支付回调会自动校验签名和订单金额，重复回调不会重复加积分。</p>
     </section>
 
     <section class="orders" v-if="orders.length">
-      <h2>最近订单</h2>
+      <div class="section-head compact">
+        <h2>最近订单</h2>
+        <el-button :loading="loading" @click="loadData">刷新</el-button>
+      </div>
       <div v-for="order in orders" :key="order.orderNo" class="order-row">
         <span>{{ order.orderNo }}</span>
         <span>{{ order.amount }} 元 / {{ order.points }} 积分</span>
-        <el-tag :type="order.status === 'paid' ? 'success' : 'warning'">{{ order.status }}</el-tag>
+        <el-tag :type="statusType(order.status)">{{ statusText(order.status) }}</el-tag>
       </div>
     </section>
   </div>
@@ -51,55 +62,73 @@
 <script setup>
 import { ElMessage } from 'element-plus'
 import { onMounted, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
 import {
   createRechargeOrder,
   getPointAccount,
   getRechargeOrders,
-  getRechargePlans,
-  mockPayRechargeOrder
+  getRechargePlans
 } from '../../api/rewrite'
-
-const route = useRoute()
-const router = useRouter()
 
 const account = ref(null)
 const plans = ref([])
 const orders = ref([])
 const selected = ref(null)
-const payMethod = ref('alipay_mock')
-const paying = ref(false)
+const payType = ref('alipay')
+const loading = ref(false)
+const creating = ref(false)
 
 async function loadData() {
-  const [accountData, planData, orderData] = await Promise.all([
-    getPointAccount(),
-    getRechargePlans(),
-    getRechargeOrders()
-  ])
-  account.value = accountData
-  plans.value = planData || []
-  orders.value = orderData || []
-  selected.value = plans.value.find(item => item.recommended) || plans.value[0] || null
+  loading.value = true
+  try {
+    const [accountData, planData, orderData] = await Promise.all([
+      getPointAccount(),
+      getRechargePlans(),
+      getRechargeOrders()
+    ])
+    account.value = accountData
+    plans.value = planData || []
+    orders.value = orderData || []
+    selected.value = selected.value || plans.value.find(item => item.recommended) || plans.value[0] || null
+  } finally {
+    loading.value = false
+  }
 }
 
-async function createAndPay() {
+async function createAndRedirect() {
   if (!selected.value) return
-  paying.value = true
+  creating.value = true
   try {
     const order = await createRechargeOrder({
+      planId: selected.value.planId,
       amount: selected.value.amount,
-      payMethod: payMethod.value
+      payMethod: payType.value
     })
-    await mockPayRechargeOrder(order.orderNo)
-    ElMessage.success('充值成功，积分已到账')
-    await loadData()
-    const redirect = route.query.redirect
-    if (redirect && redirect !== '/recharge') {
-      router.replace(String(redirect))
+    if (!order?.paymentUrl) {
+      ElMessage.error('支付链接生成失败，请稍后重试')
+      return
     }
+    window.location.href = order.paymentUrl
   } finally {
-    paying.value = false
+    creating.value = false
   }
+}
+
+function statusText(status) {
+  const map = {
+    pending: '待支付',
+    waiting_review: '待审核',
+    approved: '已到账',
+    paid: '已到账',
+    rejected: '已驳回'
+  }
+  return map[status] || status
+}
+
+function statusType(status) {
+  if (status === 'approved' || status === 'paid') return 'success'
+  if (status === 'rejected') return 'danger'
+  if (status === 'waiting_review') return 'warning'
+  return 'info'
 }
 
 onMounted(loadData)
@@ -113,22 +142,37 @@ onMounted(loadData)
   color: #111827;
 }
 
-.page-header {
+.page-header,
+.section-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
+}
+
+.page-header {
   margin-bottom: 24px;
 }
 
-.page-header h1 {
+.page-header h1,
+.pay-panel h2,
+.orders h2 {
   margin: 0;
-  font-size: 28px;
 }
 
-.page-header p {
+.page-header p,
+.section-head p,
+.hint {
   margin: 8px 0 0;
   color: #6b7280;
+}
+
+.balance,
+.pay-panel,
+.orders {
+  border: 1px solid #dbe3ef;
+  border-radius: 8px;
+  background: #fff;
 }
 
 .balance {
@@ -136,9 +180,6 @@ onMounted(loadData)
   gap: 4px;
   min-width: 140px;
   padding: 16px;
-  border: 1px solid #dbe3ef;
-  border-radius: 8px;
-  background: #fff;
 }
 
 .balance span {
@@ -197,26 +238,15 @@ onMounted(loadData)
   display: grid;
   gap: 16px;
   padding: 20px;
-  border: 1px solid #dbe3ef;
-  border-radius: 8px;
-  background: #fff;
   margin-bottom: 24px;
 }
 
-.pay-panel h2,
-.orders h2 {
-  margin: 0;
-  font-size: 18px;
+.pay-type {
+  width: 140px;
 }
 
-.pay-panel .el-button {
-  width: fit-content;
-}
-
-.hint {
-  margin: 0;
-  color: #6b7280;
-  font-size: 13px;
+.compact {
+  align-items: center;
 }
 
 .order-row {
@@ -226,5 +256,20 @@ onMounted(loadData)
   align-items: center;
   padding: 12px 0;
   border-top: 1px solid #edf1f7;
+}
+
+@media (max-width: 760px) {
+  .recharge-page {
+    padding: 20px;
+  }
+
+  .page-header,
+  .section-head {
+    display: grid;
+  }
+
+  .order-row {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

@@ -1,5 +1,7 @@
 package com.dropai.rewrite.controller;
 
+import com.dropai.rewrite.dto.RechargeAuditDTO;
+import com.dropai.rewrite.dto.RechargeConfirmDTO;
 import com.dropai.rewrite.dto.RechargeOrderCreateDTO;
 import com.dropai.rewrite.service.RechargeService;
 import com.dropai.rewrite.vo.RechargeOrderVO;
@@ -10,9 +12,11 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/recharge")
@@ -33,9 +37,39 @@ public class RechargeController {
         return Result.success(rechargeService.createOrder(dto));
     }
 
+    @PostMapping("/create")
+    public Result<RechargeOrderVO> createByPlan(@RequestBody RechargeOrderCreateDTO dto) {
+        return Result.success(rechargeService.createOrder(dto));
+    }
+
+    @PostMapping("/confirm")
+    public Result<RechargeOrderVO> confirm(@RequestBody RechargeConfirmDTO dto) {
+        return Result.success(rechargeService.confirmPayment(dto));
+    }
+
+    @PostMapping("/audit")
+    public Result<RechargeOrderVO> audit(@RequestBody RechargeAuditDTO dto) {
+        return Result.success(rechargeService.audit(dto));
+    }
+
+    @PostMapping("/notify")
+    public String notify(@RequestParam Map<String, String> params) {
+        return rechargeService.handleNotify(params);
+    }
+
+    @GetMapping("/notify")
+    public String notifyByGet(@RequestParam Map<String, String> params) {
+        return rechargeService.handleNotify(params);
+    }
+
     @GetMapping("/orders")
     public Result<List<RechargeOrderVO>> orders() {
         return Result.success(rechargeService.myOrders());
+    }
+
+    @GetMapping("/admin/orders")
+    public Result<List<RechargeOrderVO>> adminOrders() {
+        return Result.success(rechargeService.reviewOrders());
     }
 
     @PostMapping("/orders/{orderNo}/mock-pay")

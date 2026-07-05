@@ -32,6 +32,7 @@ public class CommercialFeatureSchemaInitializer implements ApplicationRunner {
         createTables(h2);
         try (Connection connection = dataSource.getConnection()) {
             ensureUserNoticeColumns(connection, h2);
+            ensureRechargeOrderColumns(connection, h2);
         }
         seedDefaultNotice();
     }
@@ -46,8 +47,13 @@ public class CommercialFeatureSchemaInitializer implements ApplicationRunner {
                   points INT NOT NULL,
                   status VARCHAR(20) NOT NULL,
                   pay_method VARCHAR(30),
+                  pay_amount DECIMAL(10,2),
+                  pay_account_last4 VARCHAR(8),
+                  proof_image CLOB,
                   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-                  paid_at TIMESTAMP
+                  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+                  paid_at TIMESTAMP,
+                  audited_at TIMESTAMP
                 )
                 """ : """
                 CREATE TABLE IF NOT EXISTS recharge_order (
@@ -58,8 +64,13 @@ public class CommercialFeatureSchemaInitializer implements ApplicationRunner {
                   points INT NOT NULL,
                   status VARCHAR(20) NOT NULL DEFAULT 'pending',
                   pay_method VARCHAR(30) DEFAULT 'alipay_mock',
+                  pay_amount DECIMAL(10,2) NULL,
+                  pay_account_last4 VARCHAR(8) NULL,
+                  proof_image TEXT NULL,
                   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                   paid_at DATETIME NULL,
+                  audited_at DATETIME NULL,
                   INDEX idx_recharge_user_created (user_id, created_at),
                   INDEX idx_recharge_status (status)
                 ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
@@ -121,6 +132,18 @@ public class CommercialFeatureSchemaInitializer implements ApplicationRunner {
                 h2 ? "TIMESTAMP" : "DATETIME NULL COMMENT '\u6700\u540e\u516c\u544a\u9605\u8bfb\u65f6\u95f4'");
         ensureColumn(connection, "user_account", "notice_read_id",
                 h2 ? "BIGINT" : "BIGINT NULL COMMENT '\u5df2\u8bfb\u516c\u544aID'");
+    }
+
+    private void ensureRechargeOrderColumns(Connection connection, boolean h2) throws Exception {
+        if (!tableExists(connection, "recharge_order")) {
+            return;
+        }
+        ensureColumn(connection, "recharge_order", "pay_amount", "DECIMAL(10,2)");
+        ensureColumn(connection, "recharge_order", "pay_account_last4", "VARCHAR(8)");
+        ensureColumn(connection, "recharge_order", "proof_image", h2 ? "CLOB" : "TEXT NULL");
+        ensureColumn(connection, "recharge_order", "updated_at",
+                h2 ? "TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL" : "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP");
+        ensureColumn(connection, "recharge_order", "audited_at", h2 ? "TIMESTAMP" : "DATETIME NULL");
     }
 
     private void seedDefaultNotice() {

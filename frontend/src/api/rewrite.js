@@ -141,11 +141,23 @@ export function getRechargePlans() {
 }
 
 export function createRechargeOrder(data) {
-  return request.post('/recharge/orders', data)
+  return request.post('/recharge/create', data)
 }
 
 export function getRechargeOrders() {
   return request.get('/recharge/orders')
+}
+
+export function confirmRechargePayment(data) {
+  return request.post('/recharge/confirm', data)
+}
+
+export function getRechargeReviewOrders() {
+  return request.get('/recharge/admin/orders')
+}
+
+export function auditRechargeOrder(data) {
+  return request.post('/recharge/audit', data)
 }
 
 export function mockPayRechargeOrder(orderNo) {

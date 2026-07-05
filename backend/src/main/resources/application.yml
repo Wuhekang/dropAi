@@ -24,6 +24,15 @@ mybatis-plus:
 app:
   poi:
     min-inflate-ratio: ${POI_MIN_INFLATE_RATIO:0.001}
+  epay:
+    gateway: ${EPAY_GATEWAY:https://your-epay-domain/pay.php}
+    pid: ${EPAY_PID:}
+    key: ${EPAY_KEY:}
+    base-url: ${APP_BASE_URL:}
+    notify-url: ${EPAY_NOTIFY_URL:}
+    return-url: ${EPAY_RETURN_URL:}
+    site-name: ${EPAY_SITE_NAME:DropAI}
+    default-type: ${EPAY_DEFAULT_TYPE:alipay}
 
 ai:
   doubao:

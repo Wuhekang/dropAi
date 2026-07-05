@@ -25,3 +25,15 @@ services:
         value: claude-opus-4-7
       - key: DOUBAO_DOCUMENT_CONCURRENCY
         value: 32
+      - key: APP_BASE_URL
+        value: https://dropai-demo.onrender.com
+      - key: EPAY_GATEWAY
+        sync: false
+      - key: EPAY_PID
+        sync: false
+      - key: EPAY_KEY
+        sync: false
+      - key: EPAY_SITE_NAME
+        value: DropAI
+      - key: EPAY_DEFAULT_TYPE
+        value: alipay
