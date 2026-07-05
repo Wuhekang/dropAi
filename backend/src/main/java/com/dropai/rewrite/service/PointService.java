@@ -80,7 +80,7 @@ public class PointService {
         }
         int balance = currentPoints(userId);
         if (balance < costPoints) {
-            throw new PointsNotEnoughException(pointsNotEnoughMessage(balance, costPoints));
+            throw new PointsNotEnoughException(balance, costPoints);
         }
     }
 
@@ -93,7 +93,7 @@ public class PointService {
         int before = currentPoints(userId);
         int updated = userMapper.deductPoints(userId, costPoints);
         if (updated <= 0) {
-            throw new PointsNotEnoughException(pointsNotEnoughMessage(before, costPoints));
+            throw new PointsNotEnoughException(before, costPoints);
         }
         UserAccount after = requireUser(userId);
         int afterPoints = value(after.getPoints());
@@ -167,7 +167,7 @@ public class PointService {
             throw new IllegalStateException("\u8be5\u529f\u80fd\u6682\u672a\u542f\u7528");
         }
         if (balance < cost) {
-            throw new PointsNotEnoughException(pointsNotEnoughMessage(balance, cost));
+            throw new PointsNotEnoughException(balance, cost);
         }
     }
 
@@ -176,7 +176,7 @@ public class PointService {
         if (cost <= 0) return;
         int before = currentPoints(userId);
         int updated = userMapper.deductPoints(userId, cost);
-        if (updated <= 0) throw new PointsNotEnoughException(pointsNotEnoughMessage(before, cost));
+        if (updated <= 0) throw new PointsNotEnoughException(before, cost);
         UserAccount after = requireUser(userId);
         int afterPoints = value(after.getPoints());
         recordPointsLog(userId, -cost, before, afterPoints, pricing.getFeatureCode());

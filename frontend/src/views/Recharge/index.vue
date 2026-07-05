@@ -62,6 +62,7 @@
 <script setup>
 import { ElMessage } from 'element-plus'
 import { onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import {
   createRechargeOrder,
   getPointAccount,
@@ -70,6 +71,7 @@ import {
 } from '../../api/rewrite'
 
 const account = ref(null)
+const router = useRouter()
 const plans = ref([])
 const orders = ref([])
 const selected = ref(null)
@@ -89,9 +91,20 @@ async function loadData() {
     plans.value = planData || []
     orders.value = orderData || []
     selected.value = selected.value || plans.value.find(item => item.recommended) || plans.value[0] || null
+    resumeAfterPaid(orderData || [])
   } finally {
     loading.value = false
   }
+}
+
+function resumeAfterPaid(orderData) {
+  const resumePath = sessionStorage.getItem('dropai_pay_resume_path')
+  if (!resumePath || resumePath === '/recharge') return
+  const hasPaidOrder = orderData.some(order => order.status === 'paid' || order.status === 'approved')
+  if (!hasPaidOrder) return
+  sessionStorage.removeItem('dropai_pay_resume_path')
+  ElMessage.success('支付已完成，正在返回任务页面')
+  setTimeout(() => router.replace(resumePath), 700)
 }
 
 async function createAndRedirect() {

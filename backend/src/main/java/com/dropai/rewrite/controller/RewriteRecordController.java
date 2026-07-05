@@ -109,8 +109,8 @@ public class RewriteRecordController {
     }
 
     @ExceptionHandler(PointsNotEnoughException.class)
-    public Result<Void> pointsNotEnough(PointsNotEnoughException exception) {
-        return Result.fail("POINTS_NOT_ENOUGH", exception.getMessage());
+    public Result<?> pointsNotEnough(PointsNotEnoughException exception) {
+        return Result.fail("PAY_REQUIRED", "积分不足，需要充值", exception.toResponse());
     }
 
     private String preview(String text) {

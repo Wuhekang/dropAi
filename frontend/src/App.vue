@@ -24,7 +24,7 @@
     </div>
     <template #footer>
       <el-button @click="rechargeVisible = false">取消</el-button>
-      <el-button type="primary" @click="goRecharge">充值积分</el-button>
+      <el-button type="primary" :loading="rechargeLoading" @click="goRecharge">充值并继续</el-button>
     </template>
   </el-dialog>
 
@@ -44,10 +44,11 @@
 
 <script setup>
 import { Bell } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AdminNoticeModal from './components/AdminNoticeModal.vue'
-import { getLatestNotice, markNoticeRead } from './api/rewrite'
+import { createRechargeOrder, getLatestNotice, getRechargePlans, markNoticeRead } from './api/rewrite'
 
 const router = useRouter()
 const route = useRoute()
@@ -55,6 +56,7 @@ const route = useRoute()
 const adminNoticeVisible = ref(false)
 const rechargeVisible = ref(false)
 const shortage = ref({ currentPoints: 0, requiredPoints: 0, missingPoints: 0 })
+const rechargeLoading = ref(false)
 const noticeVisible = ref(false)
 const notice = ref(null)
 const noticeLoading = ref(false)
@@ -74,12 +76,35 @@ function handlePointShortage(event) {
   rechargeVisible.value = true
 }
 
-function goRecharge() {
+async function goRecharge() {
+  rechargeLoading.value = true
+  sessionStorage.setItem('dropai_pay_resume_path', route.fullPath)
+  try {
+    const plans = await getRechargePlans()
+    const plan = selectRechargePlan(plans || [], shortage.value.missingPoints || shortage.value.requiredPoints)
+    if (!plan) {
+      router.push({ path: '/recharge', query: { redirect: route.fullPath } })
+      return
+    }
+    const order = await createRechargeOrder({
+      planId: plan.planId,
+      amount: plan.amount,
+      payMethod: 'alipay'
+    })
+    if (!order?.paymentUrl) {
+      ElMessage.error('支付链接生成失败，请稍后重试')
+      return
+    }
+    window.location.href = order.paymentUrl
+  } finally {
+    rechargeLoading.value = false
+  }
   rechargeVisible.value = false
-  router.push({
-    path: '/recharge',
-    query: { redirect: route.fullPath }
-  })
+}
+
+function selectRechargePlan(plans, targetPoints) {
+  const sorted = [...plans].sort((left, right) => (left.points || 0) - (right.points || 0))
+  return sorted.find(plan => (plan.points || 0) >= targetPoints) || sorted[sorted.length - 1] || null
 }
 
 function escapeHtml(value = '') {

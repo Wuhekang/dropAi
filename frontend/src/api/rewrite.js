@@ -30,11 +30,16 @@ function parsePointShortage(message = '') {
 }
 
 function emitPointShortage(result, message) {
+  const parsed = parsePointShortage(message)
+  const data = result?.data || {}
   window.dispatchEvent(new CustomEvent('dropai:points-not-enough', {
     detail: {
-      ...parsePointShortage(message),
+      ...parsed,
+      currentPoints: data.currentPoints ?? data.current_points ?? parsed.currentPoints,
+      requiredPoints: data.requiredPoints ?? data.required_points ?? parsed.requiredPoints,
+      missingPoints: data.missingPoints ?? data.missing_points ?? parsed.missingPoints,
       message,
-      data: result?.data || null
+      data
     }
   }))
 }
@@ -78,8 +83,9 @@ request.interceptors.response.use(
     const result = response.data
     if (result && result.code !== 200) {
       const message = result.message || '请求失败'
-      if (result.code === 'POINTS_NOT_ENOUGH') {
+      if (result.code === 'PAY_REQUIRED' || result.code === 'POINTS_NOT_ENOUGH') {
         emitPointShortage(result, message)
+        return rejectApiError(message, result.code, result)
       }
       showApiError(message)
       return rejectApiError(message, result.code, result)
