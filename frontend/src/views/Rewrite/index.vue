@@ -25,7 +25,7 @@
         <div class="section-title-row upload-head">
           <div>
             <span class="mini-label">文档上传与处理</span>
-            <h2>输入内容</h2>
+            <h2>上传 DOCX</h2>
           </div>
           <div class="mode-tabs">
             <button
@@ -42,14 +42,6 @@
           <span class="word-count">{{ formatNumber(inputCharCount) }} 字</span>
         </div>
 
-        <textarea
-          v-model="originalText"
-          class="main-input"
-          maxlength="12000"
-          :disabled="isBusy"
-          placeholder="粘贴需要优化的论文、报告或任务书段落..."
-        ></textarea>
-
         <div
           class="drop-zone doc-drop"
           :class="{ active: dragging, filled: !!selectedDocument }"
@@ -60,8 +52,8 @@
         >
           <div class="doc-icon">DOCX</div>
           <div>
-            <strong>{{ selectedDocument?.name || '拖拽 DOCX 到这里' }}</strong>
-            <p>{{ selectedDocument ? formatFileSize(selectedDocument.size) : '上传后自动解析正文并填充到输入框' }}</p>
+            <strong>{{ selectedDocument?.name || '拖拽 DOCX 到上方区域' }}</strong>
+            <p>{{ selectedDocument ? `${formatFileSize(selectedDocument.size)} · 正文已在下方 Original 展示` : '上传后自动解析正文，原文内容会直接显示在下方结果区左侧' }}</p>
           </div>
           <button class="ghost-button" type="button" :disabled="isBusy" @click="fileInput?.click()">选择文件</button>
           <input ref="fileInput" class="hidden-input" type="file" accept=".docx" @change="handleFileInput" />
@@ -225,7 +217,7 @@ const activeMode = computed(() => textModes.find(item => item.value === rewriteM
 const isBusy = computed(() => submitting.value || extracting.value || documentUploading.value)
 const inputCharCount = computed(() => originalText.value.length)
 const effectiveCharCount = computed(() => documentPrecheck.charCount || inputCharCount.value)
-const canStart = computed(() => Boolean(originalText.value.trim()) && !isBusy.value)
+const canStart = computed(() => Boolean(selectedDocument.value && originalText.value.trim()) && !isBusy.value)
 const rewriteDocumentJobs = computed(() => documentJobs.value.filter(isRewriteDocument))
 const historyTotalPages = computed(() => Math.max(1, Math.ceil(rewriteDocumentJobs.value.length / pageSize)))
 const pagedDocuments = computed(() => {
@@ -240,7 +232,7 @@ watch(rewriteMode, async () => {
 
 async function handleSubmit() {
   if (!originalText.value.trim()) {
-    ElMessage.warning('请先输入文本或上传 DOCX。')
+    ElMessage.warning('请先上传 DOCX。')
     return
   }
 
@@ -312,9 +304,10 @@ async function handleDocumentFile(file) {
       throw new Error(extracted?.message || '未读取到可用文本。')
     }
     originalText.value = extracted.text
+    originalSnapshot.value = extracted.text
     await runDocumentPrecheck(false)
     setProgress(24, '解析完成')
-    ElMessage.success('DOCX 已解析并填充到输入框。')
+    ElMessage.success('DOCX 已解析，原文已显示到下方。')
   } catch (error) {
     selectedDocument.value = null
     setProgress(0, '解析失败')
@@ -603,31 +596,14 @@ onBeforeUnmount(stopDocumentPolling)
   min-width: 0;
 }
 
-.main-input {
-  width: 100%;
-  min-height: 250px;
-  padding: 18px;
-  resize: vertical;
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  color: var(--text);
-  background: rgba(255, 255, 255, 0.055);
-  outline: none;
-  line-height: 1.75;
-  transition: border-color var(--ease), background var(--ease), box-shadow var(--ease);
-}
-
-.main-input:focus {
-  border-color: rgba(0, 210, 255, 0.5);
-  background: rgba(255, 255, 255, 0.07);
-  box-shadow: 0 0 0 4px rgba(0, 210, 255, 0.06);
-}
-
 .doc-drop {
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: 1fr;
+  place-items: center;
+  text-align: center;
   align-items: center;
-  min-height: 118px;
-  margin-top: 14px;
+  min-height: 250px;
+  margin-top: 0;
+  padding: 28px;
   border-radius: 16px;
   transition: transform var(--ease), border-color var(--ease), background var(--ease), box-shadow var(--ease);
 }
@@ -654,6 +630,7 @@ onBeforeUnmount(stopDocumentPolling)
   place-items: center;
   width: 54px;
   height: 54px;
+  margin-bottom: 4px;
   border-radius: 14px;
   color: #fff;
   font-size: 12px;
