@@ -1,630 +1,340 @@
 <template>
-  <main class="rewrite-page">
-    <header class="topbar">
-      <div>
-        <h1>学术写作优化平台</h1>
-        <p>面向论文段落的润色、改写与表达风险辅助分析</p>
+  <main class="page-shell rewrite-product">
+    <nav class="top-nav">
+      <button class="brand" type="button" @click="router.push('/')">
+        <span class="brand-mark">D</span>
+        <span>DropAI</span>
+      </button>
+      <div class="nav-links">
+        <button type="button" @click="router.push('/dashboard')">控制台</button>
+        <button type="button" @click="router.push('/new-project')">工程生成</button>
+        <button class="ghost-button" type="button" @click="signOut">退出</button>
       </div>
-      <div class="top-tags">
-        <el-button text type="primary" @click="router.push('/dashboard')">返回 Dashboard</el-button>
-        <el-tag type="success" effect="dark">MVP</el-tag>
-        <el-tag :type="aiStatus.testStatus === 'success' ? 'success' : 'danger'">
-          {{ aiStatus.testStatus === 'success' ? '模型已连接' : '模型未连接' }}
-        </el-tag>
-        <el-tag type="primary">{{ modelLabel }}</el-tag>
-        <el-tag type="info">{{ username }}</el-tag>
-        <el-button text type="danger" @click="signOut">退出</el-button>
-      </div>
-    </header>
+    </nav>
 
-    <el-alert
-      class="model-status-alert"
-      :type="aiStatus.testStatus === 'success' ? 'success' : 'error'"
-      :closable="false"
-      show-icon
-    >
-      <template #title>
-        {{ aiStatus.provider || '豆包 Ark' }} / {{ aiStatus.model || '未读取模型配置' }}
-      </template>
-      <div class="model-status-detail">
-        <span>{{ aiStatus.testMessage || '正在校验真实模型连接状态...' }}</span>
-        <span v-if="aiStatus.endpoint">Endpoint：{{ aiStatus.endpoint }}</span>
-        <el-button text type="primary" :loading="checkingAiStatus" @click="loadAiStatus">重新校验</el-button>
-      </div>
-    </el-alert>
-
-    <el-card class="panel document-panel" shadow="never">
-      <template #header>
-        <div class="panel-title">
-          <span>文档降重 / 降 AI</span>
-          <el-tag :type="documentJob.status === 'SUCCESS' ? 'success' : 'info'">
-            {{ documentJob.modeName || 'DOCX' }}
-          </el-tag>
+    <section class="hero-workbench panel">
+      <div class="hero-copy">
+        <span class="eyebrow">AI 写作优化</span>
+        <h1>学术文本 AI 优化、降重与风格增强</h1>
+        <p>粘贴论文段落或上传 Word 文档，DropAI 会按所选模式生成更自然、更学术的表达。</p>
+        <div class="model-chip">
+          <span class="status-dot"></span>
+          {{ aiStatus.testStatus === 'success' ? '模型已连接' : checkingAiStatus ? '正在检测模型' : '模型待连接' }}
         </div>
-      </template>
+      </div>
 
-      <div class="mode-grid">
-        <button
-          v-for="mode in documentModes"
-          :key="mode.value"
-          class="mode-card"
-          :class="{ active: documentMode === mode.value }"
-          type="button"
-          @click="selectDocumentMode(mode.value)"
-        >
-          <strong>{{ mode.label }}</strong>
-          <span>{{ mode.description }}</span>
+      <div class="input-workspace">
+        <textarea
+          v-model="originalText"
+          class="main-input"
+          maxlength="10000"
+          placeholder="粘贴需要优化的论文、报告或任务书段落..."
+        ></textarea>
+        <div class="input-meta">
+          <span>{{ originalText.length }} 字</span>
+          <button class="ghost-button" type="button" @click="loadDemoText">载入示例</button>
+        </div>
+        <button class="primary-button start-button" type="button" :disabled="!canSubmitText" @click="handleSubmit">
+          {{ submitting ? processText : '开始优化' }}
         </button>
       </div>
+    </section>
 
-      <div class="platform-strip">
-        <span class="platform-label">检测口径</span>
-        <el-segmented
-          v-model="targetPlatform"
-          :options="platformOptions"
-        />
-      </div>
-
-      <div class="document-upload">
-        <el-upload
-          drag
-          action=""
-          :auto-upload="false"
-          :show-file-list="false"
-          accept=".docx"
-          :on-change="handleDocumentSelected"
-        >
-          <div class="upload-text">
-            <strong>上传 Word 文档</strong>
-            <span>默认处理目录后的每一段正文，自动跳过标题、目录和保护段落</span>
-          </div>
-        </el-upload>
-
-        <div class="document-status">
-          <span>文件：{{ documentJob.fileName || '未选择' }}</span>
-          <span>模式：{{ currentDocumentMode.label }}</span>
-          <span>口径：{{ documentJob.platformName || currentPlatform.label }}</span>
-          <span>进度：{{ documentProgress }}%（{{ documentJob.processedParagraphs || 0 }}/{{ documentJob.totalParagraphs || 0 }} 段）</span>
-          <span>{{ documentJob.message || '支持 .docx，处理完成后可下载结果文档' }}</span>
-          <div v-if="documentPrecheck.ready" class="document-precheck" :class="{ insufficient: !documentPrecheck.canProcess }">
-            <span>文档字符数：{{ formatNumber(documentPrecheck.charCount) }}</span>
-            <span>预计消耗：{{ documentPrecheck.costPoints }} 积分</span>
-            <span>当前积分：{{ documentPrecheck.currentPoints }} 积分</span>
-            <strong v-if="!documentPrecheck.canProcess">当前积分不足，预计需要 {{ documentPrecheck.costPoints }} 积分</strong>
-          </div>
-          <el-progress :percentage="documentProgress" :status="progressStatus" />
-          <div class="controls">
-            <el-button
-              type="primary"
-              :loading="documentUploading || documentPrechecking"
-              :disabled="!canConfirmDocument"
-              @click="submitDocument"
-            >
-              {{ documentActionText }}
-            </el-button>
-            <el-button
-              type="success"
-              :disabled="documentJob.status !== 'SUCCESS'"
-              @click="downloadOptimizedDocument"
-            >
-              下载优化文档
-            </el-button>
-          </div>
-        </div>
-      </div>
-
-      <el-table
-        class="document-job-table"
-        :data="documentJobs"
-        border
-        empty-text="暂无文档任务"
+    <section class="mode-row">
+      <button
+        v-for="mode in textModes"
+        :key="mode.value"
+        class="product-card mode-card"
+        :class="{ active: rewriteMode === mode.value }"
+        type="button"
+        @click="rewriteMode = mode.value"
       >
-        <el-table-column prop="fileName" label="文件" min-width="220" show-overflow-tooltip />
-        <el-table-column prop="modeName" label="模式" width="110" />
-        <el-table-column prop="platformName" label="口径" width="90" />
-        <el-table-column label="状态" width="110">
-          <template #default="{ row }">
-            <el-tag :type="jobTagType(row.status)">{{ row.status }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="进度" width="170">
-          <template #default="{ row }">
-            {{ jobProgress(row) }}%（{{ row.processedParagraphs || 0 }}/{{ row.totalParagraphs || 0 }}）
-          </template>
-        </el-table-column>
-        <el-table-column prop="message" label="信息" min-width="260" show-overflow-tooltip />
-        <el-table-column label="操作" width="130">
-          <template #default="{ row }">
-            <el-button text type="primary" @click="openDocumentJob(row)">查看</el-button>
-            <el-button text type="success" :disabled="row.status !== 'SUCCESS'" @click="downloadJob(row)">
-              下载
-            </el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-    </el-card>
+        <span>{{ mode.kicker }}</span>
+        <strong>{{ mode.label }}</strong>
+        <p>{{ mode.description }}</p>
+      </button>
+    </section>
 
-    <el-drawer v-model="documentDetailVisible" title="文档任务详情" size="720px">
-      <div class="document-detail">
-        <div class="document-detail-head">
-          <strong>{{ documentJob.fileName || '文档任务' }}</strong>
-          <el-tag :type="jobTagType(documentJob.status)">{{ documentJob.status || '--' }}</el-tag>
-        </div>
-        <div class="document-detail-meta">
-          <span>模式：{{ documentJob.modeName || currentDocumentMode.label }}</span>
-          <span>口径：{{ documentJob.platformName || currentPlatform.label }}</span>
-          <span>进度：{{ documentProgress }}%（{{ documentJob.processedParagraphs || 0 }}/{{ documentJob.totalParagraphs || 0 }}）</span>
-          <span>{{ documentJob.message }}</span>
+    <section class="output-layout">
+      <article class="output-panel panel">
+        <div class="section-head">
+          <div>
+            <span class="status-pill"><span class="status-dot"></span>输出展示</span>
+            <h2>优化结果</h2>
+          </div>
+          <button class="ghost-button" type="button" :disabled="!rewrittenText" @click="copyResult">复制结果</button>
         </div>
 
-        <div class="paragraph-list">
-          <section
-            v-for="paragraph in documentJob.paragraphs"
-            :key="paragraph.index"
-            class="paragraph-item"
-          >
-            <div class="paragraph-title">
-              <span>第 {{ paragraph.index + 1 }} 段</span>
-              <el-tag :type="paragraphTagType(paragraph.status)">
-                {{ paragraph.status }}
-              </el-tag>
-            </div>
-            <p class="paragraph-original">{{ paragraph.originalText }}</p>
-            <p v-if="paragraph.rewrittenText" class="paragraph-rewritten">
-              {{ paragraph.rewrittenText }}
-            </p>
-            <span class="paragraph-message">{{ paragraph.message }}</span>
+        <div v-if="submitting" class="generation-progress">
+          <div class="progress-title">
+            <strong>{{ processText }}</strong>
+            <span>{{ progress }}%</span>
+          </div>
+          <div class="loading-line"><span :style="{ width: `${progress}%` }"></span></div>
+          <div class="process-list">
+            <span v-for="(step, index) in processSteps" :key="step" :class="{ done: index <= processStep }">{{ step }}</span>
+          </div>
+        </div>
+
+        <div v-else-if="rewrittenText" class="compare-grid">
+          <section class="compare-card original">
+            <span>原文</span>
+            <p>{{ originalSnapshot }}</p>
+          </section>
+          <section class="compare-card rewritten">
+            <span>优化后</span>
+            <p>{{ displayedResult }}</p>
           </section>
         </div>
+
+        <div v-else class="empty-output">
+          <strong>结果会在这里渐进出现</strong>
+          <p>开始优化后，系统会先解析文本，再生成改写结果，并保留原文对比。</p>
+        </div>
+      </article>
+
+      <aside class="document-panel panel">
+        <div class="section-head compact">
+          <div>
+            <span class="status-pill">Word 文档</span>
+            <h2>整篇处理</h2>
+          </div>
+        </div>
+
+        <div class="doc-upload">
+          <el-upload action="" :auto-upload="false" :show-file-list="false" accept=".docx" :on-change="handleDocumentSelected">
+            <button class="ghost-button" type="button">上传 DOCX</button>
+          </el-upload>
+          <span>{{ documentJob.fileName || '支持整篇论文降重 / 降 AI' }}</span>
+        </div>
+
+        <div class="doc-state">
+          <strong>{{ documentStatusText }}</strong>
+          <p>{{ documentJob.message || '上传文档后会先检测字数和积分，再开始处理。' }}</p>
+          <div class="loading-line"><span :style="{ width: `${documentProgress}%` }"></span></div>
+        </div>
+
+        <button class="primary-button doc-button" type="button" :disabled="!canConfirmDocument" @click="submitDocument">
+          {{ documentUploading || documentPrechecking ? '处理中...' : documentActionText }}
+        </button>
+        <button class="ghost-button doc-button" type="button" :disabled="documentJob.status !== 'SUCCESS'" @click="downloadOptimizedDocument">
+          下载优化文档
+        </button>
+      </aside>
+    </section>
+
+    <section class="history-panel panel">
+      <div class="section-head">
+        <div>
+          <span class="eyebrow">历史记录</span>
+          <h2>最近处理</h2>
+        </div>
+        <div class="history-tabs">
+          <button :class="{ active: historyTab === 'text' }" type="button" @click="historyTab = 'text'">文本记录</button>
+          <button :class="{ active: historyTab === 'document' }" type="button" @click="historyTab = 'document'">文档记录</button>
+        </div>
       </div>
-    </el-drawer>
 
-    <section class="workspace">
-      <el-card class="panel input-panel" shadow="never">
-        <template #header>
-          <div class="panel-title">
-            <span>原文输入</span>
-            <el-tag type="info">{{ originalText.length }} 字</el-tag>
+      <div v-if="historyLoading" class="history-empty">正在加载记录...</div>
+      <div v-else-if="pagedHistory.length" class="record-grid">
+        <article v-for="item in pagedHistory" :key="recordKey(item)" class="record-card product-card">
+          <div class="record-top">
+            <strong>{{ recordTitle(item) }}</strong>
+            <span :class="['record-status', statusClass(item.status)]">{{ recordStatus(item) }}</span>
           </div>
-        </template>
-
-        <el-input
-          v-model="originalText"
-          type="textarea"
-          :autosize="{ minRows: 15, maxRows: 22 }"
-          maxlength="10000"
-          show-word-limit
-          placeholder="粘贴需要优化的论文段落"
-        />
-
-        <div class="controls">
-          <el-select v-model="targetPlatform" class="platform-select" placeholder="检测口径">
-            <el-option
-              v-for="item in platformOptions"
-              :key="item.value"
-              :label="item.label"
-              :value="item.value"
-            />
-          </el-select>
-          <el-select v-model="rewriteType" class="type-select" placeholder="选择优化类型">
-            <el-option
-              v-for="item in rewriteTypes"
-              :key="item"
-              :label="item"
-              :value="item"
-            />
-          </el-select>
-          <el-button
-            type="primary"
-            :loading="submitting"
-            :disabled="aiStatus.testStatus !== 'success'"
-            @click="handleSubmit"
-          >
-            开始优化
-          </el-button>
-          <el-button :loading="analyzing" @click="handleAnalyze">
-            风险分析
-          </el-button>
-          <el-button @click="loadDemoText">
-            加载演示文本
-          </el-button>
-        </div>
-
-        <div class="protection-hint">
-          <strong>结构保护已启用</strong>
-          <span>表格、代码块、URL 与参考文献会在模型调用前锁定，完成后原样恢复。</span>
-        </div>
-      </el-card>
-
-      <el-card class="panel result-panel" shadow="never">
-        <template #header>
-          <div class="panel-title">
-            <span>优化结果</span>
-            <el-tag v-if="currentResult?.aiLevel" :type="levelTagType(currentResult.aiLevel)">
-              {{ currentResult.aiLevel }}
-            </el-tag>
+          <p>{{ recordSummary(item) }}</p>
+          <div class="record-meta">
+            <span>模式：{{ recordMode(item) }}</span>
+            <span>进度：{{ recordProgress(item) }}%</span>
+            <span>{{ formatTime(item.createdAt || item.createTime || item.updatedAt) }}</span>
           </div>
-        </template>
+          <div class="record-actions">
+            <button class="ghost-button" type="button" @click="openRecord(item)">查看</button>
+            <button class="ghost-button" type="button" :disabled="!canDownloadRecord(item)" @click="downloadRecord(item)">下载</button>
+            <button class="ghost-button" type="button" @click="rerunRecord(item)">重新处理</button>
+          </div>
+        </article>
+      </div>
+      <div v-else class="history-empty">暂无记录。</div>
 
-        <el-input
-          v-model="rewrittenText"
-          type="textarea"
-          :autosize="{ minRows: 15, maxRows: 22 }"
-          readonly
-          placeholder="优化后的文本会显示在这里"
-        />
-
-        <div class="controls result-actions">
-          <el-button :disabled="!rewrittenText" @click="copyResult">复制结果</el-button>
-          <el-button type="success" :disabled="!currentResult" @click="confirmSaved">保存记录</el-button>
-        </div>
-      </el-card>
+      <div class="pagination" v-if="historyTotalPages > 1">
+        <button class="ghost-button" type="button" :disabled="historyPage <= 1" @click="historyPage -= 1">上一页</button>
+        <span>第 {{ historyPage }} / {{ historyTotalPages }} 页</span>
+        <button class="ghost-button" type="button" :disabled="historyPage >= historyTotalPages" @click="historyPage += 1">下一页</button>
+      </div>
     </section>
 
-    <section class="analysis-grid">
-      <el-card class="panel" shadow="never">
-        <template #header>
-          <div class="panel-title">
-            <span>AI痕迹风险分析</span>
-            <el-tag v-if="analysis.level" :type="levelTagType(analysis.level)">
-              {{ analysis.level }}
-            </el-tag>
-          </div>
-        </template>
-
-        <div class="score-row">
-          <div class="score">{{ analysis.score ?? '--' }}</div>
-          <div class="score-meta">
-            <strong>风险评分</strong>
-            <span>根据句式规整、逻辑词密度、语态特征、词汇分布和论证深度进行自查预估</span>
-          </div>
-        </div>
-
-        <div class="suggestions">
-          <el-tag
-            v-for="suggestion in analysis.suggestions"
-            :key="suggestion"
-            type="warning"
-          >
-            {{ suggestion }}
-          </el-tag>
-        </div>
-      </el-card>
-
-      <el-card class="panel" shadow="never">
-        <template #header>
-          <div class="panel-title">
-            <span>当前记录</span>
-            <el-button text type="primary" @click="loadHistory">刷新</el-button>
-          </div>
-        </template>
-
-        <div class="current-record">
-          <span>ID：{{ currentResult?.id || '--' }}</span>
-          <span>类型：{{ currentResult?.rewriteType || rewriteType }}</span>
-          <span>提供商：{{ currentResult?.aiProvider || '提交后显示' }}</span>
-          <span>模型：{{ currentResult?.aiModel || aiStatus.model || '提交后显示' }}</span>
-          <span>创建时间：{{ formatTime(currentResult?.createdAt) }}</span>
-        </div>
-      </el-card>
-    </section>
-
-    <section class="workflow-grid">
-      <el-card class="panel" shadow="never">
-        <template #header>
-          <div class="panel-title">
-            <span>受控工作流</span>
-            <el-tag type="primary">{{ workflowSteps.length }} 步</el-tag>
-          </div>
-        </template>
-
-        <el-timeline>
-          <el-timeline-item
-            v-for="step in workflowSteps"
-            :key="step.nodeType"
-            :timestamp="step.nodeType"
-            placement="top"
-          >
-            <strong>{{ step.nodeName }}</strong>
-            <p>{{ step.summary }}</p>
-          </el-timeline-item>
-        </el-timeline>
-      </el-card>
-
-      <el-card class="panel" shadow="never">
-        <template #header>
-          <div class="panel-title">
-            <span>质量检查</span>
-            <el-tag :type="qualityPassed ? 'success' : 'warning'">
-              {{ qualityPassed ? '通过' : '待优化' }}
-            </el-tag>
-          </div>
-        </template>
-
-        <div class="quality-list">
-          <span :class="{ passed: qualityCheck.meaningPreserved }">原意保持</span>
-          <span :class="{ passed: qualityCheck.academicTone }">论文语气</span>
-          <span :class="{ passed: qualityCheck.templateReduced }">模板词减少</span>
-          <span :class="{ passed: qualityCheck.fluent }">语句通顺</span>
-        </div>
-
-        <div class="suggestions" v-if="qualityCheck.issues?.length">
-          <el-tag v-for="issue in qualityCheck.issues" :key="issue" type="danger">
-            {{ issue }}
-          </el-tag>
-        </div>
-      </el-card>
-    </section>
-
-    <el-card class="panel history-panel" shadow="never">
-      <template #header>
-        <div class="panel-title">
-          <span>历史记录</span>
-          <el-tag>{{ history.length }} 条</el-tag>
-        </div>
-      </template>
-
-      <el-table :data="history" v-loading="historyLoading" border height="360">
-        <el-table-column prop="id" label="ID" width="80" />
-        <el-table-column prop="rewriteType" label="优化类型" width="140" />
-        <el-table-column label="AI评分" width="100">
-          <template #default="{ row }">
-            <el-tag :type="levelTagType(row.aiLevel)">{{ row.aiScore }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="originalText" label="原文" min-width="220" show-overflow-tooltip />
-        <el-table-column prop="rewrittenText" label="优化结果" min-width="240" show-overflow-tooltip />
-        <el-table-column label="创建时间" width="180">
-          <template #default="{ row }">{{ formatTime(row.createdAt) }}</template>
-        </el-table-column>
-        <el-table-column label="操作" width="150" fixed="right">
-          <template #default="{ row }">
-            <el-button text type="primary" @click="viewDetail(row.id)">详情</el-button>
-            <el-button text type="danger" @click="removeRecord(row.id)">删除</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-    </el-card>
-
-    <el-dialog v-model="detailVisible" title="记录详情" width="720px">
-      <div v-if="detail" class="detail">
-        <h3>原文</h3>
-        <p>{{ detail.originalText }}</p>
-        <h3>优化结果</h3>
-        <p>{{ detail.rewrittenText }}</p>
-        <h3>建议</h3>
-        <div class="suggestions">
-          <el-tag v-for="item in detail.suggestions" :key="item" type="warning">{{ item }}</el-tag>
-        </div>
-        <h3>工作流</h3>
-        <div class="detail-steps">
-          <p v-for="step in detail.workflowSteps" :key="step.nodeType">
-            {{ step.nodeName }}：{{ step.summary }}
-          </p>
-        </div>
+    <el-dialog v-model="detailVisible" title="记录详情" width="760px">
+      <div v-if="detail" class="detail-view">
+        <section>
+          <span>原文</span>
+          <p>{{ detail.originalText || detail.fileName || '--' }}</p>
+        </section>
+        <section>
+          <span>优化结果</span>
+          <p>{{ detail.rewrittenText || detail.message || '--' }}</p>
+        </section>
       </div>
     </el-dialog>
   </main>
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { ElMessage } from 'element-plus'
 import { useRouter } from 'vue-router'
 import {
-  analyzeText,
-  deleteRewrite,
   downloadDocument,
   getAiStatus,
   getDocumentJob,
   getDocumentJobs,
-  precheckDocument,
   getRewriteDetail,
   getRewriteList,
+  precheckDocument,
   submitRewrite,
   uploadDocument,
   logout
 } from '../../api/rewrite'
 
 const router = useRouter()
-const username = sessionStorage.getItem('dropai_username') || '当前账号'
-async function signOut() {
-  try { await logout() } finally {
-    sessionStorage.removeItem('dropai_token')
-    sessionStorage.removeItem('dropai_username')
-    router.replace('/login')
-  }
-}
-
-const rewriteTypes = [
-  '学术化润色',
-  '降重复改写',
-  '降低AI写作痕迹',
-  '扩写',
-  '缩写',
-  '语句通顺优化'
-]
-
 const originalText = ref('')
+const originalSnapshot = ref('')
 const rewrittenText = ref('')
-const rewriteType = ref(rewriteTypes[0])
+const displayedResult = ref('')
+const rewriteMode = ref('humanize')
+const targetPlatform = ref('GENERAL')
 const submitting = ref(false)
-const analyzing = ref(false)
+const processStep = ref(0)
 const historyLoading = ref(false)
 const history = ref([])
-const currentResult = ref(null)
-const checkingAiStatus = ref(false)
-const aiStatus = reactive({
-  provider: '豆包 Ark',
-  model: '',
-  endpoint: '',
-  apiKeyConfigured: false,
-  testStatus: '',
-  testMessage: ''
-})
+const documentJobs = ref([])
+const historyTab = ref('text')
+const historyPage = ref(1)
 const detailVisible = ref(false)
 const detail = ref(null)
+const checkingAiStatus = ref(false)
 const selectedDocument = ref(null)
-const documentMode = ref('humanize')
-const targetPlatform = ref('GENERAL')
-const documentUploading = ref(false)
 const documentPrechecking = ref(false)
+const documentUploading = ref(false)
 const documentPrecheckSeq = ref(0)
 const documentPollTimer = ref(null)
-const documentTerminalMessages = new Set()
-const documentJobs = ref([])
-const documentDetailVisible = ref(false)
+const aiStatus = reactive({ provider: '', model: '', endpoint: '', testStatus: '', testMessage: '' })
+const documentPrecheck = reactive({ ready: false, requestId: '', charCount: 0, costPoints: 0, currentPoints: 0, canProcess: false })
 const documentJob = reactive({
   jobId: '',
   fileName: '',
   status: '',
   totalParagraphs: 0,
   processedParagraphs: 0,
-  rewrittenParagraphs: 0,
-  charCount: 0,
-  costPoints: 0,
-  pointsCharged: false,
   modeName: '',
-  platform: 'GENERAL',
-  platformName: '通用',
   message: '',
-  downloadUrl: '',
-  paragraphs: []
+  downloadUrl: ''
 })
-const documentPrecheck = reactive({
-  ready: false,
-  requestId: '',
-  charCount: 0,
-  costPoints: 0,
-  currentPoints: 0,
-  canProcess: false
-})
-const analysis = reactive({
-  score: null,
-  level: '',
-  suggestions: []
-})
-const documentModes = [
-  {
-    value: 'rewrite',
-    label: '智能降重',
-    description: '针对重复率较高内容进行学术改写，在保持原意和专业术语的前提下降低文本重复风险。'
-  },
-  {
-    value: 'humanize',
-    label: '智能降AI',
-    description: '优化AI生成痕迹，减少模板化表达、机械连接词和过度总结式语言。'
-  },
-  {
-    value: 'double',
-    label: '双降增强',
-    description: '先执行智能降重，再进行智能降AI优化，适用于重复率和AI率同时偏高的论文。'
-  }
+
+const pageSize = 10
+const processSteps = ['解析文本', '识别语义', '生成改写', '润色表达', '保存记录']
+const textModes = [
+  { value: 'rewrite', label: '智能降重', kicker: '01', description: '降低重复表达，保留原意和专业术语。' },
+  { value: 'polish', label: '学术润色', kicker: '02', description: '增强论文语气，让表达更严谨自然。' },
+  { value: 'double', label: '双重优化', kicker: '03', description: '先降重，再降低 AI 痕迹，适合终稿前处理。' }
 ]
-const platformOptions = [
-  { value: 'GENERAL', label: '通用' },
-  { value: 'CNKI', label: '知网' },
-  { value: 'WEIPU', label: '维普' },
-  { value: 'WANFANG', label: '万方' },
-  { value: 'GEZIDA', label: '格子达' }
-]
-const workflowSteps = ref([])
-const qualityCheck = reactive({
-  meaningPreserved: false,
-  academicTone: false,
-  templateReduced: false,
-  fluent: false,
-  issues: []
-})
-const qualityPassed = computed(() =>
-  qualityCheck.meaningPreserved &&
-  qualityCheck.academicTone &&
-  qualityCheck.templateReduced &&
-  qualityCheck.fluent
-)
-const modelLabel = computed(() => {
-  if (currentResult.value?.aiProvider) {
-    return `${currentResult.value.aiProvider} / ${currentResult.value.aiModel || aiStatus.model}`
-  }
-  return aiStatus.model || '模型待校验'
-})
 
-function loadDemoText() {
-  originalText.value = `随着信息技术的快速发展，传统管理方式已经难以满足当前需求。因此，本文基于 Spring Boot 构建系统，通过 MyBatis-Plus 实现数据访问，从而有效提升管理效率。
-
-| 接口 | 方法 | 说明 |
-|---|---|---|
-| /api/rewrite/submit | POST | 提交优化任务 |
-
-相关配置见 \`application.yml\`，项目文档地址为 https://example.com/docs。
-
-[1] 张三. 学术写作表达研究[J]. 写作研究, 2025(2): 10-15.`
-  rewriteType.value = '降低AI写作痕迹'
-  targetPlatform.value = 'GENERAL'
-  ElMessage.success('演示文本已加载，可直接点击开始优化')
-}
-const isDocumentRunning = computed(() => ['PENDING', 'RUNNING'].includes(documentJob.status))
-const documentProgress = computed(() => {
-  return jobProgress(documentJob)
+const canSubmitText = computed(() => Boolean(originalText.value.trim()) && !submitting.value)
+const processText = computed(() => processSteps[Math.min(processStep.value, processSteps.length - 1)])
+const progress = computed(() => submitting.value ? Math.min(96, (processStep.value + 1) * 19) : rewrittenText.value ? 100 : 0)
+const activeHistory = computed(() => historyTab.value === 'text' ? history.value : documentJobs.value)
+const historyTotalPages = computed(() => Math.max(1, Math.ceil(activeHistory.value.length / pageSize)))
+const pagedHistory = computed(() => {
+  const start = (historyPage.value - 1) * pageSize
+  return activeHistory.value.slice(start, start + pageSize)
 })
-const progressStatus = computed(() => {
-  if (documentJob.status === 'SUCCESS') return 'success'
-  if (documentJob.status === 'FAILED') return 'exception'
-  return ''
-})
-const currentDocumentMode = computed(() =>
-  documentModes.find((item) => item.value === documentMode.value) || documentModes[0]
-)
-const currentPlatform = computed(() =>
-  platformOptions.find((item) => item.value === targetPlatform.value) || platformOptions[0]
-)
-const documentActionText = computed(() => {
-  if (documentPrechecking.value) return '正在检测字符数'
-  if (documentPrecheck.ready && documentPrecheck.canProcess) {
-    return `确认处理并消耗 ${documentPrecheck.costPoints} 积分`
-  }
-  if (documentPrecheck.ready && !documentPrecheck.canProcess) {
-    return `当前积分不足，预计需要 ${documentPrecheck.costPoints} 积分`
-  }
-  if (documentMode.value === 'rewrite') return '开始降重处理'
-  if (documentMode.value === 'double') return '开始双降处理'
-  return '开始降AI处理'
-})
+const documentProgress = computed(() => jobProgress(documentJob))
 const canConfirmDocument = computed(() =>
-  !!selectedDocument.value &&
+  selectedDocument.value &&
   documentPrecheck.ready &&
   documentPrecheck.canProcess &&
-  !documentUploading.value &&
   !documentPrechecking.value &&
-  !isDocumentRunning.value &&
-  aiStatus.testStatus === 'success'
+  !documentUploading.value &&
+  !['PENDING', 'RUNNING'].includes(documentJob.status)
 )
+const documentActionText = computed(() => {
+  if (!selectedDocument.value) return '等待上传'
+  if (documentPrechecking.value) return '检测字数中...'
+  if (documentPrecheck.ready && !documentPrecheck.canProcess) return `积分不足，需 ${documentPrecheck.costPoints}`
+  if (documentPrecheck.ready) return `开始处理（${documentPrecheck.costPoints} 积分）`
+  return '准备处理'
+})
+const documentStatusText = computed(() => {
+  if (documentJob.status === 'SUCCESS') return '处理完成'
+  if (documentJob.status === 'FAILED') return '处理失败'
+  if (['PENDING', 'RUNNING'].includes(documentJob.status)) return '正在处理'
+  if (documentPrechecking.value) return '正在预检'
+  if (documentPrecheck.ready) return '预检完成'
+  return '等待文档'
+})
+
+watch(historyTab, () => {
+  historyPage.value = 1
+})
 
 async function handleSubmit() {
   if (!originalText.value.trim()) {
-    ElMessage.warning('请输入原文内容')
-    return
-  }
-  if (aiStatus.testStatus !== 'success') {
-    ElMessage.error('真实模型尚未连接，已阻止提交，不会生成模拟结果')
+    ElMessage.warning('请先输入需要优化的文本。')
     return
   }
   submitting.value = true
+  rewrittenText.value = ''
+  displayedResult.value = ''
+  originalSnapshot.value = originalText.value
+  processStep.value = 0
   try {
+    const ticker = startProgress()
     const result = await submitRewrite({
       originalText: originalText.value,
-      rewriteType: rewriteType.value,
+      rewriteType: modeLabel(rewriteMode.value),
       platform: targetPlatform.value
     })
-    currentResult.value = result
+    clearInterval(ticker)
+    processStep.value = 4
     rewrittenText.value = result.rewrittenText || ''
-    setAnalysis(result)
-    setWorkflow(result)
-    ElMessage.success('优化完成，记录已保存')
+    await revealResult(rewrittenText.value)
+    ElMessage.success('优化完成。')
     await loadHistory()
+  } catch (error) {
+    ElMessage.error(error.message || '优化失败。')
   } finally {
     submitting.value = false
   }
+}
+
+function startProgress() {
+  return window.setInterval(() => {
+    processStep.value = Math.min(3, processStep.value + 1)
+  }, 520)
+}
+
+async function revealResult(text) {
+  displayedResult.value = ''
+  const chunks = String(text || '').match(/.{1,18}/g) || []
+  for (const chunk of chunks.slice(0, 80)) {
+    displayedResult.value += chunk
+    await wait(18)
+  }
+  displayedResult.value = text
+}
+
+function modeLabel(value) {
+  return textModes.find(item => item.value === value)?.label || '学术润色'
+}
+
+function loadDemoText() {
+  originalText.value = '随着人工智能技术的发展，学术写作辅助工具在论文撰写过程中发挥着越来越重要的作用。然而，现有研究仍需要在表达自然度、逻辑连贯性和专业术语一致性方面进一步提升。'
+}
+
+async function copyResult() {
+  if (!rewrittenText.value) return
+  await navigator.clipboard.writeText(rewrittenText.value)
+  ElMessage.success('已复制。')
 }
 
 async function loadAiStatus() {
@@ -633,78 +343,28 @@ async function loadAiStatus() {
     Object.assign(aiStatus, await getAiStatus())
   } catch (error) {
     aiStatus.testStatus = 'failed'
-    aiStatus.testMessage = error.message || '真实模型连接校验失败'
+    aiStatus.testMessage = error.message || '模型连接失败'
   } finally {
     checkingAiStatus.value = false
   }
 }
 
-async function handleAnalyze() {
-  if (!originalText.value.trim()) {
-    ElMessage.warning('请输入原文内容')
-    return
-  }
-  analyzing.value = true
-  try {
-    const result = await analyzeText({
-      originalText: originalText.value,
-      rewriteType: rewriteType.value
-    })
-    setAnalysis(result)
-    ElMessage.success('分析完成')
-  } finally {
-    analyzing.value = false
-  }
-}
-
-function setAnalysis(result) {
-  analysis.score = result.aiScore ?? result.score ?? null
-  analysis.level = result.aiLevel ?? result.level ?? ''
-  analysis.suggestions = result.suggestions || []
-}
-
-function setWorkflow(result) {
-  workflowSteps.value = result.workflowSteps || []
-  const check = result.qualityCheck || {}
-  qualityCheck.meaningPreserved = Boolean(check.meaningPreserved)
-  qualityCheck.academicTone = Boolean(check.academicTone)
-  qualityCheck.templateReduced = Boolean(check.templateReduced)
-  qualityCheck.fluent = Boolean(check.fluent)
-  qualityCheck.issues = check.issues || []
-}
-
 async function handleDocumentSelected(uploadFile) {
   selectedDocument.value = uploadFile.raw
-  documentJob.fileName = uploadFile.name
-  documentJob.status = ''
-  documentJob.message = '已选择文件，正在检测字符数和积分'
+  Object.assign(documentJob, { fileName: uploadFile.name, status: '', message: '正在检测字数和积分...' })
   await runDocumentPrecheck()
 }
 
-async function selectDocumentMode(mode) {
-  if (documentMode.value === mode) {
-    return
-  }
-  documentMode.value = mode
-  if (selectedDocument.value && !isDocumentRunning.value) {
-    await runDocumentPrecheck()
-  }
-}
-
 async function runDocumentPrecheck() {
-  if (!selectedDocument.value) {
-    return
-  }
+  if (!selectedDocument.value) return
   resetDocumentPrecheck()
-  documentPrecheck.requestId = createRequestId()
   documentPrechecking.value = true
   const seq = documentPrecheckSeq.value + 1
   documentPrecheckSeq.value = seq
+  documentPrecheck.requestId = createRequestId()
   try {
-    const result = await precheckDocument(selectedDocument.value, documentMode.value)
-    if (seq !== documentPrecheckSeq.value) {
-      return
-    }
+    const result = await precheckDocument(selectedDocument.value, rewriteMode.value === 'polish' ? 'humanize' : rewriteMode.value)
+    if (seq !== documentPrecheckSeq.value) return
     Object.assign(documentPrecheck, {
       ready: true,
       charCount: result.charCount || 0,
@@ -712,736 +372,618 @@ async function runDocumentPrecheck() {
       currentPoints: result.currentPoints || 0,
       canProcess: !!result.canProcess
     })
-    documentJob.charCount = documentPrecheck.charCount
-    documentJob.costPoints = documentPrecheck.costPoints
     documentJob.message = documentPrecheck.canProcess
-      ? '字符数检测完成，请确认后开始处理'
-      : `当前积分不足，预计需要 ${documentPrecheck.costPoints} 积分`
+      ? `预检完成，共 ${formatNumber(documentPrecheck.charCount)} 字。`
+      : `当前积分不足，预计需要 ${documentPrecheck.costPoints} 积分。`
   } catch (error) {
-    if (seq !== documentPrecheckSeq.value) {
-      return
-    }
-    selectedDocument.value = null
     documentJob.status = 'FAILED'
-    documentJob.message = error.message || '文档字符数检测失败'
+    documentJob.message = error.message || '文档预检失败。'
   } finally {
-    if (seq === documentPrecheckSeq.value) {
-      documentPrechecking.value = false
-    }
+    if (seq === documentPrecheckSeq.value) documentPrechecking.value = false
   }
 }
 
 async function submitDocument() {
-  if (documentUploading.value) {
-    return
-  }
-  if (!selectedDocument.value) {
-    ElMessage.warning('请先选择 .docx 文件')
-    return
-  }
-  if (aiStatus.testStatus !== 'success') {
-    ElMessage.error('真实模型尚未连接，已阻止文档任务，不会生成模拟结果')
-    return
-  }
-  if (!documentPrecheck.ready) {
-    ElMessage.warning('请等待字符数和积分检测完成')
-    return
-  }
-  if (!documentPrecheck.canProcess) {
-    ElMessage.error(`当前积分不足，预计需要 ${documentPrecheck.costPoints} 积分`)
-    return
-  }
+  if (!canConfirmDocument.value) return
   documentUploading.value = true
   try {
-    const job = await uploadDocument(
-      selectedDocument.value,
-      documentMode.value,
-      targetPlatform.value,
-      documentPrecheck.requestId
-    )
+    const mode = rewriteMode.value === 'polish' ? 'humanize' : rewriteMode.value
+    const job = await uploadDocument(selectedDocument.value, mode, targetPlatform.value, documentPrecheck.requestId)
     setDocumentJob(job)
-    rememberDocumentJob(job)
-    documentTerminalMessages.delete(`${job.jobId}:SUCCESS`)
-    documentTerminalMessages.delete(`${job.jobId}:FAILED`)
-    ElMessage.success('文档任务已提交，正在后台处理')
-    await startDocumentPolling(job.jobId)
+    upsertDocumentJob(job)
+    ElMessage.success('文档任务已提交。')
+    startDocumentPolling(job.jobId)
+    historyTab.value = 'document'
+  } catch (error) {
+    ElMessage.error(error.message || '文档提交失败。')
   } finally {
     documentUploading.value = false
   }
 }
 
+async function startDocumentPolling(jobId) {
+  stopDocumentPolling()
+  await syncDocumentJob(jobId)
+  if (['SUCCESS', 'FAILED'].includes(documentJob.status)) return
+  documentPollTimer.value = window.setInterval(async () => {
+    try {
+      await syncDocumentJob(jobId)
+      if (['SUCCESS', 'FAILED'].includes(documentJob.status)) {
+        stopDocumentPolling()
+        if (documentJob.status === 'SUCCESS') ElMessage.success('文档处理完成。')
+      }
+    } catch {
+      stopDocumentPolling()
+    }
+  }, 1200)
+}
+
+function stopDocumentPolling() {
+  if (documentPollTimer.value) window.clearInterval(documentPollTimer.value)
+  documentPollTimer.value = null
+}
+
+async function syncDocumentJob(jobId) {
+  const job = await getDocumentJob(jobId)
+  setDocumentJob(job)
+  upsertDocumentJob(job)
+}
+
+function setDocumentJob(job = {}) {
+  Object.assign(documentJob, job)
+}
+
+function upsertDocumentJob(job) {
+  const index = documentJobs.value.findIndex(item => item.jobId === job.jobId)
+  if (index >= 0) documentJobs.value.splice(index, 1, job)
+  else documentJobs.value.unshift(job)
+}
+
+async function downloadOptimizedDocument() {
+  await downloadDocumentJob(documentJob)
+}
+
+async function downloadDocumentJob(job) {
+  if (!job?.jobId || job.status !== 'SUCCESS') return
+  const blob = await downloadDocument(job.jobId)
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `${(job.fileName || 'DropAI文档').replace(/\.docx$/i, '')}-优化.docx`
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
+async function loadHistory() {
+  historyLoading.value = true
+  try {
+    history.value = await getRewriteList() || []
+    documentJobs.value = await getDocumentJobs() || []
+  } finally {
+    historyLoading.value = false
+  }
+}
+
+async function openRecord(item) {
+  if (historyTab.value === 'document') {
+    setDocumentJob(await getDocumentJob(item.jobId, true))
+    detail.value = { originalText: documentJob.fileName, rewrittenText: documentJob.message }
+  } else {
+    detail.value = await getRewriteDetail(item.id)
+  }
+  detailVisible.value = true
+}
+
+async function downloadRecord(item) {
+  if (historyTab.value === 'document') await downloadDocumentJob(item)
+  else if (item.rewrittenText) {
+    const blob = new Blob([item.rewrittenText], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `DropAI-优化结果-${item.id || Date.now()}.txt`
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+}
+
+function rerunRecord(item) {
+  if (historyTab.value === 'document') {
+    ElMessage.info('请重新上传文档以再次处理。')
+    return
+  }
+  originalText.value = item.originalText || ''
+  rewriteMode.value = modeValue(item.rewriteType)
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+function canDownloadRecord(item) {
+  if (historyTab.value === 'document') return item.status === 'SUCCESS'
+  return Boolean(item.rewrittenText)
+}
+
+function recordKey(item) {
+  return historyTab.value === 'document' ? item.jobId : item.id
+}
+
+function recordTitle(item) {
+  if (historyTab.value === 'document') return item.fileName || '文档任务'
+  return item.rewriteType || '文本优化'
+}
+
+function recordSummary(item) {
+  if (historyTab.value === 'document') return item.message || '文档处理任务'
+  return item.originalText || item.rewrittenText || '文本优化记录'
+}
+
+function recordMode(item) {
+  if (historyTab.value === 'document') return item.modeName || modeLabel(rewriteMode.value)
+  return item.rewriteType || '学术润色'
+}
+
+function recordProgress(item) {
+  return historyTab.value === 'document' ? jobProgress(item) : 100
+}
+
+function recordStatus(item) {
+  if (historyTab.value === 'text') return 'SUCCESS'
+  return item.status || 'PENDING'
+}
+
+function statusClass(status = '') {
+  return String(status).toLowerCase()
+}
+
+function jobProgress(job = {}) {
+  const total = job.totalParagraphs || 0
+  const done = job.processedParagraphs || 0
+  if (job.status === 'SUCCESS') return 100
+  if (!total) return ['PENDING', 'RUNNING'].includes(job.status) ? 12 : 0
+  return Math.min(99, Math.round((done / total) * 100))
+}
+
+function modeValue(label = '') {
+  const found = textModes.find(item => label.includes(item.label))
+  return found?.value || 'humanize'
+}
+
 function resetDocumentPrecheck() {
-  Object.assign(documentPrecheck, {
-    ready: false,
-    requestId: '',
-    charCount: 0,
-    costPoints: 0,
-    currentPoints: 0,
-    canProcess: false
-  })
+  Object.assign(documentPrecheck, { ready: false, requestId: '', charCount: 0, costPoints: 0, currentPoints: 0, canProcess: false })
 }
 
 function createRequestId() {
-  if (window.crypto?.randomUUID) {
-    return window.crypto.randomUUID()
-  }
-  return `${Date.now()}-${Math.random().toString(16).slice(2)}`
+  return window.crypto?.randomUUID ? window.crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
 function formatNumber(value) {
   return Number(value || 0).toLocaleString()
 }
 
-async function startDocumentPolling(jobId) {
-  if (documentPollTimer.value) {
-    clearInterval(documentPollTimer.value)
-  }
-  await syncDocumentJob(jobId)
-  if (['SUCCESS', 'FAILED'].includes(documentJob.status)) {
-    notifyDocumentTerminal(documentJob)
-    return
-  }
-  documentPollTimer.value = setInterval(async () => {
-    try {
-      const job = await getDocumentJob(jobId)
-      setDocumentJob(job)
-      upsertDocumentJob(job)
-      rememberDocumentJob(job)
-      if (['SUCCESS', 'FAILED'].includes(job.status)) {
-        clearInterval(documentPollTimer.value)
-        documentPollTimer.value = null
-        notifyDocumentTerminal(job)
-      }
-    } catch (error) {
-      clearInterval(documentPollTimer.value)
-      documentPollTimer.value = null
-      documentJob.status = 'FAILED'
-      documentJob.message = error.message || '查询文档任务失败'
-    }
-  }, 800)
-}
-
-function notifyDocumentTerminal(job) {
-  if (!job?.jobId || !['SUCCESS', 'FAILED'].includes(job.status)) {
-    return
-  }
-  const key = `${job.jobId}:${job.status}`
-  if (documentTerminalMessages.has(key)) {
-    return
-  }
-  documentTerminalMessages.add(key)
-  if (job.status === 'FAILED') {
-    ElMessage.error(job.message || '文档处理失败')
-  } else {
-    ElMessage.success(job.message || '文档优化完成')
-  }
-}
-
-async function syncDocumentJob(jobId) {
-  try {
-    const job = await getDocumentJob(jobId)
-    setDocumentJob(job)
-    upsertDocumentJob(job)
-    rememberDocumentJob(job)
-  } catch (error) {
-    documentJob.status = 'FAILED'
-    documentJob.message = error.message || '查询文档任务失败'
-  }
-}
-
-function setDocumentJob(job) {
-  const next = job || {}
-  const previousParagraphs = Array.isArray(documentJob.paragraphs) ? documentJob.paragraphs : []
-  const keepParagraphs =
-    documentDetailVisible.value &&
-    next.jobId === documentJob.jobId &&
-    previousParagraphs.length > 0 &&
-    (!Array.isArray(next.paragraphs) || next.paragraphs.length === 0)
-  Object.assign(documentJob, next)
-  documentJob.paragraphs = keepParagraphs ? previousParagraphs : (Array.isArray(next.paragraphs) ? next.paragraphs : [])
-}
-
-async function downloadOptimizedDocument() {
-  await downloadJob(documentJob)
-}
-
-async function downloadJob(job) {
-  const blob = await downloadDocument(job.jobId)
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = `${job.fileName.replace(/\.docx$/i, '')}-AI痕迹优化.docx`
-  link.click()
-  URL.revokeObjectURL(url)
-}
-
-function selectDocumentJob(job) {
-  setDocumentJob(job)
-  if (['PENDING', 'RUNNING'].includes(job.status)) {
-    startDocumentPolling(job.jobId)
-  }
-}
-
-async function openDocumentJob(job) {
-  selectDocumentJob(job)
-  documentDetailVisible.value = true
-  try {
-    const detailJob = await getDocumentJob(job.jobId, true)
-    setDocumentJob(detailJob)
-  } catch (error) {
-    ElMessage.error(error.message || '加载文档详情失败')
-  }
-}
-
-function upsertDocumentJob(job) {
-  const index = documentJobs.value.findIndex((item) => item.jobId === job.jobId)
-  if (index >= 0) {
-    documentJobs.value.splice(index, 1, job)
-  } else {
-    documentJobs.value.unshift(job)
-  }
-}
-
-function rememberDocumentJob(job) {
-  upsertDocumentJob(job)
-  const stored = documentJobs.value.slice(0, 10).map((item) => item.jobId)
-  localStorage.setItem('documentRewriteJobIds', JSON.stringify(stored))
-}
-
-async function restoreDocumentJobs() {
-  try {
-    const serverJobs = await getDocumentJobs()
-    documentJobs.value = serverJobs || []
-  } catch {
-    const jobIds = JSON.parse(localStorage.getItem('documentRewriteJobIds') || '[]')
-    const jobs = await Promise.allSettled(jobIds.map((jobId) => getDocumentJob(jobId)))
-    documentJobs.value = jobs
-      .filter((item) => item.status === 'fulfilled')
-      .map((item) => item.value)
-  }
-  const runningJob = documentJobs.value.find((job) => ['PENDING', 'RUNNING'].includes(job.status))
-  if (runningJob) {
-    setDocumentJob(runningJob)
-    startDocumentPolling(runningJob.jobId)
-  } else if (documentJobs.value[0]) {
-    setDocumentJob(documentJobs.value[0])
-  }
-}
-
-function jobProgress(job) {
-  const paragraphs = Array.isArray(job.paragraphs) ? job.paragraphs : []
-  const paragraphTotal = paragraphs.length
-  const paragraphDone = paragraphs.filter((item) => ['SUCCESS', 'FAILED'].includes(item.status)).length
-  const total = job.totalParagraphs || paragraphTotal
-  const done = Math.max(job.processedParagraphs || 0, paragraphDone)
-  if (!total) {
-    return job.status === 'SUCCESS' ? 100 : 0
-  }
-  return Math.min(100, Math.round((done / total) * 100))
-}
-
-function jobTagType(status) {
-  if (status === 'SUCCESS') return 'success'
-  if (status === 'FAILED') return 'danger'
-  if (status === 'RUNNING') return 'warning'
-  return 'info'
-}
-
-function paragraphTagType(status) {
-  if (status === 'SUCCESS') return 'success'
-  if (status === 'FAILED') return 'danger'
-  if (status === 'RUNNING') return 'warning'
-  return 'info'
-}
-
-async function copyResult() {
-  if (!rewrittenText.value) {
-    return
-  }
-  await navigator.clipboard.writeText(rewrittenText.value)
-  ElMessage.success('已复制')
-}
-
-function confirmSaved() {
-  if (!currentResult.value) {
-    return
-  }
-  ElMessage.success(`记录 #${currentResult.value.id} 已保存`)
-}
-
-async function loadHistory() {
-  historyLoading.value = true
-  try {
-    history.value = await getRewriteList()
-  } finally {
-    historyLoading.value = false
-  }
-}
-
-async function viewDetail(id) {
-  detail.value = await getRewriteDetail(id)
-  detailVisible.value = true
-}
-
-async function removeRecord(id) {
-  await ElMessageBox.confirm('确认删除这条历史记录吗？', '删除确认', {
-    type: 'warning'
-  })
-  await deleteRewrite(id)
-  ElMessage.success('删除成功')
-  await loadHistory()
-  if (currentResult.value?.id === id) {
-    currentResult.value = null
-  }
-}
-
 function formatTime(value) {
-  if (!value) {
-    return '--'
-  }
-  return String(value).replace('T', ' ').slice(0, 19)
+  return value ? String(value).replace('T', ' ').slice(0, 16) : '--'
 }
 
-function levelTagType(level) {
-  if (level === '较高') {
-    return 'danger'
+function wait(ms) {
+  return new Promise(resolve => window.setTimeout(resolve, ms))
+}
+
+async function signOut() {
+  try {
+    await logout()
+  } finally {
+    sessionStorage.removeItem('dropai_token')
+    sessionStorage.removeItem('dropai_username')
+    sessionStorage.removeItem('dropai_role')
+    router.replace('/login')
   }
-  if (level === '中等') {
-    return 'warning'
-  }
-  return 'success'
 }
 
 onMounted(() => {
   loadAiStatus()
   loadHistory()
-  restoreDocumentJobs()
 })
 
-onBeforeUnmount(() => {
-  if (documentPollTimer.value) {
-    clearInterval(documentPollTimer.value)
-  }
-})
+onBeforeUnmount(stopDocumentPolling)
 </script>
 
 <style scoped>
-.rewrite-page {
-  width: min(1440px, 100%);
-  min-height: 100vh;
-  margin: 0 auto;
-  padding: 24px;
+.rewrite-product {
+  width: min(1180px, calc(100% - 40px));
 }
 
-.topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 18px;
-}
-
-.top-tags {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.topbar h1 {
-  margin: 0;
-  font-size: 28px;
-  font-weight: 700;
-  letter-spacing: 0;
-}
-
-.topbar p {
-  margin: 8px 0 0;
-  color: #64748b;
-}
-
-.model-status-alert {
-  margin-bottom: 16px;
-}
-
-.model-status-detail {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.workspace {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 16px;
-}
-
-.document-panel {
-  margin-bottom: 16px;
-}
-
-.mode-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-  margin-bottom: 14px;
-}
-
-.mode-card {
-  display: grid;
-  gap: 8px;
-  min-height: 92px;
-  padding: 14px;
-  text-align: left;
-  color: #475569;
-  background: #f8fafc;
-  border: 1px solid #dbe3ef;
-  border-radius: 8px;
+.brand {
+  border: 0;
+  background: transparent;
   cursor: pointer;
 }
 
-.mode-card strong {
-  color: #1f2937;
-  font-size: 15px;
+.hero-workbench {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.82fr) minmax(0, 1.18fr);
+  gap: 28px;
+  padding: 26px;
 }
 
-.mode-card span {
-  line-height: 1.5;
+.hero-copy h1 {
+  max-width: 620px;
+  margin: 0 0 16px;
+  overflow-wrap: anywhere;
+  font-size: clamp(34px, 5vw, 58px);
+  line-height: 1.08;
 }
 
-.mode-card.active {
-  color: #1d4ed8;
-  background: #eff6ff;
-  border-color: #2563eb;
+.hero-copy p {
+  max-width: 560px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 17px;
+  line-height: 1.75;
 }
 
-.mode-card.active strong {
-  color: #1d4ed8;
+.model-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 24px;
+  padding: 8px 11px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.055);
+  font-size: 13px;
 }
 
-.platform-strip {
+.input-workspace {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.main-input {
+  width: 100%;
+  min-height: 260px;
+  padding: 18px;
+  resize: vertical;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.055);
+  outline: none;
+  line-height: 1.7;
+}
+
+.input-meta {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 10px 12px;
-  margin-bottom: 14px;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
+  color: var(--muted);
 }
 
-.platform-label {
-  color: #475569;
-  font-weight: 600;
+.start-button {
+  min-height: 50px;
+  font-size: 16px;
+}
+
+.mode-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin: 16px 0;
+}
+
+.mode-card {
+  padding: 18px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mode-card.active {
+  border-color: rgba(0, 210, 255, 0.5);
+  background: linear-gradient(180deg, rgba(108, 92, 231, 0.18), rgba(255, 255, 255, 0.065));
+}
+
+.mode-card span {
+  color: var(--cyan);
+  font-size: 12px;
+}
+
+.mode-card strong {
+  display: block;
+  margin: 10px 0 8px;
+  font-size: 21px;
+}
+
+.mode-card p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.65;
+}
+
+.output-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.42fr) minmax(280px, 0.58fr);
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.output-panel,
+.document-panel,
+.history-panel {
+  padding: 18px;
+}
+
+.section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.section-head h2 {
+  margin: 10px 0 0;
+  font-size: 28px;
+}
+
+.section-head.compact h2 {
+  font-size: 22px;
+}
+
+.generation-progress {
+  display: grid;
+  gap: 18px;
+  min-height: 360px;
+  align-content: center;
+}
+
+.progress-title {
+  display: flex;
+  justify-content: space-between;
+  color: var(--text);
+  font-size: 18px;
+}
+
+.process-list {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.process-list span {
+  color: var(--muted-2);
+  font-size: 12px;
+}
+
+.process-list .done {
+  color: var(--cyan);
+}
+
+.compare-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 14px;
+  min-height: 420px;
+}
+
+.compare-card {
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.compare-card span {
+  color: var(--cyan);
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.compare-card p {
+  margin: 14px 0 0;
+  white-space: pre-wrap;
+  color: var(--muted);
+  line-height: 1.85;
+}
+
+.compare-card.rewritten p {
+  color: var(--text);
+  font-size: 16px;
+}
+
+.empty-output,
+.history-empty {
+  display: grid;
+  place-items: center;
+  min-height: 280px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.empty-output strong {
+  color: var(--text);
+  font-size: 22px;
+}
+
+.empty-output p {
+  max-width: 460px;
+  line-height: 1.7;
+}
+
+.doc-upload,
+.doc-state {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.doc-upload span,
+.doc-state p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.doc-button {
+  width: 100%;
+  margin-top: 12px;
+}
+
+.history-tabs {
+  display: flex;
+  gap: 8px;
+}
+
+.history-tabs button {
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.045);
+  cursor: pointer;
+}
+
+.history-tabs .active {
+  color: var(--text);
+  border-color: rgba(0, 210, 255, 0.4);
+  background: rgba(0, 210, 255, 0.1);
+}
+
+.record-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.record-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+.record-top,
+.record-meta,
+.record-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.record-top strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.document-upload {
-  display: grid;
-  grid-template-columns: minmax(280px, 420px) minmax(0, 1fr);
-  gap: 16px;
-  align-items: stretch;
+.record-status {
+  flex: 0 0 auto;
+  color: var(--success);
+  font-size: 12px;
 }
 
-.upload-text {
-  display: grid;
-  gap: 8px;
-  color: #475569;
+.record-status.failed {
+  color: var(--danger);
 }
 
-.upload-text strong {
-  color: #1f2937;
+.record-status.running,
+.record-status.pending {
+  color: var(--cyan);
 }
 
-.document-status {
-  display: grid;
-  align-content: center;
-  gap: 10px;
-  color: #475569;
+.record-card p {
+  display: -webkit-box;
+  min-height: 50px;
+  margin: 0;
+  overflow: hidden;
+  color: var(--muted);
+  line-height: 1.7;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
-.document-precheck {
-  display: flex;
+.record-meta {
+  justify-content: flex-start;
   flex-wrap: wrap;
-  gap: 8px 14px;
-  padding: 10px 12px;
-  border: 1px solid #bbf7d0;
-  background: #f0fdf4;
-  color: #166534;
-  border-radius: 8px;
-  font-size: 13px;
+  color: var(--muted-2);
+  font-size: 12px;
 }
 
-.document-precheck.insufficient {
-  border-color: #fecaca;
-  background: #fef2f2;
-  color: #991b1b;
+.record-actions {
+  justify-content: flex-start;
 }
 
-.document-job-table {
-  margin-top: 16px;
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin-top: 18px;
+  color: var(--muted);
 }
 
-.document-detail {
+.detail-view {
   display: grid;
   gap: 14px;
 }
 
-.document-detail-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+.detail-view section {
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.045);
 }
 
-.document-detail-meta {
-  display: grid;
-  gap: 8px;
-  color: #64748b;
-  padding-bottom: 12px;
-  border-bottom: 1px solid #e2e8f0;
+.detail-view span {
+  color: var(--cyan);
+  font-size: 12px;
 }
 
-.paragraph-list {
-  display: grid;
-  gap: 12px;
-}
-
-.paragraph-item {
-  display: grid;
-  gap: 8px;
-  padding: 12px;
-  border: 1px solid #dbe3ef;
-  border-radius: 8px;
-  background: #ffffff;
-}
-
-.paragraph-title {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  font-weight: 600;
-}
-
-.paragraph-original,
-.paragraph-rewritten {
-  margin: 0;
-  line-height: 1.8;
+.detail-view p {
+  margin: 10px 0 0;
   white-space: pre-wrap;
+  line-height: 1.75;
 }
 
-.paragraph-original {
-  color: #475569;
-}
-
-.paragraph-rewritten {
-  padding: 10px;
-  color: #1f2937;
-  background: #f8fafc;
-  border-radius: 8px;
-}
-
-.paragraph-message {
-  color: #64748b;
-  font-size: 13px;
-}
-
-.panel {
-  border: 1px solid #dbe3ef;
-}
-
-.panel-title {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-height: 32px;
-  font-weight: 600;
-}
-
-.controls {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 14px;
-  flex-wrap: wrap;
-}
-
-.protection-hint {
-  display: grid;
-  gap: 4px;
-  margin-top: 14px;
-  padding: 10px 12px;
-  color: #475569;
-  background: #f0fdf4;
-  border: 1px solid #bbf7d0;
-  border-radius: 8px;
-}
-
-.protection-hint strong {
-  color: #166534;
-}
-
-.type-select {
-  width: 190px;
-}
-
-.platform-select {
-  width: 140px;
-}
-
-.result-actions {
-  justify-content: flex-end;
-}
-
-.analysis-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
-  gap: 16px;
-  margin-top: 16px;
-}
-
-.score-row {
-  display: flex;
-  align-items: center;
-  gap: 18px;
-}
-
-.score {
-  display: grid;
-  place-items: center;
-  width: 84px;
-  height: 84px;
-  border-radius: 8px;
-  color: #ffffff;
-  background: #2563eb;
-  font-size: 30px;
-  font-weight: 700;
-}
-
-.score-meta {
-  display: grid;
-  gap: 8px;
-  color: #64748b;
-}
-
-.score-meta strong {
-  color: #1f2937;
-}
-
-.suggestions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 14px;
-}
-
-.current-record {
-  display: grid;
-  gap: 10px;
-  color: #475569;
-}
-
-.history-panel {
-  margin-top: 16px;
-}
-
-.workflow-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.5fr) minmax(320px, 1fr);
-  gap: 16px;
-  margin-top: 16px;
-}
-
-.workflow-grid :deep(.el-timeline) {
-  padding-left: 2px;
-}
-
-.workflow-grid p {
-  margin: 6px 0 0;
-  color: #64748b;
-  line-height: 1.7;
-}
-
-.quality-list {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.quality-list span {
-  padding: 10px 12px;
-  border-radius: 8px;
-  color: #64748b;
-  background: #f1f5f9;
-  border: 1px solid #e2e8f0;
-}
-
-.quality-list .passed {
-  color: #166534;
-  background: #ecfdf5;
-  border-color: #bbf7d0;
-}
-
-.detail h3 {
-  margin: 16px 0 8px;
-  font-size: 15px;
-}
-
-.detail p {
-  margin: 0;
-  padding: 12px;
-  white-space: pre-wrap;
-  line-height: 1.8;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-}
-
-.detail-steps {
-  display: grid;
-  gap: 8px;
-}
-
-@media (max-width: 900px) {
-  .rewrite-page {
-    padding: 16px;
-  }
-
-  .workspace,
-  .analysis-grid,
-  .workflow-grid,
-  .document-upload {
+@media (max-width: 980px) {
+  .hero-workbench,
+  .output-layout,
+  .compare-grid,
+  .record-grid {
     grid-template-columns: 1fr;
   }
 
-  .mode-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .mode-row {
+    grid-template-columns: 1fr;
   }
 
-  .topbar {
+  .process-list {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 620px) {
+  .rewrite-product {
+    width: min(100% - 28px, 1180px);
+  }
+
+  .section-head,
+  .record-top,
+  .record-actions {
     align-items: flex-start;
     flex-direction: column;
   }
 
-  .type-select,
-  .platform-select {
+  .history-tabs {
     width: 100%;
   }
 
-  .platform-strip {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-}
-
-@media (max-width: 560px) {
-  .mode-grid {
-    grid-template-columns: 1fr;
+  .history-tabs button {
+    flex: 1;
   }
 }
 </style>

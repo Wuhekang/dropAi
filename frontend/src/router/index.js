@@ -1,5 +1,4 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import HomeIndex from '../views/Home/index.vue'
 import RewriteIndex from '../views/Rewrite/index.vue'
 import LoginIndex from '../views/Login/index.vue'
 import DashboardIndex from '../views/Dashboard/index.vue'
@@ -15,7 +14,7 @@ const router = createRouter({
     {
       path: '/',
       name: 'Home',
-      component: HomeIndex
+      component: RewriteIndex
     },
     {
       path: '/login',
