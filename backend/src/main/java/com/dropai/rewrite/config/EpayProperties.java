@@ -9,9 +9,9 @@ public class EpayProperties {
     private String gateway = "http://dropai-demo.cn/submit.php";
     private String pid = "1000";
     private String key = "sC5ZS5q2zc8ZMI2WdcZ84sFMs7QfQCeg";
-    private String notifyUrl = "https://dropai-demo.com/api/recharge/notify";
-    private String returnUrl = "https://dropai-demo.com/recharge/result";
-    private String baseUrl = "https://dropai-demo.com";
+    private String notifyUrl = "http://dropai-demo.com/api/recharge/notify";
+    private String returnUrl = "http://dropai-demo.com/recharge/result";
+    private String baseUrl = "http://dropai-demo.com";
     private String siteName = "DropAI";
     private String defaultType = "alipay";
 

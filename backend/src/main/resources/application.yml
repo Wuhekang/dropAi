@@ -28,9 +28,9 @@ app:
     gateway: ${EPAY_GATEWAY:http://dropai-demo.cn/submit.php}
     pid: ${EPAY_PID:1000}
     key: ${EPAY_KEY:sC5ZS5q2zc8ZMI2WdcZ84sFMs7QfQCeg}
-    base-url: ${APP_BASE_URL:https://dropai-demo.com}
-    notify-url: ${EPAY_NOTIFY_URL:https://dropai-demo.com/api/recharge/notify}
-    return-url: ${EPAY_RETURN_URL:https://dropai-demo.com/recharge/result}
+    base-url: ${APP_BASE_URL:http://dropai-demo.com}
+    notify-url: ${EPAY_NOTIFY_URL:http://dropai-demo.com/api/recharge/notify}
+    return-url: ${EPAY_RETURN_URL:http://dropai-demo.com/recharge/result}
     site-name: ${EPAY_SITE_NAME:DropAI}
     default-type: ${EPAY_DEFAULT_TYPE:alipay}
 
