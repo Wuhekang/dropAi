@@ -33,6 +33,10 @@ services:
         sync: false
       - key: EPAY_KEY
         sync: false
+      - key: EPAY_NOTIFY_URL
+        value: http://dropai-demo.com/api/recharge/notify
+      - key: EPAY_RETURN_URL
+        value: http://dropai-demo.com/recharge/result
       - key: EPAY_SITE_NAME
         value: DropAI
       - key: EPAY_DEFAULT_TYPE
