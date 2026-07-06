@@ -78,38 +78,36 @@
         <div class="section-title-row">
           <div>
             <span class="mini-label">处理信息</span>
-            <h2>{{ docStatusText }}</h2>
+            <h2>处理状态</h2>
           </div>
-          <strong class="progress-number">{{ docProgress }}%</strong>
+          <span class="model-badge"><i></i> 模型已连接</span>
         </div>
 
-        <dl class="info-list">
-          <div>
-            <dt>当前模式</dt>
-            <dd>{{ activeDocMode.label }}</dd>
+        <div class="process-card">
+          <strong class="process-state">{{ taskStateLabel }}</strong>
+          <div class="process-progress">
+            <div class="loading-line progress-line"><span :style="{ width: `${docProgress}%` }"></span></div>
+            <b>{{ docProgress }}%</b>
           </div>
-          <div>
-            <dt>处理状态</dt>
-            <dd>{{ docStatusText }}</dd>
-          </div>
-          <div>
-            <dt>当前积分</dt>
-            <dd>{{ documentPrecheck.ready ? `${documentPrecheck.currentPoints} 积分` : '-' }}</dd>
-          </div>
-          <div>
-            <dt>下载状态</dt>
-            <dd>{{ documentJob.status === 'SUCCESS' ? '文档已生成' : '等待生成' }}</dd>
-          </div>
-        </dl>
-
-        <div class="status-detail-grid">
-          <div v-for="item in documentStatusItems" :key="item.label">
-            <span>{{ item.label }}</span>
-            <strong>{{ item.value }}</strong>
-          </div>
+          <dl class="process-list">
+            <div>
+              <dt>处理段落</dt>
+              <dd>{{ paragraphProgressText }}</dd>
+            </div>
+            <div>
+              <dt>并发处理</dt>
+              <dd>{{ concurrencyText }}</dd>
+            </div>
+            <div>
+              <dt>消耗积分</dt>
+              <dd>{{ documentCostText }}</dd>
+            </div>
+            <div>
+              <dt>下载状态</dt>
+              <dd>{{ downloadStateText }}</dd>
+            </div>
+          </dl>
         </div>
-
-        <div class="loading-line progress-line"><span :style="{ width: `${docProgress}%` }"></span></div>
 
         <button class="primary-button start-button" type="button" :disabled="docActionDisabled" @click="handleDocumentAction">
           {{ docActionText }}
@@ -166,7 +164,7 @@
           <div v-if="textSubmitting" class="inline-loading">
             <div class="spinner"></div>
             <strong>正在优化文本...</strong>
-            <p>当前模型：{{ currentModel }}</p>
+            <p><span class="model-badge"><i></i> 模型已连接</span></p>
             <p>处理状态：生成中...</p>
           </div>
           <p v-else-if="!diffMode">{{ rewrittenText || '点击开始文本优化后，这里显示 AI 返回的最终结果。' }}</p>
@@ -279,12 +277,6 @@ const docActionText = computed(() => {
 const docActionDisabled = computed(() => documentPrechecking.value || documentUploading.value || documentProcessing.value)
 const processedParagraphs = computed(() => documentJob.processedParagraphs || documentJob.completedParagraphs || 0)
 const totalParagraphs = computed(() => documentJob.totalParagraphs || documentJob.paragraphCount || 0)
-const currentModel = computed(() => aiStatus.model || aiStatus.provider || '豆包 Ark')
-const remainingTime = computed(() => {
-  if (!documentProcessing.value || !totalParagraphs.value) return '--'
-  const left = Math.max(0, totalParagraphs.value - processedParagraphs.value)
-  return `${Math.max(5, Math.ceil(left / 3))}秒`
-})
 const documentStepText = computed(() => {
   if (documentPrechecking.value) return '正在解析文档结构...'
   if (documentUploading.value) return '正在拆分文本段落...'
@@ -295,13 +287,24 @@ const documentStepText = computed(() => {
   if (selectedDocument.value && documentPrecheck.ready) return '等待开始'
   return '等待上传'
 })
-const documentStatusItems = computed(() => [
-  { label: '处理状态', value: documentStepText.value },
-  { label: '段落处理', value: totalParagraphs.value ? `${processedParagraphs.value} / ${totalParagraphs.value}` : '-' },
-  { label: '并发任务', value: documentProcessing.value || documentJob.status === 'SUCCESS' ? '32' : '-' },
-  { label: '当前模型', value: currentModel.value },
-  { label: '预计剩余', value: remainingTime.value }
-])
+const taskStateLabel = computed(() => {
+  if (documentJob.status === 'SUCCESS') return '已完成'
+  if (documentJob.status === 'FAILED') return '处理失败'
+  if (documentPrechecking.value || documentUploading.value || documentProcessing.value) return '处理中'
+  if (selectedDocument.value && documentPrecheck.ready) return '等待开始'
+  return '等待上传'
+})
+const paragraphProgressText = computed(() => {
+  if (totalParagraphs.value) return `${processedParagraphs.value} / ${totalParagraphs.value}`
+  if (documentPrecheck.charCount) return '等待处理'
+  return '-'
+})
+const concurrencyText = computed(() => (documentProcessing.value || documentJob.status === 'SUCCESS') ? '32' : '-')
+const downloadStateText = computed(() => {
+  if (documentJob.status === 'SUCCESS') return '文档已生成'
+  if (documentJob.status === 'FAILED') return '生成失败'
+  return '等待生成'
+})
 
 const inputCharCount = computed(() => originalText.value.length)
 const estimatedTextCost = computed(() => calculateTextCost(inputCharCount.value, activeTextMode.value.featureCode))
@@ -825,8 +828,7 @@ onBeforeUnmount(stopDocumentPolling)
   margin: 14px 0 0;
 }
 
-.file-summary div,
-.info-list div {
+.file-summary div {
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.035);
@@ -837,14 +839,12 @@ onBeforeUnmount(stopDocumentPolling)
   padding: 12px;
 }
 
-.file-summary dt,
-.info-list dt {
+.file-summary dt {
   color: var(--label-clear);
   font-size: 13px;
 }
 
-.file-summary dd,
-.info-list dd {
+.file-summary dd {
   min-width: 0;
   margin: 6px 0 0;
   overflow: hidden;
@@ -854,62 +854,84 @@ onBeforeUnmount(stopDocumentPolling)
   white-space: nowrap;
 }
 
-.progress-number {
-  display: block;
-  color: var(--data-blue);
-  font-size: 22px;
-  font-weight: 800;
+.progress-line {
+  height: 9px;
 }
 
-.info-list {
-  display: grid;
-  gap: 12px;
-  margin: 0 0 12px;
+.model-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid rgba(56, 189, 248, 0.24);
+  border-radius: 999px;
+  color: #bae6fd;
+  font-size: 13px;
+  font-weight: 720;
+  background: rgba(56, 189, 248, 0.09);
+  box-shadow: 0 0 28px rgba(56, 189, 248, 0.1);
 }
 
-.info-list div {
-  padding: 13px 14px;
+.model-badge i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #38bdf8;
+  box-shadow: 0 0 14px rgba(56, 189, 248, 0.75);
 }
 
-.status-detail-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+.process-card {
+  min-height: 360px;
   margin-bottom: 18px;
+  padding: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.04);
 }
 
-.status-detail-grid div {
-  min-width: 0;
-  padding: 12px 14px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.035);
-}
-
-.status-detail-grid div:first-child {
-  grid-column: 1 / -1;
-}
-
-.status-detail-grid span {
+.process-state {
   display: block;
+  margin-bottom: 18px;
+  color: var(--title-strong);
+  font-size: 28px;
+  font-weight: 760;
+}
+
+.process-progress {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.process-progress b {
+  color: var(--data-blue);
+  font-size: 18px;
+}
+
+.process-list {
+  display: grid;
+  gap: 18px;
+  margin: 0;
+}
+
+.process-list div {
+  display: grid;
+  gap: 5px;
+}
+
+.process-list dt {
   color: var(--label-clear);
   font-size: 13px;
 }
 
-.status-detail-grid strong {
-  display: block;
-  min-width: 0;
-  margin-top: 6px;
-  overflow: hidden;
+.process-list dd {
+  margin: 0;
   color: var(--data-blue);
-  font-weight: 780;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.progress-line {
-  height: 9px;
-  margin-bottom: 18px;
+  font-size: 18px;
+  font-weight: 760;
 }
 
 .start-button {
