@@ -102,6 +102,13 @@
           </div>
         </dl>
 
+        <div class="status-detail-grid">
+          <div v-for="item in documentStatusItems" :key="item.label">
+            <span>{{ item.label }}</span>
+            <strong>{{ item.value }}</strong>
+          </div>
+        </div>
+
         <div class="loading-line progress-line"><span :style="{ width: `${docProgress}%` }"></span></div>
 
         <button class="primary-button start-button" type="button" :disabled="docActionDisabled" @click="handleDocumentAction">
@@ -159,6 +166,8 @@
           <div v-if="textSubmitting" class="inline-loading">
             <div class="spinner"></div>
             <strong>正在优化文本...</strong>
+            <p>当前模型：{{ currentModel }}</p>
+            <p>处理状态：生成中...</p>
           </div>
           <p v-else-if="!diffMode">{{ rewrittenText || '点击开始文本优化后，这里显示 AI 返回的最终结果。' }}</p>
           <p v-else v-html="diffHtml"></p>
@@ -234,9 +243,11 @@ const documentUploading = ref(false)
 const docProgress = ref(0)
 const docStatusText = ref('等待上传')
 const documentPollTimer = ref(null)
+const notifiedJobIds = new Set()
+const toastCache = new Map()
 const documentJobs = ref([])
 const documentPrecheck = reactive({ ready: false, requestId: '', charCount: 0, costPoints: 0, currentPoints: 0, canProcess: false })
-const documentJob = reactive({ jobId: '', fileName: '', status: '', message: '', downloadUrl: '', modeName: '', charCount: 0 })
+const documentJob = reactive({ jobId: '', fileName: '', status: '', message: '', downloadUrl: '', modeName: '', charCount: 0, totalParagraphs: 0, processedParagraphs: 0 })
 
 const textMode = ref('rewrite')
 const originalText = ref('')
@@ -255,16 +266,42 @@ const pageSize = 10
 
 const activeDocMode = computed(() => modes.find(item => item.value === docMode.value) || modes[0])
 const activeTextMode = computed(() => modes.find(item => item.value === textMode.value) || modes[0])
-const docBusy = computed(() => documentPrechecking.value || documentUploading.value)
+const documentProcessing = computed(() => ['PENDING', 'RUNNING'].includes(documentJob.status))
+const docBusy = computed(() => documentPrechecking.value || documentUploading.value || documentProcessing.value)
 const documentCostText = computed(() => documentPrecheck.costPoints > 0 ? `${documentPrecheck.costPoints} 积分` : '免费')
 const docActionText = computed(() => {
   if (documentJob.status === 'SUCCESS') return '下载优化文档'
-  if (documentUploading.value) return '正在优化...'
+  if (documentUploading.value || documentProcessing.value) return '处理中...'
   if (documentPrechecking.value) return '正在检测...'
   if (!selectedDocument.value) return '选择 DOCX 文件'
   return `开始优化（${documentCostText.value}）`
 })
-const docActionDisabled = computed(() => documentPrechecking.value || documentUploading.value)
+const docActionDisabled = computed(() => documentPrechecking.value || documentUploading.value || documentProcessing.value)
+const processedParagraphs = computed(() => documentJob.processedParagraphs || documentJob.completedParagraphs || 0)
+const totalParagraphs = computed(() => documentJob.totalParagraphs || documentJob.paragraphCount || 0)
+const currentModel = computed(() => aiStatus.model || aiStatus.provider || '豆包 Ark')
+const remainingTime = computed(() => {
+  if (!documentProcessing.value || !totalParagraphs.value) return '--'
+  const left = Math.max(0, totalParagraphs.value - processedParagraphs.value)
+  return `${Math.max(5, Math.ceil(left / 3))}秒`
+})
+const documentStepText = computed(() => {
+  if (documentPrechecking.value) return '正在解析文档结构...'
+  if (documentUploading.value) return '正在拆分文本段落...'
+  if (documentJob.status === 'PENDING') return '等待并发任务调度...'
+  if (documentJob.status === 'RUNNING') return '正在AI优化处理中...'
+  if (documentJob.status === 'SUCCESS') return '处理完成'
+  if (documentJob.status === 'FAILED') return '处理失败'
+  if (selectedDocument.value && documentPrecheck.ready) return '等待开始'
+  return '等待上传'
+})
+const documentStatusItems = computed(() => [
+  { label: '处理状态', value: documentStepText.value },
+  { label: '段落处理', value: totalParagraphs.value ? `${processedParagraphs.value} / ${totalParagraphs.value}` : '-' },
+  { label: '并发任务', value: documentProcessing.value || documentJob.status === 'SUCCESS' ? '32' : '-' },
+  { label: '当前模型', value: currentModel.value },
+  { label: '预计剩余', value: remainingTime.value }
+])
 
 const inputCharCount = computed(() => originalText.value.length)
 const estimatedTextCost = computed(() => calculateTextCost(inputCharCount.value, activeTextMode.value.featureCode))
@@ -291,7 +328,7 @@ function clearTextResult() {
 
 async function submitText() {
   if (!originalText.value.trim()) {
-    ElMessage.warning('请先输入需要优化的文本。')
+    notifyOnce('warning', '请先输入需要优化的文本。')
     return
   }
 
@@ -307,9 +344,9 @@ async function submitText() {
     })
     originalSnapshot.value = originalText.value
     rewrittenText.value = result.rewrittenText || ''
-    ElMessage.success('文本优化完成。')
+    notifyOnce('success', '文本优化完成。')
   } catch (error) {
-    ElMessage.error(error.message || '文本优化失败。')
+    reportRequestError(error, '文本优化失败。')
   } finally {
     textSubmitting.value = false
   }
@@ -325,7 +362,7 @@ async function handleDocumentAction() {
     return
   }
   if (!documentPrecheck.ready) {
-    ElMessage.warning('文档还未完成检测，请稍后。')
+    notifyOnce('warning', '文档还未完成检测，请稍后。')
     return
   }
   if (!documentPrecheck.canProcess) {
@@ -348,17 +385,17 @@ async function submitDocument() {
   if (!selectedDocument.value || !documentPrecheck.ready) return
   documentUploading.value = true
   resetDocumentJob()
-  setDocProgress(10, '正在提交文档')
+  setDocProgress(10, '正在拆分文本段落...')
   try {
     const job = await uploadDocument(selectedDocument.value, activeDocMode.value.apiMode, 'GENERAL', documentPrecheck.requestId)
     setDocumentJob(job)
     upsertDocumentJob(job)
-    setDocProgress(jobProgress(job), '文档处理中')
+    setDocProgress(jobProgress(job), documentStepText.value)
     startDocumentPolling(job.jobId)
-    ElMessage.success('文档任务已提交。')
+    notifyOnce('success', '文档任务已提交。')
   } catch (error) {
     docStatusText.value = '提交失败'
-    ElMessage.error(error.message || '文档提交失败。')
+    reportRequestError(error, '文档提交失败。')
   } finally {
     documentUploading.value = false
   }
@@ -368,7 +405,7 @@ async function handleDrop(event) {
   dragging.value = false
   const file = Array.from(event.dataTransfer?.files || []).find(item => item.name.toLowerCase().endsWith('.docx'))
   if (!file) {
-    ElMessage.warning('请上传 DOCX 文件。')
+    notifyOnce('warning', '请上传 DOCX 文件。')
     return
   }
   await handleDocumentFile(file)
@@ -385,7 +422,7 @@ async function handleDocumentFile(file) {
   resetDocumentJob()
   resetDocumentPrecheck()
   documentPrecheck.requestId = createRequestId()
-  setDocProgress(0, '正在检测文档')
+  setDocProgress(0, '正在解析文档结构...')
   await runDocumentPrecheck(true)
 }
 
@@ -404,11 +441,11 @@ async function runDocumentPrecheck(showMessage = true) {
     })
     setDocProgress(0, documentPrecheck.canProcess ? '等待开始' : '积分不足')
     if (showMessage && !documentPrecheck.canProcess) {
-      ElMessage.warning(`积分不足，需要 ${documentPrecheck.costPoints} 积分，当前 ${documentPrecheck.currentPoints} 积分。`)
+      notifyOnce('warning', `积分不足，需要 ${documentPrecheck.costPoints} 积分，当前 ${documentPrecheck.currentPoints} 积分。`)
     }
   } catch (error) {
     clearDocument()
-    ElMessage.error(error.message || '文档检测失败。')
+    reportRequestError(error, '文档检测失败。')
   } finally {
     documentPrechecking.value = false
   }
@@ -427,7 +464,7 @@ function resetDocumentPrecheck(keepRequestId = true) {
 }
 
 function resetDocumentJob() {
-  Object.assign(documentJob, { jobId: '', fileName: '', status: '', message: '', downloadUrl: '', modeName: '', charCount: 0 })
+  Object.assign(documentJob, { jobId: '', fileName: '', status: '', message: '', downloadUrl: '', modeName: '', charCount: 0, totalParagraphs: 0, processedParagraphs: 0 })
 }
 
 async function startDocumentPolling(jobId) {
@@ -448,9 +485,10 @@ async function syncDocumentJob(jobId) {
   const job = await getDocumentJob(jobId)
   setDocumentJob(job)
   upsertDocumentJob(job)
-  setDocProgress(jobProgress(job), job.status === 'SUCCESS' ? '已完成' : job.status === 'FAILED' ? '处理失败' : '文档处理中')
-  if (job.status === 'SUCCESS') {
-    ElMessage.success('文档处理完成，可以下载优化文档。')
+  setDocProgress(jobProgress(job), documentStepText.value)
+  if (job.status === 'SUCCESS' && !notifiedJobIds.has(job.jobId)) {
+    notifiedJobIds.add(job.jobId)
+    notifyOnce('success', '文档处理完成，可以下载优化文档。')
     await loadHistory()
   }
 }
@@ -485,7 +523,7 @@ async function downloadDocumentJob(job) {
 async function copyResult() {
   if (!rewrittenText.value) return
   await navigator.clipboard.writeText(rewrittenText.value)
-  ElMessage.success('已复制优化结果。')
+  notifyOnce('success', '已复制优化结果。')
 }
 
 async function loadAiStatus() {
@@ -512,6 +550,19 @@ async function loadPricing() {
   } catch {
     pricing.value = []
   }
+}
+
+function notifyOnce(type, message, id = message) {
+  const key = `${type}:${id}`
+  const now = Date.now()
+  if (now - (toastCache.get(key) || 0) < 3000) return
+  toastCache.set(key, now)
+  ElMessage[type](message)
+}
+
+function reportRequestError(error, fallback) {
+  if (error?.code || error?.responseData) return
+  notifyOnce('error', error?.message || fallback)
 }
 
 function setDocProgress(value, text) {
@@ -606,6 +657,10 @@ onBeforeUnmount(stopDocumentPolling)
 <style scoped>
 .rewrite-product {
   width: min(1280px, calc(100% - 48px));
+  --title-strong: #f8fafc;
+  --label-clear: #cbd5e1;
+  --copy-clear: #94a3b8;
+  --data-blue: #38bdf8;
 }
 
 .brand {
@@ -621,14 +676,16 @@ onBeforeUnmount(stopDocumentPolling)
 
 .hero-strip h1 {
   margin: 0 0 10px;
+  color: var(--title-strong);
   font-size: clamp(36px, 4.8vw, 56px);
+  font-weight: 700;
   line-height: 1.05;
 }
 
 .hero-strip p {
   max-width: 760px;
   margin: 0;
-  color: var(--muted);
+  color: var(--copy-clear);
   font-size: 17px;
   line-height: 1.7;
 }
@@ -652,7 +709,9 @@ onBeforeUnmount(stopDocumentPolling)
 
 .section-title-row h2 {
   margin: 6px 0 0;
+  color: var(--title-strong);
   font-size: 24px;
+  font-weight: 700;
   line-height: 1.15;
 }
 
@@ -730,14 +789,15 @@ onBeforeUnmount(stopDocumentPolling)
 
 .doc-drop strong {
   margin-top: 14px;
-  color: var(--text);
+  color: var(--title-strong);
   font-size: 18px;
+  font-weight: 700;
 }
 
 .doc-drop p {
   max-width: 430px;
   margin: 4px 0 12px;
-  color: var(--muted);
+  color: var(--copy-clear);
   line-height: 1.7;
 }
 
@@ -779,7 +839,7 @@ onBeforeUnmount(stopDocumentPolling)
 
 .file-summary dt,
 .info-list dt {
-  color: var(--muted);
+  color: var(--label-clear);
   font-size: 13px;
 }
 
@@ -788,7 +848,7 @@ onBeforeUnmount(stopDocumentPolling)
   min-width: 0;
   margin: 6px 0 0;
   overflow: hidden;
-  color: var(--text);
+  color: var(--data-blue);
   font-weight: 720;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -796,18 +856,55 @@ onBeforeUnmount(stopDocumentPolling)
 
 .progress-number {
   display: block;
-  color: var(--text);
+  color: var(--data-blue);
   font-size: 22px;
+  font-weight: 800;
 }
 
 .info-list {
   display: grid;
   gap: 12px;
-  margin: 0 0 22px;
+  margin: 0 0 12px;
 }
 
 .info-list div {
   padding: 13px 14px;
+}
+
+.status-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.status-detail-grid div {
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.status-detail-grid div:first-child {
+  grid-column: 1 / -1;
+}
+
+.status-detail-grid span {
+  display: block;
+  color: var(--label-clear);
+  font-size: 13px;
+}
+
+.status-detail-grid strong {
+  display: block;
+  min-width: 0;
+  margin-top: 6px;
+  overflow: hidden;
+  color: var(--data-blue);
+  font-weight: 780;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .progress-line {
@@ -874,7 +971,7 @@ onBeforeUnmount(stopDocumentPolling)
 }
 
 .compare-card span {
-  color: var(--cyan);
+  color: var(--data-blue);
   font-size: 12px;
   font-weight: 800;
 }
@@ -886,25 +983,25 @@ onBeforeUnmount(stopDocumentPolling)
   padding: 0;
   resize: vertical;
   border: 0;
-  color: var(--text);
+  color: var(--title-strong);
   background: transparent;
   outline: none;
   line-height: 1.85;
 }
 
 .input-card small {
-  color: var(--muted);
+  color: var(--data-blue);
 }
 
 .compare-card p {
   margin: 14px 0 0;
   white-space: pre-wrap;
-  color: var(--muted);
+  color: var(--copy-clear);
   line-height: 1.85;
 }
 
 .compare-card.optimized p {
-  color: var(--text);
+  color: var(--title-strong);
 }
 
 .compare-card :deep(mark) {
@@ -935,7 +1032,12 @@ onBeforeUnmount(stopDocumentPolling)
 
 .inline-loading strong {
   margin-top: 12px;
-  color: var(--text);
+  color: var(--title-strong);
+}
+
+.inline-loading p {
+  margin: 6px 0 0;
+  color: var(--copy-clear);
 }
 
 .spinner {
@@ -972,7 +1074,7 @@ onBeforeUnmount(stopDocumentPolling)
 .table-row strong {
   min-width: 0;
   overflow: hidden;
-  color: var(--text);
+  color: var(--title-strong);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
