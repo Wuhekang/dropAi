@@ -5,31 +5,31 @@
 
   <el-dialog
     v-model="rechargeVisible"
-    title="Credits required"
+    title="积分不足"
     width="420px"
     :close-on-click-modal="false"
   >
     <div class="recharge-summary">
-      <div>Current credits <strong>{{ shortage.currentPoints }}</strong></div>
-      <div>Required credits <strong>{{ shortage.requiredPoints }}</strong></div>
-      <div>Missing credits <strong>{{ shortage.missingPoints }}</strong></div>
+      <div>当前积分 <strong>{{ shortage.currentPoints }}</strong></div>
+      <div>所需积分 <strong>{{ shortage.requiredPoints }}</strong></div>
+      <div>还差积分 <strong>{{ shortage.missingPoints }}</strong></div>
     </div>
     <template #footer>
-      <button class="ghost-button" type="button" @click="rechargeVisible = false">Cancel</button>
-      <button class="primary-button" type="button" :disabled="rechargeLoading" @click="goRecharge">Recharge</button>
+      <button class="ghost-button" type="button" @click="rechargeVisible = false">取消</button>
+      <button class="primary-button" type="button" :disabled="rechargeLoading" @click="goRecharge">去充值</button>
     </template>
   </el-dialog>
 
   <el-dialog
     v-model="noticeVisible"
-    :title="notice?.title || 'System Notice'"
+    :title="notice?.title || '系统公告'"
     width="640px"
     class="notice-dialog"
     :close-on-click-modal="false"
   >
     <div class="notice-content" v-html="noticeHtml"></div>
     <template #footer>
-      <button class="primary-button" type="button" @click="ackNotice">Got it</button>
+      <button class="primary-button" type="button" @click="ackNotice">知道了</button>
     </template>
   </el-dialog>
 </template>
@@ -73,7 +73,7 @@ async function goRecharge() {
     }
     const order = await createRechargeOrder({ planId: plan.planId, amount: plan.amount, payMethod: 'alipay' })
     if (!order?.paymentUrl) {
-      ElMessage.error('Payment link could not be created.')
+      ElMessage.error('支付链接生成失败。')
       return
     }
     window.location.href = order.paymentUrl

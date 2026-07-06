@@ -6,15 +6,15 @@
         <span>DropAI</span>
       </button>
       <div class="nav-links">
-        <button type="button" @click="router.push('/dashboard')">Dashboard</button>
-        <button type="button" @click="router.push('/result')">Result</button>
+        <button type="button" @click="router.push('/dashboard')">控制台</button>
+        <button type="button" @click="router.push('/result')">结果页</button>
       </div>
     </nav>
 
     <header class="builder-head">
       <div>
-        <span class="eyebrow">Project Builder</span>
-        <h1>Generate a complete engineering package.</h1>
+        <span class="eyebrow">项目生成</span>
+        <h1>生成完整工程成果包</h1>
       </div>
       <span class="status-pill"><span class="status-dot"></span>{{ stageLabel }}</span>
     </header>
@@ -22,38 +22,38 @@
     <section class="builder-grid">
       <aside class="input-panel panel">
         <div class="panel-title">
-          <h2>Task Input</h2>
-          <p>Upload a task book or paste requirements. The right side updates progressively.</p>
+          <h2>任务书输入</h2>
+          <p>上传任务书或粘贴要求，右侧会按步骤渐进展示生成状态。</p>
         </div>
 
         <div class="drop-zone">
-          <strong>Task document</strong>
-          <span>{{ files.taskBook?.name || 'DOCX, PDF, TXT, Markdown' }}</span>
+          <strong>任务书文件</strong>
+          <span>{{ files.taskBook?.name || '支持 DOCX、PDF、TXT、Markdown' }}</span>
           <el-upload action="" :auto-upload="false" :show-file-list="false" accept=".docx,.pdf,.txt,.md" :on-change="file => setFile('taskBook', file)">
-            <button class="ghost-button" type="button">Choose File</button>
+            <button class="ghost-button" type="button">选择文件</button>
           </el-upload>
         </div>
 
-        <textarea v-model="taskText" class="text-input" placeholder="Paste project requirements..."></textarea>
+        <textarea v-model="taskText" class="text-input" placeholder="粘贴项目要求或任务书正文..."></textarea>
 
         <div class="depth-control">
-          <button :class="{ active: project.designDepth === 'graduation' }" type="button" @click="project.designDepth = 'graduation'">Graduation</button>
-          <button :class="{ active: project.designDepth === 'engineering' }" type="button" @click="project.designDepth = 'engineering'">Engineering</button>
+          <button :class="{ active: project.designDepth === 'graduation' }" type="button" @click="project.designDepth = 'graduation'">毕业设计</button>
+          <button :class="{ active: project.designDepth === 'engineering' }" type="button" @click="project.designDepth = 'engineering'">工程设计</button>
         </div>
 
         <button class="primary-button action" type="button" :disabled="!canAnalyze || analyzing" @click="analyze">
-          {{ analyzing ? 'Parsing task...' : 'Analyze Task' }}
+          {{ analyzing ? '正在解析任务...' : '解析任务书' }}
         </button>
         <button class="ghost-button action" type="button" :disabled="!targetConfirmed || generating" @click="generate">
-          {{ generating ? 'Generating...' : 'Generate Package' }}
+          {{ generating ? '正在生成...' : '生成成果包' }}
         </button>
       </aside>
 
       <section class="output-panel">
         <div class="visual-stage panel">
           <div class="stage-overlay">
-            <span class="status-pill"><span class="status-dot"></span>3D Preview</span>
-            <strong>{{ project.projectTitle || 'Engineering system preview' }}</strong>
+            <span class="status-pill"><span class="status-dot"></span>3D 预览</span>
+            <strong>{{ project.projectTitle || '工程系统预览' }}</strong>
           </div>
           <ModelViewer3D :project="modelProject" />
         </div>
@@ -79,17 +79,17 @@
           <article class="product-card artifact-card">
             <span>CAD</span>
             <strong>{{ groups.cad.length || '--' }}</strong>
-            <small>drawings ready</small>
+            <small>图纸文件</small>
           </article>
           <article class="product-card artifact-card">
-            <span>Paper</span>
+            <span>论文</span>
             <strong>{{ groups.document.length || '--' }}</strong>
-            <small>documents ready</small>
+            <small>文档文件</small>
           </article>
           <article class="product-card artifact-card">
             <span>ZIP</span>
             <strong>{{ groups.package.length || '--' }}</strong>
-            <small>package ready</small>
+            <small>成果包</small>
           </article>
         </div>
       </section>
@@ -112,15 +112,15 @@ const generating = ref(false)
 const targetConfirmed = ref(false)
 const artifacts = ref([])
 const parameters = ref([])
-const packageMessage = ref('Waiting for a task document.')
+const packageMessage = ref('等待任务书输入。')
 const currentStep = ref(0)
 
 const processSteps = [
-  { index: 1, label: 'Parsing task...' },
-  { index: 2, label: 'Generating structure...' },
-  { index: 3, label: 'Building CAD model...' },
-  { index: 4, label: 'Rendering 3D...' },
-  { index: 5, label: 'Packaging files...' }
+  { index: 1, label: '解析任务...' },
+  { index: 2, label: '生成结构...' },
+  { index: 3, label: '构建 CAD...' },
+  { index: 4, label: '渲染 3D...' },
+  { index: 5, label: '打包文件...' }
 ]
 
 const project = reactive({
@@ -136,7 +136,7 @@ const project = reactive({
 })
 
 const canAnalyze = computed(() => Boolean(files.taskBook?.raw || taskText.value.trim()))
-const stageLabel = computed(() => generating.value ? processSteps[Math.max(0, currentStep.value - 1)]?.label || 'Generating...' : targetConfirmed.value ? 'Ready to generate' : 'Waiting for input')
+const stageLabel = computed(() => generating.value ? processSteps[Math.max(0, currentStep.value - 1)]?.label || '正在生成...' : targetConfirmed.value ? '可以生成' : '等待输入')
 const progress = computed(() => {
   if (generating.value) return Math.min(98, currentStep.value * 19)
   if (artifacts.value.length) return 100
@@ -144,7 +144,7 @@ const progress = computed(() => {
   if (analyzing.value) return 18
   return 0
 })
-const progressTitle = computed(() => artifacts.value.length ? 'Package generated' : generating.value ? 'Progressive generation' : targetConfirmed.value ? 'Analysis complete' : 'Generation status')
+const progressTitle = computed(() => artifacts.value.length ? '成果包已生成' : generating.value ? '正在渐进生成' : targetConfirmed.value ? '解析完成' : '生成状态')
 const groups = computed(() => ({
   cad: artifacts.value.filter(x => /\.(dxf|svg|png)$/i.test(x.fileName || '')),
   document: artifacts.value.filter(x => /\.(docx|pdf)$/i.test(x.fileName || '')),
@@ -161,7 +161,7 @@ function setFile(key, file) {
   files[key] = { raw: file.raw, name: file.name }
   targetConfirmed.value = false
   artifacts.value = []
-  packageMessage.value = 'Task document selected.'
+  packageMessage.value = '已选择任务书。'
 }
 
 function flattenParameters(source = {}) {
@@ -197,7 +197,7 @@ function syncProjectParameters() {
 async function analyze() {
   analyzing.value = true
   currentStep.value = 1
-  packageMessage.value = 'Parsing task...'
+  packageMessage.value = '正在解析任务...'
   try {
     const form = new FormData()
     form.append('designDepth', project.designDepth)
@@ -212,16 +212,16 @@ async function analyze() {
     const result = await analyzeDesignPackage(form)
     const analyzedProject = result.project || {}
     Object.assign(project, analyzedProject)
-    project.projectTitle = result.title || analyzedProject.projectTitle || 'DropAI Engineering Project'
+    project.projectTitle = result.title || analyzedProject.projectTitle || 'DropAI 工程项目'
     project.equipmentName = result.equipmentName || analyzedProject.equipmentName || project.equipmentName
     project.designType = result.designType || analyzedProject.designType || project.designType
     parameters.value = flattenParameters(analyzedProject)
     targetConfirmed.value = true
     currentStep.value = 2
-    packageMessage.value = result.message || 'Generating structure...'
-    ElMessage.success('Task analysis complete.')
+    packageMessage.value = result.message || '正在生成结构...'
+    ElMessage.success('任务解析完成。')
   } catch (error) {
-    packageMessage.value = error.message || 'Analysis failed.'
+    packageMessage.value = error.message || '解析失败。'
     ElMessage.error(packageMessage.value)
   } finally {
     analyzing.value = false
@@ -244,11 +244,11 @@ async function generate() {
     parameters.value = flattenParameters(result.project || project)
     artifacts.value = result.artifacts || []
     currentStep.value = 5
-    packageMessage.value = result.message || 'Complete package generated.'
-    ElMessage.success('Package generated.')
-    router.push({ path: '/result', query: { name: project.projectTitle || 'DropAI Project' } })
+    packageMessage.value = result.message || '完整成果包已生成。'
+    ElMessage.success('成果包已生成。')
+    router.push({ path: '/result', query: { name: project.projectTitle || 'DropAI 项目' } })
   } catch (error) {
-    packageMessage.value = error.message || 'Generation failed.'
+    packageMessage.value = error.message || '生成失败。'
     ElMessage.error(packageMessage.value)
   } finally {
     generating.value = false
@@ -278,8 +278,9 @@ function wait(ms) {
 .builder-head h1 {
   max-width: 760px;
   margin: 0;
-  font-size: clamp(38px, 6vw, 64px);
-  line-height: 1;
+  overflow-wrap: anywhere;
+  font-size: clamp(32px, 4.6vw, 50px);
+  line-height: 1.1;
 }
 
 .builder-grid {
@@ -362,8 +363,9 @@ function wait(ms) {
 }
 
 .stage-overlay strong {
-  font-size: 26px;
-  line-height: 1.15;
+  overflow-wrap: anywhere;
+  font-size: clamp(20px, 2.4vw, 26px);
+  line-height: 1.18;
 }
 
 .progress-card {

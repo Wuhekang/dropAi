@@ -6,64 +6,64 @@
         <span>DropAI</span>
       </button>
       <nav>
-        <button class="active" type="button">Overview</button>
-        <button type="button" @click="router.push('/new-project')">Project Builder</button>
-        <button type="button" @click="router.push('/rewrite')">Writing</button>
-        <button type="button" @click="router.push('/recharge')">Credits</button>
-        <button v-if="role === 'ADMIN'" type="button" @click="adminNoticeVisible = true">Notice</button>
+        <button class="active" type="button">总览</button>
+        <button type="button" @click="router.push('/new-project')">项目生成</button>
+        <button type="button" @click="router.push('/rewrite')">论文优化</button>
+        <button type="button" @click="router.push('/recharge')">积分</button>
+        <button v-if="role === 'ADMIN'" type="button" @click="adminNoticeVisible = true">公告</button>
       </nav>
-      <button class="ghost-button signout" type="button" @click="signOut">Sign out</button>
+      <button class="ghost-button signout" type="button" @click="signOut">退出登录</button>
     </aside>
 
     <section class="dashboard-main">
       <header class="dashboard-head">
         <div>
-          <span class="eyebrow">Dashboard</span>
-          <h1>Welcome back, {{ username }}</h1>
-          <p>Recent projects, credits, and downloads in one quiet workspace.</p>
+          <span class="eyebrow">控制台</span>
+          <h1>欢迎回来，{{ username }}</h1>
+          <p>最近项目、积分和下载记录，都收在一个清爽的工作区里。</p>
         </div>
-        <button class="primary-button" type="button" @click="router.push('/new-project')">Generate Project</button>
+        <button class="primary-button" type="button" @click="router.push('/new-project')">生成项目</button>
       </header>
 
       <section class="overview-grid">
         <article class="product-card credit-card">
-          <span class="status-pill"><span class="status-dot"></span>Credits</span>
+          <span class="status-pill"><span class="status-dot"></span>我的积分</span>
           <strong>{{ pointAccount.points ?? '--' }}</strong>
-          <p>Total {{ pointAccount.totalPoints ?? '--' }} · Used {{ pointAccount.usedPoints ?? '--' }}</p>
-          <button class="ghost-button" type="button" :disabled="pointsLoading" @click="loadPoints">Refresh</button>
+          <p>累计 {{ pointAccount.totalPoints ?? '--' }} · 已用 {{ pointAccount.usedPoints ?? '--' }}</p>
+          <button class="ghost-button" type="button" :disabled="pointsLoading" @click="loadPoints">刷新</button>
         </article>
 
         <article class="product-card recent-card">
           <div class="card-head">
-            <span class="status-pill">Recent Projects</span>
-            <button class="ghost-button" type="button" :disabled="loading" @click="refreshDocuments">Refresh</button>
+            <span class="status-pill">最近项目</span>
+            <button class="ghost-button" type="button" :disabled="loading" @click="refreshDocuments">刷新</button>
           </div>
           <div v-if="recentProjects.length" class="project-list">
             <button v-for="project in recentProjects" :key="project.id || project.fileName" type="button" @click="openResult(project)">
-              <span>{{ project.projectName || project.fileName || 'Engineering package' }}</span>
+              <span>{{ project.projectName || project.fileName || '工程成果包' }}</span>
               <small>{{ formatTime(project.createTime) }}</small>
             </button>
           </div>
-          <p v-else class="empty">No generated projects yet.</p>
+          <p v-else class="empty">暂无生成项目。</p>
         </article>
       </section>
 
       <section class="download-panel panel">
         <div class="card-head">
           <div>
-            <h2>Download Record</h2>
-            <p>Only the latest deliverables are shown to keep the workspace focused.</p>
+            <h2>下载记录</h2>
+            <p>只展示最近的交付物，避免工作区变得拥挤。</p>
           </div>
         </div>
         <div class="download-list">
           <div v-for="doc in documents.slice(0, 6)" :key="doc.id || doc.fileName" class="download-row">
             <div>
-              <strong>{{ doc.fileName || 'Generated artifact' }}</strong>
+              <strong>{{ doc.fileName || '生成文件' }}</strong>
               <span>{{ fileTypeName(doc) }} · {{ statusText(doc.status) }}</span>
             </div>
-            <button class="ghost-button" type="button" :disabled="doc.status !== 'SUCCESS'" @click="downloadUrl(doc.downloadUrl, doc.fileName)">Download</button>
+            <button class="ghost-button" type="button" :disabled="doc.status !== 'SUCCESS'" @click="downloadUrl(doc.downloadUrl, doc.fileName)">下载</button>
           </div>
-          <p v-if="!documents.length" class="empty">Generated downloads will appear here.</p>
+          <p v-if="!documents.length" class="empty">生成后的下载文件会显示在这里。</p>
         </div>
       </section>
     </section>
@@ -79,7 +79,7 @@ import AdminNoticeModal from '../../components/AdminNoticeModal.vue'
 import { downloadArtifact, getMyDocuments, getPointAccount, logout } from '../../api/rewrite'
 
 const router = useRouter()
-const username = sessionStorage.getItem('dropai_username') || 'Engineer'
+const username = sessionStorage.getItem('dropai_username') || '当前用户'
 const role = sessionStorage.getItem('dropai_role') || 'USER'
 const documents = ref([])
 const loading = ref(false)
@@ -113,7 +113,7 @@ async function loadPoints() {
 }
 
 function openResult(project) {
-  router.push({ path: '/result', query: { name: project.projectName || project.fileName || 'DropAI Project' } })
+  router.push({ path: '/result', query: { name: project.projectName || project.fileName || 'DropAI 项目' } })
 }
 
 async function downloadUrl(downloadUrl, fileName) {
@@ -122,7 +122,7 @@ async function downloadUrl(downloadUrl, fileName) {
   const objectUrl = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = objectUrl
-  link.download = fileName || 'dropai-artifact'
+  link.download = fileName || 'dropai-成果文件'
   link.click()
   URL.revokeObjectURL(objectUrl)
 }
@@ -139,7 +139,7 @@ async function signOut() {
 }
 
 function statusText(status) {
-  return ({ SUCCESS: 'Ready', FAILED: 'Failed', RUNNING: 'Processing', PENDING: 'Queued' })[status] || status || 'Ready'
+  return ({ SUCCESS: '已完成', FAILED: '失败', RUNNING: '处理中', PENDING: '排队中' })[status] || status || '已完成'
 }
 
 function formatTime(value) {
@@ -147,10 +147,10 @@ function formatTime(value) {
 }
 
 function fileTypeName(row) {
-  if (row.packageUrl || row.fileType === 'zip') return 'ZIP package'
+  if (row.packageUrl || row.fileType === 'zip') return 'ZIP 成果包'
   if (row.fileType === 'pdf') return 'PDF'
-  if (row.fileType === 'docx') return 'Document'
-  return row.fileType || 'Artifact'
+  if (row.fileType === 'docx') return '文档'
+  return row.fileType || '文件'
 }
 
 onMounted(() => {
@@ -227,9 +227,11 @@ onMounted(() => {
 }
 
 .dashboard-head h1 {
+  max-width: 760px;
   margin-bottom: 10px;
-  font-size: clamp(34px, 5vw, 56px);
-  line-height: 1;
+  overflow-wrap: anywhere;
+  font-size: clamp(30px, 4vw, 46px);
+  line-height: 1.12;
 }
 
 .dashboard-head p,
@@ -257,8 +259,12 @@ onMounted(() => {
 }
 
 .credit-card strong {
-  font-size: 64px;
+  max-width: 100%;
+  overflow: hidden;
+  font-size: clamp(42px, 6vw, 58px);
   line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .credit-card p {
@@ -298,6 +304,17 @@ onMounted(() => {
   background: rgba(255, 255, 255, 0.075);
 }
 
+.project-list button span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-list button small {
+  flex: 0 0 auto;
+}
+
 .project-list small,
 .download-row span,
 .empty {
@@ -316,6 +333,10 @@ onMounted(() => {
 .download-row strong,
 .download-row span {
   display: block;
+}
+
+.download-row strong {
+  overflow-wrap: anywhere;
 }
 
 .download-row span {

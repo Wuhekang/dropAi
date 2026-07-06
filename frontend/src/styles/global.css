@@ -151,6 +151,7 @@ p {
   background: linear-gradient(135deg, var(--primary), #5c8dff 62%, var(--cyan));
   box-shadow: 0 14px 36px rgba(108, 92, 231, 0.24);
   cursor: pointer;
+  white-space: normal;
   transition: transform var(--ease), box-shadow var(--ease), opacity var(--ease);
 }
 
@@ -206,8 +207,9 @@ p {
 .hero-title {
   max-width: 900px;
   margin-bottom: 18px;
-  font-size: clamp(42px, 7vw, 76px);
-  line-height: 0.98;
+  overflow-wrap: anywhere;
+  font-size: clamp(34px, 5.6vw, 58px);
+  line-height: 1.08;
   letter-spacing: 0;
 }
 

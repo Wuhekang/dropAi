@@ -6,55 +6,55 @@
         <span>DropAI</span>
       </button>
       <div class="nav-links">
-        <button type="button" @click="router.push('/new-project')">Builder</button>
-        <button type="button" @click="router.push('/dashboard')">Dashboard</button>
-        <button type="button" @click="router.push('/rewrite')">Writing</button>
-        <button class="primary-button" type="button" @click="router.push('/new-project')">Generate Project</button>
+        <button type="button" @click="router.push('/new-project')">项目生成</button>
+        <button type="button" @click="router.push('/dashboard')">控制台</button>
+        <button type="button" @click="router.push('/rewrite')">论文优化</button>
+        <button class="primary-button" type="button" @click="router.push('/new-project')">生成项目</button>
       </div>
     </nav>
 
     <section class="hero-section">
-      <span class="eyebrow">AI Engineering System</span>
-      <h1 class="hero-title">Turn Task Documents into Complete Engineering Systems</h1>
+      <span class="eyebrow">AI 工程系统</span>
+      <h1 class="hero-title">把任务书生成完整工程成果系统</h1>
       <p class="hero-copy">
-        DropAI turns a task document into a coordinated 3D model, CAD drawings, and a thesis-ready engineering package.
+        DropAI 将任务书转化为 3D 模型、CAD 图纸和论文文档一致联动的工程成果包。
       </p>
-      <button class="primary-button hero-cta" type="button" @click="router.push('/new-project')">Generate Project</button>
+      <button class="primary-button hero-cta" type="button" @click="router.push('/new-project')">生成项目</button>
     </section>
 
     <section class="workspace-section panel">
       <div class="input-card">
-        <span class="status-pill"><span class="status-dot"></span>Input Workspace</span>
+        <span class="status-pill"><span class="status-dot"></span>输入工作区</span>
         <div class="drop-zone">
-          <strong>Upload task document</strong>
-          <span>{{ selectedFile?.name || 'DOCX, PDF, TXT or Markdown' }}</span>
+          <strong>上传任务书</strong>
+          <span>{{ selectedFile?.name || '支持 DOCX、PDF、TXT、Markdown' }}</span>
           <el-upload action="" :auto-upload="false" :show-file-list="false" accept=".docx,.pdf,.txt,.md" :on-change="selectFile">
-            <button class="ghost-button" type="button">Choose File</button>
+            <button class="ghost-button" type="button">选择文件</button>
           </el-upload>
         </div>
-        <textarea v-model="taskText" class="text-input" placeholder="Paste the task requirements here..."></textarea>
+        <textarea v-model="taskText" class="text-input" placeholder="也可以直接粘贴任务书要求..."></textarea>
       </div>
 
       <div class="output-stage">
         <div class="stage-head">
-          <span class="status-pill"><span class="status-dot"></span>Output Showcase</span>
-          <span class="tiny">3D + CAD + Paper</span>
+          <span class="status-pill"><span class="status-dot"></span>输出预览</span>
+          <span class="tiny">3D + CAD + 论文</span>
         </div>
         <div class="model-frame">
           <ModelViewer3D :project="demoProject" />
         </div>
         <div class="preview-row">
           <article class="product-card mini-preview">
-            <span>CAD Preview</span>
-            <strong>Assembly drawing</strong>
+            <span>CAD 预览</span>
+            <strong>总装图纸</strong>
             <div class="cad-lines">
               <i></i><i></i><i></i><i></i>
             </div>
           </article>
           <article class="product-card mini-preview paper-preview">
-            <span>Paper Preview</span>
-            <strong>Design thesis</strong>
-            <p>Abstract, calculation, drawings, conclusion.</p>
+            <span>论文预览</span>
+            <strong>设计说明书</strong>
+            <p>摘要、计算、图纸说明、结论同步生成。</p>
           </article>
         </div>
       </div>
@@ -68,7 +68,7 @@
       </article>
     </section>
 
-    <footer class="footer">DropAI Engineering Studio</footer>
+    <footer class="footer">DropAI 工程成果生成平台</footer>
   </main>
 </template>
 
@@ -82,18 +82,18 @@ const selectedFile = ref(null)
 const taskText = ref('')
 
 const demoProject = {
-  projectTitle: 'Parametric engineering system',
-  equipmentName: 'Mechanical assembly',
-  designType: 'Structure design',
+  projectTitle: '参数化工程系统',
+  equipmentName: '机械装配体',
+  designType: '结构设计',
   totalLength: 4200,
   totalWidth: 1800,
   totalHeight: 2600
 }
 
 const features = [
-  { kicker: 'Structure', title: 'Task-aware model generation', copy: 'Extracts engineering intent and turns it into a coherent 3D structure.' },
-  { kicker: 'Drawing', title: 'CAD-first deliverables', copy: 'Creates drawing previews and downloadable artifacts around the same parameters.' },
-  { kicker: 'Writing', title: 'Thesis system output', copy: 'Builds documents around calculations, materials, BOM, and design rationale.' }
+  { kicker: '结构', title: '理解任务书的模型生成', copy: '识别设计目标和关键参数，生成清晰一致的 3D 结构。' },
+  { kicker: '图纸', title: '围绕 CAD 交付组织成果', copy: '以同一套参数生成图纸预览和可下载文件。' },
+  { kicker: '论文', title: '论文与计算同步输出', copy: '围绕计算、材料、BOM 和设计依据生成文档。' }
 ]
 
 function selectFile(file) {
@@ -115,7 +115,7 @@ function selectFile(file) {
 .hero-section {
   display: grid;
   justify-items: center;
-  padding: 34px 0 52px;
+  padding: 28px 0 46px;
   text-align: center;
 }
 
@@ -185,7 +185,7 @@ function selectFile(file) {
 .mini-preview strong {
   display: block;
   margin-top: 8px;
-  font-size: 22px;
+  font-size: 21px;
 }
 
 .cad-lines {
