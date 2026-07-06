@@ -235,8 +235,8 @@ const pageSize = 10
 const processSteps = ['解析文本', '识别语义', '生成改写', '润色表达', '保存记录']
 const textModes = [
   { value: 'rewrite', label: '智能降重', kicker: '01', description: '降低重复表达，保留原意和专业术语。' },
-  { value: 'polish', label: '学术润色', kicker: '02', description: '增强论文语气，让表达更严谨自然。' },
-  { value: 'double', label: '双重优化', kicker: '03', description: '先降重，再降低 AI 痕迹，适合终稿前处理。' }
+  { value: 'polish', label: '精准降ai', kicker: '02', description: '降低 AI 痕迹，让表达更自然可信。' },
+  { value: 'double', label: '双降', kicker: '03', description: '同时降低重复率与 AI 痕迹，适合终稿前处理。' }
 ]
 
 const canSubmitText = computed(() => Boolean(originalText.value.trim()) && !submitting.value)
