@@ -65,6 +65,30 @@ public class PointService {
         return result;
     }
 
+    @Transactional
+    public <T> T chargeCustomAfterSuccess(String featureCode, int costPoints, String remark, Supplier<T> action) {
+        Long userId = AuthContext.requireUserId();
+        FeaturePricing pricing = requirePricing(featureCode);
+        ensureFeatureEnabled(pricing);
+        ensureEnoughCustom(userId, costPoints);
+        T result = action.get();
+        deductCustom(userId, null, featureCode, pricing.getFeatureName(), costPoints, remark);
+        return result;
+    }
+
+    public int usageCostPoints(String featureCode, int charCount) {
+        FeaturePricing pricing = requirePricing(featureCode);
+        ensureFeatureEnabled(pricing);
+        if (charCount <= 0) {
+            return 0;
+        }
+        int unitCost = value(pricing.getCostPoints());
+        if (unitCost <= 0) {
+            return 0;
+        }
+        return ((charCount + 999) / 1000) * unitCost;
+    }
+
     public void checkPoints(String featureCode) {
         Long userId = AuthContext.requireUserId();
         ensureEnough(userId, requirePricing(featureCode));
@@ -123,7 +147,6 @@ public class PointService {
     }
 
     public List<FeaturePricingVO> listPricing() {
-        requireAdmin();
         return pricingMapper.selectList(new LambdaQueryWrapper<FeaturePricing>().orderByAsc(FeaturePricing::getId))
                 .stream().map(FeaturePricingVO::of).toList();
     }
@@ -163,11 +186,15 @@ public class PointService {
         UserAccount user = requireUser(userId);
         int balance = value(user.getPoints());
         int cost = value(pricing.getCostPoints());
-        if (!Boolean.TRUE.equals(pricing.getEnabled())) {
-            throw new IllegalStateException("\u8be5\u529f\u80fd\u6682\u672a\u542f\u7528");
-        }
+        ensureFeatureEnabled(pricing);
         if (balance < cost) {
             throw new PointsNotEnoughException(balance, cost);
+        }
+    }
+
+    private void ensureFeatureEnabled(FeaturePricing pricing) {
+        if (!Boolean.TRUE.equals(pricing.getEnabled())) {
+            throw new IllegalStateException("\u8be5\u529f\u80fd\u6682\u672a\u542f\u7528");
         }
     }
 

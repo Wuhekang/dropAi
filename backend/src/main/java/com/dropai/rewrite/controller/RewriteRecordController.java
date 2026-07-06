@@ -41,8 +41,11 @@ public class RewriteRecordController {
 
     @PostMapping("/submit")
     public Result<RewriteResultVO> submit(@Valid @RequestBody RewriteSubmitDTO dto) {
-        return Result.success(pointService.chargeAfterSuccess(PointService.DOCX_GENERATE,
-                "文本改写/降AI", () -> rewriteRecordService.submit(dto)));
+        String featureCode = textFeatureCode(dto.getRewriteType());
+        int charCount = dto.getOriginalText() == null ? 0 : dto.getOriginalText().length();
+        int costPoints = pointService.usageCostPoints(featureCode, charCount);
+        return Result.success(pointService.chargeCustomAfterSuccess(featureCode, costPoints,
+                "文本优化：" + charCount + " 字，" + dto.getRewriteType(), () -> rewriteRecordService.submit(dto)));
     }
 
     @PostMapping("/analyze")
@@ -118,5 +121,16 @@ public class RewriteRecordController {
             return "";
         }
         return text.length() > 80 ? text.substring(0, 80) + "..." : text;
+    }
+
+    private String textFeatureCode(String rewriteType) {
+        String value = rewriteType == null ? "" : rewriteType.toLowerCase();
+        if (value.contains("双") || value.contains("double")) {
+            return PointService.DOCUMENT_DOUBLE;
+        }
+        if (value.contains("ai") || value.contains("humanize") || value.contains("精准")) {
+            return PointService.DOCUMENT_HUMANIZE;
+        }
+        return PointService.DOCUMENT_REWRITE;
     }
 }

@@ -586,11 +586,7 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
     }
 
     private int calculateCostPoints(int charCount, String mode) {
-        if (charCount <= 0) {
-            return 0;
-        }
-        int baseCost = ((charCount + 999) / 1000) * 10;
-        return "double".equals(mode) ? baseCost * 2 : baseCost;
+        return pointService.usageCostPoints(documentFeatureCode(mode), charCount);
     }
 
     private String idempotencyKey(Long userId, String requestId) {

@@ -106,6 +106,15 @@ WHERE NOT EXISTS (SELECT 1 FROM feature_pricing WHERE feature_code = 'DOCX_GENER
 INSERT INTO feature_pricing (feature_code, feature_name, cost_points, enabled)
 SELECT 'ZIP_EXPORT', '成果包导出', 20, 1
 WHERE NOT EXISTS (SELECT 1 FROM feature_pricing WHERE feature_code = 'ZIP_EXPORT');
+INSERT INTO feature_pricing (feature_code, feature_name, cost_points, enabled)
+SELECT 'DOCUMENT_REWRITE', '智能降重（每千字）', 10, 1
+WHERE NOT EXISTS (SELECT 1 FROM feature_pricing WHERE feature_code = 'DOCUMENT_REWRITE');
+INSERT INTO feature_pricing (feature_code, feature_name, cost_points, enabled)
+SELECT 'DOCUMENT_HUMANIZE', '精准降AI（每千字）', 10, 1
+WHERE NOT EXISTS (SELECT 1 FROM feature_pricing WHERE feature_code = 'DOCUMENT_HUMANIZE');
+INSERT INTO feature_pricing (feature_code, feature_name, cost_points, enabled)
+SELECT 'DOCUMENT_DOUBLE', '双降（每千字）', 20, 1
+WHERE NOT EXISTS (SELECT 1 FROM feature_pricing WHERE feature_code = 'DOCUMENT_DOUBLE');
 
 ALTER TABLE rewrite_record CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 

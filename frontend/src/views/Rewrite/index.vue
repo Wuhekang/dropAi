@@ -79,6 +79,10 @@
             <dd>{{ formatNumber(effectiveCharCount) }} 字</dd>
           </div>
           <div>
+            <dt>预计扣费</dt>
+            <dd>{{ estimatedTextCost }} 积分</dd>
+          </div>
+          <div>
             <dt>当前模式</dt>
             <dd>{{ activeMode.label }}</dd>
           </div>
@@ -119,7 +123,13 @@
       <div v-else class="compare-grid">
         <article class="compare-card">
           <span>输入内容</span>
-          <p>{{ originalSnapshot || originalText || '输入内容会显示在这里。' }}</p>
+          <textarea
+            v-model="originalText"
+            class="result-input"
+            maxlength="12000"
+            :disabled="isBusy"
+            placeholder="在这里输入或编辑需要优化的文本，也可以先上传 DOCX 自动填入..."
+          ></textarea>
         </article>
         <article class="compare-card optimized">
           <span>优化结果</span>
@@ -176,9 +186,9 @@ import {
   getAiStatus,
   getDocumentJob,
   getDocumentJobs,
+  getFeaturePricing,
   precheckDocument,
   submitRewrite,
-  uploadDocument,
   logout
 } from '../../api/rewrite'
 
@@ -202,22 +212,24 @@ const resultSection = ref(null)
 const historyPage = ref(1)
 const documentPollTimer = ref(null)
 const documentJobs = ref([])
+const pricing = ref([])
 const checkingAiStatus = ref(false)
 const aiStatus = reactive({ provider: '', model: '', endpoint: '', testStatus: '', testMessage: '' })
 const documentPrecheck = reactive({ ready: false, requestId: '', charCount: 0, costPoints: 0, currentPoints: 0, canProcess: false })
 
 const pageSize = 10
 const textModes = [
-  { value: 'rewrite', label: '智能降重', apiMode: 'rewrite', description: '降低重复表达' },
-  { value: 'polish', label: '精准降AI', apiMode: 'humanize', description: '降低 AI 痕迹' },
-  { value: 'double', label: '双降', apiMode: 'double', description: '降重 + 降 AI' }
+  { value: 'rewrite', label: '智能降重', apiMode: 'rewrite', featureCode: 'DOCUMENT_REWRITE', description: '降低重复表达' },
+  { value: 'polish', label: '精准降AI', apiMode: 'humanize', featureCode: 'DOCUMENT_HUMANIZE', description: '降低 AI 痕迹' },
+  { value: 'double', label: '双降', apiMode: 'double', featureCode: 'DOCUMENT_DOUBLE', description: '降重 + 降 AI' }
 ]
 
 const activeMode = computed(() => textModes.find(item => item.value === rewriteMode.value) || textModes[0])
 const isBusy = computed(() => submitting.value || extracting.value || documentUploading.value)
 const inputCharCount = computed(() => originalText.value.length)
 const effectiveCharCount = computed(() => documentPrecheck.charCount || inputCharCount.value)
-const canStart = computed(() => Boolean(selectedDocument.value && originalText.value.trim()) && !isBusy.value)
+const estimatedTextCost = computed(() => calculateTextCost(inputCharCount.value, activeMode.value.featureCode))
+const canStart = computed(() => Boolean(originalText.value.trim()) && !isBusy.value)
 const rewriteDocumentJobs = computed(() => documentJobs.value.filter(isRewriteDocument))
 const historyTotalPages = computed(() => Math.max(1, Math.ceil(rewriteDocumentJobs.value.length / pageSize)))
 const pagedDocuments = computed(() => {
@@ -250,11 +262,6 @@ async function handleSubmit() {
       platform: targetPlatform.value
     })
     rewrittenText.value = result.rewrittenText || ''
-
-    if (selectedDocument.value && documentPrecheck.ready && documentPrecheck.canProcess) {
-      setProgress(78, '正在保存文档任务')
-      await submitDocumentTask()
-    }
 
     setProgress(100, '已完成')
     ElMessage.success('优化完成。')
@@ -333,17 +340,6 @@ async function runDocumentPrecheck(showMessage = true) {
   }
 }
 
-async function submitDocumentTask() {
-  documentUploading.value = true
-  try {
-    const job = await uploadDocument(selectedDocument.value, activeMode.value.apiMode, targetPlatform.value, documentPrecheck.requestId)
-    upsertDocumentJob(job)
-    startDocumentPolling(job.jobId)
-  } finally {
-    documentUploading.value = false
-  }
-}
-
 async function startDocumentPolling(jobId) {
   stopDocumentPolling()
   documentPollTimer.value = window.setInterval(async () => {
@@ -409,6 +405,14 @@ async function loadHistory() {
   }
 }
 
+async function loadPricing() {
+  try {
+    pricing.value = await getFeaturePricing() || []
+  } catch {
+    pricing.value = []
+  }
+}
+
 function setProgress(value, text) {
   progress.value = Math.max(0, Math.min(100, value))
   statusText.value = text
@@ -416,6 +420,13 @@ function setProgress(value, text) {
 
 function modeLabelFromMode(mode = '') {
   return textModes.find(item => item.apiMode === mode || item.value === mode)?.label || '智能降重'
+}
+
+function calculateTextCost(charCount, featureCode) {
+  if (!charCount) return 0
+  const item = pricing.value.find(value => value.featureCode === featureCode)
+  const unitCost = Number(item?.costPoints ?? (featureCode === 'DOCUMENT_DOUBLE' ? 20 : 10))
+  return Math.ceil(charCount / 1000) * Math.max(0, unitCost)
 }
 
 function documentModeLabel(item = {}) {
@@ -476,6 +487,7 @@ async function signOut() {
 
 onMounted(() => {
   loadAiStatus()
+  loadPricing()
   loadHistory()
 })
 
@@ -730,6 +742,23 @@ onBeforeUnmount(stopDocumentPolling)
   white-space: pre-wrap;
   color: var(--muted);
   line-height: 1.85;
+}
+
+.result-input {
+  width: 100%;
+  min-height: 260px;
+  margin-top: 14px;
+  padding: 0;
+  resize: vertical;
+  border: 0;
+  color: var(--text);
+  background: transparent;
+  outline: none;
+  line-height: 1.85;
+}
+
+.result-input::placeholder {
+  color: var(--muted);
 }
 
 .compare-card.optimized p {
