@@ -1,8 +1,10 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import HomeIndex from '../views/Home/index.vue'
 import RewriteIndex from '../views/Rewrite/index.vue'
 import LoginIndex from '../views/Login/index.vue'
 import DashboardIndex from '../views/Dashboard/index.vue'
 import NewProjectIndex from '../views/NewProject/index.vue'
+import ResultIndex from '../views/Result/index.vue'
 import PointsAdmin from '../views/PointsAdmin.vue'
 import RechargeIndex from '../views/Recharge/index.vue'
 import ComputerGenerator from '../views/ComputerGenerator/index.vue'
@@ -12,7 +14,8 @@ const router = createRouter({
   routes: [
     {
       path: '/',
-      redirect: '/dashboard'
+      name: 'Home',
+      component: HomeIndex
     },
     {
       path: '/login',
@@ -35,6 +38,11 @@ const router = createRouter({
       component: NewProjectIndex
     },
     {
+      path: '/result',
+      name: 'Result',
+      component: ResultIndex
+    },
+    {
       path: '/computer-generator',
       name: 'ComputerGenerator',
       component: ComputerGenerator
@@ -54,7 +62,7 @@ const router = createRouter({
 
 router.beforeEach((to) => {
   const loggedIn = Boolean(sessionStorage.getItem('dropai_token'))
-  if (to.path !== '/login' && !loggedIn) return '/login'
+  if (!['/', '/login'].includes(to.path) && !loggedIn) return '/login'
   if (to.path === '/login' && loggedIn) return '/dashboard'
   if (to.path === '/points-admin' && sessionStorage.getItem('dropai_role')?.toLowerCase() !== 'admin') {
     return '/dashboard'
