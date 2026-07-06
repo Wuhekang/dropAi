@@ -18,24 +18,26 @@
         <h1>学术文本 AI 优化</h1>
         <p>粘贴文本或上传 DOCX，DropAI 会按所选模式生成更自然、更适合学术场景的最终版本。</p>
       </div>
-      <div class="hero-metrics">
-        <article>
-          <strong>{{ formatNumber(documentJobs.length) }}</strong>
-          <span>文档记录</span>
-        </article>
-        <article>
-          <strong>{{ aiStatus.testStatus === 'success' ? '在线' : '待连接' }}</strong>
-          <span>{{ checkingAiStatus ? '检测中' : aiStatus.model || '模型状态' }}</span>
-        </article>
-      </div>
     </section>
 
     <section class="workspace-panel panel" :class="{ busy: isBusy }">
       <div class="input-column">
-        <div class="section-title-row">
+        <div class="section-title-row upload-head">
           <div>
-            <span class="mini-label">输入与上传</span>
-            <h2>唯一输入源</h2>
+            <span class="mini-label">文档上传与处理</span>
+            <h2>输入内容</h2>
+          </div>
+          <div class="mode-tabs">
+            <button
+              v-for="mode in textModes"
+              :key="mode.value"
+              type="button"
+              :class="{ active: rewriteMode === mode.value }"
+              :disabled="isBusy"
+              @click="rewriteMode = mode.value"
+            >
+              {{ mode.label }}
+            </button>
           </div>
           <span class="word-count">{{ formatNumber(inputCharCount) }} 字</span>
         </div>
@@ -96,20 +98,6 @@
 
         <div class="loading-line progress-line"><span :style="{ width: `${progress}%` }"></span></div>
 
-        <div class="mode-selector">
-          <button
-            v-for="mode in textModes"
-            :key="mode.value"
-            type="button"
-            :class="{ active: rewriteMode === mode.value }"
-            :disabled="isBusy"
-            @click="rewriteMode = mode.value"
-          >
-            <span>{{ mode.label }}</span>
-            <small>{{ mode.description }}</small>
-          </button>
-        </div>
-
         <button class="primary-button start-button" type="button" :disabled="!canStart" @click="handleSubmit">
           {{ isBusy ? statusText : '开始优化' }}
         </button>
@@ -162,14 +150,14 @@
       <div v-else-if="pagedDocuments.length" class="document-table">
         <div class="table-row table-head">
           <span>文件名</span>
-          <span>模式</span>
+          <span>修改方式</span>
           <span>字数</span>
           <span>处理时间</span>
           <span>下载</span>
         </div>
         <div v-for="item in pagedDocuments" :key="item.jobId" class="table-row">
           <strong>{{ item.fileName || '未命名文档' }}</strong>
-          <span>{{ item.modeName || modeLabelFromMode(item.mode) }}</span>
+          <span>{{ documentModeLabel(item) }}</span>
           <span>{{ formatNumber(item.charCount) }}</span>
           <span>{{ formatTime(item.updatedAt || item.createdAt) }}</span>
           <button class="ghost-button" type="button" :disabled="item.status !== 'SUCCESS'" @click="downloadDocumentJob(item)">下载</button>
@@ -238,10 +226,11 @@ const isBusy = computed(() => submitting.value || extracting.value || documentUp
 const inputCharCount = computed(() => originalText.value.length)
 const effectiveCharCount = computed(() => documentPrecheck.charCount || inputCharCount.value)
 const canStart = computed(() => Boolean(originalText.value.trim()) && !isBusy.value)
-const historyTotalPages = computed(() => Math.max(1, Math.ceil(documentJobs.value.length / pageSize)))
+const rewriteDocumentJobs = computed(() => documentJobs.value.filter(isRewriteDocument))
+const historyTotalPages = computed(() => Math.max(1, Math.ceil(rewriteDocumentJobs.value.length / pageSize)))
 const pagedDocuments = computed(() => {
   const start = (historyPage.value - 1) * pageSize
-  return documentJobs.value.slice(start, start + pageSize)
+  return rewriteDocumentJobs.value.slice(start, start + pageSize)
 })
 const diffHtml = computed(() => buildDiffHtml(originalSnapshot.value, rewrittenText.value))
 
@@ -382,6 +371,8 @@ function stopDocumentPolling() {
 
 function upsertDocumentJob(job = {}) {
   if (!job.jobId) return
+  if (!job.sourceFeature) job.sourceFeature = 'REWRITE'
+  if (!job.modeName) job.modeName = activeMode.value.label
   const index = documentJobs.value.findIndex(item => item.jobId === job.jobId)
   if (index >= 0) documentJobs.value.splice(index, 1, job)
   else documentJobs.value.unshift(job)
@@ -432,6 +423,15 @@ function setProgress(value, text) {
 
 function modeLabelFromMode(mode = '') {
   return textModes.find(item => item.apiMode === mode || item.value === mode)?.label || '智能降重'
+}
+
+function documentModeLabel(item = {}) {
+  return item.modeName || modeLabelFromMode(item.mode)
+}
+
+function isRewriteDocument(item = {}) {
+  return (item.sourceFeature || 'REWRITE') === 'REWRITE' &&
+    String(item.fileName || '').toLowerCase().endsWith('.docx')
 }
 
 function buildDiffHtml(original, optimized) {
@@ -501,10 +501,7 @@ onBeforeUnmount(stopDocumentPolling)
 }
 
 .hero-strip {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 24px;
-  align-items: end;
+  display: block;
   margin-bottom: 20px;
 }
 
@@ -523,30 +520,10 @@ onBeforeUnmount(stopDocumentPolling)
   line-height: 1.7;
 }
 
-.hero-metrics {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(130px, 1fr));
-  gap: 12px;
-}
-
-.hero-metrics article {
-  padding: 16px;
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.055);
-  box-shadow: var(--blur-shadow);
-}
-
-.hero-metrics strong,
 .progress-number {
   display: block;
   color: var(--text);
   font-size: 22px;
-}
-
-.hero-metrics span {
-  color: var(--muted);
-  font-size: 13px;
 }
 
 .workspace-panel {
@@ -576,12 +553,49 @@ onBeforeUnmount(stopDocumentPolling)
   line-height: 1.15;
 }
 
+.upload-head {
+  align-items: center;
+}
+
 .mini-label,
 .word-count {
   color: var(--cyan);
   font-size: 12px;
   font-weight: 760;
   letter-spacing: 0.08em;
+}
+
+.mode-tabs {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.mode-tabs button {
+  min-height: 34px;
+  padding: 0 13px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+  transition: color var(--ease), background var(--ease), border-color var(--ease), transform var(--ease);
+}
+
+.mode-tabs button:hover {
+  transform: translateY(-1px);
+  color: var(--text);
+}
+
+.mode-tabs button.active {
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.18);
+  background: linear-gradient(135deg, rgba(108, 92, 231, 0.82), rgba(0, 210, 255, 0.28));
+  box-shadow: 0 10px 28px rgba(108, 92, 231, 0.22);
 }
 
 .input-column,
@@ -680,50 +694,6 @@ onBeforeUnmount(stopDocumentPolling)
 .progress-line {
   height: 9px;
   margin-bottom: 18px;
-}
-
-.mode-selector {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-  margin-bottom: 18px;
-}
-
-.mode-selector button {
-  min-height: 78px;
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  color: var(--muted);
-  background: rgba(255, 255, 255, 0.045);
-  cursor: pointer;
-  text-align: left;
-  transition: transform var(--ease), border-color var(--ease), background var(--ease);
-}
-
-.mode-selector button:hover {
-  transform: translateY(-3px);
-  border-color: rgba(255, 255, 255, 0.22);
-}
-
-.mode-selector button.active {
-  color: var(--text);
-  border-color: rgba(0, 210, 255, 0.55);
-  background: linear-gradient(180deg, rgba(108, 92, 231, 0.18), rgba(0, 210, 255, 0.08));
-}
-
-.mode-selector span,
-.mode-selector small {
-  display: block;
-}
-
-.mode-selector span {
-  margin-bottom: 6px;
-  font-weight: 760;
-}
-
-.mode-selector small {
-  color: var(--muted);
 }
 
 .start-button {
@@ -876,14 +846,9 @@ onBeforeUnmount(stopDocumentPolling)
 }
 
 @media (max-width: 1040px) {
-  .hero-strip,
   .workspace-panel,
   .compare-grid {
     grid-template-columns: 1fr;
-  }
-
-  .hero-metrics {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .table-row {
@@ -896,20 +861,25 @@ onBeforeUnmount(stopDocumentPolling)
     width: min(100% - 28px, 1280px);
   }
 
-  .mode-selector,
-  .hero-metrics {
-    grid-template-columns: 1fr;
-  }
-
   .doc-drop {
     grid-template-columns: 1fr;
   }
 
   .section-title-row,
+  .upload-head,
   .result-head,
   .result-actions {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .mode-tabs {
+    width: 100%;
+  }
+
+  .mode-tabs button {
+    flex: 1;
+    padding: 0 8px;
   }
 
   .document-table {
