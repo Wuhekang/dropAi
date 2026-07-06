@@ -53,7 +53,7 @@
           <div class="doc-icon">DOCX</div>
           <div>
             <strong>{{ selectedDocument?.name || '拖拽 DOCX 到上方区域' }}</strong>
-            <p>{{ selectedDocument ? `${formatFileSize(selectedDocument.size)} · 正文已在下方 Original 展示` : '上传后自动解析正文，原文内容会直接显示在下方结果区左侧' }}</p>
+            <p>{{ selectedDocument ? `${formatFileSize(selectedDocument.size)} · 正文已在下方输入内容展示` : '上传后自动解析正文，原文内容会直接显示在下方左侧' }}</p>
           </div>
           <button class="ghost-button" type="button" :disabled="isBusy" @click="fileInput?.click()">选择文件</button>
           <input ref="fileInput" class="hidden-input" type="file" accept=".docx" @change="handleFileInput" />
@@ -100,7 +100,7 @@
       <div class="section-title-row result-head">
         <div>
           <span class="mini-label">输出结果</span>
-          <h2>Original / Optimized</h2>
+          <h2>输入内容 / 优化结果</h2>
         </div>
         <div class="result-actions">
           <button class="ghost-button" type="button" :class="{ active: diffMode }" :disabled="!rewrittenText" @click="diffMode = !diffMode">
@@ -118,11 +118,11 @@
 
       <div v-else class="compare-grid">
         <article class="compare-card">
-          <span>Original</span>
+          <span>输入内容</span>
           <p>{{ originalSnapshot || originalText || '输入内容会显示在这里。' }}</p>
         </article>
         <article class="compare-card optimized">
-          <span>Optimized</span>
+          <span>优化结果</span>
           <p v-if="!diffMode">{{ rewrittenText || '优化完成后显示最终结果。' }}</p>
           <p v-else v-html="diffHtml"></p>
         </article>
