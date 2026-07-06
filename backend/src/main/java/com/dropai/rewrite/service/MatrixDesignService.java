@@ -40,6 +40,7 @@ public class MatrixDesignService {
         if (apiKey.isBlank()) throw new IllegalStateException("未配置 MATRIX_API_KEY，无法调用大模型服务");
         Map<String, Object> body = Map.of(
                 "model", properties.getModel(),
+                "stream", false,
                 "messages", List.of(
                         Map.of("role", "system", "content", instructions),
                         Map.of("role", "user", "content", input)

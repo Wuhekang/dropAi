@@ -63,6 +63,7 @@ public class DoubaoAiRewriteService implements AiRewriteService {
         try {
             Map<String, Object> requestBody = Map.of(
                     "model", properties.getModel(),
+                    "stream", false,
                     "temperature", properties.getTemperature(),
                     "max_tokens", 4096,
                     "thinking", Map.of("type", "disabled"),
