@@ -73,6 +73,7 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
     private final Path jobLogDir = Path.of("storage", "jobs");
     private final ExecutorService documentExecutor = Executors.newFixedThreadPool(2);
     private final Map<String, Path> generatedOutputFiles = new ConcurrentHashMap<>();
+    private static final String LENGTH_CONTROL_REWRITE_TYPE = "字数控制压缩";
 
     public DocumentRewriteServiceImpl(
             WorkflowRewriteService workflowRewriteService,
@@ -320,9 +321,10 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
                 update(job, "FAILED", "未识别到可优化正文段落，未生成优化结果。请检查文档是否包含目录后的正文内容。");
                 return;
             }
+            int originalTextLength = totalTargetTextLength(targets);
             update(job, "RUNNING", "已提取 " + targets.size() + " 个待优化段落，开始并发处理");
 
-            List<RewriteResult> results = rewriteTargetsConcurrently(job, targets);
+            List<RewriteResult> results = rewriteTargetsWithLengthControl(job, targets, originalTextLength);
             long failedParagraphs = results.stream().filter(result -> !result.success()).count();
             String firstFailure = results.stream()
                     .filter(result -> !result.success())
@@ -493,7 +495,199 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
         return targets;
     }
 
-    private List<RewriteResult> rewriteTargetsConcurrently(DocumentRewriteJobVO job, List<RewriteTarget> targets) throws Exception {
+    private List<RewriteResult> rewriteTargetsWithLengthControl(
+            DocumentRewriteJobVO job,
+            List<RewriteTarget> targets,
+            int originalTextLength
+    ) throws Exception {
+        LengthRule rule = lengthRule(originalTextLength);
+        if ("double".equals(job.getMode())) {
+            update(job, "RUNNING", "双降增强：第一阶段正在执行智能降重");
+            List<RewriteResult> rewriteResults = rewriteTargetsConcurrently(job, targets, "rewrite", "智能降重");
+            rewriteResults = applyLengthControl(job, targets, rewriteResults, rule, "double_rewrite");
+
+            List<RewriteResult> failedRewriteResults = rewriteResults.stream()
+                    .filter(result -> !result.success())
+                    .toList();
+            List<RewriteTarget> humanizeTargets = rewriteResults.stream()
+                    .filter(RewriteResult::success)
+                    .map(result -> new RewriteTarget(result.index(), result.paragraph(), result.rewrittenText()))
+                    .toList();
+
+            update(job, "RUNNING", "双降增强：第二阶段正在执行智能降AI");
+            List<RewriteResult> humanizeResults = rewriteTargetsConcurrently(job, humanizeTargets, "humanize", "智能降AI");
+            List<RewriteResult> mergedResults = new ArrayList<>();
+            mergedResults.addAll(failedRewriteResults);
+            mergedResults.addAll(humanizeResults);
+            return applyLengthControl(job, targets, mergedResults, rule, "double_final");
+        }
+
+        List<RewriteResult> results = rewriteTargetsConcurrently(job, targets, job.getMode(), job.getModeName());
+        return applyLengthControl(job, targets, results, rule, job.getMode());
+    }
+
+    private List<RewriteResult> applyLengthControl(
+            DocumentRewriteJobVO job,
+            List<RewriteTarget> originalTargets,
+            List<RewriteResult> results,
+            LengthRule rule,
+            String stage
+    ) {
+        LengthMetrics metrics = lengthMetrics(rule.originalLength(), results);
+        logLengthMetrics(job, stage, metrics);
+        if (!metrics.exceeded()) {
+            return results;
+        }
+
+        List<RewriteResult> adjustedResults = new ArrayList<>(results);
+        for (int attempt = 1; attempt <= 2 && metrics.exceeded(); attempt++) {
+            update(job, "RUNNING", "字数增长超过限制，正在执行第 " + attempt + " 次长度控制压缩");
+            adjustedResults = compressExpandedResults(job, originalTargets, adjustedResults, rule, stage, attempt);
+            metrics = lengthMetrics(rule.originalLength(), adjustedResults);
+            logLengthMetrics(job, stage + "_retry_" + attempt, metrics);
+        }
+        if (metrics.exceeded()) {
+            log.warn("LengthControl still exceeded after retries jobId={} mode={} stage={} original_length={} final_length={} allowed_max_length={} length_status=OVER_LIMIT_AFTER_RETRY",
+                    job.getJobId(), job.getMode(), stage, metrics.originalLength(), metrics.finalLength(), metrics.allowedMaxLength());
+        }
+        return adjustedResults;
+    }
+
+    private List<RewriteResult> compressExpandedResults(
+            DocumentRewriteJobVO job,
+            List<RewriteTarget> originalTargets,
+            List<RewriteResult> results,
+            LengthRule rule,
+            String stage,
+            int attempt
+    ) {
+        Map<Integer, String> originalTextByIndex = originalTargets.stream()
+                .collect(Collectors.toMap(RewriteTarget::index, RewriteTarget::text, (left, right) -> left));
+        List<RewriteResult> adjusted = new ArrayList<>(results);
+        int currentLength = totalResultTextLength(adjusted);
+        int excessLength = currentLength - rule.allowedMaxLength();
+        if (excessLength <= 0) {
+            return adjusted;
+        }
+
+        List<RewriteResult> candidates = adjusted.stream()
+                .filter(RewriteResult::success)
+                .filter(result -> textLength(result.rewrittenText()) > textLength(originalTextByIndex.get(result.index())))
+                .sorted((left, right) -> Integer.compare(
+                        textLength(right.rewrittenText()) - textLength(originalTextByIndex.get(right.index())),
+                        textLength(left.rewrittenText()) - textLength(originalTextByIndex.get(left.index()))
+                ))
+                .toList();
+
+        for (RewriteResult candidate : candidates) {
+            if (totalResultTextLength(adjusted) <= rule.allowedMaxLength()) {
+                break;
+            }
+            String originalText = originalTextByIndex.getOrDefault(candidate.index(), "");
+            int targetLength = allowedParagraphLength(rule, originalText);
+            String compressed;
+            try {
+                compressed = compressForLength(candidate.rewrittenText(), targetLength, stage, attempt);
+            } catch (Exception exception) {
+                log.warn("LengthControl paragraph compression failed jobId={} stage={} attempt={} paragraphIndex={} message={}",
+                        job.getJobId(), stage, attempt, candidate.index(), readableMessage(exception));
+                continue;
+            }
+            int beforeLength = textLength(candidate.rewrittenText());
+            int compressedLength = textLength(compressed);
+            int originalLength = textLength(originalText);
+            if (!compressed.isBlank()
+                    && compressedLength < beforeLength
+                    && compressedLength >= Math.max(1, (int) Math.floor(originalLength * 0.55))) {
+                int resultIndex = adjusted.indexOf(candidate);
+                adjusted.set(resultIndex, new RewriteResult(
+                        candidate.index(),
+                        candidate.paragraph(),
+                        compressed,
+                        true,
+                        candidate.errorMessage()
+                ));
+                updateParagraphStatus(job, candidate.index(), "SUCCESS", compressed, "已完成长度控制压缩");
+                log.info("LengthControl paragraph compressed jobId={} stage={} attempt={} paragraphIndex={} original_length={} before_length={} after_length={} target_length={}",
+                        job.getJobId(), stage, attempt, candidate.index(), originalLength, beforeLength, compressedLength, targetLength);
+            }
+        }
+        return adjusted;
+    }
+
+    private String compressForLength(String text, int targetLength, String stage, int attempt) {
+        String feedback = "目标最大长度：" + targetLength
+                + " 字；阶段：" + stage
+                + "；压缩轮次：" + attempt
+                + "。删除无意义扩写、重复解释和新增说明，保留原有逻辑、事实、术语、编号与降AI效果。";
+        return aiRewriteService.rewriteWithFeedback(text, LENGTH_CONTROL_REWRITE_TYPE, 0, feedback);
+    }
+
+    private int allowedParagraphLength(LengthRule rule, String originalText) {
+        int originalLength = textLength(originalText);
+        if (originalLength <= 0 || rule.originalLength() <= 0) {
+            return originalLength;
+        }
+        int allowedIncrease = rule.allowedMaxLength() - rule.originalLength();
+        int paragraphIncrease = (int) Math.floor(allowedIncrease * (originalLength * 1.0 / rule.originalLength()));
+        return Math.max(originalLength, originalLength + paragraphIncrease);
+    }
+
+    private LengthMetrics lengthMetrics(int originalLength, List<RewriteResult> results) {
+        int finalLength = totalResultTextLength(results);
+        LengthRule rule = lengthRule(originalLength);
+        int increaseLength = finalLength - originalLength;
+        double increaseRate = originalLength <= 0 ? 0 : increaseLength * 1.0 / originalLength;
+        String status = finalLength > rule.allowedMaxLength() ? "EXCEEDED" : "PASS";
+        return new LengthMetrics(originalLength, finalLength, increaseLength, increaseRate, rule.allowedMaxLength(), status);
+    }
+
+    private void logLengthMetrics(DocumentRewriteJobVO job, String stage, LengthMetrics metrics) {
+        log.info("LengthControl jobId={} mode={} stage={} original_length={} final_length={} increase_length={} increase_rate={} allowed_max_length={} length_status={}",
+                job.getJobId(),
+                job.getMode(),
+                stage,
+                metrics.originalLength(),
+                metrics.finalLength(),
+                metrics.increaseLength(),
+                String.format(java.util.Locale.ROOT, "%.4f", metrics.increaseRate()),
+                metrics.allowedMaxLength(),
+                metrics.status());
+    }
+
+    private LengthRule lengthRule(int originalLength) {
+        if (originalLength <= 0) {
+            return new LengthRule(0, 0);
+        }
+        int allowedIncrease;
+        if (originalLength <= 3000) {
+            allowedIncrease = Math.min((int) Math.floor(originalLength * 0.40), 1500);
+        } else if (originalLength <= 10000) {
+            allowedIncrease = Math.min((int) Math.floor(originalLength * 0.30), 3000);
+        } else {
+            allowedIncrease = Math.min((int) Math.floor(originalLength * 0.25), 3000);
+        }
+        return new LengthRule(originalLength, originalLength + allowedIncrease);
+    }
+
+    private int totalTargetTextLength(List<RewriteTarget> targets) {
+        return targets.stream().map(RewriteTarget::text).mapToInt(this::textLength).sum();
+    }
+
+    private int totalResultTextLength(List<RewriteResult> results) {
+        return results.stream().map(RewriteResult::rewrittenText).mapToInt(this::textLength).sum();
+    }
+
+    private int textLength(String text) {
+        return normalizeChargeText(text == null ? "" : text).length();
+    }
+
+    private List<RewriteResult> rewriteTargetsConcurrently(
+            DocumentRewriteJobVO job,
+            List<RewriteTarget> targets,
+            String stageMode,
+            String stageName
+    ) throws Exception {
         List<RewriteResult> results = new ArrayList<>();
         if (targets.isEmpty()) {
             return results;
@@ -506,10 +700,10 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
         try {
             for (RewriteTarget target : targets) {
                 completionService.submit(() -> {
-                    updateParagraphStatus(job, target.index(), "RUNNING", null, "正在改写");
+                    updateParagraphStatus(job, target.index(), "RUNNING", null, stageName + "处理中");
                     try {
-                        String rewritten = rewriteByMode(target.text(), job.getMode(), job.getPlatform());
-                        updateParagraphStatus(job, target.index(), "SUCCESS", rewritten, "已完成");
+                        String rewritten = rewriteByMode(target.text(), stageMode, job.getPlatform());
+                        updateParagraphStatus(job, target.index(), "SUCCESS", rewritten, stageName + "已完成");
                         return new RewriteResult(
                                 target.index(),
                                 target.paragraph(),
@@ -530,7 +724,7 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
                 RewriteResult result = future.get();
                 results.add(result);
                 job.setProcessedParagraphs(completed + 1);
-                job.setMessage("并发优化中：" + job.getProcessedParagraphs() + "/" + targets.size()
+                job.setMessage(stageName + "并发处理中：" + job.getProcessedParagraphs() + "/" + targets.size()
                         + " 个待优化段落，线程数 " + concurrency);
                 job.setUpdatedAt(LocalDateTime.now());
             }
@@ -961,5 +1155,21 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
     }
 
     private record RewriteResult(int index, XWPFParagraph paragraph, String rewrittenText, boolean success, String errorMessage) {
+    }
+
+    private record LengthRule(int originalLength, int allowedMaxLength) {
+    }
+
+    private record LengthMetrics(
+            int originalLength,
+            int finalLength,
+            int increaseLength,
+            double increaseRate,
+            int allowedMaxLength,
+            String status
+    ) {
+        boolean exceeded() {
+            return "EXCEEDED".equals(status);
+        }
     }
 }

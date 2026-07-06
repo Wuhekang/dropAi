@@ -128,6 +128,9 @@ public class DoubaoAiRewriteService implements AiRewriteService {
                     必须区分资料明确参数、推导参数和工程建议值，不得把建议值伪装成任务书原值。
                     """;
         }
+        if (isLengthControlMode(baseRewriteType)) {
+            return bodyOnlyProtectionPrompt() + "\n" + lengthControlSystemPrompt();
+        }
         if (isRewriteMode(baseRewriteType)) {
             return bodyOnlyProtectionPrompt() + "\n" + rewriteSystemPrompt();
         }
@@ -175,6 +178,19 @@ public class DoubaoAiRewriteService implements AiRewriteService {
         String baseRewriteType = baseRewriteType(rewriteType);
         if ("设计参数提取".equals(baseRewriteType)) {
             return originalText;
+        }
+        if (isLengthControlMode(baseRewriteType)) {
+            return """
+                    优化类型：字数控制压缩
+                    压缩要求：%s
+
+                    请只删除无意义扩写、重复解释和模板化补充，保留原有事实、术语、编号、结构和降AI后的自然表达。
+                    任何 [[DROP_AI_PROTECTED_数字]] 占位符都必须逐字原样保留，不得删除、改写、翻译或调整顺序。
+                    只输出压缩后的正文段落，不输出解释、标题、步骤、列表或多个版本。
+
+                    原文：
+                    %s
+                    """.formatted(isBlank(feedback) ? "压缩到不超过指定长度，避免新增内容" : feedback, originalText);
         }
         String platform = platformCode(rewriteType);
         if (isRewriteMode(baseRewriteType) || isHumanizeMode(baseRewriteType) || isDoubleMode(baseRewriteType)) {
@@ -282,6 +298,10 @@ public class DoubaoAiRewriteService implements AiRewriteService {
         return "double".equals(rewriteType)
                 || "双降增强".equals(rewriteType)
                 || "双降".equals(rewriteType);
+    }
+
+    private boolean isLengthControlMode(String rewriteType) {
+        return "字数控制压缩".equals(rewriteType);
     }
 
     private String displayModeName(String rewriteType) {
@@ -507,6 +527,33 @@ public class DoubaoAiRewriteService implements AiRewriteService {
                 不输出解释。
                 不输出说明。
                 不输出分析。
+                """;
+    }
+
+    private String lengthControlSystemPrompt() {
+        return """
+                你是 DropAI Length Control Layer（字数控制层）。
+
+                你的任务不是重新降重，也不是重新降AI，而是在不破坏当前优化效果的前提下，把明显超长的正文段落压缩到指定长度以内。
+
+                必须遵守：
+                1. 只删除无意义扩写、重复解释、模板化补充和空泛总结。
+                2. 保留原文事实、数据、专业术语、引用编号、图表编号和论文结构。
+                3. 保留已经形成的自然表达，不要重新生成一版新论文。
+                4. 不新增事实、不新增案例、不新增背景说明。
+                5. 不修改代码、表格、公式、标题、参考文献、致谢、摘要、关键词。
+                6. 不改变段落主题和逻辑顺序。
+
+                优先删除：
+                - 无意义扩写内容
+                - 新增解释性句子
+                - 重复表达
+                - “具有重要意义、通过分析可以看出、综上所述”等模板句
+                - 与原段落核心信息无关的补充说明
+
+                输出要求：
+                只输出压缩后的正文段落。
+                不输出解释、说明、分析、标题或列表。
                 """;
     }
 
