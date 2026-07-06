@@ -12,184 +12,190 @@
       </div>
     </nav>
 
-    <section class="hero-workbench panel">
-      <div class="hero-copy">
+    <section class="hero-strip">
+      <div>
         <span class="eyebrow">AI 写作优化</span>
-        <h1>学术文本 AI 优化、降重与风格增强</h1>
-        <p>粘贴论文段落或上传 Word 文档，DropAI 会按所选模式生成更自然、更学术的表达。</p>
-        <div class="model-chip">
-          <span class="status-dot"></span>
-          {{ aiStatus.testStatus === 'success' ? '模型已连接' : checkingAiStatus ? '正在检测模型' : '模型待连接' }}
-        </div>
+        <h1>学术文本 AI 优化</h1>
+        <p>粘贴文本或上传 DOCX，DropAI 会按所选模式生成更自然、更适合学术场景的最终版本。</p>
       </div>
+      <div class="hero-metrics">
+        <article>
+          <strong>{{ formatNumber(documentJobs.length) }}</strong>
+          <span>文档记录</span>
+        </article>
+        <article>
+          <strong>{{ aiStatus.testStatus === 'success' ? '在线' : '待连接' }}</strong>
+          <span>{{ checkingAiStatus ? '检测中' : aiStatus.model || '模型状态' }}</span>
+        </article>
+      </div>
+    </section>
 
-      <div class="input-workspace">
+    <section class="workspace-panel panel" :class="{ busy: isBusy }">
+      <div class="input-column">
+        <div class="section-title-row">
+          <div>
+            <span class="mini-label">输入与上传</span>
+            <h2>唯一输入源</h2>
+          </div>
+          <span class="word-count">{{ formatNumber(inputCharCount) }} 字</span>
+        </div>
+
         <textarea
           v-model="originalText"
           class="main-input"
-          maxlength="10000"
+          maxlength="12000"
+          :disabled="isBusy"
           placeholder="粘贴需要优化的论文、报告或任务书段落..."
         ></textarea>
-        <div class="input-meta">
-          <span>{{ originalText.length }} 字</span>
-          <button class="ghost-button" type="button" @click="loadDemoText">载入示例</button>
+
+        <div
+          class="drop-zone doc-drop"
+          :class="{ active: dragging, filled: !!selectedDocument }"
+          @dragenter.prevent="dragging = true"
+          @dragover.prevent="dragging = true"
+          @dragleave.prevent="dragging = false"
+          @drop.prevent="handleDrop"
+        >
+          <div class="doc-icon">DOCX</div>
+          <div>
+            <strong>{{ selectedDocument?.name || '拖拽 DOCX 到这里' }}</strong>
+            <p>{{ selectedDocument ? formatFileSize(selectedDocument.size) : '上传后自动解析正文并填充到输入框' }}</p>
+          </div>
+          <button class="ghost-button" type="button" :disabled="isBusy" @click="fileInput?.click()">选择文件</button>
+          <input ref="fileInput" class="hidden-input" type="file" accept=".docx" @change="handleFileInput" />
         </div>
-        <button class="primary-button start-button" type="button" :disabled="!canSubmitText" @click="handleSubmit">
-          {{ submitting ? processText : '开始优化' }}
-        </button>
       </div>
-    </section>
 
-    <section class="mode-row">
-      <button
-        v-for="mode in textModes"
-        :key="mode.value"
-        class="product-card mode-card"
-        :class="{ active: rewriteMode === mode.value }"
-        type="button"
-        @click="rewriteMode = mode.value"
-      >
-        <span>{{ mode.kicker }}</span>
-        <strong>{{ mode.label }}</strong>
-        <p>{{ mode.description }}</p>
-      </button>
-    </section>
-
-    <section class="output-layout">
-      <article class="output-panel panel">
-        <div class="section-head">
+      <aside class="process-column">
+        <div class="section-title-row">
           <div>
-            <span class="status-pill"><span class="status-dot"></span>输出展示</span>
-            <h2>优化结果</h2>
+            <span class="mini-label">处理信息</span>
+            <h2>{{ statusText }}</h2>
           </div>
-          <button class="ghost-button" type="button" :disabled="!rewrittenText" @click="copyResult">复制结果</button>
+          <strong class="progress-number">{{ progress }}%</strong>
         </div>
 
-        <div v-if="submitting" class="generation-progress">
-          <div class="progress-title">
-            <strong>{{ processText }}</strong>
-            <span>{{ progress }}%</span>
-          </div>
-          <div class="loading-line"><span :style="{ width: `${progress}%` }"></span></div>
-          <div class="process-list">
-            <span v-for="(step, index) in processSteps" :key="step" :class="{ done: index <= processStep }">{{ step }}</span>
-          </div>
-        </div>
-
-        <div v-else-if="rewrittenText" class="compare-grid">
-          <section class="compare-card original">
-            <span>原文</span>
-            <p>{{ originalSnapshot }}</p>
-          </section>
-          <section class="compare-card rewritten">
-            <span>优化后</span>
-            <p>{{ displayedResult }}</p>
-          </section>
-        </div>
-
-        <div v-else class="empty-output">
-          <strong>结果会在这里渐进出现</strong>
-          <p>开始优化后，系统会先解析文本，再生成改写结果，并保留原文对比。</p>
-        </div>
-      </article>
-
-      <aside class="document-panel panel">
-        <div class="section-head compact">
+        <dl class="info-list">
           <div>
-            <span class="status-pill">Word 文档</span>
-            <h2>整篇处理</h2>
+            <dt>文件名</dt>
+            <dd>{{ selectedDocument?.name || '-' }}</dd>
           </div>
+          <div>
+            <dt>字数统计</dt>
+            <dd>{{ formatNumber(effectiveCharCount) }} 字</dd>
+          </div>
+          <div>
+            <dt>当前模式</dt>
+            <dd>{{ activeMode.label }}</dd>
+          </div>
+          <div>
+            <dt>处理状态</dt>
+            <dd>{{ statusText }}</dd>
+          </div>
+        </dl>
+
+        <div class="loading-line progress-line"><span :style="{ width: `${progress}%` }"></span></div>
+
+        <div class="mode-selector">
+          <button
+            v-for="mode in textModes"
+            :key="mode.value"
+            type="button"
+            :class="{ active: rewriteMode === mode.value }"
+            :disabled="isBusy"
+            @click="rewriteMode = mode.value"
+          >
+            <span>{{ mode.label }}</span>
+            <small>{{ mode.description }}</small>
+          </button>
         </div>
 
-        <div class="doc-upload">
-          <el-upload action="" :auto-upload="false" :show-file-list="false" accept=".docx" :on-change="handleDocumentSelected">
-            <button class="ghost-button" type="button">上传 DOCX</button>
-          </el-upload>
-          <span>{{ documentJob.fileName || '支持整篇论文降重 / 降 AI' }}</span>
-        </div>
-
-        <div class="doc-state">
-          <strong>{{ documentStatusText }}</strong>
-          <p>{{ documentJob.message || '上传文档后会先检测字数和积分，再开始处理。' }}</p>
-          <div class="loading-line"><span :style="{ width: `${documentProgress}%` }"></span></div>
-        </div>
-
-        <button class="primary-button doc-button" type="button" :disabled="!canConfirmDocument" @click="submitDocument">
-          {{ documentUploading || documentPrechecking ? '处理中...' : documentActionText }}
-        </button>
-        <button class="ghost-button doc-button" type="button" :disabled="documentJob.status !== 'SUCCESS'" @click="downloadOptimizedDocument">
-          下载优化文档
+        <button class="primary-button start-button" type="button" :disabled="!canStart" @click="handleSubmit">
+          {{ isBusy ? statusText : '开始优化' }}
         </button>
       </aside>
     </section>
 
-    <section class="history-panel panel">
-      <div class="section-head">
+    <section ref="resultSection" class="result-panel panel">
+      <div class="section-title-row result-head">
         <div>
-          <span class="eyebrow">历史记录</span>
-          <h2>最近处理</h2>
+          <span class="mini-label">输出结果</span>
+          <h2>Original / Optimized</h2>
         </div>
-        <div class="history-tabs">
-          <button :class="{ active: historyTab === 'text' }" type="button" @click="historyTab = 'text'">文本记录</button>
-          <button :class="{ active: historyTab === 'document' }" type="button" @click="historyTab = 'document'">文档记录</button>
+        <div class="result-actions">
+          <button class="ghost-button" type="button" :class="{ active: diffMode }" :disabled="!rewrittenText" @click="diffMode = !diffMode">
+            对比模式
+          </button>
+          <button class="ghost-button" type="button" :disabled="!rewrittenText" @click="copyResult">复制结果</button>
         </div>
       </div>
 
-      <div v-if="historyLoading" class="history-empty">正在加载记录...</div>
-      <div v-else-if="pagedHistory.length" class="record-grid">
-        <article v-for="item in pagedHistory" :key="recordKey(item)" class="record-card product-card">
-          <div class="record-top">
-            <strong>{{ recordTitle(item) }}</strong>
-            <span :class="['record-status', statusClass(item.status)]">{{ recordStatus(item) }}</span>
-          </div>
-          <p>{{ recordSummary(item) }}</p>
-          <div class="record-meta">
-            <span>模式：{{ recordMode(item) }}</span>
-            <span>进度：{{ recordProgress(item) }}%</span>
-            <span>{{ formatTime(item.createdAt || item.createTime || item.updatedAt) }}</span>
-          </div>
-          <div class="record-actions">
-            <button class="ghost-button" type="button" @click="openRecord(item)">查看</button>
-            <button class="ghost-button" type="button" :disabled="!canDownloadRecord(item)" @click="downloadRecord(item)">下载</button>
-            <button class="ghost-button" type="button" @click="rerunRecord(item)">重新处理</button>
-          </div>
+      <div v-if="isBusy" class="result-loading">
+        <div class="spinner"></div>
+        <strong>{{ statusText }}</strong>
+        <p>正在生成最终版本，完成后会一次性展示完整结果。</p>
+      </div>
+
+      <div v-else class="compare-grid">
+        <article class="compare-card">
+          <span>Original</span>
+          <p>{{ originalSnapshot || originalText || '输入内容会显示在这里。' }}</p>
+        </article>
+        <article class="compare-card optimized">
+          <span>Optimized</span>
+          <p v-if="!diffMode">{{ rewrittenText || '优化完成后显示最终结果。' }}</p>
+          <p v-else v-html="diffHtml"></p>
         </article>
       </div>
-      <div v-else class="history-empty">暂无记录。</div>
+    </section>
 
-      <div class="pagination" v-if="historyTotalPages > 1">
+    <section class="history-panel panel">
+      <div class="section-title-row">
+        <div>
+          <span class="mini-label">文档记录</span>
+          <h2>最近处理</h2>
+        </div>
+        <button class="ghost-button" type="button" :disabled="historyLoading" @click="loadHistory">刷新</button>
+      </div>
+
+      <div v-if="historyLoading" class="history-empty">正在加载文档记录...</div>
+      <div v-else-if="pagedDocuments.length" class="document-table">
+        <div class="table-row table-head">
+          <span>文件名</span>
+          <span>模式</span>
+          <span>字数</span>
+          <span>处理时间</span>
+          <span>下载</span>
+        </div>
+        <div v-for="item in pagedDocuments" :key="item.jobId" class="table-row">
+          <strong>{{ item.fileName || '未命名文档' }}</strong>
+          <span>{{ item.modeName || modeLabelFromMode(item.mode) }}</span>
+          <span>{{ formatNumber(item.charCount) }}</span>
+          <span>{{ formatTime(item.updatedAt || item.createdAt) }}</span>
+          <button class="ghost-button" type="button" :disabled="item.status !== 'SUCCESS'" @click="downloadDocumentJob(item)">下载</button>
+        </div>
+      </div>
+      <div v-else class="history-empty">暂无文档记录。</div>
+
+      <div v-if="historyTotalPages > 1" class="pagination">
         <button class="ghost-button" type="button" :disabled="historyPage <= 1" @click="historyPage -= 1">上一页</button>
         <span>第 {{ historyPage }} / {{ historyTotalPages }} 页</span>
         <button class="ghost-button" type="button" :disabled="historyPage >= historyTotalPages" @click="historyPage += 1">下一页</button>
       </div>
     </section>
-
-    <el-dialog v-model="detailVisible" title="记录详情" width="760px">
-      <div v-if="detail" class="detail-view">
-        <section>
-          <span>原文</span>
-          <p>{{ detail.originalText || detail.fileName || '--' }}</p>
-        </section>
-        <section>
-          <span>优化结果</span>
-          <p>{{ detail.rewrittenText || detail.message || '--' }}</p>
-        </section>
-      </div>
-    </el-dialog>
   </main>
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRouter } from 'vue-router'
 import {
   downloadDocument,
+  extractDocumentText,
   getAiStatus,
   getDocumentJob,
   getDocumentJobs,
-  getRewriteDetail,
-  getRewriteList,
   precheckDocument,
   submitRewrite,
   uploadDocument,
@@ -200,141 +206,202 @@ const router = useRouter()
 const originalText = ref('')
 const originalSnapshot = ref('')
 const rewrittenText = ref('')
-const displayedResult = ref('')
-const rewriteMode = ref('humanize')
+const rewriteMode = ref('rewrite')
 const targetPlatform = ref('GENERAL')
 const submitting = ref(false)
-const processStep = ref(0)
-const historyLoading = ref(false)
-const history = ref([])
-const documentJobs = ref([])
-const historyTab = ref('text')
-const historyPage = ref(1)
-const detailVisible = ref(false)
-const detail = ref(null)
-const checkingAiStatus = ref(false)
-const selectedDocument = ref(null)
-const documentPrechecking = ref(false)
+const extracting = ref(false)
 const documentUploading = ref(false)
-const documentPrecheckSeq = ref(0)
+const historyLoading = ref(false)
+const dragging = ref(false)
+const diffMode = ref(false)
+const progress = ref(0)
+const statusText = ref('等待输入')
+const selectedDocument = ref(null)
+const fileInput = ref(null)
+const resultSection = ref(null)
+const historyPage = ref(1)
 const documentPollTimer = ref(null)
+const documentJobs = ref([])
+const checkingAiStatus = ref(false)
 const aiStatus = reactive({ provider: '', model: '', endpoint: '', testStatus: '', testMessage: '' })
 const documentPrecheck = reactive({ ready: false, requestId: '', charCount: 0, costPoints: 0, currentPoints: 0, canProcess: false })
-const documentJob = reactive({
-  jobId: '',
-  fileName: '',
-  status: '',
-  totalParagraphs: 0,
-  processedParagraphs: 0,
-  modeName: '',
-  message: '',
-  downloadUrl: ''
-})
 
 const pageSize = 10
-const processSteps = ['解析文本', '识别语义', '生成改写', '润色表达', '保存记录']
 const textModes = [
-  { value: 'rewrite', label: '智能降重', kicker: '01', description: '降低重复表达，保留原意和专业术语。' },
-  { value: 'polish', label: '精准降ai', kicker: '02', description: '降低 AI 痕迹，让表达更自然可信。' },
-  { value: 'double', label: '双降', kicker: '03', description: '同时降低重复率与 AI 痕迹，适合终稿前处理。' }
+  { value: 'rewrite', label: '智能降重', apiMode: 'rewrite', description: '降低重复表达' },
+  { value: 'polish', label: '精准降AI', apiMode: 'humanize', description: '降低 AI 痕迹' },
+  { value: 'double', label: '双降', apiMode: 'double', description: '降重 + 降 AI' }
 ]
 
-const canSubmitText = computed(() => Boolean(originalText.value.trim()) && !submitting.value)
-const processText = computed(() => processSteps[Math.min(processStep.value, processSteps.length - 1)])
-const progress = computed(() => submitting.value ? Math.min(96, (processStep.value + 1) * 19) : rewrittenText.value ? 100 : 0)
-const activeHistory = computed(() => historyTab.value === 'text' ? history.value : documentJobs.value)
-const historyTotalPages = computed(() => Math.max(1, Math.ceil(activeHistory.value.length / pageSize)))
-const pagedHistory = computed(() => {
+const activeMode = computed(() => textModes.find(item => item.value === rewriteMode.value) || textModes[0])
+const isBusy = computed(() => submitting.value || extracting.value || documentUploading.value)
+const inputCharCount = computed(() => originalText.value.length)
+const effectiveCharCount = computed(() => documentPrecheck.charCount || inputCharCount.value)
+const canStart = computed(() => Boolean(originalText.value.trim()) && !isBusy.value)
+const historyTotalPages = computed(() => Math.max(1, Math.ceil(documentJobs.value.length / pageSize)))
+const pagedDocuments = computed(() => {
   const start = (historyPage.value - 1) * pageSize
-  return activeHistory.value.slice(start, start + pageSize)
+  return documentJobs.value.slice(start, start + pageSize)
 })
-const documentProgress = computed(() => jobProgress(documentJob))
-const canConfirmDocument = computed(() =>
-  selectedDocument.value &&
-  documentPrecheck.ready &&
-  documentPrecheck.canProcess &&
-  !documentPrechecking.value &&
-  !documentUploading.value &&
-  !['PENDING', 'RUNNING'].includes(documentJob.status)
-)
-const documentActionText = computed(() => {
-  if (!selectedDocument.value) return '等待上传'
-  if (documentPrechecking.value) return '检测字数中...'
-  if (documentPrecheck.ready && !documentPrecheck.canProcess) return `积分不足，需 ${documentPrecheck.costPoints}`
-  if (documentPrecheck.ready) return `开始处理（${documentPrecheck.costPoints} 积分）`
-  return '准备处理'
-})
-const documentStatusText = computed(() => {
-  if (documentJob.status === 'SUCCESS') return '处理完成'
-  if (documentJob.status === 'FAILED') return '处理失败'
-  if (['PENDING', 'RUNNING'].includes(documentJob.status)) return '正在处理'
-  if (documentPrechecking.value) return '正在预检'
-  if (documentPrecheck.ready) return '预检完成'
-  return '等待文档'
-})
+const diffHtml = computed(() => buildDiffHtml(originalSnapshot.value, rewrittenText.value))
 
-watch(historyTab, () => {
-  historyPage.value = 1
+watch(rewriteMode, async () => {
+  if (selectedDocument.value) await runDocumentPrecheck(false)
 })
 
 async function handleSubmit() {
   if (!originalText.value.trim()) {
-    ElMessage.warning('请先输入需要优化的文本。')
+    ElMessage.warning('请先输入文本或上传 DOCX。')
     return
   }
+
   submitting.value = true
   rewrittenText.value = ''
-  displayedResult.value = ''
   originalSnapshot.value = originalText.value
-  processStep.value = 0
+  setProgress(8, '准备优化')
+
+  const ticker = startProgress()
   try {
-    const ticker = startProgress()
+    setProgress(28, '正在优化')
     const result = await submitRewrite({
       originalText: originalText.value,
-      rewriteType: modeLabel(rewriteMode.value),
+      rewriteType: activeMode.value.label,
       platform: targetPlatform.value
     })
-    clearInterval(ticker)
-    processStep.value = 4
     rewrittenText.value = result.rewrittenText || ''
-    await revealResult(rewrittenText.value)
+
+    if (selectedDocument.value && documentPrecheck.ready && documentPrecheck.canProcess) {
+      setProgress(78, '正在保存文档任务')
+      await submitDocumentTask()
+    }
+
+    setProgress(100, '已完成')
     ElMessage.success('优化完成。')
     await loadHistory()
+    await nextTick()
+    resultSection.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   } catch (error) {
+    statusText.value = '处理失败'
     ElMessage.error(error.message || '优化失败。')
   } finally {
+    window.clearInterval(ticker)
     submitting.value = false
   }
 }
 
 function startProgress() {
   return window.setInterval(() => {
-    processStep.value = Math.min(3, processStep.value + 1)
-  }, 520)
+    if (progress.value < 92) progress.value += progress.value < 60 ? 7 : 3
+  }, 420)
 }
 
-async function revealResult(text) {
-  displayedResult.value = ''
-  const chunks = String(text || '').match(/.{1,18}/g) || []
-  for (const chunk of chunks.slice(0, 80)) {
-    displayedResult.value += chunk
-    await wait(18)
+async function handleDrop(event) {
+  dragging.value = false
+  const file = Array.from(event.dataTransfer?.files || []).find(item => item.name.toLowerCase().endsWith('.docx'))
+  if (!file) {
+    ElMessage.warning('请上传 DOCX 文件。')
+    return
   }
-  displayedResult.value = text
+  await handleDocumentFile(file)
 }
 
-function modeLabel(value) {
-  return textModes.find(item => item.value === value)?.label || '学术润色'
+async function handleFileInput(event) {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (file) await handleDocumentFile(file)
 }
 
-function loadDemoText() {
-  originalText.value = '随着人工智能技术的发展，学术写作辅助工具在论文撰写过程中发挥着越来越重要的作用。然而，现有研究仍需要在表达自然度、逻辑连贯性和专业术语一致性方面进一步提升。'
+async function handleDocumentFile(file) {
+  selectedDocument.value = file
+  rewrittenText.value = ''
+  documentPrecheck.requestId = createRequestId()
+  setProgress(12, '正在解析')
+  extracting.value = true
+  try {
+    const extracted = await extractDocumentText(file)
+    if (!extracted?.readable || !extracted.text) {
+      throw new Error(extracted?.message || '未读取到可用文本。')
+    }
+    originalText.value = extracted.text
+    await runDocumentPrecheck(false)
+    setProgress(24, '解析完成')
+    ElMessage.success('DOCX 已解析并填充到输入框。')
+  } catch (error) {
+    selectedDocument.value = null
+    setProgress(0, '解析失败')
+    ElMessage.error(error.message || '文档解析失败。')
+  } finally {
+    extracting.value = false
+  }
+}
+
+async function runDocumentPrecheck(showMessage = true) {
+  if (!selectedDocument.value) return
+  Object.assign(documentPrecheck, { ready: false, charCount: 0, costPoints: 0, currentPoints: 0, canProcess: false })
+  const result = await precheckDocument(selectedDocument.value, activeMode.value.apiMode)
+  Object.assign(documentPrecheck, {
+    ready: true,
+    charCount: result.charCount || 0,
+    costPoints: result.costPoints || 0,
+    currentPoints: result.currentPoints || 0,
+    canProcess: !!result.canProcess
+  })
+  if (showMessage && !documentPrecheck.canProcess) {
+    ElMessage.warning(`积分不足，预计需要 ${documentPrecheck.costPoints} 积分。`)
+  }
+}
+
+async function submitDocumentTask() {
+  documentUploading.value = true
+  try {
+    const job = await uploadDocument(selectedDocument.value, activeMode.value.apiMode, targetPlatform.value, documentPrecheck.requestId)
+    upsertDocumentJob(job)
+    startDocumentPolling(job.jobId)
+  } finally {
+    documentUploading.value = false
+  }
+}
+
+async function startDocumentPolling(jobId) {
+  stopDocumentPolling()
+  documentPollTimer.value = window.setInterval(async () => {
+    try {
+      const job = await getDocumentJob(jobId)
+      upsertDocumentJob(job)
+      if (['SUCCESS', 'FAILED'].includes(job.status)) stopDocumentPolling()
+    } catch {
+      stopDocumentPolling()
+    }
+  }, 1400)
+}
+
+function stopDocumentPolling() {
+  if (documentPollTimer.value) window.clearInterval(documentPollTimer.value)
+  documentPollTimer.value = null
+}
+
+function upsertDocumentJob(job = {}) {
+  if (!job.jobId) return
+  const index = documentJobs.value.findIndex(item => item.jobId === job.jobId)
+  if (index >= 0) documentJobs.value.splice(index, 1, job)
+  else documentJobs.value.unshift(job)
+}
+
+async function downloadDocumentJob(job) {
+  if (!job?.jobId || job.status !== 'SUCCESS') return
+  const blob = await downloadDocument(job.jobId)
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `${(job.fileName || 'DropAI文档').replace(/\.docx$/i, '')}-优化.docx`
+  link.click()
+  URL.revokeObjectURL(url)
 }
 
 async function copyResult() {
   if (!rewrittenText.value) return
   await navigator.clipboard.writeText(rewrittenText.value)
-  ElMessage.success('已复制。')
+  ElMessage.success('已复制优化结果。')
 }
 
 async function loadAiStatus() {
@@ -349,206 +416,41 @@ async function loadAiStatus() {
   }
 }
 
-async function handleDocumentSelected(uploadFile) {
-  selectedDocument.value = uploadFile.raw
-  Object.assign(documentJob, { fileName: uploadFile.name, status: '', message: '正在检测字数和积分...' })
-  await runDocumentPrecheck()
-}
-
-async function runDocumentPrecheck() {
-  if (!selectedDocument.value) return
-  resetDocumentPrecheck()
-  documentPrechecking.value = true
-  const seq = documentPrecheckSeq.value + 1
-  documentPrecheckSeq.value = seq
-  documentPrecheck.requestId = createRequestId()
-  try {
-    const result = await precheckDocument(selectedDocument.value, rewriteMode.value === 'polish' ? 'humanize' : rewriteMode.value)
-    if (seq !== documentPrecheckSeq.value) return
-    Object.assign(documentPrecheck, {
-      ready: true,
-      charCount: result.charCount || 0,
-      costPoints: result.costPoints || 0,
-      currentPoints: result.currentPoints || 0,
-      canProcess: !!result.canProcess
-    })
-    documentJob.message = documentPrecheck.canProcess
-      ? `预检完成，共 ${formatNumber(documentPrecheck.charCount)} 字。`
-      : `当前积分不足，预计需要 ${documentPrecheck.costPoints} 积分。`
-  } catch (error) {
-    documentJob.status = 'FAILED'
-    documentJob.message = error.message || '文档预检失败。'
-  } finally {
-    if (seq === documentPrecheckSeq.value) documentPrechecking.value = false
-  }
-}
-
-async function submitDocument() {
-  if (!canConfirmDocument.value) return
-  documentUploading.value = true
-  try {
-    const mode = rewriteMode.value === 'polish' ? 'humanize' : rewriteMode.value
-    const job = await uploadDocument(selectedDocument.value, mode, targetPlatform.value, documentPrecheck.requestId)
-    setDocumentJob(job)
-    upsertDocumentJob(job)
-    ElMessage.success('文档任务已提交。')
-    startDocumentPolling(job.jobId)
-    historyTab.value = 'document'
-  } catch (error) {
-    ElMessage.error(error.message || '文档提交失败。')
-  } finally {
-    documentUploading.value = false
-  }
-}
-
-async function startDocumentPolling(jobId) {
-  stopDocumentPolling()
-  await syncDocumentJob(jobId)
-  if (['SUCCESS', 'FAILED'].includes(documentJob.status)) return
-  documentPollTimer.value = window.setInterval(async () => {
-    try {
-      await syncDocumentJob(jobId)
-      if (['SUCCESS', 'FAILED'].includes(documentJob.status)) {
-        stopDocumentPolling()
-        if (documentJob.status === 'SUCCESS') ElMessage.success('文档处理完成。')
-      }
-    } catch {
-      stopDocumentPolling()
-    }
-  }, 1200)
-}
-
-function stopDocumentPolling() {
-  if (documentPollTimer.value) window.clearInterval(documentPollTimer.value)
-  documentPollTimer.value = null
-}
-
-async function syncDocumentJob(jobId) {
-  const job = await getDocumentJob(jobId)
-  setDocumentJob(job)
-  upsertDocumentJob(job)
-}
-
-function setDocumentJob(job = {}) {
-  Object.assign(documentJob, job)
-}
-
-function upsertDocumentJob(job) {
-  const index = documentJobs.value.findIndex(item => item.jobId === job.jobId)
-  if (index >= 0) documentJobs.value.splice(index, 1, job)
-  else documentJobs.value.unshift(job)
-}
-
-async function downloadOptimizedDocument() {
-  await downloadDocumentJob(documentJob)
-}
-
-async function downloadDocumentJob(job) {
-  if (!job?.jobId || job.status !== 'SUCCESS') return
-  const blob = await downloadDocument(job.jobId)
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = `${(job.fileName || 'DropAI文档').replace(/\.docx$/i, '')}-优化.docx`
-  link.click()
-  URL.revokeObjectURL(url)
-}
-
 async function loadHistory() {
   historyLoading.value = true
   try {
-    history.value = await getRewriteList() || []
     documentJobs.value = await getDocumentJobs() || []
   } finally {
     historyLoading.value = false
   }
 }
 
-async function openRecord(item) {
-  if (historyTab.value === 'document') {
-    setDocumentJob(await getDocumentJob(item.jobId, true))
-    detail.value = { originalText: documentJob.fileName, rewrittenText: documentJob.message }
-  } else {
-    detail.value = await getRewriteDetail(item.id)
-  }
-  detailVisible.value = true
+function setProgress(value, text) {
+  progress.value = Math.max(0, Math.min(100, value))
+  statusText.value = text
 }
 
-async function downloadRecord(item) {
-  if (historyTab.value === 'document') await downloadDocumentJob(item)
-  else if (item.rewrittenText) {
-    const blob = new Blob([item.rewrittenText], { type: 'text/plain;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `DropAI-优化结果-${item.id || Date.now()}.txt`
-    link.click()
-    URL.revokeObjectURL(url)
-  }
+function modeLabelFromMode(mode = '') {
+  return textModes.find(item => item.apiMode === mode || item.value === mode)?.label || '智能降重'
 }
 
-function rerunRecord(item) {
-  if (historyTab.value === 'document') {
-    ElMessage.info('请重新上传文档以再次处理。')
-    return
-  }
-  originalText.value = item.originalText || ''
-  rewriteMode.value = modeValue(item.rewriteType)
-  window.scrollTo({ top: 0, behavior: 'smooth' })
+function buildDiffHtml(original, optimized) {
+  const safe = escapeHtml(optimized || '优化完成后显示最终结果。')
+  if (!original || !optimized) return safe
+  const originalWords = new Set(String(original).split(/\s+/).filter(Boolean))
+  return String(optimized).split(/(\s+)/).map(part => {
+    if (!part.trim()) return escapeHtml(part)
+    return originalWords.has(part) ? escapeHtml(part) : `<mark>${escapeHtml(part)}</mark>`
+  }).join('')
 }
 
-function canDownloadRecord(item) {
-  if (historyTab.value === 'document') return item.status === 'SUCCESS'
-  return Boolean(item.rewrittenText)
-}
-
-function recordKey(item) {
-  return historyTab.value === 'document' ? item.jobId : item.id
-}
-
-function recordTitle(item) {
-  if (historyTab.value === 'document') return item.fileName || '文档任务'
-  return item.rewriteType || '文本优化'
-}
-
-function recordSummary(item) {
-  if (historyTab.value === 'document') return item.message || '文档处理任务'
-  return item.originalText || item.rewrittenText || '文本优化记录'
-}
-
-function recordMode(item) {
-  if (historyTab.value === 'document') return item.modeName || modeLabel(rewriteMode.value)
-  return item.rewriteType || '学术润色'
-}
-
-function recordProgress(item) {
-  return historyTab.value === 'document' ? jobProgress(item) : 100
-}
-
-function recordStatus(item) {
-  if (historyTab.value === 'text') return 'SUCCESS'
-  return item.status || 'PENDING'
-}
-
-function statusClass(status = '') {
-  return String(status).toLowerCase()
-}
-
-function jobProgress(job = {}) {
-  const total = job.totalParagraphs || 0
-  const done = job.processedParagraphs || 0
-  if (job.status === 'SUCCESS') return 100
-  if (!total) return ['PENDING', 'RUNNING'].includes(job.status) ? 12 : 0
-  return Math.min(99, Math.round((done / total) * 100))
-}
-
-function modeValue(label = '') {
-  const found = textModes.find(item => label.includes(item.label))
-  return found?.value || 'humanize'
-}
-
-function resetDocumentPrecheck() {
-  Object.assign(documentPrecheck, { ready: false, requestId: '', charCount: 0, costPoints: 0, currentPoints: 0, canProcess: false })
+function escapeHtml(value = '') {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
 }
 
 function createRequestId() {
@@ -559,12 +461,13 @@ function formatNumber(value) {
   return Number(value || 0).toLocaleString()
 }
 
-function formatTime(value) {
-  return value ? String(value).replace('T', ' ').slice(0, 16) : '--'
+function formatFileSize(size = 0) {
+  if (size < 1024 * 1024) return `${Math.max(1, Math.round(size / 1024))} KB`
+  return `${(size / 1024 / 1024).toFixed(1)} MB`
 }
 
-function wait(ms) {
-  return new Promise(resolve => window.setTimeout(resolve, ms))
+function formatTime(value) {
+  return value ? String(value).replace('T', ' ').slice(0, 16) : '--'
 }
 
 async function signOut() {
@@ -588,7 +491,7 @@ onBeforeUnmount(stopDocumentPolling)
 
 <style scoped>
 .rewrite-product {
-  width: min(1180px, calc(100% - 40px));
+  width: min(1280px, calc(100% - 48px));
 }
 
 .brand {
@@ -597,186 +500,282 @@ onBeforeUnmount(stopDocumentPolling)
   cursor: pointer;
 }
 
-.hero-workbench {
+.hero-strip {
   display: grid;
-  grid-template-columns: minmax(260px, 0.82fr) minmax(0, 1.18fr);
-  gap: 28px;
-  padding: 26px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 24px;
+  align-items: end;
+  margin-bottom: 20px;
 }
 
-.hero-copy h1 {
-  max-width: 620px;
-  margin: 0 0 16px;
-  overflow-wrap: anywhere;
-  font-size: clamp(34px, 5vw, 58px);
-  line-height: 1.08;
+.hero-strip h1 {
+  margin: 0 0 10px;
+  font-size: clamp(38px, 5vw, 58px);
+  line-height: 1.05;
+  letter-spacing: 0;
 }
 
-.hero-copy p {
-  max-width: 560px;
+.hero-strip p {
+  max-width: 720px;
   margin: 0;
   color: var(--muted);
   font-size: 17px;
-  line-height: 1.75;
+  line-height: 1.7;
 }
 
-.model-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 24px;
-  padding: 8px 11px;
+.hero-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(130px, 1fr));
+  gap: 12px;
+}
+
+.hero-metrics article {
+  padding: 16px;
   border: 1px solid var(--line);
-  border-radius: 999px;
-  color: var(--muted);
+  border-radius: 14px;
   background: rgba(255, 255, 255, 0.055);
+  box-shadow: var(--blur-shadow);
+}
+
+.hero-metrics strong,
+.progress-number {
+  display: block;
+  color: var(--text);
+  font-size: 22px;
+}
+
+.hero-metrics span {
+  color: var(--muted);
   font-size: 13px;
 }
 
-.input-workspace {
+.workspace-panel {
   display: grid;
-  gap: 12px;
+  grid-template-columns: minmax(0, 1.1fr) minmax(360px, 0.9fr);
+  gap: 28px;
+  margin-bottom: 16px;
+  padding: 24px;
+  border-radius: 16px;
+}
+
+.workspace-panel.busy {
+  border-color: rgba(0, 210, 255, 0.24);
+}
+
+.section-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 16px;
+}
+
+.section-title-row h2 {
+  margin: 6px 0 0;
+  font-size: 24px;
+  line-height: 1.15;
+}
+
+.mini-label,
+.word-count {
+  color: var(--cyan);
+  font-size: 12px;
+  font-weight: 760;
+  letter-spacing: 0.08em;
+}
+
+.input-column,
+.process-column {
   min-width: 0;
 }
 
 .main-input {
   width: 100%;
-  min-height: 260px;
+  min-height: 250px;
   padding: 18px;
   resize: vertical;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: 14px;
   color: var(--text);
   background: rgba(255, 255, 255, 0.055);
   outline: none;
-  line-height: 1.7;
+  line-height: 1.75;
+  transition: border-color var(--ease), background var(--ease), box-shadow var(--ease);
 }
 
-.input-meta {
-  display: flex;
+.main-input:focus {
+  border-color: rgba(0, 210, 255, 0.5);
+  background: rgba(255, 255, 255, 0.07);
+  box-shadow: 0 0 0 4px rgba(0, 210, 255, 0.06);
+}
+
+.doc-drop {
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
+  min-height: 118px;
+  margin-top: 14px;
+  border-radius: 16px;
+  transition: transform var(--ease), border-color var(--ease), background var(--ease), box-shadow var(--ease);
+}
+
+.doc-drop.active,
+.doc-drop:hover {
+  transform: translateY(-2px);
+  border-color: rgba(0, 210, 255, 0.7);
+  background: rgba(0, 210, 255, 0.075);
+  box-shadow: 0 18px 55px rgba(0, 210, 255, 0.12);
+}
+
+.doc-drop.filled {
+  border-color: rgba(108, 92, 231, 0.62);
+}
+
+.doc-drop p {
+  margin: 6px 0 0;
+  color: var(--muted);
+}
+
+.doc-icon {
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  border-radius: 14px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  background: linear-gradient(135deg, var(--cyan), var(--primary));
+  box-shadow: 0 0 35px rgba(0, 210, 255, 0.25);
+}
+
+.hidden-input {
+  display: none;
+}
+
+.info-list {
+  display: grid;
   gap: 12px;
+  margin: 0 0 22px;
+}
+
+.info-list div {
+  display: grid;
+  grid-template-columns: 86px minmax(0, 1fr);
+  gap: 16px;
+}
+
+.info-list dt {
+  color: var(--muted);
+}
+
+.info-list dd {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.progress-line {
+  height: 9px;
+  margin-bottom: 18px;
+}
+
+.mode-selector {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.mode-selector button {
+  min-height: 78px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.045);
+  cursor: pointer;
+  text-align: left;
+  transition: transform var(--ease), border-color var(--ease), background var(--ease);
+}
+
+.mode-selector button:hover {
+  transform: translateY(-3px);
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+.mode-selector button.active {
+  color: var(--text);
+  border-color: rgba(0, 210, 255, 0.55);
+  background: linear-gradient(180deg, rgba(108, 92, 231, 0.18), rgba(0, 210, 255, 0.08));
+}
+
+.mode-selector span,
+.mode-selector small {
+  display: block;
+}
+
+.mode-selector span {
+  margin-bottom: 6px;
+  font-weight: 760;
+}
+
+.mode-selector small {
   color: var(--muted);
 }
 
 .start-button {
-  min-height: 50px;
+  width: 100%;
+  min-height: 52px;
+  border-radius: 14px;
   font-size: 16px;
 }
 
-.mode-row {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-  margin: 16px 0;
-}
-
-.mode-card {
-  padding: 18px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.mode-card.active {
-  border-color: rgba(0, 210, 255, 0.5);
-  background: linear-gradient(180deg, rgba(108, 92, 231, 0.18), rgba(255, 255, 255, 0.065));
-}
-
-.mode-card span {
-  color: var(--cyan);
-  font-size: 12px;
-}
-
-.mode-card strong {
-  display: block;
-  margin: 10px 0 8px;
-  font-size: 21px;
-}
-
-.mode-card p {
-  margin: 0;
-  color: var(--muted);
-  line-height: 1.65;
-}
-
-.output-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1.42fr) minmax(280px, 0.58fr);
-  gap: 16px;
-  margin-bottom: 16px;
-}
-
-.output-panel,
-.document-panel,
+.result-panel,
 .history-panel {
-  padding: 18px;
+  padding: 22px;
+  border-radius: 16px;
 }
 
-.section-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
+.result-panel {
   margin-bottom: 16px;
 }
 
-.section-head h2 {
-  margin: 10px 0 0;
-  font-size: 28px;
+.result-head {
+  align-items: center;
 }
 
-.section-head.compact h2 {
-  font-size: 22px;
-}
-
-.generation-progress {
-  display: grid;
-  gap: 18px;
-  min-height: 360px;
-  align-content: center;
-}
-
-.progress-title {
+.result-actions {
   display: flex;
-  justify-content: space-between;
+  gap: 10px;
+}
+
+.result-actions .active {
   color: var(--text);
-  font-size: 18px;
-}
-
-.process-list {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.process-list span {
-  color: var(--muted-2);
-  font-size: 12px;
-}
-
-.process-list .done {
-  color: var(--cyan);
+  border-color: rgba(0, 210, 255, 0.45);
+  background: rgba(0, 210, 255, 0.1);
 }
 
 .compare-grid {
   display: grid;
-  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
-  gap: 14px;
-  min-height: 420px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
 }
 
 .compare-card {
+  min-height: 320px;
   padding: 18px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: 16px;
   background: rgba(255, 255, 255, 0.045);
 }
 
 .compare-card span {
   color: var(--cyan);
   font-size: 12px;
-  font-weight: 720;
+  font-weight: 800;
 }
 
 .compare-card p {
@@ -786,204 +785,151 @@ onBeforeUnmount(stopDocumentPolling)
   line-height: 1.85;
 }
 
-.compare-card.rewritten p {
+.compare-card.optimized p {
   color: var(--text);
-  font-size: 16px;
 }
 
-.empty-output,
+.compare-card :deep(mark) {
+  padding: 1px 3px;
+  border-radius: 5px;
+  color: #fff;
+  background: rgba(108, 92, 231, 0.45);
+}
+
+.result-loading,
 .history-empty {
   display: grid;
   place-items: center;
-  min-height: 280px;
+  min-height: 260px;
   color: var(--muted);
   text-align: center;
 }
 
-.empty-output strong {
+.result-loading strong {
+  margin-top: 12px;
   color: var(--text);
-  font-size: 22px;
 }
 
-.empty-output p {
-  max-width: 460px;
+.result-loading p {
+  max-width: 420px;
   line-height: 1.7;
 }
 
-.doc-upload,
-.doc-state {
+.spinner {
+  width: 34px;
+  height: 34px;
+  border: 2px solid rgba(255, 255, 255, 0.16);
+  border-top-color: var(--cyan);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+
+.document-table {
   display: grid;
-  gap: 10px;
-  padding: 14px;
+  overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: rgba(255, 255, 255, 0.045);
+  border-radius: 16px;
 }
 
-.doc-upload span,
-.doc-state p {
-  margin: 0;
-  color: var(--muted);
-  line-height: 1.6;
-}
-
-.doc-button {
-  width: 100%;
-  margin-top: 12px;
-}
-
-.history-tabs {
-  display: flex;
-  gap: 8px;
-}
-
-.history-tabs button {
-  padding: 9px 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  color: var(--muted);
-  background: rgba(255, 255, 255, 0.045);
-  cursor: pointer;
-}
-
-.history-tabs .active {
-  color: var(--text);
-  border-color: rgba(0, 210, 255, 0.4);
-  background: rgba(0, 210, 255, 0.1);
-}
-
-.record-grid {
+.table-row {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.record-card {
-  display: grid;
-  gap: 12px;
-  padding: 16px;
-}
-
-.record-top,
-.record-meta,
-.record-actions {
-  display: flex;
+  grid-template-columns: minmax(220px, 1.35fr) 150px 110px 160px 90px;
+  gap: 14px;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  min-height: 58px;
+  padding: 0 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--muted);
 }
 
-.record-top strong {
+.table-row:last-child {
+  border-bottom: 0;
+}
+
+.table-row strong {
   min-width: 0;
   overflow: hidden;
+  color: var(--text);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.record-status {
-  flex: 0 0 auto;
-  color: var(--success);
-  font-size: 12px;
-}
-
-.record-status.failed {
-  color: var(--danger);
-}
-
-.record-status.running,
-.record-status.pending {
-  color: var(--cyan);
-}
-
-.record-card p {
-  display: -webkit-box;
-  min-height: 50px;
-  margin: 0;
-  overflow: hidden;
-  color: var(--muted);
-  line-height: 1.7;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-}
-
-.record-meta {
-  justify-content: flex-start;
-  flex-wrap: wrap;
+.table-head {
+  min-height: 52px;
   color: var(--muted-2);
-  font-size: 12px;
-}
-
-.record-actions {
-  justify-content: flex-start;
+  background: rgba(255, 255, 255, 0.045);
 }
 
 .pagination {
   display: flex;
-  align-items: center;
   justify-content: center;
+  align-items: center;
   gap: 14px;
   margin-top: 18px;
   color: var(--muted);
 }
 
-.detail-view {
-  display: grid;
-  gap: 14px;
-}
-
-.detail-view section {
-  padding: 14px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: rgba(255, 255, 255, 0.045);
-}
-
-.detail-view span {
-  color: var(--cyan);
-  font-size: 12px;
-}
-
-.detail-view p {
-  margin: 10px 0 0;
-  white-space: pre-wrap;
-  line-height: 1.75;
-}
-
-@media (max-width: 980px) {
-  .hero-workbench,
-  .output-layout,
-  .compare-grid,
-  .record-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .mode-row {
-    grid-template-columns: 1fr;
-  }
-
-  .process-list {
-    grid-template-columns: 1fr;
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 
-@media (max-width: 620px) {
+@media (max-width: 1040px) {
+  .hero-strip,
+  .workspace-panel,
+  .compare-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .hero-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .table-row {
+    grid-template-columns: minmax(180px, 1fr) 120px 90px 130px 78px;
+  }
+}
+
+@media (max-width: 760px) {
   .rewrite-product {
-    width: min(100% - 28px, 1180px);
+    width: min(100% - 28px, 1280px);
   }
 
-  .section-head,
-  .record-top,
-  .record-actions {
-    align-items: flex-start;
+  .mode-selector,
+  .hero-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .doc-drop {
+    grid-template-columns: 1fr;
+  }
+
+  .section-title-row,
+  .result-head,
+  .result-actions {
+    align-items: stretch;
     flex-direction: column;
   }
 
-  .history-tabs {
-    width: 100%;
+  .document-table {
+    gap: 10px;
+    border: 0;
+    overflow: visible;
   }
 
-  .history-tabs button {
-    flex: 1;
+  .table-head {
+    display: none;
+  }
+
+  .table-row {
+    grid-template-columns: 1fr;
+    gap: 8px;
+    min-height: auto;
+    padding: 14px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.045);
   }
 }
 </style>

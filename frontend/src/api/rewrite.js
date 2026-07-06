@@ -262,6 +262,15 @@ export function precheckDocument(file, mode = 'humanize') {
   })
 }
 
+export function extractDocumentText(file) {
+  const formData = new FormData()
+  formData.append('file', file)
+  return request.post('/document/extract', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 120000
+  })
+}
+
 export function downloadDocument(jobId) {
   return request.get(`/document/rewrite/download/${jobId}`, {
     responseType: 'blob',
