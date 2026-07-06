@@ -47,7 +47,7 @@ function emitPointShortage(result, message) {
 function showApiError(message) {
   const now = Date.now()
   const lastShownAt = recentMessages.get(message) || 0
-  if (now - lastShownAt < 3000) return
+  if (now - lastShownAt < 1800) return
   recentMessages.set(message, now)
   ElMessage.error(message)
 }

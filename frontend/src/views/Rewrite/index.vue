@@ -13,18 +13,9 @@
     </nav>
 
     <section class="hero-strip">
-      <div>
-        <span class="eyebrow">AI 写作优化</span>
-        <h1>学术文本 AI 优化</h1>
-        <p>整篇论文上传为 DOCX 处理，短文本片段在下方快速优化，两条流程独立运行。</p>
-      </div>
-      <div class="metric-grid">
-        <article v-for="metric in metrics" :key="metric.label" class="metric-card">
-          <span class="metric-icon">{{ metric.icon }}</span>
-          <strong>{{ metric.value }}</strong>
-          <p>{{ metric.label }}</p>
-        </article>
-      </div>
+      <span class="eyebrow">AI 写作优化</span>
+      <h1>学术文本 AI 优化</h1>
+      <p>整篇论文上传为 DOCX 处理，短文本片段直接在下方快速优化，两条流程互不干扰。</p>
     </section>
 
     <section class="document-panel panel">
@@ -57,19 +48,30 @@
           @drop.prevent="handleDrop"
         >
           <div class="doc-icon">DOCX</div>
-          <strong>{{ selectedDocument?.name || '拖拽 Word 文档到此' }}</strong>
-          <p>{{ selectedDocument ? '已完成文档检测，点击开始优化后进入后台并发处理。' : '支持 .docx 格式，文件大小不超过 50MB。' }}</p>
-          <button class="primary-button choose-button" type="button" :disabled="docBusy" @click.stop="fileInput?.click()">选择 DOCX 文件</button>
+          <strong>{{ selectedDocument?.name || '拖拽 DOCX 到这里' }}</strong>
+          <p>{{ selectedDocument ? '已完成文档检测，确认后开始后台处理并生成优化后的 Word。' : '支持拖拽或点击上传，上传后只检测字符数量和预计积分。' }}</p>
+          <button class="ghost-button" type="button" :disabled="docBusy" @click.stop="fileInput?.click()">选择 DOCX 文件</button>
           <input ref="fileInput" class="hidden-input" type="file" accept=".docx" @change="handleFileInput" />
         </div>
 
-        <article v-if="selectedDocument" class="selected-file-card">
-          <div class="file-badge">📄</div>
+        <dl class="file-summary">
           <div>
-            <strong>{{ selectedDocument.name }}</strong>
-            <p>{{ formatFileSize(selectedDocument.size) }} · {{ formatNumber(documentPrecheck.charCount) }} 字 · 预计消耗 {{ documentCostText }}</p>
+            <dt>文件名</dt>
+            <dd>{{ selectedDocument?.name || '-' }}</dd>
           </div>
-        </article>
+          <div>
+            <dt>文件大小</dt>
+            <dd>{{ selectedDocument ? formatFileSize(selectedDocument.size) : '-' }}</dd>
+          </div>
+          <div>
+            <dt>字符数量</dt>
+            <dd>{{ formatNumber(documentPrecheck.charCount) }} 字</dd>
+          </div>
+          <div>
+            <dt>预计消耗</dt>
+            <dd>{{ documentCostText }}</dd>
+          </div>
+        </dl>
       </div>
 
       <aside class="document-process">
@@ -83,38 +85,24 @@
 
         <dl class="info-list">
           <div>
-            <dt>文件名</dt>
-            <dd>{{ selectedDocument?.name || '-' }}</dd>
-          </div>
-          <div>
-            <dt>文件大小</dt>
-            <dd>{{ selectedDocument ? formatFileSize(selectedDocument.size) : '-' }}</dd>
-          </div>
-          <div>
-            <dt>字数统计</dt>
-            <dd>{{ formatNumber(documentPrecheck.charCount) }} 字</dd>
-          </div>
-          <div>
-            <dt>所选模式</dt>
+            <dt>当前模式</dt>
             <dd>{{ activeDocMode.label }}</dd>
           </div>
           <div>
-            <dt>预计消耗</dt>
-            <dd>{{ documentCostText }}</dd>
+            <dt>处理状态</dt>
+            <dd>{{ docStatusText }}</dd>
+          </div>
+          <div>
+            <dt>当前积分</dt>
+            <dd>{{ documentPrecheck.ready ? `${documentPrecheck.currentPoints} 积分` : '-' }}</dd>
+          </div>
+          <div>
+            <dt>下载状态</dt>
+            <dd>{{ documentJob.status === 'SUCCESS' ? '文档已生成' : '等待生成' }}</dd>
           </div>
         </dl>
 
-        <div class="status-board">
-          <div v-for="item in documentStatusItems" :key="item.label">
-            <span>{{ item.label }}</span>
-            <strong>{{ item.value }}</strong>
-          </div>
-        </div>
-
-        <div class="progress-row">
-          <div class="loading-line progress-line"><span :style="{ width: `${docProgress}%` }"></span></div>
-          <span>{{ docProgress }}%</span>
-        </div>
+        <div class="loading-line progress-line"><span :style="{ width: `${docProgress}%` }"></span></div>
 
         <button class="primary-button start-button" type="button" :disabled="docActionDisabled" @click="handleDocumentAction">
           {{ docActionText }}
@@ -150,19 +138,16 @@
 
       <div class="compare-grid">
         <article class="compare-card input-card">
-          <span>原文内容</span>
+          <span>输入内容</span>
           <textarea
             v-model="originalText"
             class="text-input"
             :disabled="textSubmitting"
-            placeholder="请输入需要优化的文本..."
+            placeholder="在这里粘贴论文段落、报告内容或需要优化的一段文字..."
             @input="clearTextResult"
           ></textarea>
           <small>{{ formatNumber(inputCharCount) }} 字</small>
         </article>
-
-        <div class="compare-switch" aria-hidden="true">↔</div>
-
         <article class="compare-card optimized">
           <div class="result-card-head">
             <span>优化结果</span>
@@ -175,7 +160,7 @@
             <div class="spinner"></div>
             <strong>正在优化文本...</strong>
           </div>
-          <p v-else-if="!diffMode">{{ rewrittenText || 'AI 生成结果会显示在这里。' }}</p>
+          <p v-else-if="!diffMode">{{ rewrittenText || '点击开始文本优化后，这里显示 AI 返回的最终结果。' }}</p>
           <p v-else v-html="diffHtml"></p>
         </article>
       </div>
@@ -195,18 +180,12 @@
         <div class="table-row table-head">
           <span>文件名</span>
           <span>模式</span>
-          <span>字数</span>
-          <span>降重率</span>
-          <span>AI降低率</span>
-          <span>处理时间</span>
+          <span>时间</span>
           <span>操作</span>
         </div>
         <div v-for="item in pagedDocuments" :key="item.jobId" class="table-row">
           <strong>{{ item.fileName || '未命名文档' }}</strong>
           <span>{{ documentModeLabel(item) }}</span>
-          <span>{{ formatNumber(item.charCount) }}</span>
-          <span>{{ formatPercent(item.rewriteRate ?? item.duplicationReductionRate ?? item.reductionRate) }}</span>
-          <span>{{ formatPercent(item.aiReductionRate ?? item.humanizeRate ?? item.aiTraceReductionRate) }}</span>
           <span>{{ formatTime(item.updatedAt || item.createdAt) }}</span>
           <button class="ghost-button" type="button" :disabled="item.status !== 'SUCCESS'" @click="downloadDocumentJob(item)">下载</button>
         </div>
@@ -223,7 +202,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRouter } from 'vue-router'
 import {
@@ -246,12 +225,6 @@ const modes = [
   { value: 'double', label: '双降', apiMode: 'double', featureCode: 'DOCUMENT_DOUBLE' }
 ]
 
-const metrics = [
-  { icon: '📄', value: '12,842', label: '已处理文档' },
-  { icon: '⚡', value: '98.7%', label: '平均降重率' },
-  { icon: '🛡', value: '99.1%', label: 'AI痕迹降低率' }
-]
-
 const docMode = ref('rewrite')
 const selectedDocument = ref(null)
 const fileInput = ref(null)
@@ -261,12 +234,9 @@ const documentUploading = ref(false)
 const docProgress = ref(0)
 const docStatusText = ref('等待上传')
 const documentPollTimer = ref(null)
-const notifiedJobIds = new Set()
-const toastCache = new Map()
 const documentJobs = ref([])
 const documentPrecheck = reactive({ ready: false, requestId: '', charCount: 0, costPoints: 0, currentPoints: 0, canProcess: false })
-const documentJob = reactive({ jobId: '', fileName: '', status: '', message: '', downloadUrl: '', modeName: '', charCount: 0, totalParagraphs: 0, processedParagraphs: 0 })
-const aiStatus = reactive({ provider: '', model: '', endpoint: '', testStatus: '', testMessage: '' })
+const documentJob = reactive({ jobId: '', fileName: '', status: '', message: '', downloadUrl: '', modeName: '', charCount: 0 })
 
 const textMode = ref('rewrite')
 const originalText = ref('')
@@ -279,54 +249,22 @@ const textSection = ref(null)
 const historyLoading = ref(false)
 const historyPage = ref(1)
 const pricing = ref([])
+const aiStatus = reactive({ provider: '', model: '', endpoint: '', testStatus: '', testMessage: '' })
+
 const pageSize = 10
 
 const activeDocMode = computed(() => modes.find(item => item.value === docMode.value) || modes[0])
 const activeTextMode = computed(() => modes.find(item => item.value === textMode.value) || modes[0])
-const docBusy = computed(() => documentPrechecking.value || documentUploading.value || ['PENDING', 'RUNNING'].includes(documentJob.status))
+const docBusy = computed(() => documentPrechecking.value || documentUploading.value)
 const documentCostText = computed(() => documentPrecheck.costPoints > 0 ? `${documentPrecheck.costPoints} 积分` : '免费')
 const docActionText = computed(() => {
   if (documentJob.status === 'SUCCESS') return '下载优化文档'
-  if (documentBusyProcessing.value) return '处理中...'
+  if (documentUploading.value) return '正在优化...'
   if (documentPrechecking.value) return '正在检测...'
   if (!selectedDocument.value) return '选择 DOCX 文件'
-  return `开始优化（消耗${documentCostText.value}）`
+  return `开始优化（${documentCostText.value}）`
 })
-const docActionDisabled = computed(() => documentPrechecking.value || documentUploading.value || ['PENDING', 'RUNNING'].includes(documentJob.status))
-const documentBusyProcessing = computed(() => documentUploading.value || ['PENDING', 'RUNNING'].includes(documentJob.status))
-const processedParagraphs = computed(() => documentJob.processedParagraphs || 0)
-const totalParagraphs = computed(() => documentJob.totalParagraphs || 0)
-const remainingSeconds = computed(() => {
-  if (!totalParagraphs.value || !processedParagraphs.value || documentJob.status === 'SUCCESS') return '--'
-  const left = Math.max(1, totalParagraphs.value - processedParagraphs.value)
-  return `${Math.min(999, Math.ceil(left / 3))}秒`
-})
-const currentModel = computed(() => aiStatus.model || aiStatus.provider || '豆包 Ark')
-const documentStatusItems = computed(() => {
-  const isDone = documentJob.status === 'SUCCESS'
-  const isRunning = ['PENDING', 'RUNNING'].includes(documentJob.status) || documentUploading.value
-  return [
-    { label: '当前步骤', value: documentStepText.value },
-    { label: '段落处理', value: totalParagraphs.value ? `${processedParagraphs.value} / ${totalParagraphs.value}` : '-' },
-    { label: '并发处理', value: isRunning || isDone ? '32' : '-' },
-    { label: '当前模型', value: currentModel.value },
-    { label: isDone ? '生成文档' : '预计剩余', value: isDone ? generatedFileName.value : remainingSeconds.value }
-  ]
-})
-const documentStepText = computed(() => {
-  if (documentPrechecking.value) return '正在解析文档...'
-  if (documentUploading.value) return '正在拆分文本...'
-  if (documentJob.status === 'SUCCESS') return '处理完成'
-  if (documentJob.status === 'FAILED') return '处理失败'
-  if (documentJob.status === 'RUNNING') return totalParagraphs.value ? '正在并发优化段落...' : '正在拆分文本...'
-  if (documentJob.status === 'PENDING') return '等待并发任务调度...'
-  if (selectedDocument.value && documentPrecheck.ready) return '等待开始'
-  return '等待上传'
-})
-const generatedFileName = computed(() => {
-  const name = documentJob.fileName || selectedDocument.value?.name || 'DropAI文档.docx'
-  return `${name.replace(/\.docx$/i, '')}_优化版.docx`
-})
+const docActionDisabled = computed(() => documentPrechecking.value || documentUploading.value)
 
 const inputCharCount = computed(() => originalText.value.length)
 const estimatedTextCost = computed(() => calculateTextCost(inputCharCount.value, activeTextMode.value.featureCode))
@@ -353,7 +291,7 @@ function clearTextResult() {
 
 async function submitText() {
   if (!originalText.value.trim()) {
-    notifyOnce('warning', '请先输入需要优化的文本。')
+    ElMessage.warning('请先输入需要优化的文本。')
     return
   }
 
@@ -369,9 +307,9 @@ async function submitText() {
     })
     originalSnapshot.value = originalText.value
     rewrittenText.value = result.rewrittenText || ''
-    notifyOnce('success', '文本优化完成。')
+    ElMessage.success('文本优化完成。')
   } catch (error) {
-    reportRequestError(error, '文本优化失败。')
+    ElMessage.error(error.message || '文本优化失败。')
   } finally {
     textSubmitting.value = false
   }
@@ -387,7 +325,7 @@ async function handleDocumentAction() {
     return
   }
   if (!documentPrecheck.ready) {
-    notifyOnce('warning', '文档还未完成检测，请稍后。')
+    ElMessage.warning('文档还未完成检测，请稍后。')
     return
   }
   if (!documentPrecheck.canProcess) {
@@ -410,17 +348,17 @@ async function submitDocument() {
   if (!selectedDocument.value || !documentPrecheck.ready) return
   documentUploading.value = true
   resetDocumentJob()
-  setDocProgress(8, '正在拆分文本...')
+  setDocProgress(10, '正在提交文档')
   try {
     const job = await uploadDocument(selectedDocument.value, activeDocMode.value.apiMode, 'GENERAL', documentPrecheck.requestId)
     setDocumentJob(job)
     upsertDocumentJob(job)
-    setDocProgress(jobProgress(job), documentStepText.value)
+    setDocProgress(jobProgress(job), '文档处理中')
     startDocumentPolling(job.jobId)
-    notifyOnce('success', '文档任务已提交，正在后台处理。')
+    ElMessage.success('文档任务已提交。')
   } catch (error) {
     docStatusText.value = '提交失败'
-    reportRequestError(error, '文档提交失败。')
+    ElMessage.error(error.message || '文档提交失败。')
   } finally {
     documentUploading.value = false
   }
@@ -430,7 +368,7 @@ async function handleDrop(event) {
   dragging.value = false
   const file = Array.from(event.dataTransfer?.files || []).find(item => item.name.toLowerCase().endsWith('.docx'))
   if (!file) {
-    notifyOnce('warning', '请上传 DOCX 文件。')
+    ElMessage.warning('请上传 DOCX 文件。')
     return
   }
   await handleDocumentFile(file)
@@ -443,19 +381,11 @@ async function handleFileInput(event) {
 }
 
 async function handleDocumentFile(file) {
-  if (!file.name.toLowerCase().endsWith('.docx')) {
-    notifyOnce('warning', '请上传 DOCX 文件。')
-    return
-  }
-  if (file.size > 50 * 1024 * 1024) {
-    notifyOnce('warning', '文件大小不能超过 50MB。')
-    return
-  }
   selectedDocument.value = file
   resetDocumentJob()
   resetDocumentPrecheck()
   documentPrecheck.requestId = createRequestId()
-  setDocProgress(0, '正在解析文档...')
+  setDocProgress(0, '正在检测文档')
   await runDocumentPrecheck(true)
 }
 
@@ -474,11 +404,11 @@ async function runDocumentPrecheck(showMessage = true) {
     })
     setDocProgress(0, documentPrecheck.canProcess ? '等待开始' : '积分不足')
     if (showMessage && !documentPrecheck.canProcess) {
-      notifyOnce('warning', `积分不足，需要 ${documentPrecheck.costPoints} 积分，当前 ${documentPrecheck.currentPoints} 积分。`)
+      ElMessage.warning(`积分不足，需要 ${documentPrecheck.costPoints} 积分，当前 ${documentPrecheck.currentPoints} 积分。`)
     }
   } catch (error) {
     clearDocument()
-    reportRequestError(error, '文档检测失败。')
+    ElMessage.error(error.message || '文档检测失败。')
   } finally {
     documentPrechecking.value = false
   }
@@ -497,7 +427,7 @@ function resetDocumentPrecheck(keepRequestId = true) {
 }
 
 function resetDocumentJob() {
-  Object.assign(documentJob, { jobId: '', fileName: '', status: '', message: '', downloadUrl: '', modeName: '', charCount: 0, totalParagraphs: 0, processedParagraphs: 0 })
+  Object.assign(documentJob, { jobId: '', fileName: '', status: '', message: '', downloadUrl: '', modeName: '', charCount: 0 })
 }
 
 async function startDocumentPolling(jobId) {
@@ -518,10 +448,9 @@ async function syncDocumentJob(jobId) {
   const job = await getDocumentJob(jobId)
   setDocumentJob(job)
   upsertDocumentJob(job)
-  setDocProgress(jobProgress(job), documentStepText.value)
-  if (job.status === 'SUCCESS' && !notifiedJobIds.has(job.jobId)) {
-    notifiedJobIds.add(job.jobId)
-    notifyOnce('success', '文档处理完成，可以下载优化文档。')
+  setDocProgress(jobProgress(job), job.status === 'SUCCESS' ? '已完成' : job.status === 'FAILED' ? '处理失败' : '文档处理中')
+  if (job.status === 'SUCCESS') {
+    ElMessage.success('文档处理完成，可以下载优化文档。')
     await loadHistory()
   }
 }
@@ -538,7 +467,7 @@ function setDocumentJob(job = {}) {
 function upsertDocumentJob(job = {}) {
   if (!job.jobId) return
   const index = documentJobs.value.findIndex(item => item.jobId === job.jobId)
-  if (index >= 0) documentJobs.value.splice(index, 1, { ...documentJobs.value[index], ...job })
+  if (index >= 0) documentJobs.value.splice(index, 1, job)
   else documentJobs.value.unshift(job)
 }
 
@@ -548,7 +477,7 @@ async function downloadDocumentJob(job) {
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
-  link.download = generatedFileName.value
+  link.download = `${(job.fileName || 'DropAI文档').replace(/\.docx$/i, '')}-优化.docx`
   link.click()
   URL.revokeObjectURL(url)
 }
@@ -556,7 +485,7 @@ async function downloadDocumentJob(job) {
 async function copyResult() {
   if (!rewrittenText.value) return
   await navigator.clipboard.writeText(rewrittenText.value)
-  notifyOnce('success', '已复制优化结果。')
+  ElMessage.success('已复制优化结果。')
 }
 
 async function loadAiStatus() {
@@ -583,19 +512,6 @@ async function loadPricing() {
   } catch {
     pricing.value = []
   }
-}
-
-function notifyOnce(type, message, id = message) {
-  const key = `${type}:${id}`
-  const now = Date.now()
-  if (now - (toastCache.get(key) || 0) < 3000) return
-  toastCache.set(key, now)
-  ElMessage[type](message)
-}
-
-function reportRequestError(error, fallback) {
-  if (error?.code || error?.responseData) return
-  notifyOnce('error', error?.message || fallback)
 }
 
 function setDocProgress(value, text) {
@@ -628,11 +544,11 @@ function jobProgress(job = {}) {
   const total = job.totalParagraphs || 0
   const done = job.processedParagraphs || 0
   if (!total) return ['PENDING', 'RUNNING'].includes(job.status) ? 12 : 0
-  return Math.min(99, Math.max(12, Math.round((done / total) * 100)))
+  return Math.min(99, Math.round((done / total) * 100))
 }
 
 function buildDiffHtml(original, optimized) {
-  const safe = escapeHtml(optimized || 'AI 生成结果会显示在这里。')
+  const safe = escapeHtml(optimized || '点击开始文本优化后，这里显示 AI 返回的最终结果。')
   if (!original || !rewrittenText.value) return safe
   const originalWords = new Set(String(original).split(/\s+/).filter(Boolean))
   return String(optimized).split(/(\s+)/).map(part => {
@@ -656,13 +572,6 @@ function createRequestId() {
 
 function formatNumber(value) {
   return Number(value || 0).toLocaleString()
-}
-
-function formatPercent(value) {
-  if (value === undefined || value === null || value === '') return '--'
-  const number = Number(value)
-  if (Number.isNaN(number)) return '--'
-  return `${number > 1 ? number.toFixed(1) : (number * 100).toFixed(1)}%`
 }
 
 function formatFileSize(size = 0) {
@@ -697,21 +606,6 @@ onBeforeUnmount(stopDocumentPolling)
 <style scoped>
 .rewrite-product {
   width: min(1280px, calc(100% - 48px));
-  --surface: rgba(255, 255, 255, 0.05);
-  --surface-strong: rgba(255, 255, 255, 0.075);
-  --border-glow: rgba(99, 102, 241, 0.34);
-  --brand-gradient: linear-gradient(135deg, #6366f1, #06b6d4);
-}
-
-.rewrite-product :deep(.primary-button),
-.rewrite-product .primary-button {
-  background: var(--brand-gradient);
-  box-shadow: 0 18px 42px rgba(6, 182, 212, 0.16), 0 10px 30px rgba(99, 102, 241, 0.18);
-}
-
-.rewrite-product :deep(.primary-button:hover),
-.rewrite-product .primary-button:hover {
-  box-shadow: 0 22px 56px rgba(6, 182, 212, 0.24), 0 14px 36px rgba(99, 102, 241, 0.26);
 }
 
 .brand {
@@ -721,17 +615,14 @@ onBeforeUnmount(stopDocumentPolling)
 }
 
 .hero-strip {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(420px, 0.58fr);
-  gap: 28px;
-  align-items: end;
+  display: block;
   margin-bottom: 20px;
 }
 
 .hero-strip h1 {
   margin: 0 0 10px;
-  font-size: clamp(38px, 5vw, 62px);
-  line-height: 1.03;
+  font-size: clamp(36px, 4.8vw, 56px);
+  line-height: 1.05;
 }
 
 .hero-strip p {
@@ -742,62 +633,9 @@ onBeforeUnmount(stopDocumentPolling)
   line-height: 1.7;
 }
 
-.metric-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-}
-
-.metric-card {
-  min-width: 0;
-  padding: 16px;
-  border: 1px solid rgba(99, 102, 241, 0.22);
-  border-radius: 16px;
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.035));
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.18);
-  transition: transform var(--ease), border-color var(--ease), box-shadow var(--ease);
-}
-
-.metric-card:hover {
-  transform: translateY(-4px);
-  border-color: rgba(6, 182, 212, 0.48);
-  box-shadow: 0 22px 70px rgba(6, 182, 212, 0.12);
-}
-
-.metric-icon {
-  display: inline-grid;
-  place-items: center;
-  width: 38px;
-  height: 38px;
-  margin-bottom: 10px;
-  border-radius: 12px;
-  background: rgba(6, 182, 212, 0.11);
-}
-
-.metric-card strong {
-  display: block;
-  color: var(--text);
-  font-size: 22px;
-}
-
-.metric-card p {
-  margin: 3px 0 0;
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.panel {
-  border-color: var(--border-glow);
-  background:
-    radial-gradient(circle at 18% 0%, rgba(99, 102, 241, 0.12), transparent 32%),
-    radial-gradient(circle at 85% 12%, rgba(6, 182, 212, 0.11), transparent 30%),
-    rgba(255, 255, 255, 0.05);
-  backdrop-filter: blur(18px);
-}
-
 .document-panel {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(380px, 0.95fr);
+  grid-template-columns: minmax(0, 1.12fr) minmax(360px, 0.88fr);
   gap: 28px;
   margin-bottom: 16px;
   padding: 24px;
@@ -835,7 +673,7 @@ onBeforeUnmount(stopDocumentPolling)
   flex: 0 0 auto;
   gap: 4px;
   padding: 4px;
-  border: 1px solid rgba(99, 102, 241, 0.28);
+  border: 1px solid var(--line);
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.045);
 }
@@ -859,8 +697,8 @@ onBeforeUnmount(stopDocumentPolling)
 .mode-tabs button.active {
   color: #fff;
   border-color: rgba(255, 255, 255, 0.18);
-  background: var(--brand-gradient);
-  box-shadow: 0 10px 28px rgba(99, 102, 241, 0.22);
+  background: linear-gradient(135deg, rgba(108, 92, 231, 0.82), rgba(0, 210, 255, 0.28));
+  box-shadow: 0 10px 28px rgba(108, 92, 231, 0.22);
 }
 
 .document-upload,
@@ -871,127 +709,82 @@ onBeforeUnmount(stopDocumentPolling)
 .doc-drop {
   display: grid;
   place-items: center;
-  min-height: 318px;
-  padding: 28px;
+  min-height: 292px;
+  padding: 26px;
   border-radius: 16px;
   text-align: center;
-  border-color: rgba(99, 102, 241, 0.48);
-  background: rgba(255, 255, 255, 0.035);
   transition: transform var(--ease), border-color var(--ease), background var(--ease), box-shadow var(--ease);
 }
 
 .doc-drop.active,
 .doc-drop:hover {
-  transform: translateY(-4px);
-  border-color: rgba(6, 182, 212, 0.72);
-  background: rgba(6, 182, 212, 0.075);
-  box-shadow: 0 22px 68px rgba(6, 182, 212, 0.14);
+  transform: translateY(-2px);
+  border-color: rgba(0, 210, 255, 0.7);
+  background: rgba(0, 210, 255, 0.075);
+  box-shadow: 0 18px 55px rgba(0, 210, 255, 0.12);
 }
 
 .doc-drop.filled {
-  border-color: rgba(99, 102, 241, 0.72);
+  border-color: rgba(108, 92, 231, 0.62);
 }
 
 .doc-drop strong {
   margin-top: 14px;
   color: var(--text);
-  font-size: 19px;
+  font-size: 18px;
 }
 
 .doc-drop p {
   max-width: 430px;
-  margin: 6px 0 14px;
+  margin: 4px 0 12px;
   color: var(--muted);
   line-height: 1.7;
 }
 
-.doc-icon,
-.file-badge {
+.doc-icon {
   display: grid;
   place-items: center;
+  width: 62px;
+  height: 62px;
   border-radius: 16px;
   color: #fff;
   font-size: 12px;
   font-weight: 800;
-  background: var(--brand-gradient);
-  box-shadow: 0 0 35px rgba(6, 182, 212, 0.25);
-}
-
-.doc-icon {
-  width: 66px;
-  height: 66px;
-}
-
-.choose-button {
-  min-height: 42px;
-  padding: 0 18px;
-  border-radius: 12px;
+  background: linear-gradient(135deg, var(--cyan), var(--primary));
+  box-shadow: 0 0 35px rgba(0, 210, 255, 0.25);
 }
 
 .hidden-input {
   display: none;
 }
 
-.selected-file-card {
+.file-summary {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 14px;
-  align-items: center;
-  margin-top: 14px;
-  padding: 14px;
-  border: 1px solid rgba(99, 102, 241, 0.28);
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.045);
-}
-
-.file-badge {
-  width: 46px;
-  height: 46px;
-}
-
-.selected-file-card strong,
-.selected-file-card p {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.selected-file-card p {
-  margin: 4px 0 0;
-  color: var(--muted);
-}
-
-.progress-number {
-  display: block;
-  color: var(--text);
-  font-size: 24px;
-}
-
-.info-list {
-  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
-  margin: 0 0 14px;
+  margin: 14px 0 0;
 }
 
-.info-list div,
-.status-board div {
-  min-width: 0;
-  padding: 12px 14px;
+.file-summary div,
+.info-list div {
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(255, 255, 255, 0.035);
 }
 
-.info-list dt,
-.status-board span {
+.file-summary div {
+  min-width: 0;
+  padding: 12px;
+}
+
+.file-summary dt,
+.info-list dt {
   color: var(--muted);
   font-size: 13px;
 }
 
-.info-list dd,
-.status-board strong {
-  display: block;
+.file-summary dd,
+.info-list dd {
   min-width: 0;
   margin: 6px 0 0;
   overflow: hidden;
@@ -1001,30 +794,25 @@ onBeforeUnmount(stopDocumentPolling)
   white-space: nowrap;
 }
 
-.status-board {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  margin-bottom: 16px;
-}
-
-.status-board div:first-child,
-.status-board div:last-child {
-  grid-column: 1 / -1;
-}
-
-.progress-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 12px;
-  align-items: center;
-  margin-bottom: 18px;
+.progress-number {
+  display: block;
   color: var(--text);
-  font-weight: 800;
+  font-size: 22px;
+}
+
+.info-list {
+  display: grid;
+  gap: 12px;
+  margin: 0 0 22px;
+}
+
+.info-list div {
+  padding: 13px 14px;
 }
 
 .progress-line {
-  height: 10px;
+  height: 9px;
+  margin-bottom: 18px;
 }
 
 .start-button {
@@ -1073,36 +861,16 @@ onBeforeUnmount(stopDocumentPolling)
 
 .compare-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 42px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 16px;
-  align-items: stretch;
-}
-
-.compare-switch {
-  align-self: center;
-  display: grid;
-  place-items: center;
-  width: 42px;
-  height: 42px;
-  border: 1px solid rgba(99, 102, 241, 0.38);
-  border-radius: 50%;
-  color: var(--text);
-  background: rgba(255, 255, 255, 0.055);
 }
 
 .compare-card {
   min-height: 340px;
   padding: 18px;
-  border: 1px solid rgba(99, 102, 241, 0.24);
+  border: 1px solid var(--line);
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.045);
-  transition: border-color var(--ease), box-shadow var(--ease), transform var(--ease);
-}
-
-.compare-card:hover {
-  transform: translateY(-2px);
-  border-color: rgba(6, 182, 212, 0.36);
-  box-shadow: 0 18px 52px rgba(6, 182, 212, 0.08);
 }
 
 .compare-card span {
@@ -1143,7 +911,7 @@ onBeforeUnmount(stopDocumentPolling)
   padding: 1px 3px;
   border-radius: 5px;
   color: #fff;
-  background: rgba(99, 102, 241, 0.45);
+  background: rgba(108, 92, 231, 0.45);
 }
 
 .result-card-head {
@@ -1152,8 +920,8 @@ onBeforeUnmount(stopDocumentPolling)
 
 .result-card-head .active {
   color: var(--text);
-  border-color: rgba(6, 182, 212, 0.45);
-  background: rgba(6, 182, 212, 0.1);
+  border-color: rgba(0, 210, 255, 0.45);
+  background: rgba(0, 210, 255, 0.1);
 }
 
 .inline-loading,
@@ -1182,13 +950,13 @@ onBeforeUnmount(stopDocumentPolling)
 .document-table {
   display: grid;
   overflow: hidden;
-  border: 1px solid rgba(99, 102, 241, 0.22);
+  border: 1px solid var(--line);
   border-radius: 16px;
 }
 
 .table-row {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) 110px 90px 90px 100px 150px 78px;
+  grid-template-columns: minmax(220px, 1fr) 150px 160px 90px;
   gap: 14px;
   align-items: center;
   min-height: 58px;
@@ -1230,28 +998,18 @@ onBeforeUnmount(stopDocumentPolling)
   }
 }
 
-@media (max-width: 1120px) {
-  .hero-strip,
+@media (max-width: 1040px) {
   .document-panel,
   .compare-grid {
     grid-template-columns: 1fr;
   }
 
-  .compare-switch {
-    justify-self: center;
-  }
-
-  .metric-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+  .file-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .table-row {
-    grid-template-columns: minmax(180px, 1fr) 110px 90px 130px 78px;
-  }
-
-  .table-row span:nth-child(4),
-  .table-row span:nth-child(5) {
-    display: none;
+    grid-template-columns: minmax(180px, 1fr) 120px 130px 78px;
   }
 }
 
@@ -1270,20 +1028,18 @@ onBeforeUnmount(stopDocumentPolling)
     flex-direction: column;
   }
 
-  .mode-tabs,
-  .metric-grid {
+  .mode-tabs {
     width: 100%;
-  }
-
-  .metric-grid,
-  .status-board,
-  .table-row {
-    grid-template-columns: 1fr;
   }
 
   .mode-tabs button {
     flex: 1;
     padding: 0 8px;
+  }
+
+  .file-summary,
+  .table-row {
+    grid-template-columns: 1fr;
   }
 
   .document-table {
@@ -1300,7 +1056,7 @@ onBeforeUnmount(stopDocumentPolling)
     gap: 8px;
     min-height: auto;
     padding: 14px;
-    border: 1px solid rgba(99, 102, 241, 0.24);
+    border: 1px solid var(--line);
     border-radius: 14px;
     background: rgba(255, 255, 255, 0.045);
   }
