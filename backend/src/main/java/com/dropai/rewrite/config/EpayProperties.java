@@ -6,12 +6,12 @@ import org.springframework.stereotype.Component;
 @Component
 @ConfigurationProperties(prefix = "app.epay")
 public class EpayProperties {
-    private String gateway = "https://your-epay-domain/pay.php";
-    private String pid = "";
-    private String key = "";
-    private String notifyUrl = "";
-    private String returnUrl = "";
-    private String baseUrl = "";
+    private String gateway = "http://dropai-demo.cn/submit.php";
+    private String pid = "1000";
+    private String key = "sC5ZS5q2zc8ZMI2WdcZ84sFMs7QfQCeg";
+    private String notifyUrl = "https://dropai-demo.com/api/recharge/notify";
+    private String returnUrl = "https://dropai-demo.com/recharge/result";
+    private String baseUrl = "https://dropai-demo.com";
     private String siteName = "DropAI";
     private String defaultType = "alipay";
 

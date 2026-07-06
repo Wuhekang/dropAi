@@ -59,7 +59,14 @@ set "MATRIX_API_KEY="
 set "MATRIX_MODEL=claude-opus-4-7"
 set "MATRIX_DESIGN_ENABLED=true"
 
-set "APP_BASE_URL=http://43.136.167.53"
+set "APP_BASE_URL=https://dropai-demo.com"
+set "EPAY_GATEWAY=http://dropai-demo.cn/submit.php"
+set "EPAY_PID=1000"
+set "EPAY_KEY=sC5ZS5q2zc8ZMI2WdcZ84sFMs7QfQCeg"
+set "EPAY_NOTIFY_URL=https://dropai-demo.com/api/recharge/notify"
+set "EPAY_RETURN_URL=https://dropai-demo.com/recharge/result"
+set "EPAY_SITE_NAME=DropAI"
+set "EPAY_DEFAULT_TYPE=alipay"
 set "POI_MIN_INFLATE_RATIO=0.001"
 set "JAVA_OPTS=-Xms512m -Xmx1024m -Dfile.encoding=UTF-8 -Duser.timezone=Asia/Shanghai"
 
@@ -98,6 +105,10 @@ echo   DOUBAO_MODEL=%DOUBAO_MODEL%
 echo   DOUBAO_ENDPOINT=%DOUBAO_ENDPOINT%
 echo   DOUBAO_DOCUMENT_CONCURRENCY=%DOUBAO_DOCUMENT_CONCURRENCY%
 echo   MATRIX_DESIGN_ENABLED=%MATRIX_DESIGN_ENABLED%
+echo   EPAY_GATEWAY=%EPAY_GATEWAY%
+echo   EPAY_PID=%EPAY_PID%
+echo   EPAY_NOTIFY_URL=%EPAY_NOTIFY_URL%
+echo   EPAY_RETURN_URL=%EPAY_RETURN_URL%
 echo.
 echo Starting Spring Boot...
 echo Stop with Ctrl+C.

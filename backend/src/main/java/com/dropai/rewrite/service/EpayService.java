@@ -2,6 +2,9 @@ package com.dropai.rewrite.service;
 
 import com.dropai.rewrite.config.EpayProperties;
 import com.dropai.rewrite.entity.RechargeOrder;
+import jakarta.annotation.PostConstruct;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -17,25 +20,42 @@ import java.util.stream.Collectors;
 
 @Service
 public class EpayService {
+    private static final Logger log = LoggerFactory.getLogger(EpayService.class);
+
     private final EpayProperties properties;
 
     public EpayService(EpayProperties properties) {
         this.properties = properties;
     }
 
+    @PostConstruct
+    public void logConfig() {
+        log.info("========== EPAY CONFIG ==========");
+        log.info("Gateway: {}", properties.getGateway());
+        log.info("PID: {}", properties.getPid());
+        log.info("Notify URL: {}", endpoint("/api/recharge/notify", properties.getNotifyUrl()));
+        log.info("Return URL: {}", endpoint("/recharge/result", properties.getReturnUrl()));
+        log.info("=================================");
+    }
+
     public String createPayUrl(RechargeOrder order) {
+        String notifyUrl = endpoint("/api/recharge/notify", properties.getNotifyUrl());
+        String returnUrl = endpoint("/recharge/result", properties.getReturnUrl());
         Map<String, String> params = new LinkedHashMap<>();
         params.put("pid", properties.getPid());
         params.put("type", normalizeType(order.getPayMethod()));
         params.put("out_trade_no", order.getOrderNo());
-        params.put("notify_url", endpoint("/api/recharge/notify", properties.getNotifyUrl()));
-        params.put("return_url", endpoint("/recharge", properties.getReturnUrl()));
+        params.put("notify_url", notifyUrl);
+        params.put("return_url", returnUrl);
         params.put("name", "DropAI points recharge");
         params.put("money", order.getAmount().setScale(2, RoundingMode.HALF_UP).toPlainString());
         params.put("sitename", properties.getSiteName());
         params.put("sign", sign(params));
         params.put("sign_type", "MD5");
-        return properties.getGateway() + "?" + toQuery(params);
+        String payUrl = properties.getGateway() + "?" + toQuery(params);
+        log.info("EPAY order created. orderNo={}, amount={}, type={}, payUrl={}, notifyUrl={}, returnUrl={}",
+                order.getOrderNo(), params.get("money"), params.get("type"), payUrl, notifyUrl, returnUrl);
+        return payUrl;
     }
 
     public boolean verifyNotify(Map<String, String> params) {
