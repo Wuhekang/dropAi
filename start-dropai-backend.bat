@@ -60,7 +60,7 @@ set "MATRIX_MODEL=claude-opus-4-7"
 set "MATRIX_DESIGN_ENABLED=true"
 
 set "APP_BASE_URL=http://dropai-demo.com"
-set "EPAY_GATEWAY=http://dropai-demo.cn/submit.php"
+set "EPAY_GATEWAY=http://pay.dropai-demo.com/submit.php"
 set "EPAY_PID=1000"
 set "EPAY_KEY=sC5ZS5q2zc8ZMI2WdcZ84sFMs7QfQCeg"
 set "EPAY_NOTIFY_URL=http://dropai-demo.com/api/recharge/notify"

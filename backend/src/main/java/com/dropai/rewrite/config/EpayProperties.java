@@ -6,7 +6,7 @@ import org.springframework.stereotype.Component;
 @Component
 @ConfigurationProperties(prefix = "app.epay")
 public class EpayProperties {
-    private String gateway = "http://dropai-demo.cn/submit.php";
+    private String gateway = "http://pay.dropai-demo.com/submit.php";
     private String pid = "1000";
     private String key = "sC5ZS5q2zc8ZMI2WdcZ84sFMs7QfQCeg";
     private String notifyUrl = "http://dropai-demo.com/api/recharge/notify";

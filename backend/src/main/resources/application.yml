@@ -25,7 +25,7 @@ app:
   poi:
     min-inflate-ratio: ${POI_MIN_INFLATE_RATIO:0.001}
   epay:
-    gateway: ${EPAY_GATEWAY:http://dropai-demo.cn/submit.php}
+    gateway: ${EPAY_GATEWAY:http://pay.dropai-demo.com/submit.php}
     pid: ${EPAY_PID:1000}
     key: ${EPAY_KEY:sC5ZS5q2zc8ZMI2WdcZ84sFMs7QfQCeg}
     base-url: ${APP_BASE_URL:http://dropai-demo.com}
