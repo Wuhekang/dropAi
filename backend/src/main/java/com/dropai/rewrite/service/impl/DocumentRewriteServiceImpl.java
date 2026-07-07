@@ -503,7 +503,7 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
         if ("double".equals(job.getMode())) {
             update(job, "RUNNING", "双降增强：第一阶段正在执行智能降重");
             List<RewriteResult> rewriteResults = rewriteTargetsConcurrently(job, targets, "rewrite", "智能降重");
-            rewriteResults = applyLengthControl(job, targets, rewriteResults, rule, "double_rewrite");
+            logLengthMetrics(job, "double_rewrite_no_retry", lengthMetrics(rule.originalLength(), rewriteResults), 0);
 
             List<RewriteResult> failedRewriteResults = rewriteResults.stream()
                     .filter(result -> !result.success())
@@ -518,11 +518,15 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             List<RewriteResult> mergedResults = new ArrayList<>();
             mergedResults.addAll(failedRewriteResults);
             mergedResults.addAll(humanizeResults);
-            return applyLengthControl(job, targets, mergedResults, rule, "double_final");
+            return applyLengthControl(job, humanizeTargets, mergedResults, rule, "double_final", 1);
         }
 
         List<RewriteResult> results = rewriteTargetsConcurrently(job, targets, job.getMode(), job.getModeName());
-        return applyLengthControl(job, targets, results, rule, job.getMode());
+        if ("rewrite".equals(job.getMode())) {
+            logLengthMetrics(job, "rewrite_no_retry", lengthMetrics(rule.originalLength(), results), 0);
+            return results;
+        }
+        return applyLengthControl(job, targets, results, rule, job.getMode(), 1);
     }
 
     private List<RewriteResult> applyLengthControl(
@@ -530,24 +534,25 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             List<RewriteTarget> originalTargets,
             List<RewriteResult> results,
             LengthRule rule,
-            String stage
+            String stage,
+            int maxRetryCount
     ) {
         LengthMetrics metrics = lengthMetrics(rule.originalLength(), results);
-        logLengthMetrics(job, stage, metrics);
+        logLengthMetrics(job, stage, metrics, 0);
         if (!metrics.exceeded()) {
             return results;
         }
 
         List<RewriteResult> adjustedResults = new ArrayList<>(results);
-        for (int attempt = 1; attempt <= 2 && metrics.exceeded(); attempt++) {
-            update(job, "RUNNING", "字数增长超过限制，正在执行第 " + attempt + " 次长度控制压缩");
+        for (int attempt = 1; attempt <= maxRetryCount && metrics.exceeded(); attempt++) {
+            update(job, "RUNNING", "字数增长超过限制，正在执行轻量长度压缩");
             adjustedResults = compressExpandedResults(job, originalTargets, adjustedResults, rule, stage, attempt);
             metrics = lengthMetrics(rule.originalLength(), adjustedResults);
-            logLengthMetrics(job, stage + "_retry_" + attempt, metrics);
+            logLengthMetrics(job, stage + "_retry_" + attempt, metrics, attempt);
         }
         if (metrics.exceeded()) {
-            log.warn("LengthControl still exceeded after retries jobId={} mode={} stage={} original_length={} final_length={} allowed_max_length={} length_status=OVER_LIMIT_AFTER_RETRY",
-                    job.getJobId(), job.getMode(), stage, metrics.originalLength(), metrics.finalLength(), metrics.allowedMaxLength());
+            log.warn("LengthControl still exceeded after retries jobId={} mode={} stage={} original_length={} final_length={} allowed_max_length={} retry_count={} length_status=OVER_LIMIT_AFTER_RETRY",
+                    job.getJobId(), lengthLogMode(job.getMode()), stage, metrics.originalLength(), metrics.finalLength(), metrics.allowedMaxLength(), maxRetryCount);
         }
         return adjustedResults;
     }
@@ -742,17 +747,26 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
         return new LengthMetrics(originalLength, finalLength, increaseLength, increaseRate, rule.allowedMaxLength(), status);
     }
 
-    private void logLengthMetrics(DocumentRewriteJobVO job, String stage, LengthMetrics metrics) {
-        log.info("LengthControl jobId={} mode={} stage={} original_length={} final_length={} increase_length={} increase_rate={} allowed_max_length={} length_status={}",
+    private void logLengthMetrics(DocumentRewriteJobVO job, String stage, LengthMetrics metrics, int retryCount) {
+        log.info("LengthControl jobId={} mode={} stage={} originalLength={} finalLength={} increaseLength={} increaseRate={} allowedMaxLength={} retryCount={} lengthStatus={}",
                 job.getJobId(),
-                job.getMode(),
+                lengthLogMode(job.getMode()),
                 stage,
                 metrics.originalLength(),
                 metrics.finalLength(),
                 metrics.increaseLength(),
                 String.format(java.util.Locale.ROOT, "%.4f", metrics.increaseRate()),
                 metrics.allowedMaxLength(),
+                retryCount,
                 metrics.status());
+    }
+
+    private String lengthLogMode(String mode) {
+        return switch (mode) {
+            case "rewrite" -> "rewrite";
+            case "double" -> "double";
+            default -> "ai";
+        };
     }
 
     private LengthRule lengthRule(int originalLength) {
