@@ -7,6 +7,7 @@
       </button>
       <div class="nav-links">
         <button type="button" @click="router.push('/new-project')">项目生成</button>
+        <button type="button" @click="router.push('/computer-generator')">计算机项目</button>
         <button type="button" @click="router.push('/dashboard')">控制台</button>
         <button type="button" @click="router.push('/rewrite')">论文优化</button>
         <button class="primary-button" type="button" @click="router.push('/new-project')">生成项目</button>

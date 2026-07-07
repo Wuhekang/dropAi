@@ -44,6 +44,7 @@ const router = createRouter({
     {
       path: '/computer-generator',
       name: 'ComputerGenerator',
+      alias: '/project-generator',
       component: ComputerGenerator
     },
     {

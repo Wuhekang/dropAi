@@ -8,9 +8,11 @@
       <nav>
         <button class="active" type="button">总览</button>
         <button type="button" @click="router.push('/new-project')">项目生成</button>
+        <button type="button" @click="router.push('/computer-generator')">计算机项目</button>
         <button type="button" @click="router.push('/rewrite')">论文优化</button>
         <button type="button" @click="router.push('/recharge')">积分</button>
-        <button v-if="role === 'ADMIN'" type="button" @click="adminNoticeVisible = true">公告</button>
+        <button v-if="isAdmin" type="button" @click="router.push('/points-admin')">积分配置</button>
+        <button v-if="isAdmin" type="button" @click="adminNoticeVisible = true">公告</button>
       </nav>
       <button class="ghost-button signout" type="button" @click="signOut">退出登录</button>
     </aside>
@@ -22,7 +24,10 @@
           <h1>欢迎回来，{{ username }}</h1>
           <p>最近项目、积分和下载记录，都收在一个清爽的工作区里。</p>
         </div>
-        <button class="primary-button" type="button" @click="router.push('/new-project')">生成项目</button>
+        <div class="head-actions">
+          <button class="ghost-button" type="button" @click="router.push('/computer-generator')">计算机项目</button>
+          <button class="primary-button" type="button" @click="router.push('/new-project')">生成项目</button>
+        </div>
       </header>
 
       <section class="overview-grid">
@@ -87,6 +92,7 @@ const pointsLoading = ref(false)
 const adminNoticeVisible = ref(false)
 const pointAccount = ref({ points: null, totalPoints: null, usedPoints: null })
 
+const isAdmin = computed(() => String(role).toLowerCase() === 'admin')
 const recentProjects = computed(() => documents.value.slice(0, 4))
 
 async function loadDocuments() {
@@ -226,6 +232,13 @@ onMounted(() => {
   margin: 22px 0 22px;
 }
 
+.head-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 10px;
+  align-items: center;
+}
+
 .dashboard-head h1 {
   max-width: 760px;
   margin-bottom: 10px;
@@ -357,6 +370,11 @@ onMounted(() => {
 
   .dashboard-head {
     flex-direction: column;
+  }
+
+  .head-actions {
+    width: 100%;
+    flex-wrap: wrap;
   }
 }
 </style>

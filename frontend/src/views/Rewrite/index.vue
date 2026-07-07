@@ -8,6 +8,7 @@
       <div class="nav-links">
         <button type="button" @click="router.push('/dashboard')">控制台</button>
         <button type="button" @click="router.push('/new-project')">工程生成</button>
+        <button type="button" @click="router.push('/computer-generator')">计算机项目</button>
         <button class="ghost-button" type="button" @click="signOut">退出</button>
       </div>
     </nav>

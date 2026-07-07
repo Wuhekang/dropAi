@@ -161,8 +161,8 @@ public class PointSchemaInitializer implements ApplicationRunner {
         seed("DOCX_GENERATE", "文档生成", 30);
         seed("ZIP_EXPORT", "成果包导出", 20);
         seed("DOCUMENT_REWRITE", "智能降重（每千字）", 10);
-        seed("DOCUMENT_HUMANIZE", "精准降AI（每千字）", 10);
-        seed("DOCUMENT_DOUBLE", "双降（每千字）", 20);
+        seed("DOCUMENT_HUMANIZE", "智能降AI（每千字）", 10);
+        seed("DOCUMENT_DOUBLE", "双降增强（每千字）", 20);
     }
 
     private void seed(String code, String name, int cost) {
@@ -178,6 +178,12 @@ public class PointSchemaInitializer implements ApplicationRunner {
                     name,
                     cost,
                     true
+            );
+        } else {
+            jdbcTemplate.update(
+                    "UPDATE feature_pricing SET feature_name = ? WHERE feature_code = ?",
+                    name,
+                    code
             );
         }
     }
