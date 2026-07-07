@@ -26,7 +26,7 @@ services:
       - key: DOUBAO_DOCUMENT_CONCURRENCY
         value: 32
       - key: APP_BASE_URL
-        value: https://dropai-demo.onrender.com
+        value: http://dropai-demo.com
       - key: EPAY_GATEWAY
         sync: false
       - key: EPAY_PID
