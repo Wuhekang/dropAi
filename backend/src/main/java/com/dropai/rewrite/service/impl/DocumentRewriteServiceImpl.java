@@ -73,7 +73,6 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
     private final Path jobLogDir = Path.of("storage", "jobs");
     private final ExecutorService documentExecutor = Executors.newFixedThreadPool(2);
     private final Map<String, Path> generatedOutputFiles = new ConcurrentHashMap<>();
-    private static final String LENGTH_CONTROL_REWRITE_TYPE = "字数控制压缩";
 
     public DocumentRewriteServiceImpl(
             WorkflowRewriteService workflowRewriteService,
@@ -585,14 +584,7 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             }
             String originalText = originalTextByIndex.getOrDefault(candidate.index(), "");
             int targetLength = allowedParagraphLength(rule, originalText);
-            String compressed;
-            try {
-                compressed = compressForLength(candidate.rewrittenText(), targetLength, stage, attempt);
-            } catch (Exception exception) {
-                log.warn("LengthControl paragraph compression failed jobId={} stage={} attempt={} paragraphIndex={} message={}",
-                        job.getJobId(), stage, attempt, candidate.index(), readableMessage(exception));
-                continue;
-            }
+            String compressed = compressForLength(candidate.rewrittenText(), originalText, targetLength);
             int beforeLength = textLength(candidate.rewrittenText());
             int compressedLength = textLength(compressed);
             int originalLength = textLength(originalText);
@@ -615,12 +607,120 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
         return adjusted;
     }
 
-    private String compressForLength(String text, int targetLength, String stage, int attempt) {
-        String feedback = "目标最大长度：" + targetLength
-                + " 字；阶段：" + stage
-                + "；压缩轮次：" + attempt
-                + "。删除无意义扩写、重复解释和新增说明，保留原有逻辑、事实、术语、编号与降AI效果。";
-        return aiRewriteService.rewriteWithFeedback(text, LENGTH_CONTROL_REWRITE_TYPE, 0, feedback);
+    private String compressForLength(String text, String originalText, int targetLength) {
+        String current = normalizeChargeText(text);
+        if (textLength(current) <= targetLength) {
+            return current;
+        }
+
+        List<String> sentences = splitSentences(current);
+        List<String> kept = new ArrayList<>(sentences);
+        removeExpandedSentences(kept, originalText, targetLength);
+        current = cleanupLengthControlPhrases(String.join("", kept));
+        if (textLength(current) <= targetLength) {
+            return current;
+        }
+
+        kept = new ArrayList<>(splitSentences(current));
+        while (kept.size() > 1 && textLength(String.join("", kept)) > targetLength) {
+            int removableIndex = leastRelevantSentenceIndex(kept, originalText);
+            if (removableIndex < 0) {
+                break;
+            }
+            kept.remove(removableIndex);
+        }
+        return cleanupLengthControlPhrases(String.join("", kept));
+    }
+
+    private void removeExpandedSentences(List<String> sentences, String originalText, int targetLength) {
+        for (int index = sentences.size() - 1; index >= 0 && textLength(String.join("", sentences)) > targetLength; index--) {
+            String sentence = sentences.get(index);
+            if (isLikelyExpandedSentence(sentence, originalText)) {
+                sentences.remove(index);
+            }
+        }
+    }
+
+    private boolean isLikelyExpandedSentence(String sentence, String originalText) {
+        String compact = normalizeChargeText(sentence);
+        if (compact.length() < 12) {
+            return false;
+        }
+        if (hasAny(compact,
+                "具有重要意义", "通过分析可以看出", "综上所述", "由此可见", "值得注意的是",
+                "提供参考", "具有较高价值", "验证了可行性", "取得了良好效果")) {
+            return true;
+        }
+        return sharedCharRatio(compact, originalText) < 0.32 && compact.length() >= 24;
+    }
+
+    private int leastRelevantSentenceIndex(List<String> sentences, String originalText) {
+        double lowestScore = Double.MAX_VALUE;
+        int lowestIndex = -1;
+        for (int index = 0; index < sentences.size(); index++) {
+            String sentence = normalizeChargeText(sentences.get(index));
+            if (sentence.length() < 12) {
+                continue;
+            }
+            double score = sharedCharRatio(sentence, originalText);
+            if (hasAny(sentence, "因此", "同时", "此外", "进一步", "意义", "价值", "效果")) {
+                score -= 0.12;
+            }
+            if (score < lowestScore) {
+                lowestScore = score;
+                lowestIndex = index;
+            }
+        }
+        return lowestIndex;
+    }
+
+    private List<String> splitSentences(String text) {
+        List<String> sentences = new ArrayList<>();
+        java.util.regex.Matcher matcher = java.util.regex.Pattern
+                .compile("[^。！？!?；;]+[。！？!?；;]?")
+                .matcher(text == null ? "" : text);
+        while (matcher.find()) {
+            String sentence = matcher.group().trim();
+            if (!sentence.isBlank()) {
+                sentences.add(sentence);
+            }
+        }
+        if (sentences.isEmpty() && text != null && !text.isBlank()) {
+            sentences.add(text.trim());
+        }
+        return sentences;
+    }
+
+    private String cleanupLengthControlPhrases(String text) {
+        return normalizeChargeText(text)
+                .replace("通过分析可以看出，", "")
+                .replace("通过分析可以看出", "")
+                .replace("具有重要意义", "")
+                .replace("具有较高价值", "")
+                .replace("提供参考", "")
+                .replace("综上所述，", "")
+                .replace("综上所述", "")
+                .replace("由此可见，", "")
+                .replace("由此可见", "")
+                .replaceAll("，{2,}", "，")
+                .replaceAll("。{2,}", "。")
+                .trim();
+    }
+
+    private double sharedCharRatio(String sentence, String originalText) {
+        String compactSentence = normalizeChargeText(sentence);
+        String compactOriginal = normalizeChargeText(originalText);
+        if (compactSentence.isBlank() || compactOriginal.isBlank()) {
+            return 0;
+        }
+        int shared = 0;
+        for (int index = 0; index < compactSentence.length(); index++) {
+            char ch = compactSentence.charAt(index);
+            if (!Character.isWhitespace(ch) && compactOriginal.indexOf(ch) >= 0) {
+                shared++;
+            }
+        }
+        return shared * 1.0 / compactSentence.length();
     }
 
     private int allowedParagraphLength(LengthRule rule, String originalText) {
