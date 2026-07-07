@@ -25,12 +25,12 @@ app:
   poi:
     min-inflate-ratio: ${POI_MIN_INFLATE_RATIO:0.001}
   epay:
-    gateway: ${EPAY_GATEWAY:http://pay.dropai-demo.com/submit.php}
+    gateway: ${EPAY_GATEWAY:https://droapi.k8818.cn/submit.php}
     pid: ${EPAY_PID:1000}
-    key: ${EPAY_KEY:sC5ZS5q2zc8ZMI2WdcZ84sFMs7QfQCeg}
-    base-url: ${APP_BASE_URL:http://dropai-demo.com}
-    notify-url: ${EPAY_NOTIFY_URL:http://dropai-demo.com/api/recharge/notify}
-    return-url: ${EPAY_RETURN_URL:http://dropai-demo.com/recharge/result}
+    key: ${EPAY_KEY:T451e2G86pJlG2tcePGe41jpzMprQ14b}
+    base-url: ${APP_BASE_URL:https://dro.k8818.cn}
+    notify-url: ${EPAY_NOTIFY_URL:https://dro.k8818.cn/api/recharge/notify}
+    return-url: ${EPAY_RETURN_URL:https://dro.k8818.cn/recharge}
     site-name: ${EPAY_SITE_NAME:DropAI}
     default-type: ${EPAY_DEFAULT_TYPE:alipay}
 
