@@ -40,6 +40,7 @@ public class ExportEngine {
                     "equipmentName", project.getEquipmentName(),
                     "designType", project.getDesignType(),
                     "structureTree", project.getStructureTree(),
+                    "assemblyModel", project.getAssemblyModel(),
                     "components", project.getComponents(),
                     "assemblyTree", project.getAssemblyTree(),
                     "assemblyConstraints", project.getAssemblyConstraints(),
@@ -47,6 +48,30 @@ public class ExportEngine {
             ));
         } catch (Exception e) {
             throw new IllegalStateException("生成3D模型数据失败", e);
+        }
+    }
+
+    public byte[] assemblyModel(DesignProject project) {
+        try {
+            return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsBytes(project.getAssemblyModel());
+        } catch (Exception e) {
+            throw new IllegalStateException("生成装配模型JSON失败", e);
+        }
+    }
+
+    public byte[] modelGenerationReport(DesignProject project) {
+        try {
+            return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsBytes(java.util.Map.of(
+                    "projectName", project.getEquipmentName(),
+                    "stage", "MODEL_GENERATED",
+                    "componentCount", project.getAssemblyModel().getComponents().size(),
+                    "constraintCount", project.getAssemblyModel().getConstraints().size(),
+                    "structureNodeCount", project.getStructureTree().getChildren().size(),
+                    "validationMessages", project.getAssemblyModel().getValidationMessages(),
+                    "modelQuality", modelQualityGate.evaluate(project)
+            ));
+        } catch (Exception e) {
+            throw new IllegalStateException("生成模型报告JSON失败", e);
         }
     }
 

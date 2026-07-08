@@ -74,8 +74,10 @@ class DesignPackageServiceTests {
         assertEquals("success", result.getStatus());
         assertTrue(result.getArtifacts().stream().allMatch(item -> "success".equals(item.getStatus())));
         assertTrue(result.getArtifacts().stream().allMatch(item -> item.getSize() > 0 && item.getDownloadUrl() != null));
-        assertEquals(18, result.getArtifacts().size());
+        assertEquals(20, result.getArtifacts().size());
         assertTrue(result.getArtifacts().stream().anyMatch(item -> "MechanicalDesignPlan.json".equals(item.getName())));
+        assertTrue(result.getArtifacts().stream().anyMatch(item -> "assembly-model.json".equals(item.getName())));
+        assertTrue(result.getArtifacts().stream().anyMatch(item -> "model-generation-report.json".equals(item.getName())));
         assertTrue(result.getArtifacts().stream().anyMatch(item -> "model_3d.json".equals(item.getName())));
         assertTrue(result.getArtifacts().stream().anyMatch(item -> "assembly.step".equals(item.getName())));
         assertTrue(result.getArtifacts().stream().anyMatch(item -> "part_05.step".equals(item.getName())));
@@ -86,6 +88,8 @@ class DesignPackageServiceTests {
         assertTrue(result.getArtifacts().stream().anyMatch(item -> "cad_preview.png".equals(item.getName())));
         assertTrue(result.getArtifacts().stream().anyMatch(item -> "part_05.dxf".equals(item.getName())));
         assertTrue(result.getProject().getBom().size() >= 5);
+        assertTrue(result.getProject().getAssemblyModel().getComponents().size() >= 5);
+        assertTrue(result.getProject().getAssemblyModel().getConstraints().size() >= 5);
         assertTrue(result.getProject().getStructureTree().getChildren().size() >= 3);
         assertTrue(result.getProject().getAssemblyTree().getChildren().size() >= 1);
         assertTrue(result.getArtifacts().stream().noneMatch(item -> item.getName().contains("track_mechanism")));

@@ -93,7 +93,8 @@ function setModel() {
 }
 
 function hasModelData(project = {}) {
-  return (Array.isArray(project.components) && project.components.length > 0)
+  return (Array.isArray(project.assemblyModel?.components) && project.assemblyModel.components.length > 0)
+    || (Array.isArray(project.components) && project.components.length > 0)
     || (Array.isArray(project.resolvedParts) && project.resolvedParts.length > 0)
 }
 

@@ -27,6 +27,48 @@ function findConstraint(part, constraints) {
   return constraints.find(c => constraintKey(c) === key || c.partName === part.partName || c.mountTo === key) || {}
 }
 
+function buildFromAssemblyModel(project = {}, dims) {
+  const assemblyModel = project.assemblyModel || {}
+  const components = Array.isArray(assemblyModel.components) ? assemblyModel.components : []
+  if (!components.length) return []
+  const constraints = Array.isArray(assemblyModel.constraints) ? assemblyModel.constraints : []
+  if (!constraints.length) {
+    console.error('[DropAI 3D] assembly incomplete: constraints=0')
+    return []
+  }
+  const envelope = extractAssemblyEnvelope(project, dims)
+  return components.map((component, index) => {
+    const part = {
+      ...component,
+      partId: component.id,
+      name: component.name,
+      partType: `${component.source || ''}`.includes('standard') ? 'standard' : component.type,
+      category: component.parameters?.geometry || component.type,
+      geometry: component.parameters?.geometry,
+      material: component.parameters?.material,
+      modelingMethod: component.parameters?.modelingMethod
+    }
+    const constraint = constraints.find(item => item.componentA === component.id || item.relation?.includes(component.name)) || {}
+    return {
+      part,
+      constraint: {
+        ...constraint,
+        partId: component.id,
+        partName: component.name,
+        mountTo: constraint.componentB,
+        constraintType: constraint.type,
+        position: component.position,
+        rotation: component.rotation
+      },
+      size: normalizeSize({ ...part, size: component.size }, envelope, dims),
+      position: normalizePosition({ ...part, position: component.position }, {}, envelope, dims, index),
+      rotation: normalizeRotation({ ...part, rotation: component.rotation }, {}),
+      hasConstraint: true,
+      assemblyModelDriven: true
+    }
+  })
+}
+
 function extractAssemblyEnvelope(project = {}, dims) {
   const candidates = []
   ;[project.parameters, project.explicitParameters, project.derivedParameters, project.suggestedParameters].forEach(list => {
@@ -132,6 +174,8 @@ function compareAssemblyOrder(a, b) {
 }
 
 export function buildAssemblyTransforms(project = {}, dims) {
+  const assemblyModelTransforms = buildFromAssemblyModel(project, dims)
+  if (assemblyModelTransforms.length) return assemblyModelTransforms
   const components = Array.isArray(project.components) && project.components.length
     ? project.components
     : Array.isArray(project.resolvedParts) ? project.resolvedParts : []

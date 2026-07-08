@@ -96,12 +96,19 @@ function countMeshes(group) {
 }
 
 function inputComponentCount(project = {}) {
+  if (Array.isArray(project.assemblyModel?.components) && project.assemblyModel.components.length) return project.assemblyModel.components.length
   if (Array.isArray(project.components) && project.components.length) return project.components.length
   if (Array.isArray(project.resolvedParts) && project.resolvedParts.length) return project.resolvedParts.length
   return 0
 }
 
 function buildFromAssembly(group, project, dims) {
+  const modelComponents = project.assemblyModel?.components
+  const modelConstraints = project.assemblyModel?.constraints
+  if (Array.isArray(modelComponents) && modelComponents.length && (!Array.isArray(modelConstraints) || !modelConstraints.length)) {
+    console.error('[DropAI 3D] assembly incomplete: constraints=0')
+    return { built: false, renderableComponents: 0, featureBasedParts: 0, error: 'assembly incomplete' }
+  }
   const transforms = buildAssemblyTransforms(project, dims)
   if (!transforms.length) return { built: false, renderableComponents: 0, featureBasedParts: 0 }
 
@@ -177,10 +184,10 @@ function buildRawMechanicalModel(project = {}) {
     renderableComponents: assemblyResult.renderableComponents,
     featureBasedParts: assemblyResult.featureBasedParts || 0,
     meshCount,
-    source: assemblyResult.built ? 'AssemblyTree/Components' : 'FallbackModel'
+    source: assemblyResult.built ? (project.assemblyModel ? 'AssemblyModel' : 'AssemblyTree/Components') : 'FallbackModel'
   })
   group.userData = {
-    source: assemblyResult.built ? 'assembly_tree_with_constraints' : 'mechanical_fallback',
+    source: assemblyResult.built ? (project.assemblyModel ? 'assembly_model_with_constraints' : 'assembly_tree_with_constraints') : 'mechanical_fallback',
     assemblyComponents,
     renderableComponents: assemblyResult.renderableComponents,
     meshCount,

@@ -2,6 +2,7 @@ package com.dropai.rewrite.modules.model;
 
 import com.dropai.rewrite.modules.mechanicalDesignPlanner.MechanicalDesignPlan;
 import com.dropai.rewrite.modules.cadFeatureGenerator.CADFeature;
+import com.dropai.rewrite.modules.assemblyModel.AssemblyModel;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -45,6 +46,7 @@ public class DesignProject {
     private DrawingPlan drawingPlan = new DrawingPlan();
     private DesignReference designReference = new DesignReference();
     private MechanicalDesignPlan mechanicalDesignPlan = new MechanicalDesignPlan();
+    private AssemblyModel assemblyModel = new AssemblyModel();
 
     public String getProjectId() { return projectId; }
     public void setProjectId(String projectId) { this.projectId = projectId; }
@@ -122,6 +124,8 @@ public class DesignProject {
     public void setDesignReference(DesignReference value) { designReference = value == null ? new DesignReference() : value; }
     public MechanicalDesignPlan getMechanicalDesignPlan() { return mechanicalDesignPlan; }
     public void setMechanicalDesignPlan(MechanicalDesignPlan value) { mechanicalDesignPlan = value == null ? new MechanicalDesignPlan() : value; }
+    public AssemblyModel getAssemblyModel() { return assemblyModel; }
+    public void setAssemblyModel(AssemblyModel value) { assemblyModel = value == null ? new AssemblyModel() : value; }
 
     public List<Parameter> allParameters() {
         List<Parameter> result = new ArrayList<>();
