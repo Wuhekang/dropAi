@@ -3,6 +3,7 @@ package com.dropai.rewrite;
 import com.dropai.rewrite.modules.mechanicalDesignPlanner.MechanicalDesignPlan;
 import com.dropai.rewrite.modules.mechanicalDesignPlanner.MechanicalDesignPlanner;
 import com.dropai.rewrite.modules.model.DesignProject;
+import com.dropai.rewrite.modules.structureTreeBuilder.StructureTreeNormalizer;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -73,6 +74,25 @@ class MechanicalDesignPlannerTests {
         assertTrue(chamberNames.size() >= 5);
         assertFalse(robotNames.contains("箱体组件"));
         assertFalse(chamberNames.contains("移动机构"));
+    }
+
+    @Test
+    void structureNormalizerUsesMechanicalPlanBeforeFallbackTemplate() {
+        StructureTreeNormalizer normalizer = new StructureTreeNormalizer();
+        DesignProject robot = planner.plan(project("油罐检测爬壁机器人",
+                List.of("爬壁", "检测"), List.of("履带机构", "永磁吸附模块")));
+        DesignProject conveyor = planner.plan(project("带式输送机结构设计",
+                List.of("连续输送", "张紧调节"), List.of("输送带", "主动滚筒")));
+
+        List<DesignProject.StructureNode> robotNodes = normalizer.normalize(robot);
+        List<DesignProject.StructureNode> conveyorNodes = normalizer.normalize(conveyor);
+
+        assertTrue(robotNodes.size() >= 8 && robotNodes.size() <= 15);
+        assertTrue(conveyorNodes.size() >= 8 && conveyorNodes.size() <= 15);
+        assertTrue(robotNodes.stream().anyMatch(node -> node.getName().contains("吸附")));
+        assertTrue(conveyorNodes.stream().anyMatch(node -> node.getName().contains("张紧")));
+        assertFalse(robotNodes.stream().anyMatch(node -> node.getName().contains("灰斗")));
+        assertFalse(conveyorNodes.stream().anyMatch(node -> node.getName().contains("吸附")));
     }
 
     private DesignProject project(String title, List<String> functions, List<String> structures) {
