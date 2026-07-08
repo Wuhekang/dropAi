@@ -14,8 +14,9 @@
 
     <header class="builder-head">
       <div>
-        <span class="eyebrow">项目生成</span>
-        <h1>生成完整工程成果包</h1>
+        <span class="eyebrow">Mechanical Design Engine</span>
+        <h1>AI毕业设计工程生成系统</h1>
+        <p>从任务书识别、参数设计、结构方案、三维模型、CAD工程图到论文和成果包，按同一套设计数据贯通生成。</p>
       </div>
       <span class="status-pill"><span class="status-dot"></span>{{ stageLabel }}</span>
     </header>
@@ -24,7 +25,7 @@
       <aside class="input-panel panel">
         <div class="panel-title">
           <h2>任务书输入</h2>
-          <p>上传任务书或粘贴要求，右侧会按步骤渐进展示生成状态。</p>
+          <p>上传任务书，开题报告可粘贴到文本区作为补充。系统会先分析需求，再生成完整工程成果包。</p>
         </div>
 
         <div class="drop-zone">
@@ -35,7 +36,7 @@
           </el-upload>
         </div>
 
-        <textarea v-model="taskText" class="text-input" placeholder="粘贴项目要求或任务书正文..."></textarea>
+        <textarea v-model="taskText" class="text-input" placeholder="也可以直接粘贴任务书正文或开题报告关键要求..."></textarea>
 
         <div class="depth-control">
           <button :class="{ active: project.designDepth === 'graduation' }" type="button" @click="project.designDepth = 'graduation'">毕业设计</button>
@@ -43,18 +44,19 @@
         </div>
 
         <button class="primary-button action" type="button" :disabled="!canAnalyze || analyzing" @click="analyze">
-          {{ analyzing ? '正在解析任务...' : '解析任务书' }}
+          {{ analyzing ? '正在识别项目...' : '项目识别与参数设计' }}
         </button>
         <button class="ghost-button action" type="button" :disabled="!targetConfirmed || generating" @click="generate">
-          {{ generating ? '正在生成...' : '生成成果包' }}
+          {{ generating ? '正在生成工程成果...' : '生成模型 / CAD / 论文 / ZIP' }}
         </button>
       </aside>
 
       <section class="output-panel">
         <div class="visual-stage panel">
           <div class="stage-overlay">
-            <span class="status-pill"><span class="status-dot"></span>3D 预览</span>
-            <strong>{{ project.projectTitle || '工程系统预览' }}</strong>
+            <span class="status-pill"><span class="status-dot"></span>3D 装配模型</span>
+            <strong>{{ project.projectTitle || '等待任务书输入' }}</strong>
+            <small>{{ project.equipmentName || '参数与结构生成后，模型会同步更新。' }}</small>
           </div>
           <ModelViewer3D :project="modelProject" />
         </div>
@@ -68,42 +70,154 @@
             <strong>{{ progress }}%</strong>
           </div>
           <div class="loading-line"><span :style="{ width: `${progress}%` }"></span></div>
-          <div class="steps">
-            <div v-for="step in processSteps" :key="step.label" :class="{ done: step.index <= currentStep }">
-              <i></i>
+          <div class="design-flow">
+            <div v-for="step in processSteps" :key="step.index" :class="stepClass(step.index)">
+              <i>{{ stepMark(step.index) }}</i>
               <span>{{ step.label }}</span>
             </div>
           </div>
         </div>
+      </section>
+    </section>
 
-        <div class="artifact-strip">
-          <article class="product-card artifact-card">
-            <span>CAD</span>
-            <strong>{{ groups.cad.length || '--' }}</strong>
-            <small>图纸文件</small>
-          </article>
-          <article class="product-card artifact-card">
-            <span>论文</span>
-            <strong>{{ groups.document.length || '--' }}</strong>
-            <small>文档文件</small>
-          </article>
-          <article class="product-card artifact-card">
-            <span>ZIP</span>
-            <strong>{{ groups.package.length || '--' }}</strong>
-            <small>成果包</small>
+    <section class="analysis-grid">
+      <article class="product-card result-card">
+        <span>项目识别</span>
+        <h3>{{ project.projectTitle || '待识别项目' }}</h3>
+        <dl>
+          <div><dt>设备类型</dt><dd>{{ project.equipmentType || project.equipmentName || '--' }}</dd></div>
+          <div><dt>使用场景</dt><dd>{{ project.applicationScenario || '--' }}</dd></div>
+          <div><dt>复杂度</dt><dd>{{ complexityLabel }}</dd></div>
+          <div><dt>核心功能</dt><dd>{{ listText(project.mainFunctions) }}</dd></div>
+        </dl>
+      </article>
+
+      <article class="product-card result-card">
+        <span>参数自动设计</span>
+        <h3>{{ allParameters.length || '--' }} 项设计参数</h3>
+        <div class="parameter-list">
+          <div v-for="item in allParameters.slice(0, 8)" :key="`${item.category}-${item.name}`">
+            <b>{{ item.name }}</b>
+            <strong>{{ formatParameter(item) }}</strong>
+            <small>{{ item.note || item.source || item.basis || item.category }}</small>
+          </div>
+        </div>
+      </article>
+
+      <article class="product-card result-card">
+        <span>零件参数</span>
+        <h3>{{ keyComponents.length || '--' }} 个关键零件</h3>
+        <div class="component-list">
+          <div v-for="part in keyComponents.slice(0, 6)" :key="part.partId || part.name">
+            <strong>{{ part.name }}</strong>
+            <span>{{ part.material || '材料待校核' }} · {{ part.length || 0 }}×{{ part.width || 0 }}×{{ part.height || 0 }}</span>
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <section class="detail-grid">
+      <article class="panel structure-panel">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">Structure</span>
+            <h2>结构方案</h2>
+          </div>
+          <span class="tiny">结构树与装配关系来自后端设计流水线</span>
+        </div>
+        <ul class="structure-tree">
+          <StructureNode :node="project.structureTree" />
+        </ul>
+      </article>
+
+      <article class="panel drawing-panel">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">CAD</span>
+            <h2>图纸预览</h2>
+          </div>
+          <span class="tiny">总装图 / 三视图 / 零件图</span>
+        </div>
+        <div v-if="drawingPreviewUrl" class="drawing-preview">
+          <img :src="drawingPreviewUrl" alt="CAD图纸预览" />
+        </div>
+        <div v-else class="drawing-placeholder">生成完成后显示 CAD 预览图，DXF 图纸可在下方下载。</div>
+        <div class="drawing-files">
+          <button v-for="file in drawingFiles" :key="file.fileName" type="button" @click="downloadFile(file)">
+            <strong>{{ drawingName(file.fileName) }}</strong>
+            <span>{{ file.fileName }}</span>
+          </button>
+        </div>
+      </article>
+    </section>
+
+    <section class="detail-grid">
+      <article class="panel bom-panel">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">BOM</span>
+            <h2>物料清单</h2>
+          </div>
+          <span class="tiny">{{ bomRows.length || 0 }} 项</span>
+        </div>
+        <div class="bom-table">
+          <div class="bom-head"><span>编号</span><span>名称</span><span>数量</span><span>材料</span><span>备注</span></div>
+          <div v-for="item in bomRows.slice(0, 10)" :key="`${item.sequence}-${item.name}`">
+            <span>{{ item.sequence }}</span>
+            <strong>{{ item.name }}</strong>
+            <span>{{ item.quantity }}</span>
+            <span>{{ item.material }}</span>
+            <small>{{ item.remark || '--' }}</small>
+          </div>
+        </div>
+      </article>
+
+      <article class="panel artifact-panel">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">Deliverables</span>
+            <h2>成果下载</h2>
+          </div>
+          <button class="primary-button" type="button" :disabled="!zipArtifact" @click="downloadFile(zipArtifact)">下载ZIP</button>
+        </div>
+        <div class="artifact-grid">
+          <article v-for="file in artifacts" :key="file.fileName" class="artifact-file">
+            <span>{{ artifactType(file) }}</span>
+            <strong>{{ file.fileName }}</strong>
+            <small>{{ file.status === 'failed' ? file.failureReason : formatSize(file.size) }}</small>
+            <button class="ghost-button" type="button" :disabled="file.status === 'failed'" @click="downloadFile(file)">下载</button>
           </article>
         </div>
-      </section>
+      </article>
     </section>
   </main>
 </template>
 
 <script setup>
-import { computed, reactive, ref } from 'vue'
+import { computed, defineComponent, h, onBeforeUnmount, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { analyzeDesignPackage, generateDesignPackage } from '../../api/rewrite'
+import { analyzeDesignPackage, downloadArtifact, generateDesignPackage } from '../../api/rewrite'
 import ModelViewer3D from '../../components/ModelViewer3D.vue'
+
+const StructureNode = defineComponent({
+  name: 'StructureNode',
+  props: { node: { type: Object, default: null } },
+  setup(props) {
+    const renderNode = node => {
+      if (!node) return null
+      const children = Array.isArray(node.children) ? node.children : []
+      return h('li', [
+        h('div', { class: 'tree-node' }, [
+          h('strong', node.name || '未命名结构'),
+          h('span', [node.type || 'structure', node.source ? ` · ${node.source}` : ''])
+        ]),
+        children.length ? h('ul', children.map(renderNode)) : null
+      ])
+    }
+    return () => renderNode(props.node)
+  }
+})
 
 const router = useRouter()
 const files = reactive({})
@@ -115,42 +229,66 @@ const artifacts = ref([])
 const parameters = ref([])
 const packageMessage = ref('等待任务书输入。')
 const currentStep = ref(0)
+const drawingPreviewUrl = ref('')
 
 const processSteps = [
-  { index: 1, label: '解析任务...' },
-  { index: 2, label: '生成结构...' },
-  { index: 3, label: '构建 CAD...' },
-  { index: 4, label: '渲染 3D...' },
-  { index: 5, label: '打包文件...' }
+  { index: 1, label: '项目分析完成' },
+  { index: 2, label: '复杂度分析完成' },
+  { index: 3, label: '参数设计完成' },
+  { index: 4, label: '结构方案完成' },
+  { index: 5, label: '三维模型生成中' },
+  { index: 6, label: 'CAD图纸生成中' },
+  { index: 7, label: 'BOM与论文生成中' },
+  { index: 8, label: '成果包完成' }
 ]
 
 const project = reactive({
   projectTitle: '',
   equipmentName: '',
+  equipmentType: '',
+  applicationScenario: '',
   designType: '',
+  projectCategory: '',
+  workingPrinciple: '',
   designDepth: 'graduation',
+  partCount: 0,
+  featureCount: 0,
+  detailScore: 0,
   mainFunctions: [],
   mainStructures: [],
+  components: [],
+  bom: [],
   explicitParameters: [],
   derivedParameters: [],
-  suggestedParameters: []
+  suggestedParameters: [],
+  technicalRequirements: [],
+  calculations: [],
+  structureTree: { name: '整机', type: 'root', source: 'system', children: [] },
+  assemblyTree: null,
+  assemblyConstraints: [],
+  drawingPlan: null,
+  resolvedParts: [],
+  materials: [],
+  standardParts: [],
+  drawingViews: []
 })
 
 const canAnalyze = computed(() => Boolean(files.taskBook?.raw || taskText.value.trim()))
-const stageLabel = computed(() => generating.value ? processSteps[Math.max(0, currentStep.value - 1)]?.label || '正在生成...' : targetConfirmed.value ? '可以生成' : '等待输入')
-const progress = computed(() => {
-  if (generating.value) return Math.min(98, currentStep.value * 19)
-  if (artifacts.value.length) return 100
-  if (targetConfirmed.value) return 42
-  if (analyzing.value) return 18
-  return 0
+const stageLabel = computed(() => artifacts.value.length ? '成果包已完成' : targetConfirmed.value ? '设计方案已生成' : '等待输入')
+const progress = computed(() => Math.min(100, Math.round((currentStep.value / processSteps.length) * 100)))
+const progressTitle = computed(() => artifacts.value.length ? '完整成果已生成' : targetConfirmed.value ? 'AI设计方案已生成' : generating.value ? '正在生成工程成果' : 'AI设计流程')
+const allParameters = computed(() => parameters.value.length ? parameters.value : flattenParameters(project))
+const keyComponents = computed(() => (project.components || []).filter(item => item.keyPart).length ? (project.components || []).filter(item => item.keyPart) : (project.components || []))
+const bomRows = computed(() => project.bom?.length ? project.bom : project.drawingPlan?.bomTable || [])
+const drawingFiles = computed(() => artifacts.value.filter(file => /\.(dxf|svg|png)$/i.test(file.fileName || '')))
+const zipArtifact = computed(() => artifacts.value.find(file => /\.zip$/i.test(file.fileName || '')))
+const complexityLabel = computed(() => {
+  const score = Number(project.detailScore || 0) + Number(project.partCount || 0) * 2 + Number(project.featureCount || 0)
+  if (score >= 90 || (project.components || []).length >= 12) return '复杂项目'
+  if (score >= 45 || (project.components || []).length >= 6) return '中等项目'
+  if (targetConfirmed.value) return '简单项目'
+  return '--'
 })
-const progressTitle = computed(() => artifacts.value.length ? '成果包已生成' : generating.value ? '正在渐进生成' : targetConfirmed.value ? '解析完成' : '生成状态')
-const groups = computed(() => ({
-  cad: artifacts.value.filter(x => /\.(dxf|svg|png)$/i.test(x.fileName || '')),
-  document: artifacts.value.filter(x => /\.(docx|pdf)$/i.test(x.fileName || '')),
-  package: artifacts.value.filter(x => /\.(zip|json)$/i.test(x.fileName || ''))
-}))
 const modelProject = computed(() => ({
   ...project,
   totalLength: findParameter('总长', 4200),
@@ -160,17 +298,23 @@ const modelProject = computed(() => ({
 
 function setFile(key, file) {
   files[key] = { raw: file.raw, name: file.name }
+  resetGeneratedState('已选择任务书。')
+}
+
+function resetGeneratedState(message) {
   targetConfirmed.value = false
   artifacts.value = []
-  packageMessage.value = '已选择任务书。'
+  revokePreview()
+  packageMessage.value = message
+  currentStep.value = 0
 }
 
 function flattenParameters(source = {}) {
   let id = Date.now()
   return [
-    ...(source.explicitParameters || []).map(row => toRow(row, 'explicit', id++)),
-    ...(source.derivedParameters || []).map(row => toRow(row, 'derived', id++)),
-    ...(source.suggestedParameters || []).map(row => toRow(row, 'suggested', id++))
+    ...(source.explicitParameters || []).map(row => toRow(row, '任务书参数', id++)),
+    ...(source.derivedParameters || []).map(row => toRow(row, '计算参数', id++)),
+    ...(source.suggestedParameters || []).map(row => toRow(row, '建议参数', id++))
   ]
 }
 
@@ -179,7 +323,7 @@ function toRow(row, category, id) {
 }
 
 function findParameter(name, fallback) {
-  const row = parameters.value.find(item => item.name === name)
+  const row = allParameters.value.find(item => item.name === name)
   return Number.isFinite(Number(row?.value)) ? Number(row.value) : fallback
 }
 
@@ -190,15 +334,15 @@ function syncProjectParameters() {
     unit: row.unit || '',
     source: row.note || 'DropAI'
   }))
-  project.explicitParameters = map('explicit')
-  project.derivedParameters = map('derived')
-  project.suggestedParameters = map('suggested')
+  project.explicitParameters = map('任务书参数')
+  project.derivedParameters = map('计算参数')
+  project.suggestedParameters = map('建议参数')
 }
 
 async function analyze() {
   analyzing.value = true
   currentStep.value = 1
-  packageMessage.value = '正在解析任务...'
+  packageMessage.value = '正在识别项目名称、设备类型、使用场景和核心功能...'
   try {
     const form = new FormData()
     form.append('designDepth', project.designDepth)
@@ -206,9 +350,9 @@ async function analyze() {
     if (files.taskBook?.raw) {
       form.append('files', files.taskBook.raw)
       form.append('types', 'TASK_BOOK')
-    }
-    if (taskText.value.trim()) {
-      form.append('text', taskText.value.trim())
+    } else if (taskText.value.trim()) {
+      form.append('files', new File([taskText.value.trim()], '任务书文本.txt', { type: 'text/plain' }))
+      form.append('types', 'TASK_BOOK')
     }
     const result = await analyzeDesignPackage(form)
     const analyzedProject = result.project || {}
@@ -218,9 +362,9 @@ async function analyze() {
     project.designType = result.designType || analyzedProject.designType || project.designType
     parameters.value = flattenParameters(analyzedProject)
     targetConfirmed.value = true
-    currentStep.value = 2
-    packageMessage.value = result.message || '正在生成结构...'
-    ElMessage.success('任务解析完成。')
+    currentStep.value = 4
+    packageMessage.value = result.message || '项目识别、复杂度分析、参数设计和结构方案已完成。'
+    ElMessage.success('工程设计方案已生成。')
   } catch (error) {
     packageMessage.value = error.message || '解析失败。'
     ElMessage.error(packageMessage.value)
@@ -233,21 +377,22 @@ async function generate() {
   if (!targetConfirmed.value) return
   generating.value = true
   artifacts.value = []
+  revokePreview()
   syncProjectParameters()
   try {
-    for (let i = 2; i <= 4; i += 1) {
+    for (let i = 5; i <= 7; i += 1) {
       currentStep.value = i
       packageMessage.value = processSteps[i - 1].label
-      await wait(320)
+      await wait(280)
     }
     const result = await generateDesignPackage(project)
     Object.assign(project, result.project || {})
     parameters.value = flattenParameters(result.project || project)
     artifacts.value = result.artifacts || []
-    currentStep.value = 5
-    packageMessage.value = result.message || '完整成果包已生成。'
-    ElMessage.success('成果包已生成。')
-    router.push({ path: '/result', query: { name: project.projectTitle || 'DropAI 项目' } })
+    currentStep.value = 8
+    packageMessage.value = result.message || '模型、CAD图纸、BOM、论文和ZIP成果包已生成。'
+    await loadDrawingPreview()
+    ElMessage.success('完整工程成果包已生成。')
   } catch (error) {
     packageMessage.value = error.message || '生成失败。'
     ElMessage.error(packageMessage.value)
@@ -256,198 +401,95 @@ async function generate() {
   }
 }
 
+async function loadDrawingPreview() {
+  const preview = artifacts.value.find(file => /cad_preview\.(png|svg)$/i.test(file.fileName || '') && file.downloadUrl)
+  if (!preview) return
+  try {
+    const blob = await downloadArtifact(preview.downloadUrl)
+    revokePreview()
+    drawingPreviewUrl.value = URL.createObjectURL(blob)
+  } catch (error) {
+    console.warn('[DropAI Engineering] CAD preview load failed', error)
+  }
+}
+
+async function downloadFile(file) {
+  if (!file?.downloadUrl) return
+  const blob = await downloadArtifact(file.downloadUrl)
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = file.fileName || 'dropai-engineering-file'
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
+function revokePreview() {
+  if (drawingPreviewUrl.value) URL.revokeObjectURL(drawingPreviewUrl.value)
+  drawingPreviewUrl.value = ''
+}
+
+function stepClass(index) {
+  return { done: index < currentStep.value || artifacts.value.length, active: index === currentStep.value && !artifacts.value.length }
+}
+
+function stepMark(index) {
+  if (index < currentStep.value || artifacts.value.length) return '✓'
+  if (index === currentStep.value) return '◌'
+  return '•'
+}
+
+function listText(items) {
+  return Array.isArray(items) && items.length ? items.slice(0, 4).join('、') : '--'
+}
+
+function formatParameter(item) {
+  const value = item.value ?? '--'
+  return `${value}${item.unit || ''}`
+}
+
+function drawingName(name = '') {
+  if (name === 'assembly.dxf') return '总装图'
+  if (/cad_preview/i.test(name)) return '三视图预览'
+  if (/part_/i.test(name)) return '关键零件图'
+  return '工程图'
+}
+
+function artifactType(file) {
+  const name = file?.fileName || ''
+  if (/\.zip$/i.test(name)) return 'ZIP成果包'
+  if (/\.docx$/i.test(name)) return '论文'
+  if (/\.dxf$/i.test(name)) return 'CAD图纸'
+  if (/model_3d/i.test(name)) return '三维模型数据'
+  if (/\.(png|svg)$/i.test(name)) return '图纸预览'
+  return file?.type || '文件'
+}
+
+function formatSize(size = 0) {
+  if (!size) return '--'
+  return size > 1024 * 1024 ? `${(size / 1024 / 1024).toFixed(2)} MB` : `${Math.max(1, Math.round(size / 1024))} KB`
+}
+
 function wait(ms) {
   return new Promise(resolve => window.setTimeout(resolve, ms))
 }
+
+onBeforeUnmount(revokePreview)
 </script>
 
 <style scoped>
-.brand {
-  border: 0;
-  background: transparent;
-  cursor: pointer;
-}
-
-.builder-head {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 20px;
-  margin-bottom: 22px;
-}
-
-.builder-head h1 {
-  max-width: 760px;
-  margin: 0;
-  overflow-wrap: anywhere;
-  font-size: clamp(32px, 4.6vw, 50px);
-  line-height: 1.1;
-}
-
-.builder-grid {
-  display: grid;
-  grid-template-columns: 40fr 60fr;
-  gap: 18px;
-}
-
-.input-panel {
-  display: grid;
-  align-content: start;
-  gap: 16px;
-  padding: 18px;
-}
-
-.panel-title h2,
-.progress-head h2 {
-  margin: 0 0 8px;
-  font-size: 24px;
-}
-
-.panel-title p,
-.progress-head p {
-  margin: 0;
-  color: var(--muted);
-  line-height: 1.6;
-}
-
-.depth-control {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-}
-
-.depth-control button {
-  min-height: 40px;
-  border: 1px solid rgba(108, 99, 255, 0.12);
-  border-radius: var(--radius);
-  color: var(--muted);
-  background: rgba(255, 255, 255, 0.58);
-  cursor: pointer;
-}
-
-.depth-control .active {
-  color: #fff;
-  border-color: rgba(255, 255, 255, 0.82);
-  background: var(--primary-gradient);
-}
-
-.action {
-  width: 100%;
-}
-
-.output-panel {
-  display: grid;
-  gap: 14px;
-  min-width: 0;
-}
-
-.visual-stage {
-  position: relative;
-  min-height: 540px;
-  overflow: hidden;
-}
-
-.visual-stage :deep(.model-viewer) {
-  min-height: 540px;
-  border-radius: var(--radius);
-}
-
-.stage-overlay {
-  position: absolute;
-  top: 18px;
-  left: 18px;
-  z-index: 2;
-  display: grid;
-  gap: 10px;
-  max-width: min(420px, calc(100% - 36px));
-  pointer-events: none;
-}
-
-.stage-overlay strong {
-  overflow-wrap: anywhere;
-  font-size: clamp(20px, 2.4vw, 26px);
-  line-height: 1.18;
-}
-
-.progress-card {
-  padding: 18px;
-}
-
-.progress-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 18px;
-  margin-bottom: 16px;
-}
-
-.progress-head strong {
-  color: var(--cyan);
-  font-size: 34px;
-}
-
-.steps {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 8px;
-  margin-top: 16px;
-}
-
-.steps div {
-  display: grid;
-  gap: 8px;
-  color: var(--muted-2);
-  font-size: 12px;
-}
-
-.steps i {
-  width: 100%;
-  height: 3px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.1);
-}
-
-.steps .done {
-  color: var(--text);
-}
-
-.steps .done i {
-  background: linear-gradient(90deg, var(--primary), var(--cyan));
-}
-
-.artifact-strip {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-}
-
-.artifact-card {
-  padding: 18px;
-}
-
-.artifact-card span {
-  color: var(--cyan);
-  font-size: 12px;
-}
-
-.artifact-card strong {
-  display: block;
-  margin-top: 8px;
-  font-size: 34px;
-}
-
-.artifact-card small {
-  color: var(--muted);
-}
-
-@media (max-width: 980px) {
-  .builder-grid,
-  .artifact-strip {
-    grid-template-columns: 1fr;
-  }
-
-  .builder-head {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-}
+.brand{border:0;background:transparent;cursor:pointer}.builder-page{width:min(1380px,calc(100% - 40px))}
+.builder-head{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;margin-bottom:22px}.builder-head h1{max-width:860px;margin:0 0 10px;overflow-wrap:anywhere;font-size:clamp(34px,4.8vw,56px);line-height:1.06}.builder-head p{max-width:760px;margin:0;color:var(--muted);line-height:1.7}
+.builder-grid{display:grid;grid-template-columns:380px minmax(0,1fr);gap:18px}.input-panel{display:grid;align-content:start;gap:16px;padding:18px}.panel-title h2,.progress-head h2,.section-head h2{margin:0 0 8px;font-size:24px}.panel-title p,.progress-head p{margin:0;color:var(--muted);line-height:1.6}
+.depth-control{display:grid;grid-template-columns:1fr 1fr;gap:8px}.depth-control button{min-height:40px;border:1px solid rgba(108,99,255,.12);border-radius:var(--radius);color:var(--muted);background:rgba(255,255,255,.58);cursor:pointer}.depth-control .active{color:#fff;border-color:rgba(255,255,255,.82);background:var(--primary-gradient)}.action{width:100%}
+.output-panel{display:grid;gap:14px;min-width:0}.visual-stage{position:relative;min-height:540px;overflow:hidden}.visual-stage :deep(.model-viewer){min-height:540px;border-radius:var(--radius)}.stage-overlay{position:absolute;top:18px;left:18px;z-index:2;display:grid;gap:10px;max-width:min(460px,calc(100% - 36px));pointer-events:none}.stage-overlay strong{overflow-wrap:anywhere;font-size:clamp(20px,2.4vw,28px);line-height:1.18}.stage-overlay small{color:var(--muted)}
+.progress-card{padding:18px}.progress-head{display:flex;justify-content:space-between;gap:18px;margin-bottom:16px}.progress-head strong{color:var(--primary);font-size:34px}.design-flow{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:16px}.design-flow div{display:flex;align-items:center;gap:8px;min-height:42px;padding:10px;border:1px solid rgba(108,99,255,.1);border-radius:8px;color:var(--muted);background:rgba(255,255,255,.45);font-size:13px}.design-flow i{display:grid;place-items:center;width:22px;height:22px;border-radius:999px;background:rgba(108,99,255,.1);font-style:normal}.design-flow .done{color:var(--text);background:rgba(255,255,255,.72)}.design-flow .done i,.design-flow .active i{color:#fff;background:var(--primary-gradient)}
+.analysis-grid,.detail-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-top:18px}.detail-grid{grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr)}.result-card,.structure-panel,.drawing-panel,.bom-panel,.artifact-panel{padding:18px}.result-card>span,.artifact-file>span{color:var(--primary);font-size:12px;font-weight:800}.result-card h3{margin:8px 0 14px;font-size:22px}.result-card dl{display:grid;gap:10px;margin:0}.result-card dl div{display:grid;grid-template-columns:80px 1fr;gap:12px}.result-card dt{color:var(--muted);font-size:13px}.result-card dd{margin:0;line-height:1.55}
+.parameter-list,.component-list{display:grid;gap:10px}.parameter-list div,.component-list div{display:grid;gap:4px;padding:10px;border:1px solid rgba(108,99,255,.1);border-radius:8px;background:rgba(255,255,255,.52)}.parameter-list strong{color:var(--primary)}.parameter-list small,.component-list span{color:var(--muted);font-size:12px}
+.section-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:14px}.structure-tree,.structure-tree ul{display:grid;gap:8px;margin:0;padding-left:18px}.structure-tree{padding-left:0;list-style:none}.structure-tree :deep(li){list-style:none}.tree-node{display:grid;gap:4px;padding:10px;border:1px solid rgba(108,99,255,.1);border-radius:8px;background:rgba(255,255,255,.52)}.tree-node span{color:var(--muted);font-size:12px}
+.drawing-preview{display:grid;place-items:center;min-height:280px;margin-bottom:12px;overflow:hidden;border:1px solid rgba(108,99,255,.1);border-radius:8px;background:rgba(255,255,255,.55)}.drawing-preview img{max-width:100%;max-height:420px;object-fit:contain}.drawing-placeholder{display:grid;place-items:center;min-height:220px;margin-bottom:12px;border:1px dashed rgba(108,99,255,.18);border-radius:8px;color:var(--muted);background:rgba(255,255,255,.42)}.drawing-files{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.drawing-files button{display:grid;gap:4px;padding:12px;border:1px solid rgba(108,99,255,.1);border-radius:8px;color:var(--text);background:rgba(255,255,255,.56);text-align:left;cursor:pointer}.drawing-files span{color:var(--muted);font-size:12px}
+.bom-table{display:grid;gap:6px}.bom-table>div{display:grid;grid-template-columns:56px minmax(130px,1fr) 64px minmax(90px,1fr) minmax(120px,1.2fr);gap:10px;align-items:center;padding:10px;border:1px solid rgba(108,99,255,.1);border-radius:8px;background:rgba(255,255,255,.52);font-size:13px}.bom-table .bom-head{color:var(--muted);font-weight:700;background:rgba(255,255,255,.7)}.bom-table small{color:var(--muted)}
+.artifact-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.artifact-file{display:grid;gap:8px;padding:12px;border:1px solid rgba(108,99,255,.1);border-radius:8px;background:rgba(255,255,255,.52)}.artifact-file strong{overflow-wrap:anywhere}.artifact-file small{color:var(--muted)}
+@media(max-width:1100px){.builder-grid,.analysis-grid,.detail-grid{grid-template-columns:1fr}.design-flow,.drawing-files,.artifact-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.builder-head{align-items:flex-start;flex-direction:column}}
+@media(max-width:680px){.builder-page{width:min(100% - 28px,1380px)}.design-flow,.drawing-files,.artifact-grid{grid-template-columns:1fr}.bom-table>div{grid-template-columns:1fr}.result-card dl div{grid-template-columns:1fr}}
 </style>
