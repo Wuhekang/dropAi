@@ -12,6 +12,7 @@ import com.dropai.rewrite.modules.exportEngine.ExportEngine;
 import com.dropai.rewrite.modules.model.DesignProject;
 import com.dropai.rewrite.modules.paperEngine.PaperEngine;
 import com.dropai.rewrite.modules.parameterEngine.ParameterEngine;
+import com.dropai.rewrite.modules.stepExportEngine.StepExportEngine;
 import com.dropai.rewrite.modules.swMacroEngine.SwMacroEngine;
 import com.dropai.rewrite.modules.structureEngine.StructureEngine;
 import com.dropai.rewrite.vo.DesignPackageVO;
@@ -32,16 +33,17 @@ public class DesignPackageService {
     private static final String DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
     private final ParameterEngine parameterEngine; private final CalculationEngine calculationEngine;
     private final DesignEnhancementEngine designEnhancementEngine; private final StructureEngine structureEngine; private final DrawingEngine drawingEngine; private final SwMacroEngine swMacroEngine;
+    private final StepExportEngine stepExportEngine;
     private final PaperEngine paperEngine; private final ExportEngine exportEngine; private final DocumentJobMapper mapper;
     private final TaskDrivenDesignPipeline designPipeline;
     private final PointService pointService;
 
     @Autowired
     public DesignPackageService(ParameterEngine parameterEngine, CalculationEngine calculationEngine, DesignEnhancementEngine designEnhancementEngine, StructureEngine structureEngine, DrawingEngine drawingEngine,
-                                SwMacroEngine swMacroEngine, PaperEngine paperEngine, ExportEngine exportEngine, DocumentJobMapper mapper,
+                                SwMacroEngine swMacroEngine, StepExportEngine stepExportEngine, PaperEngine paperEngine, ExportEngine exportEngine, DocumentJobMapper mapper,
                                 TaskDrivenDesignPipeline designPipeline, PointService pointService) {
         this.parameterEngine = parameterEngine; this.calculationEngine = calculationEngine; this.designEnhancementEngine = designEnhancementEngine; this.structureEngine = structureEngine; this.drawingEngine = drawingEngine;
-        this.swMacroEngine = swMacroEngine; this.paperEngine = paperEngine; this.exportEngine = exportEngine; this.mapper = mapper;
+        this.swMacroEngine = swMacroEngine; this.stepExportEngine = stepExportEngine; this.paperEngine = paperEngine; this.exportEngine = exportEngine; this.mapper = mapper;
         this.designPipeline = designPipeline;
         this.pointService = pointService;
     }
@@ -57,6 +59,7 @@ public class DesignPackageService {
         List<Generated> generated = new ArrayList<>();
         generated.add(generateOne("MechanicalDesignPlan.json", "application/json", () -> exportEngine.mechanicalDesignPlan(project)));
         generated.add(generateOne("model_3d.json", "application/json", () -> exportEngine.model3d(project)));
+        generated.addAll(generateGroup(List.of("assembly.step", "part_01.step", "part_02.step", "part_03.step", "part_04.step", "part_05.step"), () -> stepExportEngine.export(project)));
         generated.addAll(generateGroup(List.of("assembly.dxf"), () -> drawingEngine.drawAssemblyDrawing(project)));
         generated.addAll(generateGroup(List.of("cad_preview.svg", "cad_preview.png"), () -> drawingEngine.drawAssemblyPreview(project)));
         generated.addAll(generateGroup(List.of("part_01.dxf", "part_02.dxf", "part_03.dxf", "part_04.dxf", "part_05.dxf"), () -> drawingEngine.drawPartDrawing(project)));
@@ -161,6 +164,7 @@ public class DesignPackageService {
         if (name.endsWith(".pdf")) return "application/pdf";
         if (name.endsWith(".zip")) return "application/zip";
         if (name.endsWith(".json")) return "application/json";
+        if (name.endsWith(".step") || name.endsWith(".stp")) return "model/step";
         return "text/plain";
     }
     private String fileType(String name) {

@@ -2,8 +2,10 @@ package com.dropai.rewrite.modules.standardPartSelector;
 
 import com.dropai.rewrite.modules.model.DesignProject;
 import com.dropai.rewrite.modules.parametricStandardPartGeometryGenerator.ParametricStandardPartGeometryGenerator;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -19,11 +21,18 @@ public class StandardPartSelector {
 
     private final StandardPartCache cache;
     private final OnlineStandardPartProvider onlineProvider;
+    private final LocalStandardPartDatabase localDatabase;
     private final ParametricStandardPartGeometryGenerator featureGenerator = new ParametricStandardPartGeometryGenerator();
 
     public StandardPartSelector(StandardPartCache cache, OnlineStandardPartProvider onlineProvider) {
+        this(cache, onlineProvider, new LocalStandardPartDatabase(new ObjectMapper()));
+    }
+
+    @Autowired
+    public StandardPartSelector(StandardPartCache cache, OnlineStandardPartProvider onlineProvider, LocalStandardPartDatabase localDatabase) {
         this.cache = cache;
         this.onlineProvider = onlineProvider;
+        this.localDatabase = localDatabase;
     }
 
     public DesignProject select(DesignProject project) {
@@ -49,13 +58,14 @@ public class StandardPartSelector {
         if (category.isBlank()) return unresolved(name, parent);
 
         StandardPartQuery query = new StandardPartQuery(category, name, requirements(category, project));
-        Optional<StandardPartResult> selected = onlineProvider.search(query).map(result -> mark(result, "online_found"));
+        Optional<StandardPartResult> selected = localDatabase.find(query).map(result -> mark(result, "local_library"));
         if (selected.isPresent()) {
             cache.save(query, selected.get());
-            onlineProvider.cacheResult(selected.get());
         } else {
             selected = cache.find(query).map(result -> mark(result, "cache_found"));
         }
+        if (selected.isEmpty()) selected = onlineProvider.search(query).map(result -> mark(result, "online_found"));
+        selected.ifPresent(onlineProvider::cacheResult);
         if (selected.isEmpty()) selected = Optional.of(fallbackResult(query));
 
         DesignProject.DesignPart part = toPart(selected.get(), name, parent);
@@ -158,7 +168,10 @@ public class StandardPartSelector {
         if (containsAny(name, "导轨", "滑轨", "滑块", "rail", "linear guide")) return "rail";
         if (containsAny(name, "联轴器", "coupling")) return "coupling";
         if (containsAny(name, "螺栓", "螺钉", "紧固螺栓", "固定螺栓", "bolt", "screw")) return "bolt";
+        if (containsAny(name, "螺母", "nut")) return "nut";
+        if (containsAny(name, "垫片", "垫圈", "washer")) return "washer";
         if (containsAny(name, "链轮", "sprocket")) return "sprocket";
+        if (containsAny(name, "齿轮", "gear")) return "gear";
         if (containsAny(name, "同步带轮", "timing pulley")) return "timing_pulley";
         if (containsAny(name, "滚轮", "支重轮", "驱动轮", "从动轮", "轮", "roller", "wheel")) return "roller";
         if (containsAny(name, "传动轴", "轮轴", "刷盘连接轴", "轴", "shaft")) return "shaft";

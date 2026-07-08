@@ -3,6 +3,7 @@ package com.dropai.rewrite.modules.designPipeline;
 import com.dropai.rewrite.modules.assemblyBuilder.AssemblyBuilder;
 import com.dropai.rewrite.modules.assemblyPlannerAgent.AssemblyPlannerAgent;
 import com.dropai.rewrite.modules.bomGenerator.BOMGenerator;
+import com.dropai.rewrite.modules.cadFeatureGenerator.CADFeatureGenerator;
 import com.dropai.rewrite.modules.calculationEngine.CalculationEngine;
 import com.dropai.rewrite.modules.drawingPlanBuilder.DrawingPlanBuilder;
 import com.dropai.rewrite.modules.drawingPlannerAgent.DrawingPlannerAgent;
@@ -33,6 +34,7 @@ public class TaskDrivenDesignPipeline {
     private final StructureTreeBuilder structureTreeBuilder;
     private final MechanicalDesignAgent mechanicalDesignAgent = new MechanicalDesignAgent();
     private final PartGeneratorAgent partGeneratorAgent = new PartGeneratorAgent();
+    private final CADFeatureGenerator cadFeatureGenerator = new CADFeatureGenerator();
     private final AssemblyPlannerAgent assemblyPlannerAgent = new AssemblyPlannerAgent();
     private final DrawingPlannerAgent drawingPlannerAgent = new DrawingPlannerAgent();
     private final PartResolver partResolver;
@@ -98,6 +100,7 @@ public class TaskDrivenDesignPipeline {
         project = structureTreeBuilder.build(project);
         project = mechanicalDesignAgent.design(project);
         project = partGeneratorAgent.generate(project, partResolver);
+        project = cadFeatureGenerator.generate(project);
         project = assemblyBuilder.build(project);
         project = assemblyPlannerAgent.plan(project);
         project = bomGenerator.generate(project);

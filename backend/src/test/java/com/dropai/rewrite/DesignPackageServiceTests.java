@@ -17,6 +17,7 @@ import com.dropai.rewrite.modules.paperEngine.PaperEngine;
 import com.dropai.rewrite.modules.parameterEngine.ParameterEngine;
 import com.dropai.rewrite.modules.projectAnalyzer.ProjectAnalyzer;
 import com.dropai.rewrite.modules.projectSessionReset.ProjectSessionReset;
+import com.dropai.rewrite.modules.stepExportEngine.StepExportEngine;
 import com.dropai.rewrite.modules.standardPartSelector.MockOnlineStandardPartProvider;
 import com.dropai.rewrite.modules.standardPartSelector.StandardPartCache;
 import com.dropai.rewrite.modules.standardPartSelector.StandardPartSelector;
@@ -65,7 +66,7 @@ class DesignPackageServiceTests {
                 ((java.util.function.Supplier<?>) invocation.getArgument(2)).get());
         DesignPackageService service = new DesignPackageService(
                 parameterEngine, calculationEngine, new DesignEnhancementEngine(), new StructureEngine(), new DrawingEngine(), new SwMacroEngine(),
-                new PaperEngine(), new ExportEngine(new ObjectMapper()), mapper, pipeline, pointService);
+                new StepExportEngine(), new PaperEngine(), new ExportEngine(new ObjectMapper()), mapper, pipeline, pointService);
         AuthContext.setUserId(1L);
 
         DesignPackageVO result = service.generate(validProject());
@@ -73,8 +74,11 @@ class DesignPackageServiceTests {
         assertEquals("success", result.getStatus());
         assertTrue(result.getArtifacts().stream().allMatch(item -> "success".equals(item.getStatus())));
         assertTrue(result.getArtifacts().stream().allMatch(item -> item.getSize() > 0 && item.getDownloadUrl() != null));
-        assertEquals(11, result.getArtifacts().size());
+        assertEquals(18, result.getArtifacts().size());
+        assertTrue(result.getArtifacts().stream().anyMatch(item -> "MechanicalDesignPlan.json".equals(item.getName())));
         assertTrue(result.getArtifacts().stream().anyMatch(item -> "model_3d.json".equals(item.getName())));
+        assertTrue(result.getArtifacts().stream().anyMatch(item -> "assembly.step".equals(item.getName())));
+        assertTrue(result.getArtifacts().stream().anyMatch(item -> "part_05.step".equals(item.getName())));
         assertTrue(result.getArtifacts().stream().anyMatch(item -> "paper.docx".equals(item.getName())));
         assertTrue(result.getArtifacts().stream().anyMatch(item -> "project_package.zip".equals(item.getName())));
         assertTrue(result.getArtifacts().stream().anyMatch(item -> "assembly.dxf".equals(item.getName())));

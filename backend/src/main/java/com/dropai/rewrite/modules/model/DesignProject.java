@@ -1,6 +1,7 @@
 package com.dropai.rewrite.modules.model;
 
 import com.dropai.rewrite.modules.mechanicalDesignPlanner.MechanicalDesignPlan;
+import com.dropai.rewrite.modules.cadFeatureGenerator.CADFeature;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -334,6 +335,7 @@ public class DesignProject {
         private String generatedBy = "";
         private List<String> geometryFeatures = new ArrayList<>();
         private List<String> featureTree = new ArrayList<>();
+        private List<CADFeature> cadFeatures = new ArrayList<>();
         private String modelingMethod = "feature_based_parametric";
         private String material = "";
         private String process = "";
@@ -359,6 +361,7 @@ public class DesignProject {
         public String getGeneratedBy() { return generatedBy; } public void setGeneratedBy(String v) { generatedBy = v; }
         public List<String> getGeometryFeatures() { return geometryFeatures; } public void setGeometryFeatures(List<String> v) { geometryFeatures = safe(v); }
         public List<String> getFeatureTree() { return featureTree; } public void setFeatureTree(List<String> v) { featureTree = safe(v); }
+        public List<CADFeature> getCadFeatures() { return cadFeatures; } public void setCadFeatures(List<CADFeature> v) { cadFeatures = safe(v); }
         public String getModelingMethod() { return modelingMethod; } public void setModelingMethod(String v) { modelingMethod = v; }
         public String getMaterial() { return material; } public void setMaterial(String v) { material = v; }
         public String getProcess() { return process; } public void setProcess(String v) { process = v; }
