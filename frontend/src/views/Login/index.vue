@@ -46,5 +46,8 @@ async function submit() {
 </script>
 
 <style scoped>
-.login-page{min-height:100vh;display:grid;place-items:center;padding:24px;background:linear-gradient(135deg,#eff6ff,#f8fafc)}.login-card{width:min(440px,100%);text-align:center}.phone-mark{width:68px;height:68px;margin:0 auto 18px;border-radius:20px;display:grid;place-items:center;color:white;background:#2563eb;font-weight:700;font-size:18px}h1{margin:0 0 10px;font-size:27px}p{color:#64748b;line-height:1.7;margin-bottom:24px}.notice{margin-top:18px;text-align:left}
+.login-page{min-height:100vh;display:grid;place-items:center;padding:24px;background:radial-gradient(circle at 12% -8%,rgba(255,126,179,.24),transparent 32rem),radial-gradient(circle at 88% 2%,rgba(79,172,254,.22),transparent 30rem),linear-gradient(135deg,#fff,#fff5fa 48%,#f3f8ff)}
+.login-card{width:min(440px,100%);text-align:center;border:1px solid var(--line);border-radius:8px;background:rgba(255,255,255,.7);box-shadow:var(--shadow);backdrop-filter:blur(20px);animation:page-in .55s ease both}
+.phone-mark{width:68px;height:68px;margin:0 auto 18px;border-radius:20px;display:grid;place-items:center;color:white;background:var(--primary-gradient);font-weight:700;font-size:18px;box-shadow:0 18px 38px rgba(108,99,255,.22)}
+h1{margin:0 0 10px;font-size:27px;color:var(--text)}p{color:var(--muted);line-height:1.7;margin-bottom:24px}.notice{margin-top:18px;text-align:left}
 </style>

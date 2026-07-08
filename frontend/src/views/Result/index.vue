@@ -6,7 +6,8 @@
         <span>DropAI</span>
       </button>
       <div class="nav-links">
-        <button type="button" @click="router.push('/new-project')">项目生成</button>
+        <button type="button" @click="router.push('/new-project')">机械设计</button>
+        <button type="button" @click="router.push('/computer-generator')">工程生成</button>
         <button type="button" @click="router.push('/dashboard')">控制台</button>
         <button class="primary-button" type="button" :disabled="!zipFile" @click="download(zipFile)">下载</button>
       </div>

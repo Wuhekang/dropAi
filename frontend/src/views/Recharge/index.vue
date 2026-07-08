@@ -151,8 +151,12 @@ onMounted(loadData)
 .recharge-page {
   min-height: 100vh;
   padding: 32px;
-  background: #f5f7fb;
-  color: #111827;
+  color: var(--text);
+  background:
+    radial-gradient(circle at 12% -8%, rgba(255, 126, 179, 0.22), transparent 32rem),
+    radial-gradient(circle at 88% 2%, rgba(79, 172, 254, 0.2), transparent 30rem),
+    linear-gradient(135deg, #fff, #fff5fa 48%, #f3f8ff);
+  animation: page-in .55s ease both;
 }
 
 .page-header,
@@ -177,15 +181,17 @@ onMounted(loadData)
 .section-head p,
 .hint {
   margin: 8px 0 0;
-  color: #6b7280;
+  color: var(--muted);
 }
 
 .balance,
 .pay-panel,
 .orders {
-  border: 1px solid #dbe3ef;
+  border: 1px solid var(--line);
   border-radius: 8px;
-  background: #fff;
+  background: rgba(255, 255, 255, 0.65);
+  box-shadow: var(--blur-shadow);
+  backdrop-filter: blur(20px);
 }
 
 .balance {
@@ -196,12 +202,12 @@ onMounted(loadData)
 }
 
 .balance span {
-  color: #6b7280;
+  color: var(--muted);
   font-size: 13px;
 }
 
 .balance strong {
-  color: #2563eb;
+  color: var(--primary);
   font-size: 28px;
 }
 
@@ -218,17 +224,19 @@ onMounted(loadData)
   gap: 10px;
   min-height: 128px;
   padding: 20px;
-  border: 1px solid #dbe3ef;
+  border: 1px solid var(--line);
   border-radius: 8px;
-  background: #fff;
-  color: #111827;
+  background: rgba(255, 255, 255, 0.65);
+  color: var(--text);
+  box-shadow: var(--blur-shadow);
+  backdrop-filter: blur(20px);
   text-align: left;
   cursor: pointer;
 }
 
 .plan-card.active {
-  border-color: #2563eb;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+  border-color: rgba(255, 126, 179, 0.46);
+  box-shadow: 0 0 0 4px rgba(255, 126, 179, 0.12), var(--blur-shadow);
 }
 
 .plan-card strong {
@@ -241,8 +249,8 @@ onMounted(loadData)
   right: 12px;
   padding: 3px 8px;
   border-radius: 999px;
-  background: #eaf2ff;
-  color: #2563eb;
+  background: rgba(255, 126, 179, 0.14);
+  color: var(--primary);
   font-size: 12px;
 }
 
@@ -268,7 +276,7 @@ onMounted(loadData)
   gap: 12px;
   align-items: center;
   padding: 12px 0;
-  border-top: 1px solid #edf1f7;
+  border-top: 1px solid rgba(108, 99, 255, 0.1);
 }
 
 @media (max-width: 760px) {

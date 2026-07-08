@@ -7,8 +7,8 @@
       </button>
       <nav>
         <button class="active" type="button">总览</button>
-        <button type="button" @click="router.push('/new-project')">项目生成</button>
-        <button type="button" @click="router.push('/computer-generator')">计算机项目</button>
+        <button type="button" @click="router.push('/new-project')">机械设计</button>
+        <button type="button" @click="router.push('/computer-generator')">工程生成</button>
         <button type="button" @click="router.push('/rewrite')">论文优化</button>
         <button type="button" @click="router.push('/recharge')">积分</button>
         <button v-if="isAdmin" type="button" @click="router.push('/points-admin')">积分配置</button>
@@ -25,7 +25,7 @@
           <p>最近项目、积分和下载记录，都收在一个清爽的工作区里。</p>
         </div>
         <div class="head-actions">
-          <button class="ghost-button" type="button" @click="router.push('/computer-generator')">计算机项目</button>
+          <button class="ghost-button" type="button" @click="router.push('/computer-generator')">工程生成</button>
           <button class="primary-button" type="button" @click="router.push('/new-project')">生成项目</button>
         </div>
       </header>
@@ -212,8 +212,8 @@ onMounted(() => {
 .sidebar nav button:hover,
 .sidebar nav .active {
   color: var(--text);
-  border-color: var(--line);
-  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(108, 99, 255, 0.16);
+  background: rgba(255, 255, 255, 0.62);
 }
 
 .signout {
@@ -304,17 +304,17 @@ onMounted(() => {
   justify-content: space-between;
   gap: 12px;
   padding: 15px;
-  border: 1px solid var(--line);
+  border: 1px solid rgba(108, 99, 255, 0.1);
   border-radius: var(--radius);
   color: var(--text);
-  background: rgba(255, 255, 255, 0.045);
+  background: rgba(255, 255, 255, 0.56);
   cursor: pointer;
   transition: var(--ease);
 }
 
 .project-list button:hover {
   transform: translateY(-2px);
-  background: rgba(255, 255, 255, 0.075);
+  background: rgba(255, 255, 255, 0.78);
 }
 
 .project-list button span {

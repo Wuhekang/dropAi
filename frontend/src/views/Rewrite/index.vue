@@ -7,8 +7,8 @@
       </button>
       <div class="nav-links">
         <button type="button" @click="router.push('/dashboard')">控制台</button>
-        <button type="button" @click="router.push('/new-project')">工程生成</button>
-        <button type="button" @click="router.push('/computer-generator')">计算机项目</button>
+        <button type="button" @click="router.push('/new-project')">机械设计</button>
+        <button type="button" @click="router.push('/computer-generator')">工程生成</button>
         <button class="ghost-button" type="button" @click="signOut">退出</button>
       </div>
     </nav>
@@ -184,19 +184,18 @@
       </div>
 
       <div v-if="historyLoading" class="history-empty">正在加载文档记录...</div>
-      <div v-else-if="pagedDocuments.length" class="document-table">
-        <div class="table-row table-head">
-          <span>文件名</span>
-          <span>模式</span>
-          <span>时间</span>
-          <span>操作</span>
-        </div>
-        <div v-for="item in pagedDocuments" :key="item.jobId" class="table-row">
-          <strong>{{ item.fileName || '未命名文档' }}</strong>
-          <span>{{ documentModeLabel(item) }}</span>
-          <span>{{ formatTime(item.updatedAt || item.createdAt) }}</span>
-          <button class="ghost-button" type="button" :disabled="item.status !== 'SUCCESS'" @click="downloadDocumentJob(item)">下载</button>
-        </div>
+      <div v-else-if="pagedDocuments.length" class="document-card-flow">
+        <article v-for="item in pagedDocuments" :key="item.jobId" class="document-history-card">
+          <div>
+            <span class="history-type">{{ documentModeLabel(item) }}</span>
+            <strong>{{ item.fileName || '未命名文档' }}</strong>
+            <small>{{ formatTime(item.updatedAt || item.createdAt) }} · {{ statusText(item.status) }}</small>
+          </div>
+          <div class="history-actions">
+            <button class="ghost-button" type="button" @click="setDocumentJob(item)">查看</button>
+            <button class="ghost-button" type="button" :disabled="item.status !== 'SUCCESS'" @click="downloadDocumentJob(item)">下载</button>
+          </div>
+        </article>
       </div>
       <div v-else class="history-empty">暂无文档记录。</div>
 
@@ -228,12 +227,12 @@ import {
 const router = useRouter()
 
 const modes = [
-  { value: 'rewrite', label: '智能降重', apiMode: 'rewrite', featureCode: 'DOCUMENT_REWRITE' },
-  { value: 'humanize', label: '精准降AI', apiMode: 'humanize', featureCode: 'DOCUMENT_HUMANIZE' },
-  { value: 'double', label: '双降', apiMode: 'double', featureCode: 'DOCUMENT_DOUBLE' }
+  { value: 'rewrite', label: '标准优化', apiMode: 'rewrite', featureCode: 'DOCUMENT_REWRITE' },
+  { value: 'humanize', label: 'AI痕迹优化', apiMode: 'humanize', featureCode: 'DOCUMENT_HUMANIZE' },
+  { value: 'double', label: '深度优化', apiMode: 'double', featureCode: 'DOCUMENT_DOUBLE' }
 ]
 
-const docMode = ref('rewrite')
+const docMode = ref('humanize')
 const selectedDocument = ref(null)
 const fileInput = ref(null)
 const dragging = ref(false)
@@ -248,7 +247,7 @@ const documentJobs = ref([])
 const documentPrecheck = reactive({ ready: false, requestId: '', charCount: 0, costPoints: 0, currentPoints: 0, canProcess: false })
 const documentJob = reactive({ jobId: '', fileName: '', status: '', message: '', downloadUrl: '', modeName: '', charCount: 0, totalParagraphs: 0, processedParagraphs: 0 })
 
-const textMode = ref('rewrite')
+const textMode = ref('humanize')
 const originalText = ref('')
 const originalSnapshot = ref('')
 const rewrittenText = ref('')
@@ -343,7 +342,7 @@ async function submitText() {
   try {
     const result = await submitRewrite({
       originalText: originalText.value,
-      rewriteType: activeTextMode.value.label,
+      rewriteType: activeTextMode.value.apiMode,
       platform: 'GENERAL'
     })
     originalSnapshot.value = originalText.value
@@ -661,10 +660,10 @@ onBeforeUnmount(stopDocumentPolling)
 <style scoped>
 .rewrite-product {
   width: min(1280px, calc(100% - 48px));
-  --title-strong: #f8fafc;
-  --label-clear: #cbd5e1;
-  --copy-clear: #94a3b8;
-  --data-blue: #38bdf8;
+  --title-strong: var(--text);
+  --label-clear: var(--muted);
+  --copy-clear: var(--muted);
+  --data-blue: var(--primary);
 }
 
 .brand {
@@ -736,9 +735,9 @@ onBeforeUnmount(stopDocumentPolling)
   flex: 0 0 auto;
   gap: 4px;
   padding: 4px;
-  border: 1px solid var(--line);
+  border: 1px solid rgba(108, 99, 255, 0.12);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.045);
+  background: rgba(255, 255, 255, 0.58);
 }
 
 .mode-tabs button {
@@ -759,9 +758,9 @@ onBeforeUnmount(stopDocumentPolling)
 
 .mode-tabs button.active {
   color: #fff;
-  border-color: rgba(255, 255, 255, 0.18);
-  background: linear-gradient(135deg, rgba(108, 92, 231, 0.82), rgba(0, 210, 255, 0.28));
-  box-shadow: 0 10px 28px rgba(108, 92, 231, 0.22);
+  border-color: rgba(255, 255, 255, 0.82);
+  background: var(--primary-gradient);
+  box-shadow: 0 10px 28px rgba(108, 99, 255, 0.18);
 }
 
 .document-upload,
@@ -830,9 +829,9 @@ onBeforeUnmount(stopDocumentPolling)
 }
 
 .file-summary div {
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(108, 99, 255, 0.1);
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.035);
+  background: rgba(255, 255, 255, 0.56);
 }
 
 .file-summary div {
@@ -865,30 +864,30 @@ onBeforeUnmount(stopDocumentPolling)
   gap: 7px;
   min-height: 30px;
   padding: 0 12px;
-  border: 1px solid rgba(56, 189, 248, 0.24);
+  border: 1px solid rgba(255, 255, 255, 0.82);
   border-radius: 999px;
-  color: #bae6fd;
+  color: var(--muted);
   font-size: 13px;
   font-weight: 720;
-  background: rgba(56, 189, 248, 0.09);
-  box-shadow: 0 0 28px rgba(56, 189, 248, 0.1);
+  background: rgba(255, 255, 255, 0.62);
+  box-shadow: 0 12px 28px rgba(108, 99, 255, 0.1);
 }
 
 .model-badge i {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #38bdf8;
-  box-shadow: 0 0 14px rgba(56, 189, 248, 0.75);
+  background: var(--soft-gradient);
+  box-shadow: 0 0 14px rgba(255, 126, 179, 0.65);
 }
 
 .process-card {
   min-height: 360px;
   margin-bottom: 18px;
   padding: 22px;
-  border: 1px solid rgba(255, 255, 255, 0.09);
+  border: 1px solid rgba(108, 99, 255, 0.1);
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(255, 255, 255, 0.56);
 }
 
 .process-state {
@@ -988,9 +987,9 @@ onBeforeUnmount(stopDocumentPolling)
 .compare-card {
   min-height: 340px;
   padding: 18px;
-  border: 1px solid var(--line);
+  border: 1px solid rgba(108, 99, 255, 0.1);
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.045);
+  background: rgba(255, 255, 255, 0.56);
 }
 
 .compare-card span {
@@ -1072,40 +1071,51 @@ onBeforeUnmount(stopDocumentPolling)
   animation: spin 0.9s linear infinite;
 }
 
-.document-table {
+.document-card-flow {
   display: grid;
-  overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
 }
 
-.table-row {
-  display: grid;
-  grid-template-columns: minmax(220px, 1fr) 150px 160px 90px;
-  gap: 14px;
+.document-history-card {
+  display: flex;
   align-items: center;
-  min-height: 58px;
-  padding: 0 16px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  justify-content: space-between;
+  gap: 14px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid rgba(108, 99, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.56);
+}
+
+.document-history-card strong,
+.document-history-card small,
+.history-type {
+  display: block;
+}
+
+.document-history-card strong {
+  min-width: 0;
+  margin: 7px 0;
+  overflow-wrap: anywhere;
+  color: var(--text);
+}
+
+.document-history-card small {
   color: var(--muted);
 }
 
-.table-row:last-child {
-  border-bottom: 0;
+.history-type {
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 800;
 }
 
-.table-row strong {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--title-strong);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.table-head {
-  min-height: 52px;
-  color: var(--muted-2);
-  background: rgba(255, 255, 255, 0.045);
+.history-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
 }
 
 .pagination {
@@ -1133,8 +1143,8 @@ onBeforeUnmount(stopDocumentPolling)
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .table-row {
-    grid-template-columns: minmax(180px, 1fr) 120px 130px 78px;
+  .document-card-flow {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -1162,28 +1172,14 @@ onBeforeUnmount(stopDocumentPolling)
     padding: 0 8px;
   }
 
-  .file-summary,
-  .table-row {
+  .file-summary {
     grid-template-columns: 1fr;
   }
 
-  .document-table {
-    gap: 10px;
-    border: 0;
-    overflow: visible;
-  }
-
-  .table-head {
-    display: none;
-  }
-
-  .table-row {
-    gap: 8px;
-    min-height: auto;
-    padding: 14px;
-    border: 1px solid var(--line);
-    border-radius: 14px;
-    background: rgba(255, 255, 255, 0.045);
+  .document-history-card,
+  .history-actions {
+    align-items: stretch;
+    flex-direction: column;
   }
 }
 </style>

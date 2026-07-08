@@ -7,6 +7,7 @@
       </button>
       <div class="nav-links">
         <button type="button" @click="router.push('/dashboard')">控制台</button>
+        <button type="button" @click="router.push('/computer-generator')">工程生成</button>
         <button type="button" @click="router.push('/result')">结果页</button>
       </div>
     </nav>
@@ -317,17 +318,17 @@ function wait(ms) {
 
 .depth-control button {
   min-height: 40px;
-  border: 1px solid var(--line);
+  border: 1px solid rgba(108, 99, 255, 0.12);
   border-radius: var(--radius);
   color: var(--muted);
-  background: rgba(255, 255, 255, 0.045);
+  background: rgba(255, 255, 255, 0.58);
   cursor: pointer;
 }
 
 .depth-control .active {
-  color: var(--text);
-  border-color: rgba(0, 210, 255, 0.36);
-  background: rgba(0, 210, 255, 0.12);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.82);
+  background: var(--primary-gradient);
 }
 
 .action {

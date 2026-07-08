@@ -72,25 +72,20 @@
         </div>
       </template>
 
-      <el-table :data="pricing" empty-text="暂无功能价格配置">
-        <el-table-column prop="featureCode" label="功能编码" min-width="170" />
-        <el-table-column prop="featureName" label="功能名称" min-width="180" />
-        <el-table-column label="消耗积分" width="180">
-          <template #default="{ row }">
-            <el-input-number v-model="row.costPoints" :min="0" :step="10" controls-position="right" />
-          </template>
-        </el-table-column>
-        <el-table-column label="启用" width="110">
-          <template #default="{ row }">
+      <div v-if="pricing.length" class="pricing-grid">
+        <article v-for="row in pricing" :key="row.featureCode" class="pricing-card">
+          <div>
+            <span>{{ row.featureCode }}</span>
+            <strong>{{ displayFeatureName(row) }}</strong>
+          </div>
+          <el-input-number v-model="row.costPoints" :min="0" :step="10" controls-position="right" />
+          <div class="pricing-actions">
             <el-switch v-model="row.enabled" />
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="120">
-          <template #default="{ row }">
             <el-button type="primary" :loading="savingCode === row.featureCode" @click="save(row)">保存</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
+          </div>
+        </article>
+      </div>
+      <el-empty v-else description="暂无功能价格配置" />
     </el-card>
   </main>
 </template>
@@ -175,6 +170,15 @@ function statusType(status) {
   return 'info'
 }
 
+function displayFeatureName(row) {
+  const map = {
+    DOCUMENT_REWRITE: '标准优化',
+    DOCUMENT_HUMANIZE: 'AI痕迹优化',
+    DOCUMENT_DOUBLE: '深度优化'
+  }
+  return map[row.featureCode] || row.featureName
+}
+
 onMounted(() => {
   loadOrders()
   loadPricing()
@@ -186,6 +190,7 @@ onMounted(() => {
   max-width: 1180px;
   margin: 0 auto;
   padding: 38px 24px 70px;
+  animation: page-in .55s ease both;
 }
 
 .admin-header,
@@ -197,7 +202,7 @@ onMounted(() => {
 }
 
 .eyebrow {
-  color: #2563eb;
+  color: var(--primary);
   font-size: 12px;
   font-weight: 800;
   letter-spacing: .15em;
@@ -215,13 +220,47 @@ h2 {
 .admin-header p,
 .section-head p {
   margin: 0;
-  color: #64748b;
+  color: var(--muted);
   line-height: 1.7;
 }
 
 .admin-card {
   border-radius: 8px;
   margin-top: 22px;
+}
+
+.pricing-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.pricing-card {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid rgba(108, 99, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.pricing-card span {
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.pricing-card strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 20px;
+}
+
+.pricing-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .proof {
@@ -237,6 +276,10 @@ h2 {
   .admin-header,
   .section-head {
     display: block;
+  }
+
+  .pricing-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>
