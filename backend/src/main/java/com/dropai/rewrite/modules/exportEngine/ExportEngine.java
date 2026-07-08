@@ -50,6 +50,14 @@ public class ExportEngine {
         }
     }
 
+    public byte[] mechanicalDesignPlan(DesignProject project) {
+        try {
+            return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsBytes(project.getMechanicalDesignPlan());
+        } catch (Exception e) {
+            throw new IllegalStateException("生成机械设计方案JSON失败", e);
+        }
+    }
+
     public byte[] zip(List<DrawingArtifact> artifacts) {
         try (ByteArrayOutputStream output = new ByteArrayOutputStream(); ZipOutputStream zip = new ZipOutputStream(output, StandardCharsets.UTF_8)) {
             for (DrawingArtifact artifact : artifacts) {

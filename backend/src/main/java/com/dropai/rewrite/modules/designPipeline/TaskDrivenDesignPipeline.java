@@ -8,6 +8,7 @@ import com.dropai.rewrite.modules.drawingPlanBuilder.DrawingPlanBuilder;
 import com.dropai.rewrite.modules.drawingPlannerAgent.DrawingPlannerAgent;
 import com.dropai.rewrite.modules.designReferenceAgent.DesignReferenceAgent;
 import com.dropai.rewrite.modules.mechanicalDesignAgent.MechanicalDesignAgent;
+import com.dropai.rewrite.modules.mechanicalDesignPlanner.MechanicalDesignPlanner;
 import com.dropai.rewrite.modules.model.DesignProject;
 import com.dropai.rewrite.modules.nonStandardPartGenerator.NonStandardPartGenerator;
 import com.dropai.rewrite.modules.partGeneratorAgent.PartGeneratorAgent;
@@ -28,6 +29,7 @@ public class TaskDrivenDesignPipeline {
     private final ProjectAnalyzer projectAnalyzer;
     private final RequirementCompleter requirementCompleter;
     private final DesignReferenceAgent designReferenceAgent;
+    private final MechanicalDesignPlanner mechanicalDesignPlanner;
     private final StructureTreeBuilder structureTreeBuilder;
     private final MechanicalDesignAgent mechanicalDesignAgent = new MechanicalDesignAgent();
     private final PartGeneratorAgent partGeneratorAgent = new PartGeneratorAgent();
@@ -44,8 +46,9 @@ public class TaskDrivenDesignPipeline {
                                     StandardPartSelector standardPartSelector, NonStandardPartGenerator nonStandardPartGenerator,
                                     AssemblyBuilder assemblyBuilder, BOMGenerator bomGenerator,
                                     CalculationEngine calculationEngine, DrawingPlanBuilder drawingPlanBuilder) {
-        this(sessionReset, parameterEngine, projectAnalyzer, new RequirementCompleter(), new DesignReferenceAgent(), structureTreeBuilder,
-                standardPartSelector, nonStandardPartGenerator, assemblyBuilder, bomGenerator, calculationEngine,
+        this(sessionReset, parameterEngine, projectAnalyzer, new RequirementCompleter(), new DesignReferenceAgent(),
+                new MechanicalDesignPlanner(), structureTreeBuilder, standardPartSelector, nonStandardPartGenerator,
+                assemblyBuilder, bomGenerator, calculationEngine,
                 drawingPlanBuilder);
     }
 
@@ -53,6 +56,7 @@ public class TaskDrivenDesignPipeline {
     public TaskDrivenDesignPipeline(ProjectSessionReset sessionReset, ParameterEngine parameterEngine,
                                     ProjectAnalyzer projectAnalyzer, RequirementCompleter requirementCompleter,
                                     DesignReferenceAgent designReferenceAgent,
+                                    MechanicalDesignPlanner mechanicalDesignPlanner,
                                     StructureTreeBuilder structureTreeBuilder,
                                     StandardPartSelector standardPartSelector, NonStandardPartGenerator nonStandardPartGenerator,
                                     AssemblyBuilder assemblyBuilder, BOMGenerator bomGenerator,
@@ -62,6 +66,7 @@ public class TaskDrivenDesignPipeline {
         this.projectAnalyzer = projectAnalyzer;
         this.requirementCompleter = requirementCompleter;
         this.designReferenceAgent = designReferenceAgent;
+        this.mechanicalDesignPlanner = mechanicalDesignPlanner;
         this.structureTreeBuilder = structureTreeBuilder;
         this.partResolver = new PartResolver(standardPartSelector, nonStandardPartGenerator);
         this.assemblyBuilder = assemblyBuilder;
@@ -89,6 +94,7 @@ public class TaskDrivenDesignPipeline {
             project = requirementCompleter.complete(project);
         }
         project = projectAnalyzer.analyze(project);
+        project = mechanicalDesignPlanner.plan(project);
         project = structureTreeBuilder.build(project);
         project = mechanicalDesignAgent.design(project);
         project = partGeneratorAgent.generate(project, partResolver);

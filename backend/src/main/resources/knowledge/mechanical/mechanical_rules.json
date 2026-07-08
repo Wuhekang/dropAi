@@ -1,0 +1,81 @@
+{
+  "version": "phase-1",
+  "rules": {
+    "shaft": {
+      "defaultMaterial": "45 steel",
+      "diameterRangeMm": {
+        "small": "10-25",
+        "medium": "25-50",
+        "large": "50-120"
+      },
+      "checks": [
+        "torsion strength",
+        "bending stiffness",
+        "bearing fit"
+      ]
+    },
+    "frame": {
+      "defaultMaterial": "Q235 steel",
+      "connectionMethods": [
+        "welding",
+        "bolt connection"
+      ],
+      "checks": [
+        "overall stiffness",
+        "mounting stability",
+        "weld accessibility"
+      ]
+    },
+    "beltConveyor": {
+      "mainSubsystems": [
+        "frame",
+        "belt",
+        "drive drum",
+        "idler",
+        "tension device",
+        "safety guard"
+      ],
+      "parameterRules": {
+        "beltWidthMm": "300-1000",
+        "beltSpeedMs": "0.5-2.5",
+        "drumDiameterMm": "108-320"
+      }
+    },
+    "settlingChamber": {
+      "mainSubsystems": [
+        "shell",
+        "inlet",
+        "outlet",
+        "guide plate",
+        "ash hopper",
+        "support frame",
+        "maintenance door"
+      ],
+      "parameterRules": {
+        "gasVelocityMs": "0.3-1.5",
+        "hopperAngleDeg": "50-60",
+        "plateThicknessMm": "3-8"
+      }
+    },
+    "wallClimbingRobot": {
+      "mainSubsystems": [
+        "track drive",
+        "magnetic adhesion",
+        "inspection payload",
+        "control box",
+        "protective shell"
+      ],
+      "parameterRules": {
+        "adhesionSafetyFactor": "1.8-3.0",
+        "trackWidthMm": "50-120",
+        "drivePowerW": "60-250"
+      }
+    }
+  },
+  "safetyRules": [
+    "Moving mechanisms require guards where human contact may occur.",
+    "Vertical or wall-climbing devices require anti-fall margin.",
+    "Welded box structures require maintenance openings when internal cleaning is needed.",
+    "Bearing, shaft and coupling selections must share compatible diameter references."
+  ]
+}

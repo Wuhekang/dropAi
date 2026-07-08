@@ -1,0 +1,127 @@
+{
+  "version": "phase-1",
+  "parts": [
+    {
+      "id": "bearing-6205",
+      "name": "Deep groove ball bearing 6205",
+      "standard": "GB/T 276",
+      "category": "bearing",
+      "parameters": {
+        "innerDiameterMm": 25,
+        "outerDiameterMm": 52,
+        "widthMm": 15
+      },
+      "application": "medium shaft support",
+      "stepPath": "knowledge/mechanical/standard_parts/bearing_6205.step"
+    },
+    {
+      "id": "bolt-m8x25",
+      "name": "Hex bolt M8x25",
+      "standard": "GB/T 5782",
+      "category": "bolt",
+      "parameters": {
+        "diameterMm": 8,
+        "lengthMm": 25,
+        "grade": "8.8"
+      },
+      "application": "frame and bracket connection",
+      "stepPath": "knowledge/mechanical/standard_parts/bolt_m8x25.step"
+    },
+    {
+      "id": "nut-m8",
+      "name": "Hex nut M8",
+      "standard": "GB/T 6170",
+      "category": "nut",
+      "parameters": {
+        "diameterMm": 8,
+        "grade": "8"
+      },
+      "application": "bolt fastening",
+      "stepPath": "knowledge/mechanical/standard_parts/nut_m8.step"
+    },
+    {
+      "id": "washer-8",
+      "name": "Flat washer 8",
+      "standard": "GB/T 97.1",
+      "category": "washer",
+      "parameters": {
+        "nominalDiameterMm": 8
+      },
+      "application": "bolt preload distribution",
+      "stepPath": "knowledge/mechanical/standard_parts/washer_8.step"
+    },
+    {
+      "id": "motor-y90s-4",
+      "name": "Y90S-4 asynchronous motor",
+      "standard": "JB/T 9616",
+      "category": "motor",
+      "parameters": {
+        "powerKw": 1.1,
+        "speedRpm": 1400,
+        "voltageV": 380
+      },
+      "application": "small conveyor or rotating drive",
+      "stepPath": "knowledge/mechanical/standard_parts/motor_y90s_4.step"
+    },
+    {
+      "id": "gearbox-wpa60",
+      "name": "WPA60 worm reducer",
+      "standard": "manufacturer series",
+      "category": "reducer",
+      "parameters": {
+        "ratio": 30,
+        "inputPowerKw": 1.5
+      },
+      "application": "low speed conveyor drive",
+      "stepPath": "knowledge/mechanical/standard_parts/gearbox_wpa60.step"
+    },
+    {
+      "id": "coupling-lx3",
+      "name": "LX3 elastic coupling",
+      "standard": "GB/T 5014",
+      "category": "coupling",
+      "parameters": {
+        "shaftDiameterMm": "24-35"
+      },
+      "application": "motor reducer or shaft connection",
+      "stepPath": "knowledge/mechanical/standard_parts/coupling_lx3.step"
+    },
+    {
+      "id": "sprocket-08b-17",
+      "name": "08B chain sprocket 17T",
+      "standard": "GB/T 1243",
+      "category": "sprocket",
+      "parameters": {
+        "teeth": 17,
+        "pitchMm": 12.7
+      },
+      "application": "chain transmission",
+      "stepPath": "knowledge/mechanical/standard_parts/sprocket_08b_17.step"
+    },
+    {
+      "id": "gear-m2-z30",
+      "name": "spur gear m2 z30",
+      "standard": "GB/T 1357",
+      "category": "gear",
+      "parameters": {
+        "module": 2,
+        "teeth": 30,
+        "pressureAngleDeg": 20
+      },
+      "application": "light mechanical transmission",
+      "stepPath": "knowledge/mechanical/standard_parts/gear_m2_z30.step"
+    },
+    {
+      "id": "linear-guide-hgr15",
+      "name": "HGR15 linear guide",
+      "standard": "manufacturer series",
+      "category": "guide rail",
+      "parameters": {
+        "railWidthMm": 15,
+        "blockType": "HGH15"
+      },
+      "application": "linear adjustment mechanism",
+      "stepPath": "knowledge/mechanical/standard_parts/linear_guide_hgr15.step"
+    }
+  ]
+}
