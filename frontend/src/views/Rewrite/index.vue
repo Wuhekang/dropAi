@@ -542,6 +542,9 @@ async function loadHistory() {
   historyLoading.value = true
   try {
     documentJobs.value = await getDocumentJobs() || []
+  } catch (error) {
+    documentJobs.value = []
+    console.warn('[DropAI Rewrite] load history failed', error)
   } finally {
     historyLoading.value = false
   }
@@ -581,11 +584,15 @@ function calculateTextCost(charCount, featureCode) {
 }
 
 function modeLabelFromMode(mode = '') {
-  return modes.find(item => item.apiMode === mode || item.value === mode)?.label || '智能降重'
+  return modes.find(item => item.apiMode === mode || item.value === mode)?.label || '标准优化'
 }
 
 function documentModeLabel(item = {}) {
   return item.modeName || modeLabelFromMode(item.mode)
+}
+
+function statusText(status) {
+  return ({ SUCCESS: '已完成', FAILED: '失败', RUNNING: '处理中', PENDING: '排队中' })[status] || status || '等待中'
 }
 
 function isRewriteDocument(item = {}) {
