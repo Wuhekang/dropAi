@@ -51,6 +51,7 @@ const rechargeLoading = ref(false)
 const noticeVisible = ref(false)
 const notice = ref(null)
 const noticeLoading = ref(false)
+const noticeAllowedRoutes = new Set(['/dashboard'])
 
 function handlePointShortage(event) {
   shortage.value = {
@@ -109,7 +110,11 @@ const noticeHtml = computed(() => renderMarkdown(notice.value?.content || ''))
 async function loadNotice() {
   const token = sessionStorage.getItem('dropai_token')
   const role = sessionStorage.getItem('dropai_role')
-  if (!token || ['/', '/login'].includes(route.path) || role?.toLowerCase() === 'admin' || noticeLoading.value) return
+  if (!noticeAllowedRoutes.has(route.path)) {
+    noticeVisible.value = false
+    return
+  }
+  if (!token || role?.toLowerCase() === 'admin' || noticeLoading.value) return
   noticeLoading.value = true
   try {
     const latest = await getLatestNotice()
