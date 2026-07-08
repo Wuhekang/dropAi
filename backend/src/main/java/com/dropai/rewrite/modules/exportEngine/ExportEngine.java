@@ -59,6 +59,58 @@ public class ExportEngine {
         }
     }
 
+    public byte[] mechanicalPipelineAudit(DesignProject project) {
+        try {
+            return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsBytes(java.util.Map.of(
+                    "projectName", project.getEquipmentName(),
+                    "stages", java.util.List.of(
+                            stage("PROJECT_ANALYZED", project.getProjectAnalysis() != null
+                                    || hasText(project.getProjectTitle()) || hasText(project.getEquipmentName()), "ProjectAnalyzer", "DesignProject.projectAnalysis"),
+                            stage("DESIGN_PLANNED", project.getMechanicalDesignPlan() != null
+                                    && !project.getMechanicalDesignPlan().getSubsystems().isEmpty(), "MechanicalDesignPlanner", "DesignProject.mechanicalDesignPlan"),
+                            stage("STRUCTURE_COMPLETED", project.getStructureTree() != null
+                                    && !project.getStructureTree().getChildren().isEmpty(), "StructureTreeBuilder", "DesignProject.structureTree"),
+                            stage("ASSEMBLY_COMPLETED", project.getAssemblyModel() != null
+                                    && !project.getAssemblyModel().getComponents().isEmpty()
+                                    && !project.getAssemblyModel().getConstraints().isEmpty(), "AssemblyBuilder", "DesignProject.assemblyModel"),
+                            stage("MODEL_COMPLETED", project.getAssemblyModel() != null
+                                    && project.getAssemblyModel().getComponents().size() >= 5, "ExportEngine.model3d", "model_3d.json"),
+                            stage("CAD_COMPLETED", project.getDrawingPlan() != null
+                                    && !project.getDrawingPlan().getMainView().getVisibleParts().isEmpty(), "DrawingPlanBuilder/DrawingEngine", "assembly.dxf"),
+                            stage("DOCUMENT_COMPLETED", !project.getBom().isEmpty()
+                                    && project.getDrawingPlan() != null, "BOMGenerator/PaperEngine", "paper.docx")
+                    ),
+                    "mechanicalDesignPlanInput", project.getMechanicalDesignPlan(),
+                    "structureTreeOutput", project.getStructureTree(),
+                    "assemblyModelOutput", project.getAssemblyModel(),
+                    "model3dInput", java.util.Map.of(
+                            "assemblyModelComponents", project.getAssemblyModel() == null ? 0 : project.getAssemblyModel().getComponents().size(),
+                            "assemblyModelConstraints", project.getAssemblyModel() == null ? 0 : project.getAssemblyModel().getConstraints().size(),
+                            "legacyComponents", project.getComponents().size()
+                    ),
+                    "cadInput", java.util.Map.of(
+                            "assemblyModel", project.getAssemblyModel(),
+                            "drawingPlan", project.getDrawingPlan()
+                    )
+            ));
+        } catch (Exception e) {
+            throw new IllegalStateException("生成机械流水线审计JSON失败", e);
+        }
+    }
+
+    private java.util.Map<String, Object> stage(String code, boolean done, String producer, String output) {
+        return java.util.Map.of(
+                "code", code,
+                "status", done ? "DONE" : "PENDING",
+                "producer", producer,
+                "output", output
+        );
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.isBlank();
+    }
+
     public byte[] modelGenerationReport(DesignProject project) {
         try {
             return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsBytes(java.util.Map.of(

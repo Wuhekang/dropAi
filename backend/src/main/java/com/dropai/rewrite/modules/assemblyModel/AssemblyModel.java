@@ -36,6 +36,7 @@ public class AssemblyModel {
         private String name = "";
         private String type = "";
         private String source = "";
+        private String parent = "";
         private Pose position = new Pose();
         private Pose rotation = new Pose();
         private Size size = new Size();
@@ -49,6 +50,8 @@ public class AssemblyModel {
         public void setType(String type) { this.type = type == null ? "" : type; }
         public String getSource() { return source; }
         public void setSource(String source) { this.source = source == null ? "" : source; }
+        public String getParent() { return parent; }
+        public void setParent(String parent) { this.parent = parent == null ? "" : parent; }
         public Pose getPosition() { return position; }
         public void setPosition(Pose position) { this.position = position == null ? new Pose() : position; }
         public Pose getRotation() { return rotation; }
@@ -65,14 +68,32 @@ public class AssemblyModel {
         private String type = "";
         private String componentA = "";
         private String componentB = "";
+        private String partA = "";
+        private String partB = "";
         private String relation = "";
 
         public String getType() { return type; }
         public void setType(String type) { this.type = type == null ? "" : type; }
         public String getComponentA() { return componentA; }
-        public void setComponentA(String componentA) { this.componentA = componentA == null ? "" : componentA; }
+        public void setComponentA(String componentA) {
+            this.componentA = componentA == null ? "" : componentA;
+            this.partA = this.componentA;
+        }
         public String getComponentB() { return componentB; }
-        public void setComponentB(String componentB) { this.componentB = componentB == null ? "" : componentB; }
+        public void setComponentB(String componentB) {
+            this.componentB = componentB == null ? "" : componentB;
+            this.partB = this.componentB;
+        }
+        public String getPartA() { return partA; }
+        public void setPartA(String partA) {
+            this.partA = partA == null ? "" : partA;
+            this.componentA = this.partA;
+        }
+        public String getPartB() { return partB; }
+        public void setPartB(String partB) {
+            this.partB = partB == null ? "" : partB;
+            this.componentB = this.partB;
+        }
         public String getRelation() { return relation; }
         public void setRelation(String relation) { this.relation = relation == null ? "" : relation; }
     }

@@ -42,11 +42,13 @@ function buildFromAssemblyModel(project = {}, dims) {
       ...component,
       partId: component.id,
       name: component.name,
-      partType: `${component.source || ''}`.includes('standard') ? 'standard' : component.type,
-      category: component.parameters?.geometry || component.type,
+      partType: component.parameters?.partType || component.type,
+      category: component.parameters?.category || component.parameters?.geometry || component.type,
       geometry: component.parameters?.geometry,
       material: component.parameters?.material,
-      modelingMethod: component.parameters?.modelingMethod
+      modelingMethod: component.parameters?.modelingMethod,
+      featureTree: component.parameters?.featureTree || [],
+      cadFeatures: component.parameters?.cadFeatures || []
     }
     const constraint = constraints.find(item => item.componentA === component.id || item.relation?.includes(component.name)) || {}
     return {

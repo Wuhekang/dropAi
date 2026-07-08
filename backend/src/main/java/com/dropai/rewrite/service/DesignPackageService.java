@@ -58,6 +58,7 @@ public class DesignPackageService {
         log.info("开始生成成果包 title={} parameters={}", project.getProjectTitle(), project.allParameters().size());
         List<Generated> generated = new ArrayList<>();
         generated.add(generateOne("MechanicalDesignPlan.json", "application/json", () -> exportEngine.mechanicalDesignPlan(project)));
+        generated.add(generateOne("mechanical-pipeline-audit.json", "application/json", () -> exportEngine.mechanicalPipelineAudit(project)));
         generated.add(generateOne("assembly-model.json", "application/json", () -> exportEngine.assemblyModel(project)));
         generated.add(generateOne("model-generation-report.json", "application/json", () -> exportEngine.modelGenerationReport(project)));
         generated.add(generateOne("model_3d.json", "application/json", () -> exportEngine.model3d(project)));

@@ -43,6 +43,8 @@ public class DrawingPlanBuilder {
         plan.setParameterTable(parameterTable(project));
         plan.setTechnicalRequirements(technicalRequirements());
         score(plan);
+        plan.getQualityNotes().add("CAD input source: AssemblyModel components=" + project.getAssemblyModel().getComponents().size()
+                + ", constraints=" + project.getAssemblyModel().getConstraints().size());
         qualityGate(project, plan);
         project.setDrawingPlan(plan);
         return project;
@@ -57,6 +59,10 @@ public class DrawingPlanBuilder {
         }
         if (project.getComponents() == null || project.getComponents().isEmpty()) {
             throw new IllegalStateException("组件为空，禁止生成CAD图纸");
+        }
+        if (project.getAssemblyModel() == null || project.getAssemblyModel().getComponents().isEmpty()
+                || project.getAssemblyModel().getConstraints().isEmpty()) {
+            throw new IllegalStateException("AssemblyModel为空或装配约束不足，禁止生成CAD图纸");
         }
     }
 

@@ -59,30 +59,42 @@ public class AssemblyBuilder {
                 "y", "overall width direction",
                 "z", "overall height direction"
         )));
-        model.setComponents(project.getComponents().stream().map(this::toAssemblyComponent).toList());
+        model.setComponents(project.getComponents().stream().map(component -> toAssemblyComponent(component, project)).toList());
         model.setConstraints(project.getAssemblyConstraints().stream().map(this::toAssemblyConstraint).toList());
         if (model.getComponents().isEmpty()) model.getValidationMessages().add("assembly incomplete: components=0");
         if (!model.getComponents().isEmpty() && model.getConstraints().isEmpty()) model.getValidationMessages().add("assembly incomplete: constraints=0");
         return model;
     }
 
-    private AssemblyModel.AssemblyComponent toAssemblyComponent(DesignProject.Component component) {
+    private AssemblyModel.AssemblyComponent toAssemblyComponent(DesignProject.Component component, DesignProject project) {
+        DesignProject.DesignPart sourcePart = project.getResolvedParts().stream()
+                .filter(part -> component.getName() != null && component.getName().contains(part.getName()))
+                .findFirst()
+                .orElse(null);
         AssemblyModel.AssemblyComponent item = new AssemblyModel.AssemblyComponent();
         item.setId(component.getPartId());
         item.setName(component.getName());
         item.setType(component.getRole());
         item.setSource(component.getParentAssembly());
+        item.setParent(component.getMountTo());
         item.setPosition(new AssemblyModel.Pose(component.getX(), component.getY(), component.getZ()));
         item.setRotation(new AssemblyModel.Pose(component.getRotation().getX(), component.getRotation().getY(), component.getRotation().getZ()));
         item.setSize(new AssemblyModel.Size(component.getLength(), component.getWidth(), component.getHeight()));
-        item.setParameters(new LinkedHashMap<>(Map.of(
+        Map<String, Object> parameters = new LinkedHashMap<>(Map.of(
                 "geometry", component.getGeometry(),
                 "quantity", component.getQuantity(),
                 "mountTo", component.getMountTo(),
                 "constraintType", component.getConstraintType(),
                 "material", component.getMaterial(),
                 "modelingMethod", component.getModelingMethod()
-        )));
+        ));
+        if (sourcePart != null) {
+            parameters.put("partType", sourcePart.getPartType());
+            parameters.put("category", sourcePart.getCategory());
+            parameters.put("cadFeatures", sourcePart.getCadFeatures());
+            parameters.put("featureTree", sourcePart.getFeatureTree());
+        }
+        item.setParameters(parameters);
         return item;
     }
 
