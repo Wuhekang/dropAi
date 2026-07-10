@@ -275,13 +275,14 @@ const project = reactive({
 
 const canAnalyze = computed(() => Boolean(files.taskBook?.raw || taskText.value.trim()))
 const stageLabel = computed(() => artifacts.value.length ? '成果包已完成' : targetConfirmed.value ? '设计方案已生成' : '等待输入')
-const progress = computed(() => Math.min(100, Math.round((currentStep.value / processSteps.length) * 100)))
-const progressTitle = computed(() => artifacts.value.length ? '完整成果已生成' : targetConfirmed.value ? 'AI设计方案已生成' : generating.value ? '正在生成工程成果' : 'AI设计流程')
 const allParameters = computed(() => parameters.value.length ? parameters.value : flattenParameters(project))
 const keyComponents = computed(() => (project.components || []).filter(item => item.keyPart).length ? (project.components || []).filter(item => item.keyPart) : (project.components || []))
 const bomRows = computed(() => project.bom?.length ? project.bom : project.drawingPlan?.bomTable || [])
 const drawingFiles = computed(() => artifacts.value.filter(file => /\.(dxf|svg|png)$/i.test(file.fileName || '')))
 const zipArtifact = computed(() => artifacts.value.find(file => /\.zip$/i.test(file.fileName || '')))
+const packageSucceeded = computed(() => Boolean(zipArtifact.value) && artifacts.value.every(file => file.status !== 'failed'))
+const progress = computed(() => packageSucceeded.value ? 100 : Math.min(98, Math.round((currentStep.value / processSteps.length) * 100)))
+const progressTitle = computed(() => packageSucceeded.value ? '完整成果已生成' : targetConfirmed.value ? 'AI设计方案已生成' : generating.value ? '正在生成工程成果' : 'AI设计流程')
 const complexityLabel = computed(() => {
   const score = Number(project.detailScore || 0) + Number(project.partCount || 0) * 2 + Number(project.featureCount || 0)
   if (score >= 90 || (project.components || []).length >= 12) return '复杂项目'
@@ -380,19 +381,17 @@ async function generate() {
   revokePreview()
   syncProjectParameters()
   try {
-    for (let i = 5; i <= 7; i += 1) {
-      currentStep.value = i
-      packageMessage.value = processSteps[i - 1].label
-      await wait(280)
-    }
+    currentStep.value = 5
+    packageMessage.value = '后端正在执行三维模型、STEP、CAD、论文和ZIP生成，进度以真实返回结果为准。'
     const result = await generateDesignPackage(project)
     Object.assign(project, result.project || {})
     parameters.value = flattenParameters(result.project || project)
     artifacts.value = result.artifacts || []
-    currentStep.value = 8
+    currentStep.value = result.status === 'success' ? 8 : 7
     packageMessage.value = result.message || '模型、CAD图纸、BOM、论文和ZIP成果包已生成。'
     await loadDrawingPreview()
-    ElMessage.success('完整工程成果包已生成。')
+    if (result.status === 'success') ElMessage.success('完整工程成果包已生成。')
+    else ElMessage.error(packageMessage.value)
   } catch (error) {
     packageMessage.value = error.message || '生成失败。'
     ElMessage.error(packageMessage.value)
@@ -430,11 +429,11 @@ function revokePreview() {
 }
 
 function stepClass(index) {
-  return { done: index < currentStep.value || artifacts.value.length, active: index === currentStep.value && !artifacts.value.length }
+  return { done: packageSucceeded.value || index < currentStep.value, active: index === currentStep.value && !packageSucceeded.value }
 }
 
 function stepMark(index) {
-  if (index < currentStep.value || artifacts.value.length) return '✓'
+  if (packageSucceeded.value || index < currentStep.value) return '✓'
   if (index === currentStep.value) return '◌'
   return '•'
 }
@@ -468,10 +467,6 @@ function artifactType(file) {
 function formatSize(size = 0) {
   if (!size) return '--'
   return size > 1024 * 1024 ? `${(size / 1024 / 1024).toFixed(2)} MB` : `${Math.max(1, Math.round(size / 1024))} KB`
-}
-
-function wait(ms) {
-  return new Promise(resolve => window.setTimeout(resolve, ms))
 }
 
 onBeforeUnmount(revokePreview)

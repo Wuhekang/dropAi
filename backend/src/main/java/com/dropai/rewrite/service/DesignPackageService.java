@@ -8,6 +8,7 @@ import com.dropai.rewrite.modules.designEnhancementEngine.DesignEnhancementEngin
 import com.dropai.rewrite.modules.designPipeline.TaskDrivenDesignPipeline;
 import com.dropai.rewrite.modules.drawingEngine.DrawingArtifact;
 import com.dropai.rewrite.modules.drawingEngine.DrawingEngine;
+import com.dropai.rewrite.modules.exportEngine.DesignDeliverableQualityGate;
 import com.dropai.rewrite.modules.exportEngine.ExportEngine;
 import com.dropai.rewrite.modules.model.DesignProject;
 import com.dropai.rewrite.modules.paperEngine.PaperEngine;
@@ -21,6 +22,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -37,6 +40,7 @@ public class DesignPackageService {
     private final PaperEngine paperEngine; private final ExportEngine exportEngine; private final DocumentJobMapper mapper;
     private final TaskDrivenDesignPipeline designPipeline;
     private final PointService pointService;
+    private final DesignDeliverableQualityGate deliverableQualityGate = new DesignDeliverableQualityGate();
 
     @Autowired
     public DesignPackageService(ParameterEngine parameterEngine, CalculationEngine calculationEngine, DesignEnhancementEngine designEnhancementEngine, StructureEngine structureEngine, DrawingEngine drawingEngine,
@@ -67,19 +71,47 @@ public class DesignPackageService {
         generated.addAll(generateGroup(List.of("cad_preview.svg", "cad_preview.png"), () -> drawingEngine.drawAssemblyPreview(project)));
         generated.addAll(generateGroup(List.of("part_01.dxf", "part_02.dxf", "part_03.dxf", "part_04.dxf", "part_05.dxf"), () -> drawingEngine.drawPartDrawing(project)));
         generated.add(generateOne("paper.docx", DOCX, () -> paperEngine.generatePaper(project)));
-        generated.add(generateOne("project_package.zip", "application/zip", () -> exportEngine.zip(generated.stream()
-                .filter(Generated::success)
-                .map(Generated::artifact)
-                .toList())));
+        List<DrawingArtifact> successfulArtifacts = generated.stream().filter(Generated::success).map(Generated::artifact).toList();
+        DesignDeliverableQualityGate.Report report = deliverableQualityGate.validate(project, successfulArtifacts);
+        if (report.passed()) {
+            generated.add(generateOne("manifest.json", "application/json", () -> manifest(successfulArtifacts, project)));
+            List<DrawingArtifact> zipInputs = generated.stream().filter(Generated::success).map(Generated::artifact).toList();
+            generated.add(generateOne("project_package.zip", "application/zip", () -> exportEngine.zip(zipInputs)));
+        } else {
+            generated.add(new Generated(new DrawingArtifact("project_package.zip", new byte[0], "application/zip"),
+                    "deliverable validation failed: " + String.join("; ", report.errors())));
+        }
 
         DesignPackageVO result = new DesignPackageVO();
         result.setProject(project);
         List<DesignPackageVO.ArtifactVO> artifacts = generated.stream().map(item -> toArtifact(userId, project.getProjectTitle(), item)).toList();
         result.setArtifacts(artifacts);
         long failed = artifacts.stream().filter(item -> "failed".equals(item.getStatus())).count();
-        result.setStatus(failed == 0 ? "success" : failed == artifacts.size() ? "failed" : "partial_success");
-        result.setMessage(failed == 0 ? "全部成果文件生成成功" : "有 " + failed + " 个文件生成失败，请查看失败原因");
+        result.setStatus(failed == 0 ? "success" : "failed");
+        result.setMessage(failed == 0 ? "全部成果文件生成成功" : "成果验收未通过，ZIP未生成；失败文件数：" + failed);
         return result;
+    }
+
+    private byte[] manifest(List<DrawingArtifact> artifacts, DesignProject project) {
+        StringBuilder builder = new StringBuilder();
+        builder.append("{\n");
+        builder.append("  \"projectTitle\": \"").append(json(project.getProjectTitle())).append("\",\n");
+        builder.append("  \"equipmentName\": \"").append(json(project.getEquipmentName())).append("\",\n");
+        builder.append("  \"files\": [\n");
+        for (int i = 0; i < artifacts.size(); i++) {
+            DrawingArtifact artifact = artifacts.get(i);
+            builder.append("    {\"name\":\"").append(json(artifact.fileName()))
+                    .append("\",\"type\":\"").append(json(artifact.mediaType()))
+                    .append("\",\"size\":").append(artifact.content() == null ? 0 : artifact.content().length)
+                    .append(",\"sha256\":\"").append(sha256(artifact.content()))
+                    .append("\",\"stage\":\"").append(stageOf(artifact.fileName()))
+                    .append("\",\"validated\":true}");
+            if (i + 1 < artifacts.size()) builder.append(',');
+            builder.append('\n');
+        }
+        builder.append("  ]\n");
+        builder.append("}\n");
+        return builder.toString().getBytes(StandardCharsets.UTF_8);
     }
 
     private Generated generateOne(String name, String mediaType, Supplier<byte[]> supplier) {
@@ -170,6 +202,31 @@ public class DesignPackageService {
         if (name.endsWith(".step") || name.endsWith(".stp")) return "model/step";
         return "text/plain";
     }
+
+    private String stageOf(String name) {
+        if (name == null) return "unknown";
+        if (name.endsWith(".step") || name.contains("model_3d") || name.contains("assembly-model")) return "model";
+        if (name.endsWith(".dxf") || name.endsWith(".svg") || name.endsWith(".png")) return "drawing";
+        if (name.endsWith(".docx")) return "paper";
+        if (name.endsWith(".json")) return "plan";
+        return "final";
+    }
+
+    private String sha256(byte[] content) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(content == null ? new byte[0] : content);
+            StringBuilder hex = new StringBuilder();
+            for (byte b : digest) hex.append("%02x".formatted(b));
+            return hex.toString();
+        } catch (Exception exception) {
+            return "";
+        }
+    }
+
+    private String json(String value) {
+        return value == null ? "" : value.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
+
     private String fileType(String name) {
         int dot = name == null ? -1 : name.lastIndexOf('.');
         return dot < 0 ? "file" : name.substring(dot + 1).toLowerCase();

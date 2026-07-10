@@ -6,6 +6,8 @@ import com.dropai.rewrite.service.MatrixDesignService;
 import com.dropai.rewrite.service.ParametricDxfService;
 import com.dropai.rewrite.service.PointService;
 import com.dropai.rewrite.service.PointsNotEnoughException;
+import com.dropai.rewrite.service.image.ImageGenerationResult;
+import com.dropai.rewrite.service.image.WanliangImageProvider;
 import com.dropai.rewrite.vo.AiProviderStatusVO;
 import com.dropai.rewrite.vo.DesignAnalysisVO;
 import com.dropai.rewrite.vo.DocumentRewriteJobVO;
@@ -28,13 +30,16 @@ public class EngineeringWritingController {
     private final ParametricDxfService dxfService;
     private final DesignWorkflowService workflowService;
     private final PointService pointService;
+    private final WanliangImageProvider imageProvider;
     public EngineeringWritingController(EngineeringWritingService service, MatrixDesignService matrixDesignService, ParametricDxfService dxfService,
-                                        DesignWorkflowService workflowService, PointService pointService) {
+                                        DesignWorkflowService workflowService, PointService pointService,
+                                        WanliangImageProvider imageProvider) {
         this.service = service;
         this.matrixDesignService = matrixDesignService;
         this.dxfService = dxfService;
         this.workflowService = workflowService;
         this.pointService = pointService;
+        this.imageProvider = imageProvider;
     }
 
     @GetMapping("/ai/status")
@@ -62,6 +67,11 @@ public class EngineeringWritingController {
     @GetMapping("/ai/models")
     public Result<List<String>> aiModels() {
         return Result.success(matrixDesignService.availableModels());
+    }
+
+    @GetMapping("/image/status")
+    public Result<ImageGenerationResult> imageStatus() {
+        return Result.success(imageProvider.health());
     }
 
     @PostMapping("/analyze")
