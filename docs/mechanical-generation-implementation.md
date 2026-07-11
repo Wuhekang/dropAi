@@ -267,3 +267,69 @@
 - Files are persisted as `DocumentJobRecord` rows and exposed through `/api/documents/{jobId}/download`.
 - Final ZIP artifact name: `project_package.zip`.
 - New manifest artifact name: `manifest.json`.
+
+## Phase 9: Mechanical Context and Preview Data Source Fix
+
+Date: 2026-07-11
+
+### Root Cause
+
+- The backend generation chain already reached `AssemblyBuilder`, `StepExportEngine`, `DrawingEngine`, `PaperEngine` and ZIP export in the package service path.
+- The frontend 3D preview still reinterpreted backend assembly data with keyword-specific placement rules for items such as tracks, motors, reducers, frames, settling chambers and conveyors.
+- This meant the page could show a primitive or wrong-looking assembly even when backend `assemblyModel` and constraints existed.
+- The project did not yet emit a single inspectable context artifact that tied plan, structure, parts, constraints, BOM, drawings and paper inputs together.
+- UTF-8 response encoding was not forced in Spring Boot, and the fallback MySQL URL still used `utf8` instead of `utf8mb4`.
+
+### Implementation
+
+- Added `MechanicalDesignContext` as a unified export context built from `DesignProject`.
+- Added `MechanicalDesignContext.json` to the generated design package artifacts.
+- `MechanicalDesignContext.json` now contains:
+  - `projectInfo`;
+  - `mechanicalPlan`;
+  - `structureTree`;
+  - `components`;
+  - `standardParts`;
+  - `nonStandardParts`;
+  - `resolvedParts`;
+  - `assemblyTree`;
+  - `assemblyModel`;
+  - `constraints`;
+  - `bom`;
+  - `calculations`;
+  - `drawingPlan`;
+  - `paperContext`;
+  - status counts for plan, structure, components, constraints, BOM and drawing plan.
+- Rewrote `AssemblyConstraintVisualizer.js` so the browser preview reads only backend `assemblyModel.components` and `assemblyModel.constraints`.
+- Removed frontend keyword layout fallback from the assembly transform path. If backend assembly components or constraints are missing, the preview now refuses to fabricate a model and logs that `AssemblyModel` is not ready.
+- Fixed frontend coordinate mapping:
+  - backend `x` length maps to Three.js `x`;
+  - backend `y` width maps to Three.js `z`;
+  - backend `z` height maps to Three.js `y`.
+- Added forced UTF-8 servlet encoding in `application.yml`.
+- Changed the default MySQL URL to use JDBC `characterEncoding=UTF-8` with `utf8mb4_unicode_ci` collation.
+- Added UTF-8 JSON headers to the shared Axios client.
+- Updated `DesignPackageServiceTests` for the new 24th artifact.
+- Added a `DrawingEngine` safety layer that rebuilds `DrawingPlan` from an existing valid `AssemblyModel`, assembly tree, constraints and components when callers enter drawing generation with an empty or stale plan.
+- The drawing safety layer does not bypass CAD quality gates. Projects without assembly data still fail instead of generating fake drawings.
+
+### Verification
+
+- `mvn.cmd -Dtest=DesignPackageServiceTests test`
+  - Result: passed on 2026-07-11.
+  - Evidence: oil-tank wall-climbing robot generated `MechanicalDesignContext.json`, `MechanicalDesignPlan.json`, `assembly-model.json`, `model_3d.json`, `assembly.step`, five part STEP files, `assembly-validation.json`, `assembly.dxf`, preview SVG/PNG, five part DXF drawings, `paper.docx`, `manifest.json` and `project_package.zip`.
+- `mvn.cmd -Dtest=DesignPackageRegressionTests test`
+  - Result: passed on 2026-07-11.
+  - Evidence: oil-tank wall-climbing robot, gravity settling chamber and belt conveyor each generated final package artifacts including `MechanicalDesignContext.json`, STEP, assembly validation, drawing outputs, paper and ZIP.
+- `npm.cmd run build`
+  - Result: passed on 2026-07-11.
+  - Note: Vite still reports the existing large chunk warning.
+- `mvn.cmd test`
+  - Result: passed on 2026-07-11 after the DrawingEngine plan recovery fix.
+  - Summary: 27 tests, 0 failures, 0 errors.
+
+### Remaining Work
+
+- `MechanicalDesignContext` is currently an exported unified evidence artifact. A later phase should migrate downstream modules to consume it directly instead of reading separate `DesignProject` fields.
+- Existing mojibake string literals in older Java/Vue files still need source-level restoration where they were already corrupted before this phase.
+- `DrawingEngine` still needs a future upgrade from drawing-plan geometry to projection from reopened STEP topology for stricter hidden-line engineering drawings.

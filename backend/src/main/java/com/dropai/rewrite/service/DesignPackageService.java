@@ -73,6 +73,7 @@ public class DesignPackageService {
         reporter.update("STRUCTURE", 34, "Mechanical design plan and structure tree generated");
         log.info("开始生成成果包 title={} parameters={}", project.getProjectTitle(), project.allParameters().size());
         List<Generated> generated = new ArrayList<>();
+        generated.add(generateOne("MechanicalDesignContext.json", "application/json", () -> exportEngine.mechanicalDesignContext(project)));
         generated.add(generateOne("MechanicalDesignPlan.json", "application/json", () -> exportEngine.mechanicalDesignPlan(project)));
         generated.add(generateOne("mechanical-pipeline-audit.json", "application/json", () -> exportEngine.mechanicalPipelineAudit(project)));
         generated.add(generateOne("assembly-model.json", "application/json", () -> exportEngine.assemblyModel(project)));

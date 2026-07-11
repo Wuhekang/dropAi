@@ -1,6 +1,7 @@
 package com.dropai.rewrite.modules.drawingEngine;
 
 import com.dropai.rewrite.modules.model.DesignProject;
+import com.dropai.rewrite.modules.drawingPlanBuilder.DrawingPlanBuilder;
 import org.springframework.stereotype.Service;
 
 import javax.imageio.ImageIO;
@@ -28,6 +29,7 @@ public class DrawingEngine {
     private final DrawingLayoutOptimizer layoutOptimizer = new DrawingLayoutOptimizer();
     private final MechanicalDrawingAgent mechanicalDrawingAgent = new MechanicalDrawingAgent();
     private final MechanicalViewComposer mechanicalViewComposer = new MechanicalViewComposer();
+    private final DrawingPlanBuilder drawingPlanBuilder = new DrawingPlanBuilder();
 
     public List<DrawingArtifact> drawAssemblyDrawing(DesignProject project) {
         validateDrawingPlan(project);
@@ -103,6 +105,7 @@ public class DrawingEngine {
     }
 
     private void validateDrawingPlan(DesignProject project) {
+        ensureDrawingPlan(project);
         DesignProject.DrawingPlan plan = project.getDrawingPlan();
         if (plan == null
                 || !"DrawingPlan".equals(plan.getInputSource())
@@ -115,6 +118,28 @@ public class DrawingEngine {
         dimensionSourceValidator.validateView(plan.getMainView());
         dimensionSourceValidator.validateView(plan.getTopView());
         dimensionSourceValidator.validateView(plan.getSideView());
+    }
+
+    private void ensureDrawingPlan(DesignProject project) {
+        DesignProject.DrawingPlan plan = project.getDrawingPlan();
+        if (plan != null
+                && "DrawingPlan".equals(plan.getInputSource())
+                && !plan.getMainView().getVisibleParts().isEmpty()
+                && !plan.getTopView().getVisibleParts().isEmpty()
+                && !plan.getSideView().getVisibleParts().isEmpty()
+                && plan.getQualityScore() >= 70) {
+            return;
+        }
+        if (project != null
+                && project.getAssemblyModel() != null
+                && !project.getAssemblyModel().getComponents().isEmpty()
+                && !project.getAssemblyModel().getConstraints().isEmpty()
+                && project.getAssemblyTree() != null
+                && !project.getAssemblyTree().getChildren().isEmpty()
+                && project.getComponents() != null
+                && !project.getComponents().isEmpty()) {
+            drawingPlanBuilder.build(project);
+        }
     }
 
     private void frame(Canvas c) {

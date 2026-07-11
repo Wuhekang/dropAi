@@ -1,6 +1,7 @@
 package com.dropai.rewrite.modules.exportEngine;
 
 import com.dropai.rewrite.modules.drawingEngine.DrawingArtifact;
+import com.dropai.rewrite.modules.mechanicalDesignContext.MechanicalDesignContext;
 import com.dropai.rewrite.modules.model.DesignProject;
 import com.dropai.rewrite.modules.modelQualityGate.ModelQualityGate;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -132,6 +133,14 @@ public class ExportEngine {
             return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsBytes(project.getMechanicalDesignPlan());
         } catch (Exception e) {
             throw new IllegalStateException("生成机械设计方案JSON失败", e);
+        }
+    }
+
+    public byte[] mechanicalDesignContext(DesignProject project) {
+        try {
+            return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsBytes(MechanicalDesignContext.from(project).getData());
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to generate MechanicalDesignContext.json", e);
         }
     }
 
