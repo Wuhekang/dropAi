@@ -74,11 +74,12 @@ class DesignPackageServiceTests {
         assertEquals("success", result.getStatus());
         assertTrue(result.getArtifacts().stream().allMatch(item -> "success".equals(item.getStatus())));
         assertTrue(result.getArtifacts().stream().allMatch(item -> item.getSize() > 0 && item.getDownloadUrl() != null));
-        assertEquals(22, result.getArtifacts().size());
+        assertEquals(23, result.getArtifacts().size());
         assertTrue(result.getArtifacts().stream().anyMatch(item -> "MechanicalDesignPlan.json".equals(item.getName())));
         assertTrue(result.getArtifacts().stream().anyMatch(item -> "mechanical-pipeline-audit.json".equals(item.getName())));
         assertTrue(result.getArtifacts().stream().anyMatch(item -> "assembly-model.json".equals(item.getName())));
         assertTrue(result.getArtifacts().stream().anyMatch(item -> "model-generation-report.json".equals(item.getName())));
+        assertTrue(result.getArtifacts().stream().anyMatch(item -> "assembly-validation.json".equals(item.getName())));
         assertTrue(result.getArtifacts().stream().anyMatch(item -> "model_3d.json".equals(item.getName())));
         assertTrue(result.getArtifacts().stream().anyMatch(item -> "assembly.step".equals(item.getName())));
         assertTrue(result.getArtifacts().stream().anyMatch(item -> "part_05.step".equals(item.getName())));

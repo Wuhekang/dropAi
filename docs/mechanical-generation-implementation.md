@@ -51,6 +51,61 @@
   `WANLIANG_BASE_URL`, `WANLIANG_API_KEY`, `WANLIANG_IMAGE_MODEL`, `WANLIANG_IMAGE_ENDPOINT`, `WANLIANG_IMAGE_TIMEOUT`, `WANLIANG_IMAGE_ENABLED`.
 - The provider keeps API keys server-side and does not block CAD deliverables when disabled.
 
+### Phase 5: Real STEP Export And CAD Worker
+
+- Environment detection on 2026-07-11:
+  - Python: available, `Python 3.10.8`.
+  - FreeCAD / FreeCADCmd: not available on PATH.
+  - CadQuery / OCP: installed with user-site packages and verified in non-sandbox execution.
+- Added Python CAD worker:
+  `backend/cad_worker/cad_worker.py`.
+- Replaced pseudo STEP export in `StepExportEngine`:
+  - no longer writes metadata-only ISO-10303 text as a `.step` file;
+  - calls the Python CAD worker;
+  - fails clearly when the CAD worker fails;
+  - does not fall back to fake STEP.
+- CAD worker behavior:
+  - reads `DesignProject` / `AssemblyModel` JSON;
+  - creates CadQuery/OCP B-Rep solids;
+  - exports `assembly.step` and `part_01.step` to `part_05.step`;
+  - reopens exported STEP through OpenCascade;
+  - validates solid count, volume, bounding box, positioned parts and non-origin distribution;
+  - writes `assembly-validation.json`.
+- `DesignPackageService` now includes `assembly-validation.json` in the STEP artifact group.
+- `DesignDeliverableQualityGate` now requires `assembly-validation.json` and rejects packages when `"passed": true` is missing.
+
+### Phase 6: Drawing Quality Gate Hardening
+
+- Existing drawing output remains:
+  - `assembly.dxf`;
+  - `cad_preview.svg`;
+  - `cad_preview.png`;
+  - `part_01.dxf` to `part_05.dxf`.
+- Added drawing validation in `DesignDeliverableQualityGate`:
+  - assembly DXF must contain enough geometry entities;
+  - each part DXF must contain enough geometry entities;
+  - five part DXF drawings must have different SHA-256 hashes;
+  - copied or empty DXF files cannot pass the package gate.
+
+### Phase 7: Wanliang Real Request Adapter
+
+- `WanliangImageProvider` now performs a real HTTP image request when enabled.
+- It reuses existing text provider configuration when dedicated image config is absent:
+  - API key fallback: `WANLIANG_API_KEY -> MATRIX_API_KEY`;
+  - base URL fallback: `WANLIANG_BASE_URL -> MATRIX_BASE_URL`;
+  - endpoint fallback: `{baseUrl}/images/generations`;
+  - model fallback: `WANLIANG_IMAGE_MODEL -> MATRIX_IMAGE_MODEL -> gpt-image-1`.
+- It supports URL, `b64_json`, `base64`, raw `image`, and async `taskId` style responses.
+- It saves generated images under `data/generated-images`.
+- It writes `image-generation-audit.json`.
+- Added backend test endpoint:
+  `POST /api/engineering-writing/image/test`.
+- Actual endpoint probe on 2026-07-11:
+  - endpoint: `MATRIX_BASE_URL + /images/generations` with API key redacted;
+  - result: HTTP `403`;
+  - no image was returned;
+  - this is recorded as a real provider-side blocking result, not treated as success.
+
 ## Test Commands
 
 - Backend compile: `mvn.cmd -DskipTests compile`
@@ -60,12 +115,63 @@
 - Frontend build: `npm.cmd run build`
   - Result: passed on 2026-07-11 with existing Vite chunk-size warning.
 - Targeted test attempt: `mvn.cmd -Dtest=DesignPackageServiceTests test`
-  - Result: failed during `testCompile` because the current Maven test compilation could not resolve main-source packages such as `com.dropai.rewrite.modules.*`; this is an existing environment/test-classpath issue, not a runtime compile failure. Main compile and package both passed.
+  - Previous sandbox result: failed during `testCompile` because the sandboxed Java compiler could not resolve directory classpath entries.
+  - Non-sandbox verification result: passed on 2026-07-11.
+- Targeted CAD test: `mvn.cmd -Dtest=MechanicalCadPipelineTests test`
+  - Result: passed on 2026-07-11.
+  - Covered: standard part selection, CAD features, `AssemblyBuilder`, Java-to-Python CAD worker, real STEP output and `assembly-validation.json`.
+- Targeted package gate test: `mvn.cmd -Dtest=DesignPackageServiceTests test`
+  - Result: passed on 2026-07-11.
+  - Observed artifacts in test log:
+    `assembly.step` size about 819 KB,
+    five part STEP files,
+    `assembly-validation.json`,
+    `assembly.dxf`,
+    `cad_preview.svg`,
+    `cad_preview.png`,
+    five different part DXF files,
+    `paper.docx`,
+    `manifest.json`,
+    `project_package.zip`.
+- Three-project end-to-end regression: `mvn.cmd -Dtest=DesignPackageRegressionTests test`
+  - Result: passed on 2026-07-11.
+  - All three projects generated `project_package.zip`.
+  - All three projects generated `assembly.step`, five part STEP files, `assembly-validation.json`, assembly DXF/SVG/PNG preview, five part DXF drawings, `paper.docx` and `manifest.json`.
+  - The regression asserts that the three final mechanical design plans have different subsystem sets.
+  - Oil-tank wall-climbing robot:
+    - recognized category: wall-climbing inspection robot / crawler and magnetic adsorption mechanism;
+    - assembly STEP size observed in test log: about 672 KB;
+    - assembly validation artifact: generated and accepted by quality gate;
+    - part drawing count: 5;
+    - ZIP size observed in test log: about 235 KB;
+    - final status: success.
+  - Gravity settling chamber:
+    - recognized category: gravity settling separation chamber;
+    - assembly STEP size observed in test log: about 984 KB;
+    - assembly validation artifact: generated and accepted by quality gate;
+    - part drawing count: 5;
+    - ZIP size observed in test log: about 379 KB;
+    - final status: success.
+  - Belt conveyor:
+    - recognized category: belt conveyor / continuous conveying mechanism;
+    - assembly STEP size observed in test log: about 819 KB;
+    - assembly validation artifact: generated and accepted by quality gate;
+    - part drawing count: 5;
+    - ZIP size observed in test log: about 260 KB;
+    - final status: success.
+- CAD worker self-test:
+  - Result: passed on 2026-07-11.
+  - `assembly.step` reopened successfully by OpenCascade.
+  - `solidCount`: 6.
+  - `volume`: greater than 0.
+  - `uniquePositionCount`: 6.
+  - validation status: passed.
 
 ## Remaining Issues
 
-- Current `StepExportEngine` emits STEP metadata in ISO-10303 format, but it is not yet a real FreeCAD/CadQuery B-Rep solid export.
-- Wanliang image generation is guarded by a provider layer, but the exact image request contract still needs provider documentation before real generation is enabled.
+- FreeCAD / FreeCADCmd is not installed on the machine; current real STEP route uses CadQuery/OCP.
+- Drawing generation still uses the final `AssemblyModel` / component geometry data and drawing plan; a future phase should project directly from reopened STEP topology for full hidden-line CAD drafting.
+- Wanliang image endpoint returned HTTP 403 for the tested OpenAI-compatible image endpoint. The provider now records this as an explicit blocked request in `image-generation-audit.json` when called through `/image/test`.
 - Persistent resumable stage state is not yet stored as an independent table; current phase status is represented through artifacts and audit JSON.
 - Existing text in several Java/Vue files contains mojibake from older encoding damage; this task avoided broad re-encoding to reduce risk.
 

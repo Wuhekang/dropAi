@@ -66,7 +66,7 @@ public class DesignPackageService {
         generated.add(generateOne("assembly-model.json", "application/json", () -> exportEngine.assemblyModel(project)));
         generated.add(generateOne("model-generation-report.json", "application/json", () -> exportEngine.modelGenerationReport(project)));
         generated.add(generateOne("model_3d.json", "application/json", () -> exportEngine.model3d(project)));
-        generated.addAll(generateGroup(List.of("assembly.step", "part_01.step", "part_02.step", "part_03.step", "part_04.step", "part_05.step"), () -> stepExportEngine.export(project)));
+        generated.addAll(generateGroup(List.of("assembly.step", "part_01.step", "part_02.step", "part_03.step", "part_04.step", "part_05.step", "assembly-validation.json"), () -> stepExportEngine.export(project)));
         generated.addAll(generateGroup(List.of("assembly.dxf"), () -> drawingEngine.drawAssemblyDrawing(project)));
         generated.addAll(generateGroup(List.of("cad_preview.svg", "cad_preview.png"), () -> drawingEngine.drawAssemblyPreview(project)));
         generated.addAll(generateGroup(List.of("part_01.dxf", "part_02.dxf", "part_03.dxf", "part_04.dxf", "part_05.dxf"), () -> drawingEngine.drawPartDrawing(project)));

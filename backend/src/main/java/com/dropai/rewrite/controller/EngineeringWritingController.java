@@ -7,6 +7,7 @@ import com.dropai.rewrite.service.ParametricDxfService;
 import com.dropai.rewrite.service.PointService;
 import com.dropai.rewrite.service.PointsNotEnoughException;
 import com.dropai.rewrite.service.image.ImageGenerationResult;
+import com.dropai.rewrite.service.image.ImageGenerationRequest;
 import com.dropai.rewrite.service.image.WanliangImageProvider;
 import com.dropai.rewrite.vo.AiProviderStatusVO;
 import com.dropai.rewrite.vo.DesignAnalysisVO;
@@ -72,6 +73,13 @@ public class EngineeringWritingController {
     @GetMapping("/image/status")
     public Result<ImageGenerationResult> imageStatus() {
         return Result.success(imageProvider.health());
+    }
+
+    @PostMapping("/image/test")
+    public Result<ImageGenerationResult> imageTest(@RequestParam(defaultValue = "mechanical product rendering, clean white background") String prompt) {
+        ImageGenerationRequest request = new ImageGenerationRequest();
+        request.setPrompt(prompt);
+        return Result.success(imageProvider.generate(request));
     }
 
     @PostMapping("/analyze")

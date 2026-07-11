@@ -1,83 +1,88 @@
 package com.dropai.rewrite.modules.stepExportEngine;
 
-import com.dropai.rewrite.modules.cadFeatureGenerator.CADFeature;
 import com.dropai.rewrite.modules.drawingEngine.DrawingArtifact;
 import com.dropai.rewrite.modules.model.DesignProject;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
-import java.time.LocalDateTime;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 @Service
 public class StepExportEngine {
+    private static final List<String> REQUIRED_OUTPUTS = List.of(
+            "assembly.step",
+            "part_01.step",
+            "part_02.step",
+            "part_03.step",
+            "part_04.step",
+            "part_05.step",
+            "assembly-validation.json"
+    );
+    private final ObjectMapper objectMapper;
+
+    public StepExportEngine() {
+        this(new ObjectMapper());
+    }
+
+    public StepExportEngine(ObjectMapper objectMapper) {
+        this.objectMapper = objectMapper;
+    }
+
     public List<DrawingArtifact> export(DesignProject project) {
-        List<DrawingArtifact> result = new ArrayList<>();
-        result.add(new DrawingArtifact("assembly.step", step(project, null), "model/step"));
-        List<DesignProject.DesignPart> parts = project.getResolvedParts().stream().limit(5).toList();
-        for (int i = 0; i < parts.size(); i++) {
-            result.add(new DrawingArtifact("part_%02d.step".formatted(i + 1), step(project, parts.get(i)), "model/step"));
-        }
-        return result;
-    }
+        try {
+            Path worker = workerPath();
+            Path workspace = Files.createTempDirectory("dropai-cad-worker-");
+            Path input = workspace.resolve("design-project.json");
+            Path output = workspace.resolve("out");
+            Files.createDirectories(output);
+            objectMapper.writerWithDefaultPrettyPrinter().writeValue(input.toFile(), project);
 
-    private byte[] step(DesignProject project, DesignProject.DesignPart part) {
-        String name = part == null ? safe(project.getEquipmentName(), "assembly") : safe(part.getName(), "part");
-        StringBuilder builder = new StringBuilder();
-        builder.append("ISO-10303-21;\n");
-        builder.append("HEADER;\n");
-        builder.append("FILE_DESCRIPTION(('DropAI parametric mechanical design output'),'2;1');\n");
-        builder.append("FILE_NAME('").append(ascii(name)).append("','").append(LocalDateTime.now()).append("',('DropAI'),('DropAI'),'DropAI StepExportEngine','DropAI','');\n");
-        builder.append("FILE_SCHEMA(('CONFIG_CONTROL_DESIGN'));\n");
-        builder.append("ENDSEC;\n");
-        builder.append("DATA;\n");
-        builder.append("#1=APPLICATION_CONTEXT('mechanical design');\n");
-        builder.append("#2=PRODUCT('").append(ascii(name)).append("','").append(ascii(name)).append("','generated from CADFeatureGenerator',(#1));\n");
-        builder.append("#3=PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE('1','DropAI generated model',#2,.MADE.);\n");
-        builder.append("#4=PRODUCT_DEFINITION('design','CAD feature based model',#3,#1);\n");
-        if (part == null) {
-            appendAssemblyMetadata(builder, project);
-        } else {
-            appendPartMetadata(builder, part);
-        }
-        builder.append("ENDSEC;\n");
-        builder.append("END-ISO-10303-21;\n");
-        return builder.toString().getBytes(StandardCharsets.UTF_8);
-    }
+            Process process = new ProcessBuilder("python", worker.toAbsolutePath().toString(), input.toAbsolutePath().toString(), output.toAbsolutePath().toString())
+                    .redirectErrorStream(true)
+                    .start();
+            boolean finished = process.waitFor(Duration.ofMinutes(4).toMillis(), TimeUnit.MILLISECONDS);
+            String log = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            if (!finished) {
+                process.destroyForcibly();
+                throw new IllegalStateException("CAD Worker timed out after 4 minutes");
+            }
+            if (process.exitValue() != 0) {
+                throw new IllegalStateException("CAD Worker failed: " + log);
+            }
 
-    private void appendAssemblyMetadata(StringBuilder builder, DesignProject project) {
-        int id = 10;
-        builder.append("#").append(id++).append("=DESCRIPTIVE_REPRESENTATION_ITEM('mechanismType','")
-                .append(ascii(project.getMechanicalDesignPlan().getMechanismType())).append("');\n");
-        for (DesignProject.DesignPart part : project.getResolvedParts()) {
-            builder.append("#").append(id++).append("=DESCRIPTIVE_REPRESENTATION_ITEM('component','")
-                    .append(ascii(part.getName())).append("|").append(ascii(part.getPartType())).append("|")
-                    .append(ascii(part.getCategory())).append("');\n");
-        }
-        for (DesignProject.AssemblyConstraint constraint : project.getAssemblyConstraints()) {
-            builder.append("#").append(id++).append("=DESCRIPTIVE_REPRESENTATION_ITEM('constraint','")
-                    .append(ascii(constraint.getPartName())).append("->").append(ascii(constraint.getMountTo())).append("|")
-                    .append(ascii(constraint.getConstraintType())).append("');\n");
+            List<DrawingArtifact> result = new ArrayList<>();
+            for (String name : REQUIRED_OUTPUTS) {
+                Path file = output.resolve(name);
+                if (!Files.exists(file) || Files.size(file) == 0) {
+                    throw new IllegalStateException("CAD Worker did not produce required file: " + name);
+                }
+                result.add(new DrawingArtifact(name, Files.readAllBytes(file), mediaType(name)));
+            }
+            return result;
+        } catch (Exception exception) {
+            throw new IllegalStateException("真实STEP生成失败：" + exception.getMessage(), exception);
         }
     }
 
-    private void appendPartMetadata(StringBuilder builder, DesignProject.DesignPart part) {
-        int id = 10;
-        builder.append("#").append(id++).append("=DESCRIPTIVE_REPRESENTATION_ITEM('partType','").append(ascii(part.getPartType())).append("');\n");
-        builder.append("#").append(id++).append("=DESCRIPTIVE_REPRESENTATION_ITEM('material','").append(ascii(part.getMaterial())).append("');\n");
-        builder.append("#").append(id++).append("=DESCRIPTIVE_REPRESENTATION_ITEM('modelingMethod','").append(ascii(part.getModelingMethod())).append("');\n");
-        for (CADFeature feature : part.getCadFeatures()) {
-            builder.append("#").append(id++).append("=DESCRIPTIVE_REPRESENTATION_ITEM('cadFeature','")
-                    .append(ascii(feature.getType())).append(":").append(ascii(String.valueOf(feature.getParameters()))).append("');\n");
-        }
+    private Path workerPath() {
+        List<Path> candidates = List.of(
+                Path.of("cad_worker", "cad_worker.py"),
+                Path.of("backend", "cad_worker", "cad_worker.py")
+        );
+        return candidates.stream()
+                .filter(Files::exists)
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("未找到CAD Worker脚本 backend/cad_worker/cad_worker.py"));
     }
 
-    private String ascii(String value) {
-        return safe(value, "").replace("\\", "/").replace("'", "").replaceAll("[^\\x20-\\x7E]", "_");
-    }
-
-    private String safe(String value, String fallback) {
-        return value == null || value.isBlank() ? fallback : value;
+    private String mediaType(String name) {
+        if (name.endsWith(".json")) return "application/json";
+        return "model/step";
     }
 }

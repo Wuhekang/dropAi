@@ -4,7 +4,9 @@ import com.dropai.rewrite.modules.drawingEngine.DrawingArtifact;
 import com.dropai.rewrite.modules.model.DesignProject;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.security.MessageDigest;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -16,6 +18,7 @@ public class DesignDeliverableQualityGate {
             "mechanical-pipeline-audit.json",
             "assembly-model.json",
             "model-generation-report.json",
+            "assembly-validation.json",
             "model_3d.json",
             "assembly.step",
             "assembly.dxf",
@@ -49,6 +52,13 @@ public class DesignDeliverableQualityGate {
         }
         assertArtifactSize(artifacts, "assembly.step", MIN_STEP_SIZE, errors);
         assertArtifactSize(artifacts, "paper.docx", MIN_PAPER_SIZE, errors);
+        artifacts.stream().filter(item -> "assembly-validation.json".equals(item.fileName())).findFirst()
+                .ifPresentOrElse(item -> {
+                    String json = new String(item.content(), java.nio.charset.StandardCharsets.UTF_8);
+                    if (!json.contains("\"passed\": true")) {
+                        errors.add("assembly-validation.json did not pass");
+                    }
+                }, () -> errors.add("missing assembly-validation.json"));
         if (project.getAssemblyModel() == null || project.getAssemblyModel().getComponents().size() < 5) {
             errors.add("assembly model has fewer than 5 components");
         }
@@ -70,6 +80,17 @@ public class DesignDeliverableQualityGate {
         if (partDrawings < 5) {
             errors.add("fewer than 5 key part drawings");
         }
+        validateDxfGeometry(artifacts, "assembly.dxf", 35, errors);
+        Set<String> partHashes = new HashSet<>();
+        artifacts.stream()
+                .filter(item -> item.fileName().matches("part_\\d{2}\\.dxf"))
+                .forEach(item -> {
+                    validateDxfGeometry(artifacts, item.fileName(), 20, errors);
+                    String hash = sha256(item.content());
+                    if (!partHashes.add(hash)) {
+                        errors.add("duplicated part drawing content: " + item.fileName());
+                    }
+                });
         return new Report(errors.isEmpty(), errors);
     }
 
@@ -80,6 +101,29 @@ public class DesignDeliverableQualityGate {
                     errors.add(name + " is missing or too small");
                     return null;
                 });
+    }
+
+    private void validateDxfGeometry(List<DrawingArtifact> artifacts, String name, int minEntities, List<String> errors) {
+        artifacts.stream().filter(item -> name.equals(item.fileName())).findFirst().ifPresentOrElse(item -> {
+            String content = new String(item.content(), java.nio.charset.StandardCharsets.UTF_8);
+            long entities = content.lines()
+                    .filter(line -> line.equals("LINE") || line.equals("CIRCLE") || line.equals("TEXT") || line.equals("FILL_RECT"))
+                    .count();
+            if (entities < minEntities) {
+                errors.add(name + " has too few DXF entities: " + entities);
+            }
+        }, () -> errors.add("missing drawing artifact: " + name));
+    }
+
+    private String sha256(byte[] content) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(content == null ? new byte[0] : content);
+            StringBuilder hex = new StringBuilder();
+            for (byte b : digest) hex.append("%02x".formatted(b));
+            return hex.toString();
+        } catch (Exception exception) {
+            return "";
+        }
     }
 
     public record Report(boolean passed, List<String> errors) {}
