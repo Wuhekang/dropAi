@@ -94,6 +94,19 @@ public class PointService {
         ensureEnough(userId, requirePricing(featureCode));
     }
 
+    public int featureCostPoints(String featureCode) {
+        FeaturePricing pricing = requirePricing(featureCode);
+        ensureFeatureEnabled(pricing);
+        return value(pricing.getCostPoints());
+    }
+
+    @Transactional
+    public void deductFeatureForJob(Long userId, String jobId, String featureCode, String remark) {
+        FeaturePricing pricing = requirePricing(featureCode);
+        ensureFeatureEnabled(pricing);
+        deductCustom(userId, jobId, pricing.getFeatureCode(), pricing.getFeatureName(), value(pricing.getCostPoints()), remark);
+    }
+
     public int currentPoints(Long userId) {
         return value(requireUser(userId).getPoints());
     }

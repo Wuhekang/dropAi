@@ -5,10 +5,14 @@ import com.dropai.rewrite.modules.designPipeline.TaskDrivenDesignPipeline;
 import com.dropai.rewrite.modules.documentParser.DocumentParser;
 import com.dropai.rewrite.modules.model.DesignProject;
 import com.dropai.rewrite.service.DesignPackageService;
+import com.dropai.rewrite.service.DesignPackageJobService;
 import com.dropai.rewrite.service.PointsNotEnoughException;
 import com.dropai.rewrite.vo.DesignAnalysisResultVO;
+import com.dropai.rewrite.vo.DesignPackageJobVO;
 import com.dropai.rewrite.vo.DesignPackageVO;
 import com.dropai.rewrite.vo.Result;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -23,13 +27,16 @@ import java.util.List;
 @RequestMapping("/api/design-packages")
 public class DesignPackageController {
     private final DesignPackageService service;
+    private final DesignPackageJobService jobService;
     private final DocumentParser documentParser;
     private final DesignAnalyzer designAnalyzer;
     private final TaskDrivenDesignPipeline designPipeline;
 
-    public DesignPackageController(DesignPackageService service, DocumentParser documentParser, DesignAnalyzer designAnalyzer,
+    public DesignPackageController(DesignPackageService service, DesignPackageJobService jobService,
+                                   DocumentParser documentParser, DesignAnalyzer designAnalyzer,
                                    TaskDrivenDesignPipeline designPipeline) {
         this.service = service;
+        this.jobService = jobService;
         this.documentParser = documentParser;
         this.designAnalyzer = designAnalyzer;
         this.designPipeline = designPipeline;
@@ -38,6 +45,16 @@ public class DesignPackageController {
     @PostMapping("/generate")
     public Result<DesignPackageVO> generate(@RequestBody DesignProject project) {
         return Result.success(service.generate(project));
+    }
+
+    @PostMapping("/jobs")
+    public Result<DesignPackageJobVO> createJob(@RequestBody DesignProject project) {
+        return Result.success(jobService.create(project));
+    }
+
+    @GetMapping("/jobs/{jobId}")
+    public Result<DesignPackageJobVO> getJob(@PathVariable String jobId) {
+        return Result.success(jobService.get(jobId));
     }
 
     @PostMapping("/analyze")

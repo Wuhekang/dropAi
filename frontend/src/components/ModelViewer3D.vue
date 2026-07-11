@@ -80,13 +80,13 @@ function setModel() {
   }
   qualityInfo.value = model.value?.userData?.quality || null
   if (model.value?.userData?.qualityFailed) {
-    statusMessage.value = '\u6a21\u578b\u5b8c\u6574\u6027\u4e0d\u8db3\uff0c\u8bf7\u68c0\u67e5\u4efb\u52a1\u4e66\u6216\u964d\u4f4e\u751f\u6210\u8981\u6c42'
-    return
-  }
-  if (model.value?.userData?.repairedByModelRepairAgent || model.value?.userData?.repairedBy === 'ModelRepairAgent') {
-    statusMessage.value = '\u6a21\u578b\u5b8c\u6574\u6027\u6821\u9a8c\u672a\u901a\u8fc7\uff0c\u5df2\u81ea\u52a8\u8865\u5168\u540e\u5c55\u793a'
+    statusMessage.value = props.project?.errorCode
+      ? `${props.project.stage || 'CAD'} | ${props.project.errorCode} | ${props.project.message || '生成失败'}`
+      : '\u6b63\u5728\u751f\u6210AI\u673a\u68b0\u65b9\u6848\u4e0eCAD\u88c5\u914d\u6a21\u578b'
+  } else if (model.value?.userData?.repairedByModelRepairAgent || model.value?.userData?.repairedBy === 'ModelRepairAgent') {
+    statusMessage.value = ''
   } else {
-    statusMessage.value = hasModelData(props.project) ? '' : '\u6682\u65e0\u6a21\u578b\u6570\u636e\uff0c\u5df2\u5c55\u793a\u6f14\u793a\u6a21\u578b'
+    statusMessage.value = hasModelData(props.project) ? '' : '\u6b63\u5728\u751f\u6210AI\u673a\u68b0\u65b9\u6848\u4e0eCAD\u88c5\u914d\u6a21\u578b'
   }
   scene.add(model.value)
   fitCameraToModel(model.value)

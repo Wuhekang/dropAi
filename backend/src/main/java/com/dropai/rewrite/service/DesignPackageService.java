@@ -56,9 +56,21 @@ public class DesignPackageService {
         return pointService.chargeAfterSuccess(PointService.DESIGN_GENERATE, "生成毕业设计成果包", () -> doGenerate(input));
     }
 
+    public DesignPackageVO generateForJob(DesignProject input, StageReporter reporter) {
+        return doGenerate(input, reporter == null ? StageReporter.NOOP : reporter);
+    }
+
     private DesignPackageVO doGenerate(DesignProject input) {
+        return doGenerate(input, StageReporter.NOOP);
+    }
+
+    private DesignPackageVO doGenerate(DesignProject input, StageReporter reporter) {
         Long userId = AuthContext.requireUserId();
+        reporter.update("PARSING", 6, "Parsing task input");
+        reporter.update("ANALYZING", 14, "Identifying project and requirements");
+        reporter.update("PLANNING", 24, "Building mechanical design plan");
         DesignProject project = designPipeline.generateCurrentTask(input == null ? new DesignProject() : input);
+        reporter.update("STRUCTURE", 34, "Mechanical design plan and structure tree generated");
         log.info("开始生成成果包 title={} parameters={}", project.getProjectTitle(), project.allParameters().size());
         List<Generated> generated = new ArrayList<>();
         generated.add(generateOne("MechanicalDesignPlan.json", "application/json", () -> exportEngine.mechanicalDesignPlan(project)));
@@ -66,15 +78,23 @@ public class DesignPackageService {
         generated.add(generateOne("assembly-model.json", "application/json", () -> exportEngine.assemblyModel(project)));
         generated.add(generateOne("model-generation-report.json", "application/json", () -> exportEngine.modelGenerationReport(project)));
         generated.add(generateOne("model_3d.json", "application/json", () -> exportEngine.model3d(project)));
+        reporter.update("PART_GENERATION", 44, "Part feature data exported");
+        reporter.update("ASSEMBLY", 54, "Solving assembly model and constraints");
+        reporter.update("STEP_EXPORT", 60, "Exporting real STEP solids");
         generated.addAll(generateGroup(List.of("assembly.step", "part_01.step", "part_02.step", "part_03.step", "part_04.step", "part_05.step", "assembly-validation.json"), () -> stepExportEngine.export(project)));
+        reporter.update("STEP_VALIDATION", 68, "STEP export and reopen validation finished");
+        reporter.update("DRAWING", 72, "Generating assembly drawing");
         generated.addAll(generateGroup(List.of("assembly.dxf"), () -> drawingEngine.drawAssemblyDrawing(project)));
         generated.addAll(generateGroup(List.of("cad_preview.svg", "cad_preview.png"), () -> drawingEngine.drawAssemblyPreview(project)));
         generated.addAll(generateGroup(List.of("part_01.dxf", "part_02.dxf", "part_03.dxf", "part_04.dxf", "part_05.dxf"), () -> drawingEngine.drawPartDrawing(project)));
+        reporter.update("PAPER", 86, "Generating design paper");
         generated.add(generateOne("paper.docx", DOCX, () -> paperEngine.generatePaper(project)));
+        reporter.update("QUALITY_GATE", 94, "Validating deliverables");
         List<DrawingArtifact> successfulArtifacts = generated.stream().filter(Generated::success).map(Generated::artifact).toList();
         DesignDeliverableQualityGate.Report report = deliverableQualityGate.validate(project, successfulArtifacts);
         if (report.passed()) {
             generated.add(generateOne("manifest.json", "application/json", () -> manifest(successfulArtifacts, project)));
+            reporter.update("PACKAGING", 98, "Packaging final ZIP");
             List<DrawingArtifact> zipInputs = generated.stream().filter(Generated::success).map(Generated::artifact).toList();
             generated.add(generateOne("project_package.zip", "application/zip", () -> exportEngine.zip(zipInputs)));
         } else {
@@ -89,6 +109,7 @@ public class DesignPackageService {
         long failed = artifacts.stream().filter(item -> "failed".equals(item.getStatus())).count();
         result.setStatus(failed == 0 ? "success" : "failed");
         result.setMessage(failed == 0 ? "全部成果文件生成成功" : "成果验收未通过，ZIP未生成；失败文件数：" + failed);
+        reporter.update(failed == 0 ? "COMPLETED" : "FAILED", failed == 0 ? 100 : 96, result.getMessage());
         return result;
     }
 
@@ -240,5 +261,10 @@ public class DesignPackageService {
     }
     private record Generated(DrawingArtifact artifact, String failureReason) {
         boolean success() { return failureReason == null && artifact.content() != null && artifact.content().length > 0; }
+    }
+
+    public interface StageReporter {
+        StageReporter NOOP = (stage, progress, message) -> {};
+        void update(String stage, int progress, String message);
     }
 }

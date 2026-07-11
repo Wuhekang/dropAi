@@ -159,24 +159,18 @@ function buildRawMechanicalModel(project = {}) {
   const assemblyComponents = inputComponentCount(project)
   const assemblyResult = buildFromAssembly(group, project, dims)
   if (!assemblyResult.built) {
-    if (isCrawlerRobotProject(project)) drawRobotFallback(group, dims)
-    else if (isSettlingChamberProject(project)) {
-      const repaired = repairModel(project, group, { deviceType: 'settling_chamber' })
-      group.add(repaired)
-      assemblyResult.featureBasedParts = Math.max(assemblyResult.featureBasedParts || 0, repaired.userData?.featureBasedParts || 0)
-    }
-    else buildGenericMechanicalAssembly(group, dims)
+    group.userData.awaitingBackendAssembly = true
+    group.userData.previewMessage = 'waiting_for_backend_assembly'
   }
 
-  addDimensionHints(group, dims)
+  if (assemblyResult.built) addDimensionHints(group, dims)
   let meshCount = countMeshes(group)
   if (meshCount <= 1) {
-    console.error('[DropAI 3D] mesh count is 0, restoring visible fallback model', {
+    console.info('[DropAI 3D] backend assembly not ready; no fallback model will be shown', {
       assemblyComponents,
       renderableComponents: assemblyResult.renderableComponents,
       meshCount
     })
-    drawRobotFallback(group, dims)
     meshCount = countMeshes(group)
   }
   console.info('[DropAI 3D] render diagnostics', {
@@ -184,10 +178,10 @@ function buildRawMechanicalModel(project = {}) {
     renderableComponents: assemblyResult.renderableComponents,
     featureBasedParts: assemblyResult.featureBasedParts || 0,
     meshCount,
-    source: assemblyResult.built ? (project.assemblyModel ? 'AssemblyModel' : 'AssemblyTree/Components') : 'FallbackModel'
+    source: assemblyResult.built ? (project.assemblyModel ? 'AssemblyModel' : 'AssemblyTree/Components') : 'AwaitingBackendAssembly'
   })
   group.userData = {
-    source: assemblyResult.built ? (project.assemblyModel ? 'assembly_model_with_constraints' : 'assembly_tree_with_constraints') : 'mechanical_fallback',
+    source: assemblyResult.built ? (project.assemblyModel ? 'assembly_model_with_constraints' : 'assembly_tree_with_constraints') : 'awaiting_backend_assembly',
     assemblyComponents,
     renderableComponents: assemblyResult.renderableComponents,
     meshCount,
@@ -214,25 +208,23 @@ function errorPlaceholder(quality) {
 export function buildParametricMechanicalModel(project = {}) {
   let group = buildRawMechanicalModel(project)
   let quality = evaluateModelQuality(project, group, group.userData)
-  let repaired = false
-  let attempts = 0
-  while (!quality.success && attempts < 2) {
-    attempts += 1
-    console.warn('[DropAI 3D] ModelQualityGate failed; invoking ModelRepairAgent', quality)
-    group = repairModel(project, group, quality)
-    repaired = true
-    quality = evaluateModelQuality(project, group, group.userData)
-  }
   if (!quality.success) {
-    console.error('[DropAI 3D] MODEL_QUALITY_FAILED', quality)
-    return errorPlaceholder(quality)
+    console.info('[DropAI 3D] preview is waiting for backend CAD assembly', quality)
+    group.userData = {
+      ...group.userData,
+      quality,
+      qualityFailed: true,
+      qualityPassed: false,
+      repairAttempts: 0
+    }
+    return group
   }
   group.userData = {
     ...group.userData,
     quality,
     qualityPassed: true,
-    repairAttempts: attempts,
-    repairedByModelRepairAgent: repaired
+    repairAttempts: 0,
+    repairedByModelRepairAgent: false
   }
   return group
 }

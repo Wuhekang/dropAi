@@ -175,6 +175,93 @@
 - Persistent resumable stage state is not yet stored as an independent table; current phase status is represented through artifacts and audit JSON.
 - Existing text in several Java/Vue files contains mojibake from older encoding damage; this task avoided broad re-encoding to reduce risk.
 
+## Phase 8: Runtime 50 Percent Stall Audit
+
+- Branch created for this round: `mechanical-complete-pipeline`.
+- Starting commit: `e19f290`.
+- `git status` before edits showed only untracked local/user files such as screenshots, `data/`, edge crops and SQL helper files. No user changes were reverted.
+- Project size snapshot:
+  - `backend/src`: 1.13 MB, source, keep.
+  - `backend/target`: 55.09 MB, rebuildable build output.
+  - `backend/storage`: 68.65 MB, user/generated data, keep.
+  - `backend/work`: empty, keep.
+  - `backend/data`: 0.05 MB, app data, keep.
+  - `frontend/src`: 0.23 MB, source, keep.
+  - `frontend/node_modules`: 139.37 MB, dependency cache, keep.
+  - `frontend/dist`: 2.04 MB, rebuildable build output.
+  - root `work`: 6.4 MB, generated work data, keep until individually classified.
+- Real UI stall root cause:
+  - `frontend/src/views/NewProject/index.vue` set `currentStep = 4` after analysis and `currentStep = 5` before calling the long synchronous `POST /api/design-packages/generate`.
+  - The request had no persisted `jobId`, no heartbeat, no backend stage polling and no refresh recovery.
+  - While the synchronous request was running, failed, timed out or returned late, the page could only display the local 50 percent state.
+- Wrong model source:
+  - `frontend/src/components/ParametricModelBuilder.js` generated production fallback models when backend assembly data was absent.
+  - `frontend/src/components/ModelQualityGate.js` classified equipment by project title keywords and enforced fixed crawler/settling core part rules and mesh thresholds.
+  - `frontend/src/components/ModelRepairAgent.js` replaced failed previews with fixed settling-chamber or generic repair assemblies.
+  - Therefore the page could show a conveyor-like or unrelated block/cylinder assembly even when the backend final CAD pipeline had not produced a final model.
+- Fix direction selected:
+  - Frontend preview quality gate only checks renderability and backend assembly/constraint presence.
+  - Frontend no longer fabricates topic-specific fallback equipment in production.
+  - Backend design package generation gains persisted async job endpoints and real stage/heartbeat polling while keeping the old synchronous endpoint for compatibility.
+
+### Phase 8 Implementation
+
+- Added backend async design package job support:
+  - `POST /api/design-packages/jobs`;
+  - `GET /api/design-packages/jobs/{jobId}`.
+- Reused `document_job` instead of adding a new table:
+  - `job_id`: async package job id, prefix `dp_`;
+  - `status`: `PENDING`, `RUNNING`, `SUCCESS`, `FAILED`;
+  - `processed_paragraphs`: backend progress percent;
+  - `paragraphs_json`: persisted job state JSON with `stage`, `message`, `errorCode`, `result` and `finishedAt`;
+  - `updated_at`: heartbeat time;
+  - `cost_points` / `points_charged`: success-only charging state.
+- Added backend stages:
+  `PARSING`, `ANALYZING`, `PLANNING`, `STRUCTURE`, `PART_GENERATION`, `ASSEMBLY`, `STEP_EXPORT`, `STEP_VALIDATION`, `DRAWING`, `PAPER`, `QUALITY_GATE`, `PACKAGING`, `COMPLETED`, `FAILED`.
+- `DesignPackageService` now reports stage callbacks at real generation points while the old synchronous `/generate` endpoint remains available.
+- `DesignPackageJobService` now:
+  - checks points at job creation without charging;
+  - runs generation on `TaskExecutor`;
+  - sets `AuthContext` inside the background thread and clears it in `finally`;
+  - updates heartbeat on every stage;
+  - marks stale RUNNING jobs as failed when heartbeat is older than 30 minutes;
+  - charges `DESIGN_GENERATE` exactly once after successful package generation.
+- Frontend `NewProject/index.vue` now:
+  - creates a job through `/design-packages/jobs`;
+  - polls the backend job endpoint every 2 seconds;
+  - maps backend progress to the existing visual step list;
+  - stores the active job id in `localStorage` and resumes polling after refresh;
+  - stops using long synchronous `/generate` for the page action;
+  - shows backend `stage | errorCode | message` on failure.
+- Frontend model preview fix:
+  - `ModelQualityGate.js` no longer classifies equipment from title keywords or requires fixed oil-tank robot / settling chamber / conveyor parts.
+  - `ModelRepairAgent.js` no longer inserts fixed repair assemblies into production preview.
+  - `ParametricModelBuilder.js` no longer draws crawler, settling chamber or generic fallback equipment when backend assembly data is absent.
+  - `ModelViewer3D.vue` no longer tells users to lower generation requirements; it shows that AI mechanical plan and CAD assembly are being generated, or displays the real backend failure stage.
+- Additional build repair:
+  - `NewProject/index.vue` had pre-existing broken mojibake tags and unterminated strings that prevented Vite from compiling. Only malformed tags and user-facing strings on that page were repaired.
+
+### Phase 8 Verification
+
+- Backend compile: `mvn.cmd -DskipTests compile`
+  - Result: passed on 2026-07-11.
+- Frontend build: `npm.cmd run build`
+  - Result: passed on 2026-07-11.
+- CAD pipeline test: `mvn.cmd -Dtest=MechanicalCadPipelineTests test`
+  - Result: passed on 2026-07-11.
+- Package service test: `mvn.cmd -Dtest=DesignPackageServiceTests test`
+  - Result: passed on 2026-07-11.
+  - Oil-tank wall-climbing robot generated:
+    `MechanicalDesignPlan.json`, `mechanical-pipeline-audit.json`, `assembly-model.json`, `model_3d.json`, `assembly.step`, five part STEP files, `assembly-validation.json`, `assembly.dxf`, preview SVG/PNG, five part DXF drawings, `paper.docx`, `manifest.json`, `project_package.zip`.
+- Three-project regression: `mvn.cmd -Dtest=DesignPackageRegressionTests test`
+  - Result: passed on 2026-07-11.
+  - Oil-tank robot, gravity settling chamber and belt conveyor each generated a final ZIP and real STEP deliverables through the package service.
+- Full backend test suite: `mvn.cmd test`
+  - Result: passed on 2026-07-11.
+  - Summary: 27 tests, 0 failures, 0 errors.
+- Backend package: `mvn.cmd "-Dmaven.test.skip=true" package`
+  - Result: passed on 2026-07-11.
+
 ## Final Artifact Paths
 
 - Files are persisted as `DocumentJobRecord` rows and exposed through `/api/documents/{jobId}/download`.

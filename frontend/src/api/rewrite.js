@@ -330,6 +330,14 @@ export function generateDesignPackage(project) {
   return request.post('/design-packages/generate', project, { timeout: 300000 })
 }
 
+export function createDesignPackageJob(project) {
+  return request.post('/design-packages/jobs', project, { timeout: 60000 })
+}
+
+export function getDesignPackageJob(jobId) {
+  return request.get(`/design-packages/jobs/${jobId}`, { timeout: 60000 })
+}
+
 export function analyzeDesignPackage(data) {
   return request.post('/design-packages/analyze', data, {
     headers: { 'Content-Type': 'multipart/form-data' },
