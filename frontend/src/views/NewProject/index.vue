@@ -43,11 +43,11 @@
           <button :class="{ active: project.designDepth === 'engineering' }" type="button" @click="project.designDepth = 'engineering'">工程设计</button>
         </div>
 
-        <button class="primary-button action" type="button" :disabled="!canAnalyze || analyzing" @click="analyze">
-          {{ analyzing ? '正在识别项目...' : '项目识别与参数设计' }}
+        <button class="primary-button action" type="button" :disabled="!canAnalyze || analyzing || generating" @click="startFullGeneration">
+          {{ analyzing ? '正在识别项目...' : generating ? '正在生成工程成果...' : targetConfirmed ? '重新生成完整成果' : '开始完整生成' }}
         </button>
         <button class="ghost-button action" type="button" :disabled="!targetConfirmed || generating" @click="generate">
-          {{ generating ? '正在生成工程成果...' : '生成模型 / CAD / 论文 / ZIP' }}
+          {{ generating ? '正在生成工程成果...' : '继续生成模型 / CAD / 论文 / ZIP' }}
         </button>
       </aside>
 
@@ -352,10 +352,19 @@ function syncProjectParameters() {
   project.suggestedParameters = map('建议参数')
 }
 
-async function analyze() {
+async function startFullGeneration() {
+  if (targetConfirmed.value) {
+    await generate()
+    return
+  }
+  await analyze(true)
+}
+
+async function analyze(autoGenerate = false) {
   analyzing.value = true
   currentStep.value = 1
   packageMessage.value = '正在识别项目名称、设备类型、使用场景和核心功能...'
+  let shouldGenerate = false
   try {
     const form = new FormData()
     form.append('designDepth', project.designDepth)
@@ -376,13 +385,17 @@ async function analyze() {
     parameters.value = flattenParameters(analyzedProject)
     targetConfirmed.value = true
     currentStep.value = 4
-    packageMessage.value = result.message || '项目识别、复杂度分析、参数设计和结构方案已完成。'
-    ElMessage.success('工程设计方案已生成。')
+    packageMessage.value = autoGenerate
+      ? '设计方案已生成，正在进入模型、CAD、论文和成果包生成...'
+      : (result.message || '项目识别、复杂度分析、参数设计和结构方案已完成。')
+    shouldGenerate = autoGenerate
+    if (!autoGenerate) ElMessage.success('工程设计方案已生成。')
   } catch (error) {
     packageMessage.value = error.message || '解析失败。'
     ElMessage.error(packageMessage.value)
   } finally {
     analyzing.value = false
+    if (shouldGenerate) await generate()
   }
 }
 
