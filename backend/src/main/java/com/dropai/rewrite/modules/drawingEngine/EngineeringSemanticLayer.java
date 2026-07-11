@@ -74,7 +74,7 @@ public class EngineeringSemanticLayer {
 
     public boolean looksCorrupted(String value) {
         if (value == null) return false;
-        return value.matches(".*[濮ｇ拋閹撮崶娑撻弬鐏忕儤鐏﹀Ο鐔告箒]{4,}.*");
+        return value.matches(".*[\u59e3\u7481\u93b4\u9365\u6d93\u93c2\u704f\u70d8\u7066\u59af\u71b8\u6e41]{4,}.*");
     }
 
     private boolean has(String geometry, String name, String... tokens) {

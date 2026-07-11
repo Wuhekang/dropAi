@@ -9,10 +9,10 @@ import java.util.List;
 @Service
 public class StructureEngine {
     public DesignProject design(DesignProject project) {
-        double l = project.number("总长", project.number("鎬婚暱", 4200));
-        double w = project.number("总宽", project.number("鎬诲", 1600));
-        double h = project.number("总高", project.number("鎬婚珮", 1800));
-        String material = text(project, "材料", text(project, "鏉愭枡", "Q235B"));
+        double l = project.number("总长", 4200);
+        double w = project.number("总宽", 1600);
+        double h = project.number("总高", 1800);
+        String material = text(project, "材料", "Q235B");
         List<DesignProject.Component> parts = chooseScheme(project, l, w, h, material);
         project.setComponents(parts);
         project.setBom(parts.stream().map(p -> new DesignProject.BomItem(

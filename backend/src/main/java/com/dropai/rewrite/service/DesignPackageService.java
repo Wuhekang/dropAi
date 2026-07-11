@@ -175,13 +175,13 @@ public class DesignPackageService {
             List<Generated> result = new ArrayList<>();
             for (DrawingArtifact file : files) {
                 result.add(file.content() == null || file.content().length == 0
-                        ? new Generated(file, "鐢熸垚鏂囦欢涓虹┖") : new Generated(file, null));
-                log.info("鍥剧焊鐢熸垚缁撴灉 name={} success={} size={}", file.fileName(), file.content() != null && file.content().length > 0, file.content() == null ? 0 : file.content().length);
+                        ? new Generated(file, "图纸文件为空") : new Generated(file, null));
+                log.info("图纸生成结果 name={} success={} size={}", file.fileName(), file.content() != null && file.content().length > 0, file.content() == null ? 0 : file.content().length);
             }
             return result;
         } catch (Exception exception) {
             String reason = readable(exception);
-            log.error("鍥剧焊缁勭敓鎴愬け璐?reason={}", reason, exception);
+            log.error("图纸生成失败 reason={}", reason, exception);
             return List.of(new Generated(new DrawingArtifact("cad_preview.png", new byte[0], "image/png"), reason));
         }
     }

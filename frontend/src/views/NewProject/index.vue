@@ -7,7 +7,7 @@
       </button>
       <div class="nav-links">
         <button type="button" @click="router.push('/dashboard')">控制台</button>
-        <button type="button" @click="router.push('/computer-generator')">宸ョ▼鐢熸垚</button>
+        <button type="button" @click="router.push('/computer-generator')">工程生成</button>
         <button type="button" @click="router.push('/result')">结果页</button>
       </div>
     </nav>
@@ -15,7 +15,7 @@
     <header class="builder-head">
       <div>
         <span class="eyebrow">Mechanical Design Engine</span>
-        <h1>AI姣曚笟璁捐宸ョ▼鐢熸垚绯荤粺</h1>
+        <h1>AI毕业设计工程生成系统</h1>
         <p>从任务书识别、参数设计、结构方案、三维模型、CAD工程图到论文和成果包，按同一套设计数据贯通生成。</p>
       </div>
       <span class="status-pill"><span class="status-dot"></span>{{ stageLabel }}</span>
@@ -30,31 +30,31 @@
 
         <div class="drop-zone">
           <strong>任务书文件</strong>
-          <span>{{ files.taskBook?.name || '鏀寔 DOCX銆丳DF銆乀XT銆丮arkdown' }}</span>
+          <span>{{ files.taskBook?.name || '支持 DOCX、PDF、TXT、Markdown' }}</span>
           <el-upload action="" :auto-upload="false" :show-file-list="false" accept=".docx,.pdf,.txt,.md" :on-change="file => setFile('taskBook', file)">
-            <button class="ghost-button" type="button">閫夋嫨鏂囦欢</button>
+            <button class="ghost-button" type="button">选择文件</button>
           </el-upload>
         </div>
 
-        <textarea v-model="taskText" class="text-input" placeholder="涔熷彲浠ョ洿鎺ョ矘璐翠换鍔′功姝ｆ枃鎴栧紑棰樻姤鍛婂叧閿姹?.."></textarea>
+        <textarea v-model="taskText" class="text-input" placeholder="也可以直接粘贴任务书正文或开题报告关键要求..."></textarea>
 
         <div class="depth-control">
-          <button :class="{ active: project.designDepth === 'graduation' }" type="button" @click="project.designDepth = 'graduation'">姣曚笟璁捐</button>
-          <button :class="{ active: project.designDepth === 'engineering' }" type="button" @click="project.designDepth = 'engineering'">宸ョ▼璁捐</button>
+          <button :class="{ active: project.designDepth === 'graduation' }" type="button" @click="project.designDepth = 'graduation'">毕业设计</button>
+          <button :class="{ active: project.designDepth === 'engineering' }" type="button" @click="project.designDepth = 'engineering'">工程设计</button>
         </div>
 
         <button class="primary-button action" type="button" :disabled="!canAnalyze || analyzing" @click="analyze">
           {{ analyzing ? '正在识别项目...' : '项目识别与参数设计' }}
         </button>
         <button class="ghost-button action" type="button" :disabled="!targetConfirmed || generating" @click="generate">
-          {{ generating ? '姝ｅ湪鐢熸垚宸ョ▼鎴愭灉...' : '鐢熸垚妯″瀷 / CAD / 璁烘枃 / ZIP' }}
+          {{ generating ? '正在生成工程成果...' : '生成模型 / CAD / 论文 / ZIP' }}
         </button>
       </aside>
 
       <section class="output-panel">
         <div class="visual-stage panel">
           <div class="stage-overlay">
-            <span class="status-pill"><span class="status-dot"></span>3D 瑁呴厤妯″瀷</span>
+            <span class="status-pill"><span class="status-dot"></span>3D 装配模型</span>
             <strong>{{ project.projectTitle || '等待任务书输入' }}</strong>
             <small>{{ project.equipmentName || '参数与结构生成后，模型会同步更新。' }}</small>
           </div>
@@ -82,18 +82,18 @@
 
     <section class="analysis-grid">
       <article class="product-card result-card">
-        <span>椤圭洰璇嗗埆</span>
+        <span>项目识别</span>
         <h3>{{ project.projectTitle || '待识别项目' }}</h3>
         <dl>
-          <div><dt>璁惧绫诲瀷</dt><dd>{{ project.equipmentType || project.equipmentName || '--' }}</dd></div>
-          <div><dt>浣跨敤鍦烘櫙</dt><dd>{{ project.applicationScenario || '--' }}</dd></div>
+          <div><dt>设备类型</dt><dd>{{ project.equipmentType || project.equipmentName || '--' }}</dd></div>
+          <div><dt>使用场景</dt><dd>{{ project.applicationScenario || '--' }}</dd></div>
           <div><dt>复杂度</dt><dd>{{ complexityLabel }}</dd></div>
-          <div><dt>鏍稿績鍔熻兘</dt><dd>{{ listText(project.mainFunctions) }}</dd></div>
+          <div><dt>核心功能</dt><dd>{{ listText(project.mainFunctions) }}</dd></div>
         </dl>
       </article>
 
       <article class="product-card result-card">
-        <span>鍙傛暟鑷姩璁捐</span>
+        <span>参数自动设计</span>
         <h3>{{ allParameters.length || '--' }} 项设计参数</h3>
         <div class="parameter-list">
           <div v-for="item in allParameters.slice(0, 8)" :key="`${item.category}-${item.name}`">
@@ -105,7 +105,7 @@
       </article>
 
       <article class="product-card result-card">
-        <span>闆朵欢鍙傛暟</span>
+        <span>零件参数</span>
         <h3>{{ keyComponents.length || '--' }} 个关键零件</h3>
         <div class="component-list">
           <div v-for="part in keyComponents.slice(0, 6)" :key="part.partId || part.name">
@@ -121,7 +121,7 @@
         <div class="section-head">
           <div>
             <span class="eyebrow">Structure</span>
-            <h2>缁撴瀯鏂规</h2>
+            <h2>结构方案</h2>
           </div>
           <span class="tiny">结构树与装配关系来自后端设计流水线</span>
         </div>
@@ -134,12 +134,12 @@
         <div class="section-head">
           <div>
             <span class="eyebrow">CAD</span>
-            <h2>鍥剧焊棰勮</h2>
+            <h2>图纸预览</h2>
           </div>
           <span class="tiny">总装图 / 三视图 / 零件图</span>
         </div>
         <div v-if="drawingPreviewUrl" class="drawing-preview">
-          <img :src="drawingPreviewUrl" alt="CAD鍥剧焊棰勮" />
+          <img :src="drawingPreviewUrl" alt="CAD图纸预览" />
         </div>
         <div v-else class="drawing-placeholder">生成完成后显示 CAD 预览图，DXF 图纸可在下方下载。</div>
         <div class="drawing-files">
@@ -156,12 +156,12 @@
         <div class="section-head">
           <div>
             <span class="eyebrow">BOM</span>
-            <h2>鐗╂枡娓呭崟</h2>
+            <h2>物料清单</h2>
           </div>
           <span class="tiny">{{ bomRows.length || 0 }} 项</span>
         </div>
         <div class="bom-table">
-          <div class="bom-head"><span>缂栧彿</span><span>鍚嶇О</span><span>鏁伴噺</span><span>鏉愭枡</span><span>澶囨敞</span></div>
+          <div class="bom-head"><span>编号</span><span>名称</span><span>数量</span><span>材料</span><span>备注</span></div>
           <div v-for="item in bomRows.slice(0, 10)" :key="`${item.sequence}-${item.name}`">
             <span>{{ item.sequence }}</span>
             <strong>{{ item.name }}</strong>
@@ -176,16 +176,16 @@
         <div class="section-head">
           <div>
             <span class="eyebrow">Deliverables</span>
-            <h2>鎴愭灉涓嬭浇</h2>
+            <h2>成果下载</h2>
           </div>
-          <button class="primary-button" type="button" :disabled="!zipArtifact" @click="downloadFile(zipArtifact)">涓嬭浇ZIP</button>
+          <button class="primary-button" type="button" :disabled="!zipArtifact" @click="downloadFile(zipArtifact)">下载ZIP</button>
         </div>
         <div class="artifact-grid">
           <article v-for="file in artifacts" :key="file.fileName" class="artifact-file">
             <span>{{ artifactType(file) }}</span>
             <strong>{{ file.fileName }}</strong>
             <small>{{ file.status === 'failed' ? file.failureReason : formatSize(file.size) }}</small>
-            <button class="ghost-button" type="button" :disabled="file.status === 'failed'" @click="downloadFile(file)">涓嬭浇</button>
+            <button class="ghost-button" type="button" :disabled="file.status === 'failed'" @click="downloadFile(file)">下载</button>
           </article>
         </div>
       </article>
@@ -210,7 +210,7 @@ const StructureNode = defineComponent({
       return h('li', [
         h('div', { class: 'tree-node' }, [
           h('strong', node.name || '未命名结构'),
-          h('span', [node.type || 'structure', node.source ? ` 路 ${node.source}` : ''])
+          h('span', [node.type || 'structure', node.source ? ` 来源 ${node.source}` : ''])
         ]),
         children.length ? h('ul', children.map(renderNode)) : null
       ])
@@ -268,7 +268,7 @@ const project = reactive({
   suggestedParameters: [],
   technicalRequirements: [],
   calculations: [],
-  structureTree: { name: '鏁存満', type: 'root', source: 'system', children: [] },
+  structureTree: { name: '整机', type: 'root', source: 'system', children: [] },
   assemblyTree: null,
   assemblyConstraints: [],
   drawingPlan: null,
@@ -298,9 +298,9 @@ const complexityLabel = computed(() => {
 })
 const modelProject = computed(() => ({
   ...project,
-  totalLength: findParameter('鎬婚暱', 4200),
-  totalWidth: findParameter('鎬诲', 1800),
-  totalHeight: findParameter('鎬婚珮', 2600)
+  totalLength: findParameter('总长', 4200),
+  totalWidth: findParameter('总宽', 1800),
+  totalHeight: findParameter('总高', 2600)
 }))
 
 function setFile(key, file) {
@@ -355,7 +355,7 @@ function syncProjectParameters() {
 async function analyze() {
   analyzing.value = true
   currentStep.value = 1
-  packageMessage.value = '姝ｅ湪璇嗗埆椤圭洰鍚嶇О銆佽澶囩被鍨嬨€佷娇鐢ㄥ満鏅拰鏍稿績鍔熻兘...'
+  packageMessage.value = '正在识别项目名称、设备类型、使用场景和核心功能...'
   try {
     const form = new FormData()
     form.append('designDepth', project.designDepth)
@@ -364,13 +364,13 @@ async function analyze() {
       form.append('files', files.taskBook.raw)
       form.append('types', 'TASK_BOOK')
     } else if (taskText.value.trim()) {
-      form.append('files', new File([taskText.value.trim()], '浠诲姟涔︽枃鏈?txt', { type: 'text/plain' }))
+      form.append('files', new File([taskText.value.trim()], '任务书文本.txt', { type: 'text/plain' }))
       form.append('types', 'TASK_BOOK')
     }
     const result = await analyzeDesignPackage(form)
     const analyzedProject = result.project || {}
     Object.assign(project, analyzedProject)
-    project.projectTitle = result.title || analyzedProject.projectTitle || 'DropAI 宸ョ▼椤圭洰'
+    project.projectTitle = result.title || analyzedProject.projectTitle || 'DropAI 工程项目'
     project.equipmentName = result.equipmentName || analyzedProject.equipmentName || project.equipmentName
     project.designType = result.designType || analyzedProject.designType || project.designType
     parameters.value = flattenParameters(analyzedProject)
@@ -532,7 +532,7 @@ function drawingName(name = '') {
 function artifactType(file) {
   const name = file?.fileName || ''
   if (/\.zip$/i.test(name)) return 'ZIP成果包'
-  if (/\.docx$/i.test(name)) return '璁烘枃'
+  if (/\.docx$/i.test(name)) return '论文'
   if (/\.dxf$/i.test(name)) return 'CAD图纸'
   if (/model_3d/i.test(name)) return '三维模型数据'
   if (/\.(png|svg)$/i.test(name)) return '图纸预览'

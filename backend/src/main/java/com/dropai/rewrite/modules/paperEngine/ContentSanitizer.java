@@ -24,7 +24,9 @@ public class ContentSanitizer {
             Pattern.compile("作为AI")
     );
 
-    private static final Pattern MOJIBAKE_PATTERN = Pattern.compile("[姣璁鎴鍥涓鏂灏烘灦妯熸湁]{4,}");
+    private static final Pattern MOJIBAKE_PATTERN = Pattern.compile(
+            "[\\u59e3\\u7481\\u93b4\\u9365\\u6d93\\u93c2\\u704f\\u70d8\\u7066\\u59af\\u71b8\\u6e41]{4,}"
+    );
 
     public String sanitize(String raw) {
         if (raw == null) {

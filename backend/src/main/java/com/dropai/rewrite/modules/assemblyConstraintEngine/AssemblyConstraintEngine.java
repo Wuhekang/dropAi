@@ -16,7 +16,7 @@ public class AssemblyConstraintEngine {
         double w = project.number("总宽", project.number("整机宽度", 600));
         double h = project.number("总高", project.number("整机高度", 300));
         String signature = project.getProjectTitle() + project.getEquipmentName() + project.getDesignType() + String.join("", project.getMainStructures());
-        boolean crawler = containsAny(signature, "爬壁", "履带", "磁吸附", "油罐检测", "鐖", "灞ュ甫", "纾佸惛");
+        boolean crawler = containsAny(signature, "爬壁", "履带", "磁吸附", "油罐检测");
 
         List<DesignProject.Component> components = new ArrayList<>();
         List<DesignProject.AssemblyConstraint> constraints = new ArrayList<>();
@@ -97,19 +97,6 @@ public class AssemblyConstraintEngine {
         if (containsAny(name, "电机")) return layout(l * .12, w * .32, h * .30, l * .13, w * .15, h * .16, "驱动轮", "coaxial", "电机输出轴", "驱动轮轴线");
         if (containsAny(name, "减速")) return layout(l * .24, w * .32, h * .30, l * .12, w * .15, h * .15, "电机", "coaxial", "减速器输入轴", "电机输出轴");
         if (containsAny(name, "外壳", "防护", "电池", "控制", "盖板", "散热")) return layout(l * .32, w * .28, h * .48, l * .34, w * .42, h * .30, "机架", "fixed", "外壳安装孔", "机架上平面");
-        if (containsAny(name, "机架", "鏈烘灦")) return layout(l * .18, w * .22, h * .24, l * .64, w * .56, h * .12, "整机坐标系", "fixed", "机架基准面", "整机中心面");
-        if (containsAny(name, "左侧履带", "宸︿晶灞")) return layout(l * .08, w * .05, h * .06, l * .78, w * .16, h * .18, "机架", "parallel", "左侧安装面", "履带中心线");
-        if (containsAny(name, "右侧履带", "鍙充晶灞")) return layout(l * .08, w * .79, h * .06, l * .78, w * .16, h * .18, "机架", "parallel", "右侧安装面", "履带中心线");
-        if (containsAny(name, "履带", "灞ュ甫")) return layout(l * .08, w * .05, h * .06, l * .78, w * .90, h * .18, "机架", "symmetric", "左右履带中心面");
-        if (containsAny(name, "驱动轮", "椹卞姩杞")) return layout(l * .10, w * .08, h * .08, l * .12, w * .84, h * .16, "履带", "coaxial", "驱动轮轴线", "履带端部圆弧");
-        if (containsAny(name, "从动轮", "浠庡姩杞")) return layout(l * .78, w * .08, h * .08, l * .12, w * .84, h * .16, "履带", "coaxial", "从动轮轴线", "履带端部圆弧");
-        if (containsAny(name, "支重轮", "滚轮", "鏀噸", "婊氳疆")) return layout(l * (.25 + (index % 4) * .12), w * .08, h * .07, l * .08, w * .84, h * .12, "履带", "contact", "支重轮外圆", "履带内侧接触面");
-        if (containsAny(name, "磁", "吸附", "纾")) return layout(l * (.15 + (index % 6) * .1), w * .30, h * .01, l * .08, w * .40, h * .05, "机架", "offset", "底部安装孔", "磁吸附安装间距");
-        if (containsAny(name, "清扫", "刷", "娓呮壂", "鍒")) return layout(l * .86, w * .38, h * .04, l * .16, w * .24, h * .16, "机架", "coaxial", "清扫电机轴", "刷盘中心孔");
-        if (containsAny(name, "检测", "传感", "导轨", "滑轨", "妫€娴", "浼犳劅", "瀵艰建", "婊戣建")) return layout(l * .70, w * .28, h * .42, l * .24, w * .44, h * .12, "机架", "parallel", "滑轨安装面", "检测模块调节方向");
-        if (containsAny(name, "电机", "鐢垫満")) return layout(l * .12, w * .32, h * .30, l * .13, w * .15, h * .16, "驱动轮", "coaxial", "电机输出轴", "驱动轮轴线");
-        if (containsAny(name, "减速", "鍑忛€")) return layout(l * .24, w * .32, h * .30, l * .12, w * .15, h * .15, "电机", "coaxial", "减速器输入轴", "电机输出轴");
-        if (containsAny(name, "外壳", "防护", "电池", "控制", "澶栧３", "闃叉姢", "鐢垫睜", "鎺у埗")) return layout(l * .32, w * .28, h * .48, l * .34, w * .42, h * .30, "机架", "fixed", "外壳安装孔", "机架上平面");
         return genericLayout(name, index, l, w, h);
     }
 
@@ -119,10 +106,6 @@ public class AssemblyConstraintEngine {
         if (containsAny(name, "检测", "导轨", "滑轨", "传感")) return layout(l * .62, w * .32, h * .42, l * .22, w * .36, h * .12, "机架", "parallel", "导轨面", "调节方向");
         if (containsAny(name, "外壳", "防护", "罩", "盖")) return layout(l * .28, w * .25, h * .48, l * .44, w * .50, h * .28, "机架", "fixed", "罩壳安装边");
         if (containsAny(name, "法兰", "进气", "出气", "导流", "灰斗", "卸灰", "检修", "观察")) return layout(l * (.12 + (index % 4) * .16), w * (.18 + (index % 3) * .18), h * (.16 + (index % 2) * .18), l * .18, w * .16, h * .14, "箱体", "fixed", "安装孔", "焊接边");
-        if (containsAny(name, "机架", "主体", "底座", "支撑", "鏈烘灦", "涓讳綋")) return layout(l * .18, w * .18, h * .12, l * .64, w * .64, h * .16, "整机坐标系", "fixed", "基准安装面");
-        if (containsAny(name, "电机", "减速", "轴", "轮", "带", "鐢垫満", "鍑忛€", "杞")) return layout(l * .16 + (index % 3) * l * .18, w * .20, h * .36, l * .16, w * .18, h * .16, "机架", "coaxial", "传动轴线", "安装孔");
-        if (containsAny(name, "检测", "导轨", "滑轨", "传感", "妫€娴", "瀵艰建")) return layout(l * .62, w * .32, h * .42, l * .22, w * .36, h * .12, "机架", "parallel", "导轨面", "调节方向");
-        if (containsAny(name, "外壳", "防护", "罩", "澶栧３", "闃叉姢")) return layout(l * .28, w * .25, h * .48, l * .44, w * .50, h * .28, "机架", "fixed", "罩壳安装边");
         return layout(l * (.18 + (index % 4) * .15), w * (.24 + (index % 3) * .15), h * (.24 + (index % 2) * .18), l * .14, w * .14, h * .12, "机架", "fixed", "安装孔");
     }
 
@@ -132,11 +115,11 @@ public class AssemblyConstraintEngine {
 
     private String role(DesignProject.DesignPart part) {
         String name = part.getName();
-        if ("standard".equals(part.getPartType())) return containsAny(name, "电机", "减速", "轴", "轮", "带", "鐢垫満", "鍑忛€", "杞") ? "DRIVE" : "CONNECT";
-        if (containsAny(name, "机架", "支撑", "底座", "鏈烘灦")) return "SUPPORT";
-        if (containsAny(name, "外壳", "防护", "澶栧３")) return "SAFETY";
-        if (containsAny(name, "检修", "维护", "快拆", "妫€淇")) return "MAINTENANCE";
-        if (containsAny(name, "安装", "吸附", "磁", "瀹夎", "纾")) return "MOUNT";
+        if ("standard".equals(part.getPartType())) return containsAny(name, "电机", "减速", "轴", "轮", "带") ? "DRIVE" : "CONNECT";
+        if (containsAny(name, "机架", "支撑", "底座")) return "SUPPORT";
+        if (containsAny(name, "外壳", "防护")) return "SAFETY";
+        if (containsAny(name, "检修", "维护", "快拆")) return "MAINTENANCE";
+        if (containsAny(name, "安装", "吸附", "磁")) return "MOUNT";
         return "FUNCTION";
     }
 
@@ -150,13 +133,13 @@ public class AssemblyConstraintEngine {
         if ("coupling".equals(category)) return "COUPLING";
         if ("bolt".equals(category)) return "BOLT_GROUP";
         if ("flange".equals(category)) return "FLANGE";
-        if (containsAny(name, "履带", "带", "灞ュ甫")) return "TRACK";
-        if (containsAny(name, "轮", "婊氱瓛", "杞")) return "WHEEL";
-        if (containsAny(name, "刷", "鍒")) return "BRUSH";
-        if (containsAny(name, "磁", "吸附", "纾")) return "MAGNET_BLOCK";
-        if (containsAny(name, "导轨", "滑轨", "检测", "瀵艰建", "妫€娴")) return "SENSOR_RAIL";
-        if (containsAny(name, "机架", "支架", "鏈烘灦")) return "FRAME";
-        if (containsAny(name, "外壳", "防护", "盖", "澶栧３")) return "COVER";
+        if (containsAny(name, "履带", "带")) return "TRACK";
+        if (containsAny(name, "轮")) return "WHEEL";
+        if (containsAny(name, "刷")) return "BRUSH";
+        if (containsAny(name, "磁", "吸附")) return "MAGNET_BLOCK";
+        if (containsAny(name, "导轨", "滑轨", "检测")) return "SENSOR_RAIL";
+        if (containsAny(name, "机架", "支架")) return "FRAME";
+        if (containsAny(name, "外壳", "防护", "盖")) return "COVER";
         return "PLATE";
     }
 

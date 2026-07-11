@@ -453,9 +453,9 @@ public class DesignEnhancementEngine {
     }
 
     private DesignProject.Component toComponent(int sequence, ComponentSpec spec, DesignProject project, int index) {
-        double totalL = number(project, 4200, "总长", "鎬婚暱");
-        double totalW = number(project, 1600, "总宽", "鎬诲");
-        double totalH = number(project, 1800, "总高", "鎬婚珮");
+        double totalL = number(project, 4200, "总长");
+        double totalW = number(project, 1600, "总宽");
+        double totalH = number(project, 1800, "总高");
         double col = index % 5;
         double row = index / 5.0;
         DesignProject.Component component = new DesignProject.Component(sequence, spec.role(), spec.name(), spec.function(),
