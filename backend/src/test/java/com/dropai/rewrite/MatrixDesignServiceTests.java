@@ -1,6 +1,6 @@
 package com.dropai.rewrite;
 
-import com.dropai.rewrite.config.MatrixDesignProperties;
+import com.dropai.rewrite.config.DoubaoProperties;
 import com.dropai.rewrite.service.MatrixDesignService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -36,15 +36,15 @@ class MatrixDesignServiceTests {
         server.start();
 
         try {
-            MatrixDesignProperties properties = new MatrixDesignProperties();
-            properties.setApiKey("matrix-key");
-            properties.setModel("claude-opus-4-7");
+            DoubaoProperties properties = new DoubaoProperties();
+            properties.setApiKey("doubao-key");
+            properties.setModel("doubao-seed-test");
             properties.setEndpoint("http://localhost:" + server.getAddress().getPort() + "/api/v1/chat/completions");
             MatrixDesignService service = new MatrixDesignService(properties, objectMapper, RestClient.builder());
 
             assertEquals("OK", service.generate("system prompt", "user prompt"));
-            assertEquals("Bearer matrix-key", authorization.get());
-            assertEquals("claude-opus-4-7", requestBody.get().path("model").asText());
+            assertEquals("Bearer doubao-key", authorization.get());
+            assertEquals("doubao-seed-test", requestBody.get().path("model").asText());
             assertEquals("system", requestBody.get().path("messages").path(0).path("role").asText());
             assertEquals("system prompt", requestBody.get().path("messages").path(0).path("content").asText());
             assertEquals("user prompt", requestBody.get().path("messages").path(1).path("content").asText());
@@ -71,8 +71,8 @@ class MatrixDesignServiceTests {
         server.start();
 
         try {
-            MatrixDesignProperties properties = new MatrixDesignProperties();
-            properties.setApiKey("matrix-key");
+            DoubaoProperties properties = new DoubaoProperties();
+            properties.setApiKey("doubao-key");
             properties.setEndpoint("http://localhost:" + server.getAddress().getPort() + "/api/v1/chat/completions");
             MatrixDesignService service = new MatrixDesignService(properties, objectMapper, RestClient.builder());
 
@@ -98,8 +98,8 @@ class MatrixDesignServiceTests {
         });
         server.start();
         try {
-            MatrixDesignProperties properties = new MatrixDesignProperties();
-            properties.setApiKey("matrix-key");
+            DoubaoProperties properties = new DoubaoProperties();
+            properties.setApiKey("doubao-key");
             properties.setEndpoint("http://localhost:" + server.getAddress().getPort() + "/api/v1/chat/completions");
             MatrixDesignService service = new MatrixDesignService(properties, objectMapper, RestClient.builder());
             IllegalStateException error = assertThrows(IllegalStateException.class, () -> service.generate("system", "user"));

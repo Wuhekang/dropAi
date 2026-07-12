@@ -2,7 +2,7 @@ package com.dropai.rewrite.service.image;
 
 public class ImageGenerationResult {
     private String status = "disabled";
-    private String provider = "Wanliang Image Provider";
+    private String provider = "Doubao Image Provider";
     private String model = "";
     private String endpoint = "";
     private boolean enabled;

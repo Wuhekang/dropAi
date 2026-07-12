@@ -130,7 +130,7 @@ public class DesignWorkflowService {
 
     private SectionResult generateSection(DesignWorkflowVO workflow, SectionSpec spec, String title, String outputType,
                                           String requirements, String sources) {
-        updateStage(workflow, spec.key(), "RUNNING", "正在调用万量矩阵生成", null);
+        updateStage(workflow, spec.key(), "RUNNING", "正在调用豆包生成", null);
         try {
             String prompt = """
                     请为机械设计项目生成一个独立章节。只输出可直接写入 Word 的中文正文，不输出 Markdown。

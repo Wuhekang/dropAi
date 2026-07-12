@@ -1,6 +1,6 @@
 package com.dropai.rewrite.service;
 
-import com.dropai.rewrite.config.MatrixDesignProperties;
+import com.dropai.rewrite.config.DoubaoProperties;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -21,11 +21,11 @@ import java.util.stream.StreamSupport;
 @Service
 public class MatrixDesignService {
     private static final Logger log = LoggerFactory.getLogger(MatrixDesignService.class);
-    private final MatrixDesignProperties properties;
+    private final DoubaoProperties properties;
     private final ObjectMapper objectMapper;
     private final RestClient restClient;
 
-    public MatrixDesignService(MatrixDesignProperties properties, ObjectMapper objectMapper, RestClient.Builder builder) {
+    public MatrixDesignService(DoubaoProperties properties, ObjectMapper objectMapper, RestClient.Builder builder) {
         this.properties = properties;
         this.objectMapper = objectMapper;
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
@@ -37,7 +37,7 @@ public class MatrixDesignService {
     public String generate(String instructions, String input) {
         if (!properties.isEnabled()) throw new IllegalStateException("大模型设计生成服务已关闭");
         String apiKey = normalize(properties.getApiKey());
-        if (apiKey.isBlank()) throw new IllegalStateException("未配置 MATRIX_API_KEY，无法调用大模型服务");
+        if (apiKey.isBlank()) throw new IllegalStateException("未配置 DOUBAO_API_KEY，无法调用豆包大模型服务");
         Map<String, Object> body = Map.of(
                 "model", properties.getModel(),
                 "stream", false,
@@ -66,7 +66,7 @@ public class MatrixDesignService {
                 lastError = "大模型连续返回空内容";
             } catch (Exception exception) {
                 lastError = friendlyMessage(exception);
-                log.warn("大模型请求失败 attempt={}/3 endpoint={} reason={}", attempt, properties.getEndpoint(), lastError);
+                log.warn("豆包设计模型请求失败 attempt={}/3 endpoint={} reason={}", attempt, properties.getEndpoint(), lastError);
             }
             if (attempt < 3) sleep(attempt);
         }
@@ -79,7 +79,7 @@ public class MatrixDesignService {
 
     public List<String> availableModels() {
         String apiKey = normalize(properties.getApiKey());
-        if (apiKey.isBlank()) throw new IllegalStateException("未配置 MATRIX_API_KEY");
+        if (apiKey.isBlank()) throw new IllegalStateException("未配置 DOUBAO_API_KEY");
         try {
             String response = restClient.get()
                     .uri(properties.getEndpoint().replaceFirst("/chat/completions/?$", "/models"))
@@ -107,12 +107,12 @@ public class MatrixDesignService {
 
     private String friendlyMessage(Exception exception) {
         if (exception instanceof ModelRequestException request && request.status == 429) {
-            return "大模型接口请求受限，请稍后重试或更换可用API Key。";
+            return "豆包接口请求受限，请稍后重试或更换可用API Key。";
         }
         String message = compact(exception.getMessage());
-        if (message.contains("429")) return "大模型接口请求受限，请稍后重试或更换可用API Key。";
-        if (message.toLowerCase().contains("timeout") || message.contains("超时")) return "大模型接口请求超时，请稍后重试。";
-        return "大模型接口请求失败：" + message;
+        if (message.contains("429")) return "豆包接口请求受限，请稍后重试或更换可用API Key。";
+        if (message.toLowerCase().contains("timeout") || message.contains("超时")) return "豆包接口请求超时，请稍后重试。";
+        return "豆包接口请求失败：" + message;
     }
 
     private void sleep(int attempt) {

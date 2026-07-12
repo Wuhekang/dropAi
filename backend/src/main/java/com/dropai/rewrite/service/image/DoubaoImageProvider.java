@@ -22,12 +22,12 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 @Service
-public class WanliangImageProvider implements ImageGenerationProvider {
+public class DoubaoImageProvider implements ImageGenerationProvider {
     private final Environment environment;
     private final ObjectMapper mapper = new ObjectMapper();
     private final HttpClient httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(20)).build();
 
-    public WanliangImageProvider(Environment environment) {
+    public DoubaoImageProvider(Environment environment) {
         this.environment = environment;
     }
 
@@ -39,19 +39,19 @@ public class WanliangImageProvider implements ImageGenerationProvider {
         try {
             if (!result.isEnabled()) {
                 result.setStatus("disabled");
-                result.setMessage("WANLIANG_IMAGE_ENABLED is not true; image task skipped without blocking CAD deliverables.");
+                result.setMessage("DOUBAO_IMAGE_ENABLED is not true; image task skipped without blocking CAD deliverables.");
                 writeAudit(audit, "disabled", result.getMessage(), 0, "");
                 return result;
             }
             if (!result.isApiKeyConfigured()) {
                 result.setStatus("failed");
-                result.setMessage("WANLIANG_API_KEY or MATRIX_API_KEY is not configured.");
+                result.setMessage("DOUBAO_API_KEY is not configured.");
                 writeAudit(audit, "failed", result.getMessage(), 0, "");
                 return result;
             }
             if (result.getEndpoint().isBlank() || result.getModel().isBlank()) {
                 result.setStatus("failed");
-                result.setMessage("Wanliang image endpoint/model is incomplete.");
+                result.setMessage("Doubao image endpoint/model is incomplete.");
                 writeAudit(audit, "failed", result.getMessage(), 0, "");
                 return result;
             }
@@ -62,7 +62,7 @@ public class WanliangImageProvider implements ImageGenerationProvider {
             Map<String, Object> payload = new LinkedHashMap<>();
             payload.put("model", result.getModel());
             payload.put("prompt", prompt);
-            payload.put("size", value("WANLIANG_IMAGE_SIZE", "1024x1024"));
+            payload.put("size", value("DOUBAO_IMAGE_SIZE", "1024x1024"));
             payload.put("n", 1);
             audit.put("request", sanitizedPayload(payload));
 
@@ -77,7 +77,7 @@ public class WanliangImageProvider implements ImageGenerationProvider {
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 String body = truncate(new String(response.body(), StandardCharsets.UTF_8), 1200);
                 result.setStatus("failed");
-                result.setMessage("Wanliang image endpoint returned HTTP " + response.statusCode() + ": " + body);
+                result.setMessage("Doubao image endpoint returned HTTP " + response.statusCode() + ": " + body);
                 writeAudit(audit, "failed", result.getMessage(), response.statusCode(), body);
                 return result;
             }
@@ -86,13 +86,13 @@ public class WanliangImageProvider implements ImageGenerationProvider {
             ImageBytes image = extractImage(root);
             if (image.taskId() != null && !image.taskId().isBlank()) {
                 result.setStatus("pending");
-                result.setMessage("Wanliang image request returned async taskId=" + image.taskId() + "; polling endpoint is not configured.");
+                result.setMessage("Doubao image request returned async taskId=" + image.taskId() + "; polling endpoint is not configured.");
                 writeAudit(audit, "pending", result.getMessage(), response.statusCode(), truncate(root.toString(), 1200));
                 return result;
             }
             if (image.bytes() == null || image.bytes().length == 0) {
                 result.setStatus("failed");
-                result.setMessage("Wanliang image response did not contain url, b64_json, base64, or image bytes.");
+                result.setMessage("Doubao image response did not contain url, b64_json, base64, or image bytes.");
                 writeAudit(audit, "failed", result.getMessage(), response.statusCode(), truncate(root.toString(), 1200));
                 return result;
             }
@@ -104,11 +104,11 @@ public class WanliangImageProvider implements ImageGenerationProvider {
                 writeAudit(audit, "failed", result.getMessage(), response.statusCode(), "invalid image bytes");
                 return result;
             }
-            Path imagePath = outputDir().resolve("wanliang-" + System.currentTimeMillis() + image.extension());
+            Path imagePath = outputDir().resolve("doubao-" + System.currentTimeMillis() + image.extension());
             Files.write(imagePath, image.bytes());
             result.setStatus("success");
             result.setFilePath(imagePath.toAbsolutePath().toString());
-            result.setMessage("Wanliang image generated: " + bufferedImage.getWidth() + "x" + bufferedImage.getHeight());
+            result.setMessage("Doubao image generated: " + bufferedImage.getWidth() + "x" + bufferedImage.getHeight());
             audit.put("mime", image.mime());
             audit.put("width", bufferedImage.getWidth());
             audit.put("height", bufferedImage.getHeight());
@@ -118,7 +118,7 @@ public class WanliangImageProvider implements ImageGenerationProvider {
             return result;
         } catch (Exception exception) {
             result.setStatus("failed");
-            result.setMessage("Wanliang image request failed: " + exception.getClass().getSimpleName() + ": " + truncate(exception.getMessage(), 500));
+            result.setMessage("Doubao image request failed: " + exception.getClass().getSimpleName() + ": " + truncate(exception.getMessage(), 500));
             writeAudit(audit, "failed", result.getMessage(), 0, "");
             return result;
         } finally {
@@ -129,10 +129,10 @@ public class WanliangImageProvider implements ImageGenerationProvider {
     @Override
     public ImageGenerationResult health() {
         ImageGenerationResult result = new ImageGenerationResult();
-        result.setEnabled(Boolean.parseBoolean(value("WANLIANG_IMAGE_ENABLED", "false")));
+        result.setEnabled(Boolean.parseBoolean(value("DOUBAO_IMAGE_ENABLED", "false")));
         result.setApiKeyConfigured(!apiKey().isBlank());
-        result.setEndpoint(value("WANLIANG_IMAGE_ENDPOINT", defaultImageEndpoint()));
-        result.setModel(value("WANLIANG_IMAGE_MODEL", value("MATRIX_IMAGE_MODEL", "gpt-image-1")));
+        result.setEndpoint(value("DOUBAO_IMAGE_ENDPOINT", defaultImageEndpoint()));
+        result.setModel(value("DOUBAO_IMAGE_MODEL", value("DOUBAO_MODEL", "")));
         result.setStatus(result.isEnabled() && result.isApiKeyConfigured() ? "ready" : "disabled");
         result.setMessage(result.isEnabled()
                 ? "Image provider configuration loaded; API key is kept server-side."
@@ -195,17 +195,17 @@ public class WanliangImageProvider implements ImageGenerationProvider {
     }
 
     private Path outputDir() throws Exception {
-        Path dir = Path.of(value("WANLIANG_IMAGE_OUTPUT_DIR", "data/generated-images"));
+        Path dir = Path.of(value("DOUBAO_IMAGE_OUTPUT_DIR", "data/generated-images"));
         Files.createDirectories(dir);
         return dir;
     }
 
     private String apiKey() {
-        return value("WANLIANG_API_KEY", value("MATRIX_API_KEY", ""));
+        return value("DOUBAO_API_KEY", "");
     }
 
     private String defaultImageEndpoint() {
-        String base = value("WANLIANG_BASE_URL", value("MATRIX_BASE_URL", ""));
+        String base = value("DOUBAO_IMAGE_BASE_URL", "");
         if (base.isBlank()) return "";
         String normalized = base.endsWith("/") ? base.substring(0, base.length() - 1) : base;
         return normalized + "/images/generations";

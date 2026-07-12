@@ -7,7 +7,7 @@
         <h1>计算机程序包生成</h1>
         <p>上传任务书和开题报告后，系统自动识别项目方案、规划目录，再按文件队列生成完整成果包。</p>
       </div>
-      <el-tag size="large" type="success">万量矩阵智能识别</el-tag>
+      <el-tag size="large" type="success">豆包智能识别</el-tag>
     </header>
 
     <section class="layout">

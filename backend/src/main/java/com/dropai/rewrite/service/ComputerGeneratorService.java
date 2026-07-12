@@ -582,7 +582,7 @@ public class ComputerGeneratorService {
                     tables, pages.isEmpty() ? List.of("登录页", "首页仪表盘", "核心业务页", "数据统计页", "用户管理页") : pages,
                     apis, outline.isEmpty() ? defaultPaperOutline() : outline);
         } catch (Exception exception) {
-            job.setErrorMessage("万量矩阵规划失败，已回退规则生成：" + compact(exception.getMessage()));
+            job.setErrorMessage("豆包规划失败，已回退规则生成：" + compact(exception.getMessage()));
             jobMapper.updateById(job);
             return null;
         }

@@ -8,7 +8,7 @@ import com.dropai.rewrite.service.PointService;
 import com.dropai.rewrite.service.PointsNotEnoughException;
 import com.dropai.rewrite.service.image.ImageGenerationResult;
 import com.dropai.rewrite.service.image.ImageGenerationRequest;
-import com.dropai.rewrite.service.image.WanliangImageProvider;
+import com.dropai.rewrite.service.image.DoubaoImageProvider;
 import com.dropai.rewrite.vo.AiProviderStatusVO;
 import com.dropai.rewrite.vo.DesignAnalysisVO;
 import com.dropai.rewrite.vo.DocumentRewriteJobVO;
@@ -31,10 +31,10 @@ public class EngineeringWritingController {
     private final ParametricDxfService dxfService;
     private final DesignWorkflowService workflowService;
     private final PointService pointService;
-    private final WanliangImageProvider imageProvider;
+    private final DoubaoImageProvider imageProvider;
     public EngineeringWritingController(EngineeringWritingService service, MatrixDesignService matrixDesignService, ParametricDxfService dxfService,
                                         DesignWorkflowService workflowService, PointService pointService,
-                                        WanliangImageProvider imageProvider) {
+                                        DoubaoImageProvider imageProvider) {
         this.service = service;
         this.matrixDesignService = matrixDesignService;
         this.dxfService = dxfService;
@@ -46,18 +46,18 @@ public class EngineeringWritingController {
     @GetMapping("/ai/status")
     public Result<AiProviderStatusVO> aiStatus() {
         AiProviderStatusVO status = new AiProviderStatusVO();
-        status.setProvider("万量矩阵 Chat Completions API");
+        status.setProvider("豆包 Ark Chat Completions API");
         status.setModel(matrixDesignService.modelName());
         status.setEndpoint(matrixDesignService.endpoint());
         status.setApiKeyConfigured(matrixDesignService.apiKeyConfigured());
         if (!status.isApiKeyConfigured()) {
             status.setTestStatus("failed");
-            status.setTestMessage("未配置 MATRIX_API_KEY");
+            status.setTestMessage("未配置 DOUBAO_API_KEY");
             return Result.success(status);
         }
         try {
             status.setTestStatus("success");
-            status.setTestMessage("万量矩阵连接成功；返回：" + matrixDesignService.generate("只输出 OK", "连接测试"));
+            status.setTestMessage("豆包连接成功；返回：" + matrixDesignService.generate("只输出 OK", "连接测试"));
         } catch (Exception exception) {
             status.setTestStatus("failed");
             status.setTestMessage(exception.getMessage());
