@@ -90,16 +90,22 @@ public class DesignPackageService {
             String reason = "CAD_MODEL_NOT_AVAILABLE: stage=STEP_VALIDATION blockedBy=CAD_MODEL rootErrorCode="
                     + rootErrorCode(rootReason) + " rootErrorMessage=" + rootReason;
             reporter.update("STEP_VALIDATION", 68, reason);
-            generated.addAll(blocked(List.of("assembly.dxf", "cad_preview.svg", "cad_preview.png",
-                    "part_01.dxf", "part_02.dxf", "part_03.dxf", "part_04.dxf", "part_05.dxf",
+            generated.addAll(blocked(List.of("assembly.dxf", "assembly.svg", "assembly.png", "drawing-validation.json", "cad_preview.svg", "cad_preview.png",
+                    "part_01.dxf", "part_01.svg", "part_01.png", "part_02.dxf", "part_02.svg", "part_02.png",
+                    "part_03.dxf", "part_03.svg", "part_03.png", "part_04.dxf", "part_04.svg", "part_04.png",
+                    "part_05.dxf", "part_05.svg", "part_05.png",
                     "paper.docx", "manifest.json", "project_package.zip"), reason));
             return result(project, generated, userId, reporter);
         }
         reporter.update("STEP_VALIDATION", 68, "STEP export and reopen validation finished");
         reporter.update("DRAWING", 72, "Generating assembly drawing");
-        generated.addAll(generateGroup(List.of("assembly.dxf"), () -> drawingEngine.drawAssemblyDrawing(project)));
+        generated.addAll(generateGroup(List.of("assembly.dxf", "assembly.svg", "assembly.png", "drawing-validation.json"), () -> drawingEngine.drawAssemblyDrawing(project)));
         generated.addAll(generateGroup(List.of("cad_preview.svg", "cad_preview.png"), () -> drawingEngine.drawAssemblyPreview(project)));
-        generated.addAll(generateGroup(List.of("part_01.dxf", "part_02.dxf", "part_03.dxf", "part_04.dxf", "part_05.dxf"), () -> drawingEngine.drawPartDrawing(project)));
+        generated.addAll(generateGroup(List.of("part_01.dxf", "part_01.svg", "part_01.png",
+                "part_02.dxf", "part_02.svg", "part_02.png",
+                "part_03.dxf", "part_03.svg", "part_03.png",
+                "part_04.dxf", "part_04.svg", "part_04.png",
+                "part_05.dxf", "part_05.svg", "part_05.png"), () -> drawingEngine.drawPartDrawing(project)));
         reporter.update("PAPER", 86, "Generating design paper");
         generated.add(generateOne("paper.docx", DOCX, () -> paperEngine.generatePaper(project)));
         reporter.update("QUALITY_GATE", 94, "Validating deliverables");

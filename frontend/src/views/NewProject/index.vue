@@ -138,14 +138,21 @@
           </div>
           <span class="tiny">总装图 / 三视图 / 零件图</span>
         </div>
-        <div v-if="drawingPreviewUrl" class="drawing-preview">
+        <div v-if="drawingPreviewUrl" class="drawing-preview" @click="openDrawingPreview(activeDrawingCard)">
           <img :src="drawingPreviewUrl" alt="CAD图纸预览" />
         </div>
         <div v-else class="drawing-placeholder">生成完成后显示 CAD 预览图，DXF 图纸可在下方下载。</div>
         <div class="drawing-files">
-          <button v-for="file in drawingFiles" :key="file.fileName" type="button" @click="downloadFile(file)">
-            <strong>{{ drawingName(file.fileName) }}</strong>
-            <span>{{ file.fileName }}</span>
+          <button v-for="card in drawingCards" :key="card.baseName" type="button" class="drawing-card" :class="{ active: card.baseName === activeDrawingCard?.baseName }" @click="selectDrawing(card)">
+            <img v-if="previewUrls[card.preview?.fileName]" :src="previewUrls[card.preview.fileName]" :alt="card.title" />
+            <i v-else>{{ card.preview ? '加载预览' : '无预览' }}</i>
+            <strong>{{ card.title }}</strong>
+            <span>{{ card.original?.fileName || card.preview?.fileName }}</span>
+            <small>{{ formatSize(card.original?.size || card.preview?.size) }}</small>
+            <em>
+              <span @click.stop="openDrawingPreview(card)">查看</span>
+              <span v-if="card.original" @click.stop="downloadFile(card.original)">下载DXF</span>
+            </em>
           </button>
         </div>
       </article>
@@ -190,6 +197,29 @@
         </div>
       </article>
     </section>
+
+    <div v-if="previewModal.open" class="preview-modal" @click.self="closeDrawingPreview">
+      <section class="preview-dialog">
+        <header>
+          <div>
+            <span class="eyebrow">Drawing Preview</span>
+            <h2>{{ previewModal.title }}</h2>
+          </div>
+          <button type="button" @click="closeDrawingPreview">关闭</button>
+        </header>
+        <div class="preview-toolbar">
+          <button type="button" @click="previewModal.zoom = Math.max(.4, previewModal.zoom - .2)">缩小</button>
+          <button type="button" @click="previewModal.zoom = 1">100%</button>
+          <button type="button" @click="previewModal.zoom = Math.min(3, previewModal.zoom + .2)">放大</button>
+          <button v-if="previewModal.original" type="button" @click="downloadFile(previewModal.original)">下载DXF</button>
+          <button v-if="previewModal.preview" type="button" @click="downloadFile(previewModal.preview)">下载预览图</button>
+        </div>
+        <div class="preview-canvas">
+          <img v-if="previewModal.url" :src="previewModal.url" :style="{ transform: `scale(${previewModal.zoom})` }" alt="CAD图纸大图预览" />
+          <p v-else>图纸预览加载失败，请下载原始文件查看。</p>
+        </div>
+      </section>
+    </div>
   </main>
 </template>
 
@@ -234,6 +264,9 @@ const jobProgress = ref(0)
 const jobStage = ref('')
 const jobStatus = ref('')
 const drawingPreviewUrl = ref('')
+const previewUrls = reactive({})
+const activeDrawingBase = ref('')
+const previewModal = reactive({ open: false, title: '', url: '', zoom: 1, original: null, preview: null })
 let jobTimer = null
 
 const processSteps = [
@@ -284,6 +317,27 @@ const allParameters = computed(() => parameters.value.length ? parameters.value 
 const keyComponents = computed(() => (project.components || []).filter(item => item.keyPart).length ? (project.components || []).filter(item => item.keyPart) : (project.components || []))
 const bomRows = computed(() => project.bom?.length ? project.bom : project.drawingPlan?.bomTable || [])
 const drawingFiles = computed(() => artifacts.value.filter(file => /\.(dxf|svg|png)$/i.test(file.fileName || '')))
+const drawingCards = computed(() => {
+  const files = artifacts.value.filter(file => file.status !== 'failed')
+  const byName = new Map(files.map(file => [file.fileName, file]))
+  const bases = new Set()
+  files.forEach(file => {
+    const name = file.fileName || ''
+    if (/^assembly\.(dxf|svg|png)$/i.test(name)) bases.add('assembly')
+    const part = name.match(/^(part_\d{2})\.(dxf|svg|png)$/i)
+    if (part) bases.add(part[1])
+  })
+  return Array.from(bases).sort((a, b) => a.localeCompare(b)).map(baseName => {
+    const preview = byName.get(`${baseName}.svg`) || byName.get(`${baseName}.png`)
+    return {
+      baseName,
+      title: drawingName(`${baseName}.dxf`),
+      original: byName.get(`${baseName}.dxf`),
+      preview
+    }
+  })
+})
+const activeDrawingCard = computed(() => drawingCards.value.find(card => card.baseName === activeDrawingBase.value) || drawingCards.value[0] || null)
 const zipArtifact = computed(() => artifacts.value.find(file => /\.zip$/i.test(file.fileName || '')))
 const packageSucceeded = computed(() => Boolean(zipArtifact.value) && artifacts.value.every(file => file.status !== 'failed'))
 const progress = computed(() => activeJobId.value ? Math.max(0, Math.min(100, Number(jobProgress.value || 0))) : packageSucceeded.value ? 100 : Math.min(98, Math.round((currentStep.value / processSteps.length) * 100)))
@@ -461,6 +515,7 @@ async function pollJob(jobId) {
       jobProgress.value = 100
       currentStep.value = 8
       await loadDrawingPreview()
+      await loadDrawingCardPreviews()
       ElMessage.success('工程成果包已生成')
     } else if (['FAILED', 'CANCELLED'].includes(job.status)) {
       stopJobPolling()
@@ -489,15 +544,62 @@ function stepFromProgress(value) {
 }
 
 async function loadDrawingPreview() {
-  const preview = artifacts.value.find(file => /cad_preview\.(png|svg)$/i.test(file.fileName || '') && file.downloadUrl)
+  const preview = artifacts.value.find(file => /^assembly\.(svg|png)$/i.test(file.fileName || '') && file.downloadUrl)
+    || artifacts.value.find(file => /cad_preview\.(png|svg)$/i.test(file.fileName || '') && file.downloadUrl)
   if (!preview) return
   try {
     const blob = await downloadArtifact(preview.downloadUrl)
     revokePreview()
     drawingPreviewUrl.value = URL.createObjectURL(blob)
+    activeDrawingBase.value = preview.fileName?.replace(/\.(svg|png)$/i, '') || ''
   } catch (error) {
     console.warn('[DropAI Engineering] CAD preview load failed', error)
   }
+}
+
+async function loadDrawingCardPreviews() {
+  for (const card of drawingCards.value) {
+    if (!card.preview?.downloadUrl || previewUrls[card.preview.fileName]) continue
+    try {
+      const blob = await downloadArtifact(card.preview.downloadUrl)
+      previewUrls[card.preview.fileName] = URL.createObjectURL(blob)
+    } catch (error) {
+      console.warn('[DropAI Engineering] drawing card preview load failed', card.preview.fileName, error)
+    }
+  }
+}
+
+async function selectDrawing(card) {
+  if (!card) return
+  activeDrawingBase.value = card.baseName
+  if (!card.preview?.downloadUrl) return
+  try {
+    const blob = await downloadArtifact(card.preview.downloadUrl)
+    revokePreview()
+    drawingPreviewUrl.value = URL.createObjectURL(blob)
+  } catch (error) {
+    ElMessage.error('图纸预览加载失败，可下载DXF查看。')
+  }
+}
+
+async function openDrawingPreview(card) {
+  if (!card) return
+  await selectDrawing(card)
+  previewModal.open = true
+  previewModal.title = card.title
+  previewModal.url = drawingPreviewUrl.value || (card.preview ? previewUrls[card.preview.fileName] : '')
+  previewModal.zoom = 1
+  previewModal.original = card.original || null
+  previewModal.preview = card.preview || null
+}
+
+function closeDrawingPreview() {
+  previewModal.open = false
+  previewModal.title = ''
+  previewModal.url = ''
+  previewModal.zoom = 1
+  previewModal.original = null
+  previewModal.preview = null
 }
 
 async function downloadFile(file) {
@@ -514,6 +616,15 @@ async function downloadFile(file) {
 function revokePreview() {
   if (drawingPreviewUrl.value) URL.revokeObjectURL(drawingPreviewUrl.value)
   drawingPreviewUrl.value = ''
+}
+
+function revokeAllDrawingPreviews() {
+  revokePreview()
+  Object.keys(previewUrls).forEach(key => {
+    URL.revokeObjectURL(previewUrls[key])
+    delete previewUrls[key]
+  })
+  closeDrawingPreview()
 }
 
 function stepClass(index) {
@@ -536,9 +647,10 @@ function formatParameter(item) {
 }
 
 function drawingName(name = '') {
-  if (name === 'assembly.dxf') return '总装图'
+  if (/^assembly\./i.test(name)) return '总装图'
   if (/cad_preview/i.test(name)) return '三视图预览'
-  if (/part_/i.test(name)) return '关键零件图'
+  const part = name.match(/part_(\d{2})/i)
+  if (part) return `关键零件图 ${part[1]}`
   return '工程图'
 }
 
@@ -567,7 +679,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   stopJobPolling()
-  revokePreview()
+  revokeAllDrawingPreviews()
 })
 </script>
 
@@ -581,7 +693,8 @@ onBeforeUnmount(() => {
 .analysis-grid,.detail-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-top:18px}.detail-grid{grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr)}.result-card,.structure-panel,.drawing-panel,.bom-panel,.artifact-panel{padding:18px}.result-card>span,.artifact-file>span{color:var(--primary);font-size:12px;font-weight:800}.result-card h3{margin:8px 0 14px;font-size:22px}.result-card dl{display:grid;gap:10px;margin:0}.result-card dl div{display:grid;grid-template-columns:80px 1fr;gap:12px}.result-card dt{color:var(--muted);font-size:13px}.result-card dd{margin:0;line-height:1.55}
 .parameter-list,.component-list{display:grid;gap:10px}.parameter-list div,.component-list div{display:grid;gap:4px;padding:10px;border:1px solid rgba(108,99,255,.1);border-radius:8px;background:rgba(255,255,255,.52)}.parameter-list strong{color:var(--primary)}.parameter-list small,.component-list span{color:var(--muted);font-size:12px}
 .section-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:14px}.structure-tree,.structure-tree ul{display:grid;gap:8px;margin:0;padding-left:18px}.structure-tree{padding-left:0;list-style:none}.structure-tree :deep(li){list-style:none}.tree-node{display:grid;gap:4px;padding:10px;border:1px solid rgba(108,99,255,.1);border-radius:8px;background:rgba(255,255,255,.52)}.tree-node span{color:var(--muted);font-size:12px}
-.drawing-preview{display:grid;place-items:center;min-height:280px;margin-bottom:12px;overflow:hidden;border:1px solid rgba(108,99,255,.1);border-radius:8px;background:rgba(255,255,255,.55)}.drawing-preview img{max-width:100%;max-height:420px;object-fit:contain}.drawing-placeholder{display:grid;place-items:center;min-height:220px;margin-bottom:12px;border:1px dashed rgba(108,99,255,.18);border-radius:8px;color:var(--muted);background:rgba(255,255,255,.42)}.drawing-files{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.drawing-files button{display:grid;gap:4px;padding:12px;border:1px solid rgba(108,99,255,.1);border-radius:8px;color:var(--text);background:rgba(255,255,255,.56);text-align:left;cursor:pointer}.drawing-files span{color:var(--muted);font-size:12px}
+.drawing-preview{display:grid;place-items:center;min-height:280px;margin-bottom:12px;overflow:hidden;border:1px solid rgba(108,99,255,.1);border-radius:8px;background:rgba(255,255,255,.55);cursor:zoom-in}.drawing-preview img{max-width:100%;max-height:420px;object-fit:contain}.drawing-placeholder{display:grid;place-items:center;min-height:220px;margin-bottom:12px;border:1px dashed rgba(108,99,255,.18);border-radius:8px;color:var(--muted);background:rgba(255,255,255,.42)}.drawing-files{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.drawing-card{display:grid;gap:7px;min-width:0;padding:10px;border:1px solid rgba(108,99,255,.1);border-radius:8px;color:var(--text);background:rgba(255,255,255,.56);text-align:left;cursor:pointer;transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease}.drawing-card:hover,.drawing-card.active{transform:translateY(-2px);border-color:rgba(255,126,179,.38);box-shadow:0 14px 34px rgba(108,99,255,.12)}.drawing-card img,.drawing-card i{display:grid;place-items:center;width:100%;height:112px;border-radius:7px;background:#fff;object-fit:contain;color:var(--muted);font-style:normal}.drawing-card strong,.drawing-card span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.drawing-card span,.drawing-card small{color:var(--muted);font-size:12px}.drawing-card em{display:flex;gap:8px;align-items:center;font-style:normal}.drawing-card em span{padding:5px 9px;border-radius:999px;color:#fff;background:var(--primary-gradient);font-size:12px;font-weight:700}
+.preview-modal{position:fixed;inset:0;z-index:80;display:grid;place-items:center;padding:24px;background:rgba(15,23,42,.42);backdrop-filter:blur(16px)}.preview-dialog{display:grid;grid-template-rows:auto auto minmax(0,1fr);width:min(1120px,calc(100vw - 48px));height:min(820px,calc(100vh - 48px));overflow:hidden;border:1px solid rgba(255,255,255,.72);border-radius:18px;background:rgba(255,255,255,.82);box-shadow:0 30px 90px rgba(31,41,55,.24)}.preview-dialog header,.preview-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 18px;border-bottom:1px solid rgba(108,99,255,.1)}.preview-dialog h2{margin:4px 0 0;font-size:22px}.preview-dialog button,.preview-toolbar button{border:0;border-radius:999px;padding:8px 12px;color:var(--text);background:rgba(255,255,255,.78);box-shadow:inset 0 0 0 1px rgba(108,99,255,.12);cursor:pointer}.preview-toolbar{justify-content:flex-start;flex-wrap:wrap}.preview-canvas{display:grid;place-items:center;min-height:0;overflow:auto;padding:20px;background:linear-gradient(135deg,rgba(243,248,255,.82),rgba(255,245,250,.86))}.preview-canvas img{max-width:100%;max-height:100%;transform-origin:center center;transition:transform .16s ease}.preview-canvas p{color:var(--muted)}
 .bom-table{display:grid;gap:6px}.bom-table>div{display:grid;grid-template-columns:56px minmax(130px,1fr) 64px minmax(90px,1fr) minmax(120px,1.2fr);gap:10px;align-items:center;padding:10px;border:1px solid rgba(108,99,255,.1);border-radius:8px;background:rgba(255,255,255,.52);font-size:13px}.bom-table .bom-head{color:var(--muted);font-weight:700;background:rgba(255,255,255,.7)}.bom-table small{color:var(--muted)}
 .artifact-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.artifact-file{display:grid;gap:8px;padding:12px;border:1px solid rgba(108,99,255,.1);border-radius:8px;background:rgba(255,255,255,.52)}.artifact-file strong{overflow-wrap:anywhere}.artifact-file small{color:var(--muted)}
 @media(max-width:1100px){.builder-grid,.analysis-grid,.detail-grid{grid-template-columns:1fr}.design-flow,.drawing-files,.artifact-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.builder-head{align-items:flex-start;flex-direction:column}}

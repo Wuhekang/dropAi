@@ -386,6 +386,58 @@ Date: 2026-07-11
 - CAD Worker health currently reports GLB export unavailable. A later pass should add a real STEP-to-GLB conversion path if the online preview must consume final CAD geometry instead of the current JSON preview.
 - `DrawingEngine` still needs a future upgrade from drawing-plan geometry to projection from reopened STEP topology for stricter hidden-line engineering drawings.
 
+## 2026-07-12 Drawing Preview and CAD Artifact Usability Fix
+
+### Runtime Audit
+
+- The engineering result page was not attempting to render DXF directly after authentication-safe downloads; it only showed artifact names and downloaded files.
+- Browser `<img>` rendering cannot reliably preview DXF, so each formal drawing needs a browser-friendly preview artifact.
+- The current 3D browser preview still consumes the existing front-end/JSON preview path when `assembly.glb` is unavailable. Final CAD quality is still guarded by STEP generation and reopen validation on the backend.
+- Current DXF drawings are produced by `DrawingEngine` from the backend drawing plan and project/assembly data. They are not yet hidden-line projections from a reopened STEP topology; that remains a future CAD drawing engine upgrade.
+
+### Changes
+
+- Added `DrawingPreviewRenderer` to convert each backend drawing canvas into independent SVG and PNG preview files with CJK-capable font fallback.
+- Updated assembly drawing output from only `assembly.dxf` to:
+  - `assembly.dxf`
+  - `assembly.svg`
+  - `assembly.png`
+  - `drawing-validation.json`
+- Updated part drawing output so each of the five selected key part drawings now has:
+  - `part_XX.dxf`
+  - `part_XX.svg`
+  - `part_XX.png`
+- Updated the STEP failure block list and expected artifact groups so downstream drawings, previews and ZIP manifests cannot silently omit the new drawing preview files.
+- Updated the engineering page drawing section to group each DXF with its SVG/PNG preview, show clickable drawing cards, load previews through authenticated blob downloads, and provide a zoomable modal with DXF and preview downloads.
+- Fixed a source-level CJK safety issue by using Unicode escapes for backend drawing title/font probing where source encoding can drift on Windows or Render builds.
+
+### Verification Plan
+
+- `python backend\src\main\resources\cad-worker\cad_worker.py --health`
+- `mvn.cmd -DskipTests compile`
+- `mvn.cmd "-Dtest=DesignPackageServiceTests,MechanicalCadPipelineTests" test`
+- `npm.cmd run build`
+
+### Verification Results
+
+- `python backend\src\main\resources\cad-worker\cad_worker.py --health`
+  - Result: passed on 2026-07-12.
+  - Evidence: status `UP`, CadQuery/OCP available, STEP export and STEP import available, test solid count 1.
+  - Limitation: GLB export and DXF export remain unavailable in the local worker health response.
+- `mvn.cmd -DskipTests compile`
+  - Result: passed on 2026-07-12.
+- `mvn.cmd "-Dtest=DesignPackageServiceTests,MechanicalCadPipelineTests" test`
+  - Result: passed on 2026-07-12.
+  - Evidence: `DesignPackageServiceTests` generated `assembly.step`, five part STEP files, `assembly-validation.json`, `assembly.dxf`, `assembly.svg`, `assembly.png`, `drawing-validation.json`, `cad_preview.svg`, `cad_preview.png`, five part DXF files, five part SVG previews, five part PNG previews, `paper.docx`, `manifest.json` and `project_package.zip`.
+- `npm.cmd run build`
+  - Result: passed on 2026-07-12.
+  - Note: Vite still reports the existing large chunk warning and upstream Rollup annotation warnings from `@vueuse/core`.
+
+### Remaining Work
+
+- `DrawingEngine` still needs true STEP/OCP projection for stricter formal drawings. This pass makes the existing generated DXF drawings previewable and quality-recorded, but does not claim full topology-derived hidden-line drafting.
+- PDF preview export is still not included in this pass; SVG/PNG are now available for browser preview while DXF remains the original engineering download.
+
 ## 2026-07-12 Render Build Retry Adjustment
 
 ### Root Cause Hypothesis

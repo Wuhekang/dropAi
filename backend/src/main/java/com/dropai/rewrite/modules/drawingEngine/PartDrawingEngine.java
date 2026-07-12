@@ -15,6 +15,7 @@ public class PartDrawingEngine {
     private final DimensionEngine dimensionEngine = new DimensionEngine();
     private final AnnotationEngine annotationEngine = new AnnotationEngine();
     private final ToleranceGenerator toleranceGenerator = new ToleranceGenerator();
+    private final DrawingPreviewRenderer previewRenderer = new DrawingPreviewRenderer();
 
     public List<DrawingArtifact> drawPartDrawing(DesignProject project) {
         List<DesignProject.Component> targets = importanceAnalyzer.selectTopFive(project);
@@ -32,7 +33,10 @@ public class PartDrawingEngine {
             annotationEngine.drawMaterialBlock(canvas, part, 535, 275);
             toleranceGenerator.drawDatumAndGdt(canvas, 535, 235);
             toleranceGenerator.drawToleranceBlock(canvas, 535, 92, toleranceGenerator.partRequirements(part, features));
-            result.add(new DrawingArtifact("part_%02d.dxf".formatted(i + 1), canvas.dxf().getBytes(StandardCharsets.UTF_8), "application/dxf"));
+            String baseName = "part_%02d".formatted(i + 1);
+            result.add(new DrawingArtifact(baseName + ".dxf", canvas.dxf().getBytes(StandardCharsets.UTF_8), "application/dxf"));
+            result.add(previewRenderer.svg(baseName + ".svg", canvas));
+            result.add(previewRenderer.png(baseName + ".png", canvas));
         }
         return result;
     }

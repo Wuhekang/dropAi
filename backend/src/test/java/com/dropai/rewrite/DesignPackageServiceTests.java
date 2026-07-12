@@ -74,7 +74,7 @@ class DesignPackageServiceTests {
         assertEquals("success", result.getStatus());
         assertTrue(result.getArtifacts().stream().allMatch(item -> "success".equals(item.getStatus())));
         assertTrue(result.getArtifacts().stream().allMatch(item -> item.getSize() > 0 && item.getDownloadUrl() != null));
-        assertEquals(24, result.getArtifacts().size());
+        assertEquals(37, result.getArtifacts().size());
         assertTrue(result.getArtifacts().stream().anyMatch(item -> "MechanicalDesignContext.json".equals(item.getName())));
         assertTrue(result.getArtifacts().stream().anyMatch(item -> "MechanicalDesignPlan.json".equals(item.getName())));
         assertTrue(result.getArtifacts().stream().anyMatch(item -> "mechanical-pipeline-audit.json".equals(item.getName())));
@@ -88,9 +88,14 @@ class DesignPackageServiceTests {
         assertTrue(result.getArtifacts().stream().anyMatch(item -> "manifest.json".equals(item.getName())));
         assertTrue(result.getArtifacts().stream().anyMatch(item -> "project_package.zip".equals(item.getName())));
         assertTrue(result.getArtifacts().stream().anyMatch(item -> "assembly.dxf".equals(item.getName())));
+        assertTrue(result.getArtifacts().stream().anyMatch(item -> "assembly.svg".equals(item.getName())));
+        assertTrue(result.getArtifacts().stream().anyMatch(item -> "assembly.png".equals(item.getName())));
+        assertTrue(result.getArtifacts().stream().anyMatch(item -> "drawing-validation.json".equals(item.getName())));
         assertTrue(result.getArtifacts().stream().anyMatch(item -> "cad_preview.svg".equals(item.getName())));
         assertTrue(result.getArtifacts().stream().anyMatch(item -> "cad_preview.png".equals(item.getName())));
         assertTrue(result.getArtifacts().stream().anyMatch(item -> "part_05.dxf".equals(item.getName())));
+        assertTrue(result.getArtifacts().stream().anyMatch(item -> "part_05.svg".equals(item.getName())));
+        assertTrue(result.getArtifacts().stream().anyMatch(item -> "part_05.png".equals(item.getName())));
         assertTrue(result.getProject().getBom().size() >= 5);
         assertTrue(result.getProject().getAssemblyModel().getComponents().size() >= 5);
         assertTrue(result.getProject().getAssemblyModel().getConstraints().size() >= 5);

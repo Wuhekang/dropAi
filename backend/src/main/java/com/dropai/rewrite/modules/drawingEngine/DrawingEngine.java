@@ -30,12 +30,16 @@ public class DrawingEngine {
     private final MechanicalDrawingAgent mechanicalDrawingAgent = new MechanicalDrawingAgent();
     private final MechanicalViewComposer mechanicalViewComposer = new MechanicalViewComposer();
     private final DrawingPlanBuilder drawingPlanBuilder = new DrawingPlanBuilder();
+    private final DrawingPreviewRenderer previewRenderer = new DrawingPreviewRenderer();
 
     public List<DrawingArtifact> drawAssemblyDrawing(DesignProject project) {
         validateDrawingPlan(project);
         Canvas assembly = assemblyCanvas(project);
         java.util.ArrayList<DrawingArtifact> files = new java.util.ArrayList<>();
         files.add(new DrawingArtifact("assembly.dxf", assembly.dxf().getBytes(StandardCharsets.UTF_8), "application/dxf"));
+        files.add(previewRenderer.svg("assembly.svg", assembly));
+        files.add(previewRenderer.png("assembly.png", assembly));
+        files.add(new DrawingArtifact("drawing-validation.json", drawingValidation(project, assembly).getBytes(StandardCharsets.UTF_8), "application/json"));
         return files;
     }
 
@@ -44,7 +48,7 @@ public class DrawingEngine {
         Canvas assembly = assemblyCanvas(project);
         java.util.ArrayList<DrawingArtifact> files = new java.util.ArrayList<>();
         files.add(new DrawingArtifact("cad_preview.svg", assembly.svg(false).getBytes(StandardCharsets.UTF_8), "image/svg+xml"));
-        files.add(new DrawingArtifact("cad_preview.png", render(assembly, Color.WHITE, false), "image/png"));
+        files.add(previewRenderer.png("cad_preview.png", assembly));
         return files;
     }
 
@@ -71,7 +75,7 @@ public class DrawingEngine {
     }
 
     private Canvas projectedAssemblyCanvas(DesignProject project) {
-        Canvas canvas = new Canvas(project.getProjectTitle(), "总装图", "ZZ-00");
+        Canvas canvas = new Canvas(project.getProjectTitle(), "\u603b\u88c5\u56fe", "ZZ-00");
         DrawingLayoutOptimizer.Layout layout = layoutOptimizer.optimize(project);
         frame(canvas);
         titleBlock(canvas, project);
@@ -98,6 +102,33 @@ public class DrawingEngine {
 
     private String json(String value) {
         return value == null ? "" : value.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
+
+    private String drawingValidation(DesignProject project, Canvas assembly) {
+        int dimensionCount = (int) assembly.shapes.stream().filter(shape -> "DIMENSION".equals(shape.layer)).count();
+        int centerLineCount = (int) assembly.shapes.stream().filter(shape -> "CENTER".equals(shape.layer)).count();
+        int titleCount = (int) assembly.shapes.stream().filter(shape -> "TITLE".equals(shape.layer)).count();
+        int tableCount = (int) assembly.shapes.stream().filter(shape -> "TABLE".equals(shape.layer)).count();
+        boolean hasThreeViews = project.getDrawingPlan() != null
+                && !project.getDrawingPlan().getMainView().getVisibleParts().isEmpty()
+                && !project.getDrawingPlan().getTopView().getVisibleParts().isEmpty()
+                && !project.getDrawingPlan().getSideView().getVisibleParts().isEmpty();
+        boolean pass = hasThreeViews && dimensionCount >= 4 && centerLineCount >= 2 && titleCount >= 4 && tableCount >= 4;
+        return """
+                {
+                  "source": "DrawingEngine",
+                  "sourceModel": "assembly.step",
+                  "sourceData": "MechanicalDesignContext/AssemblyModel",
+                  "hasThreeViews": %s,
+                  "dimensionCount": %d,
+                  "centerLineCount": %d,
+                  "titleBlockEntityCount": %d,
+                  "tableEntityCount": %d,
+                  "previewSvg": "assembly.svg",
+                  "previewPng": "assembly.png",
+                  "pass": %s
+                }
+                """.formatted(hasThreeViews, dimensionCount, centerLineCount, titleCount, tableCount, pass);
     }
 
     public List<DrawingArtifact> drawPartDrawing(DesignProject project) {
