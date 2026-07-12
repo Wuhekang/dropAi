@@ -238,3 +238,81 @@ Required Render evidence:
 - Render online verification still requires the next deployment logs.
 - GLB export remains unavailable in the current worker and is not part of this CAD environment fix.
 - If Render cannot install `cadquery==2.5.2`, the build must fail and the actual pip error must be used to choose a compatible version. No fake STEP fallback is allowed.
+
+## 2026-07-12 Python 3.14 Compatibility Failure
+
+### Render Build Root Cause
+
+- Render build logs showed that the final runtime image installed Python `3.14.3`.
+- The project pins `cadquery==2.5.2`.
+- `cadquery==2.5.2` requires `cadquery-ocp>=7.7.0,<7.8`.
+- In the Python 3.14 environment, pip could only resolve newer `cadquery-ocp` builds such as `7.9.3.1.1`.
+- Pip therefore failed with:
+
+```text
+No matching distribution found for cadquery-ocp<7.8,>=7.7.0
+```
+
+This was not a memory issue and not a CAD Worker path issue. It was a Python ABI / wheel compatibility issue caused by relying on the base image distribution default Python.
+
+### Fix
+
+- Final runtime image changed from Java runtime image plus `apt install python3` to explicit `python:3.11-slim-bookworm`.
+- Java 17 is installed inside the Python 3.11 final image with `openjdk-17-jre-headless`.
+- The CAD virtual environment is created from Python 3.11:
+
+```text
+/opt/dropai-cad-venv/bin/python
+```
+
+- Docker build now asserts:
+
+```text
+sys.version_info[:2] == (3, 11)
+```
+
+- `CAD_WORKER_PYTHON` remains:
+
+```text
+/opt/dropai-cad-venv/bin/python
+```
+
+- `cadquery==2.5.2` is still pinned. It was not upgraded in this emergency fix.
+- `pip install`, `pip check`, `pip show cadquery`, CadQuery import, OCP import and `render-cad-preflight.sh` are blocking build steps.
+- There is no `|| true` dependency-install fallback.
+
+### Expected Render Build Evidence
+
+The next Render build should show:
+
+```text
+Python 3.11.x
+PYTHON= 3.11.x
+EXECUTABLE= /opt/dropai-cad-venv/bin/python
+CADQUERY= 2.5.2
+OCP_OK
+[render-cad-preflight] OK
+```
+
+If Render still cannot install `cadquery==2.5.2` under Python 3.11, the build must fail and the pip error must be used as the next root cause.
+
+### Local Verification After Dockerfile Change
+
+- `python backend\src\main\resources\cad-worker\cad_worker.py --health`
+  - Result: `status=UP`
+  - Local Windows Python: `3.10.8`
+  - Local CadQuery: `2.7.0`
+  - STEP export: true
+  - STEP import: true
+  - solid count: 1
+- `mvn.cmd -DskipTests compile`
+  - Result: passed.
+- `mvn.cmd "-Dtest=DesignPackageServiceTests,MechanicalCadPipelineTests" test`
+  - Result: passed.
+  - Oil-tank wall-climbing robot generated `assembly.step`, five part STEP files, `assembly-validation.json`, drawings, paper, manifest and ZIP.
+
+### Local Docker Status
+
+- Docker CLI is installed, but Docker daemon is still unavailable on this Windows machine.
+- Local `docker build -f Dockerfile.render -t dropai-render-cad-test .` could not be executed until Docker Desktop / Linux engine is started.
+- The Render build remains the authoritative Docker validation for this environment.

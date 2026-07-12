@@ -201,6 +201,7 @@ def run_health_check():
         "workerAvailable": True,
         "cadqueryAvailable": False,
         "cadqueryVersion": "",
+        "ocpAvailable": False,
         "cadKernelAvailable": False,
         "cadKernelName": "CadQuery/OCP",
         "stepExportAvailable": False,
@@ -215,6 +216,7 @@ def run_health_check():
         load_cad_modules()
         health["cadqueryAvailable"] = True
         health["cadqueryVersion"] = getattr(cq, "__version__", "unknown")
+        health["ocpAvailable"] = True
         health["cadKernelAvailable"] = True
         with tempfile.TemporaryDirectory(prefix="dropai-cad-health-") as tmp:
             step_path = Path(tmp) / "health.step"

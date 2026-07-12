@@ -1,25 +1,27 @@
-#!/usr/bin/env sh
-set -eu
+#!/usr/bin/env bash
+set -Eeuo pipefail
 
-PYTHON_BIN="${CAD_WORKER_PYTHON:-/opt/dropai-cad-venv/bin/python}"
-WORKER_SCRIPT="${CAD_WORKER_SCRIPT:-/app/cad_worker/cad_worker.py}"
+CAD_PYTHON="${CAD_WORKER_PYTHON:-/opt/dropai-cad-venv/bin/python}"
+CAD_SCRIPT="${CAD_WORKER_SCRIPT:-/app/cad_worker/cad_worker.py}"
 
 echo "[render-cad-preflight] java"
 java -version
 
 echo "[render-cad-preflight] python"
-test -x "$PYTHON_BIN"
-"$PYTHON_BIN" --version
-"$PYTHON_BIN" -m pip --version
+test -x "$CAD_PYTHON"
+"$CAD_PYTHON" --version
+"$CAD_PYTHON" -c "import sys; assert sys.version_info[:2] == (3, 11), sys.version; print('PYTHON_EXECUTABLE=' + sys.executable)"
+"$CAD_PYTHON" -m pip --version
+"$CAD_PYTHON" -m pip check
 
 echo "[render-cad-preflight] worker"
-test -f "$WORKER_SCRIPT"
+test -f "$CAD_SCRIPT"
 
 echo "[render-cad-preflight] cadquery import"
-"$PYTHON_BIN" -c "import sys; import cadquery as cq; print('PYTHON_EXECUTABLE=' + sys.executable); print('CADQUERY_OK=' + cq.__version__)"
+"$CAD_PYTHON" -c "import sys; import cadquery as cq; import OCP; print('PYTHON_EXECUTABLE=' + sys.executable); print('CADQUERY_OK=' + cq.__version__); print('OCP_OK')"
 
 echo "[render-cad-preflight] worker health"
-"$PYTHON_BIN" "$WORKER_SCRIPT" --health
+"$CAD_PYTHON" "$CAD_SCRIPT" --health
 
 echo "[render-cad-preflight] minimal step export"
 TMP_DIR="$(mktemp -d)"
@@ -51,7 +53,7 @@ cat > "$TMP_DIR/input.json" <<'JSON'
 JSON
 
 mkdir -p "$TMP_DIR/out"
-"$PYTHON_BIN" "$WORKER_SCRIPT" "$TMP_DIR/input.json" "$TMP_DIR/out"
+"$CAD_PYTHON" "$CAD_SCRIPT" "$TMP_DIR/input.json" "$TMP_DIR/out"
 test -s "$TMP_DIR/out/assembly.step"
 test -s "$TMP_DIR/out/part_01.step"
 test -s "$TMP_DIR/out/assembly-validation.json"
