@@ -69,7 +69,7 @@ public class StepExportEngine {
                 throw new IllegalStateException("CAD_WORKER_TIMEOUT: CAD Worker timed out after " + properties.getTimeoutSeconds() + " seconds");
             }
             if (process.exitValue() != 0) {
-                throw new IllegalStateException("CAD_WORKER_FAILED: " + compact(log));
+                throw new IllegalStateException(rootCadError(log));
             }
 
             List<DrawingArtifact> result = new ArrayList<>();
@@ -110,6 +110,17 @@ public class StepExportEngine {
         if (value == null || value.isBlank()) return "无详细信息";
         String clean = value.replaceAll("\\s+", " ").trim();
         return clean.length() > 1200 ? clean.substring(0, 1200) + "..." : clean;
+    }
+
+    private String rootCadError(String log) {
+        String clean = compact(log);
+        if (clean.contains("CADQUERY_MODULE_NOT_FOUND")) {
+            return "CADQUERY_MODULE_NOT_FOUND: CAD Worker Python environment does not contain cadquery";
+        }
+        if (clean.contains("CAD_WORKER_IMPORT_FAILED")) {
+            return "CAD_WORKER_IMPORT_FAILED: " + clean;
+        }
+        return "CAD_WORKER_FAILED: " + clean;
     }
 
     private String mediaType(String name) {

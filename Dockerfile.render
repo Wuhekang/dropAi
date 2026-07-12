@@ -18,19 +18,22 @@ WORKDIR /app
 ENV TZ=Asia/Shanghai
 ENV SPRING_PROFILES_ACTIVE=demo
 ENV APP_DATA_DIR=/app/data
-ENV CAD_WORKER_PYTHON=/opt/cad-worker-venv/bin/python
+ENV CAD_WORKER_PYTHON=/opt/dropai-cad-venv/bin/python
 ENV CAD_WORKER_SCRIPT=/app/cad_worker/cad_worker.py
-ENV CAD_WORKER_WORK_DIR=/app/data/cad-worker
+ENV CAD_WORKER_WORK_DIR=/tmp/dropai-cad-worker
 ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=60.0"
 RUN apt-get update \
     && apt-get install -y --no-install-recommends fonts-noto-cjk fontconfig python3 python3-pip python3-venv libgl1 libglib2.0-0 libxrender1 libxext6 \
-    && python3 -m venv /opt/cad-worker-venv \
-    && /opt/cad-worker-venv/bin/pip install --no-cache-dir --upgrade pip \
+    && python3 -m venv /opt/dropai-cad-venv \
+    && /opt/dropai-cad-venv/bin/pip install --no-cache-dir --upgrade pip \
     && fc-cache -f -v \
     && rm -rf /var/lib/apt/lists/* \
-    && mkdir -p /app/data /app/storage/uploads /app/storage/outputs /app/storage/jobs /app/data/cad-worker
+    && mkdir -p /app/data /app/storage/uploads /app/storage/outputs /app/storage/jobs /tmp/dropai-cad-worker
 COPY --from=backend-build /backend/target/*.jar /app/app.jar
 COPY backend/src/main/resources/cad-worker/ /app/cad_worker/
-RUN timeout 300 /opt/cad-worker-venv/bin/pip install --no-cache-dir -r /app/cad_worker/requirements.txt || echo "CAD Worker Python dependencies were not installed during image build; runtime health endpoint will report unavailable"
+COPY scripts/render-cad-preflight.sh /app/scripts/render-cad-preflight.sh
+RUN chmod +x /app/scripts/render-cad-preflight.sh \
+    && /opt/dropai-cad-venv/bin/pip install --no-cache-dir -r /app/cad_worker/requirements.txt \
+    && /app/scripts/render-cad-preflight.sh
 EXPOSE 8080
 ENTRYPOINT ["java", "-jar", "/app/app.jar"]

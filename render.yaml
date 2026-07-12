@@ -24,13 +24,13 @@ services:
       - key: CAD_WORKER_ENABLED
         value: true
       - key: CAD_WORKER_PYTHON
-        value: /opt/cad-worker-venv/bin/python
+        value: /opt/dropai-cad-venv/bin/python
       - key: CAD_WORKER_SCRIPT
         value: /app/cad_worker/cad_worker.py
       - key: CAD_WORKER_WORK_DIR
-        value: /app/data/cad-worker
+        value: /tmp/dropai-cad-worker
       - key: CAD_WORKER_TIMEOUT_SECONDS
-        value: 240
+        value: 300
       - key: APP_BASE_URL
         value: https://dro.k8818.cn
       - key: EPAY_GATEWAY

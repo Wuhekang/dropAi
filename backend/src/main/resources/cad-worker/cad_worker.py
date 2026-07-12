@@ -1,13 +1,37 @@
 import json
 import math
 import sys
+import tempfile
 from pathlib import Path
 
-import cadquery as cq
-from OCP.STEPControl import STEPControl_Reader
-from OCP.IFSelect import IFSelect_RetDone
-from OCP.TopAbs import TopAbs_SOLID
-from OCP.TopExp import TopExp_Explorer
+cq = None
+STEPControl_Reader = None
+IFSelect_RetDone = None
+TopAbs_SOLID = None
+TopExp_Explorer = None
+
+
+def load_cad_modules():
+    global cq, STEPControl_Reader, IFSelect_RetDone, TopAbs_SOLID, TopExp_Explorer
+    if cq is not None:
+        return
+    try:
+        import cadquery as cadquery_module
+        from OCP.STEPControl import STEPControl_Reader as step_reader
+        from OCP.IFSelect import IFSelect_RetDone as ret_done
+        from OCP.TopAbs import TopAbs_SOLID as solid_type
+        from OCP.TopExp import TopExp_Explorer as explorer_type
+    except ModuleNotFoundError as exc:
+        if exc.name == "cadquery":
+            raise RuntimeError("CADQUERY_MODULE_NOT_FOUND: CAD Worker Python environment does not contain cadquery") from exc
+        raise RuntimeError(f"CAD_WORKER_IMPORT_FAILED: missing Python module {exc.name}") from exc
+    except Exception as exc:
+        raise RuntimeError(f"CAD_WORKER_IMPORT_FAILED: {exc}") from exc
+    cq = cadquery_module
+    STEPControl_Reader = step_reader
+    IFSelect_RetDone = ret_done
+    TopAbs_SOLID = solid_type
+    TopExp_Explorer = explorer_type
 
 
 def safe(value, fallback):
@@ -34,6 +58,7 @@ def component_position(component):
 
 
 def make_part(component):
+    load_cad_modules()
     name = safe(component.get("name"), "part")
     params = component.get("parameters") or {}
     category = (params.get("category") or params.get("geometry") or component.get("type") or "").lower()
@@ -63,10 +88,12 @@ def make_part(component):
 
 
 def export_step(shape, path):
+    load_cad_modules()
     cq.exporters.export(shape, str(path), exportType="STEP")
 
 
 def read_step_stats(path):
+    load_cad_modules()
     reader = STEPControl_Reader()
     status = reader.ReadFile(str(path))
     if status != IFSelect_RetDone:
@@ -98,17 +125,10 @@ def read_step_stats(path):
 
 def main():
     if len(sys.argv) == 2 and sys.argv[1] == "--health":
-        health = {
-            "pythonAvailable": True,
-            "workerAvailable": True,
-            "cadKernelAvailable": True,
-            "cadKernelName": "CadQuery/OCP",
-            "cadKernelVersion": getattr(cq, "__version__", "unknown"),
-            "stepExportAvailable": True,
-            "glbExportAvailable": False,
-            "drawingProjectionAvailable": False,
-        }
+        health = run_health_check()
         print(json.dumps(health, ensure_ascii=False))
+        if health.get("status") != "UP":
+            raise SystemExit(1)
         return
     if len(sys.argv) != 3:
         raise SystemExit("usage: cad_worker.py input.json output_dir")
@@ -124,6 +144,7 @@ def main():
     if len(constraints) < 5:
         raise RuntimeError("assembly has fewer than 5 constraints")
 
+    load_cad_modules()
     assembly = cq.Assembly(name=safe(assembly_model.get("projectName"), "DropAI Assembly"))
     positions = []
     part_reports = []
@@ -168,6 +189,57 @@ def main():
     if not report["passed"]:
         raise RuntimeError("assembly validation failed: positions or volume invalid")
     (output_dir / "assembly-validation.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def run_health_check():
+    health = {
+        "status": "DOWN",
+        "pythonAvailable": True,
+        "pythonExecutable": sys.executable,
+        "pythonVersion": sys.version.split()[0],
+        "sysPath": sys.path,
+        "workerAvailable": True,
+        "cadqueryAvailable": False,
+        "cadqueryVersion": "",
+        "cadKernelAvailable": False,
+        "cadKernelName": "CadQuery/OCP",
+        "stepExportAvailable": False,
+        "stepImportAvailable": False,
+        "glbExportAvailable": False,
+        "dxfExportAvailable": False,
+        "solidCount": 0,
+        "errorCode": "",
+        "message": "",
+    }
+    try:
+        load_cad_modules()
+        health["cadqueryAvailable"] = True
+        health["cadqueryVersion"] = getattr(cq, "__version__", "unknown")
+        health["cadKernelAvailable"] = True
+        with tempfile.TemporaryDirectory(prefix="dropai-cad-health-") as tmp:
+            step_path = Path(tmp) / "health.step"
+            shape = cq.Workplane("XY").box(100, 60, 10).faces(">Z").workplane().hole(12)
+            export_step(shape, step_path)
+            health["stepExportAvailable"] = step_path.exists() and step_path.stat().st_size > 0
+            stats = read_step_stats(step_path)
+            health["stepImportAvailable"] = bool(stats.get("opened"))
+            health["solidCount"] = int(stats.get("solidCount") or 0)
+            health["boundingBox"] = stats.get("boundingBox", {})
+        if health["stepExportAvailable"] and health["stepImportAvailable"] and health["solidCount"] >= 1:
+            health["status"] = "UP"
+            return health
+        health["errorCode"] = "CAD_WORKER_HEALTHCHECK_FAILED"
+        health["message"] = "CAD Worker could not export and re-open a valid STEP solid"
+        return health
+    except RuntimeError as exc:
+        message = str(exc)
+        health["errorCode"] = message.split(":", 1)[0] if ":" in message else "CAD_WORKER_IMPORT_FAILED"
+        health["message"] = message
+        return health
+    except Exception as exc:
+        health["errorCode"] = "CAD_WORKER_HEALTHCHECK_FAILED"
+        health["message"] = str(exc)
+        return health
 
 
 if __name__ == "__main__":

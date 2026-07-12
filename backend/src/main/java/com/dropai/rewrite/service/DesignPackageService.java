@@ -86,7 +86,9 @@ public class DesignPackageService {
         List<Generated> stepArtifacts = generateGroup(stepNames, () -> stepExportEngine.export(project));
         generated.addAll(stepArtifacts);
         if (!allSuccess(stepArtifacts)) {
-            String reason = "CAD_MODEL_NOT_AVAILABLE: STEP validation failed or CAD Worker unavailable";
+            String rootReason = rootFailure(stepArtifacts);
+            String reason = "CAD_MODEL_NOT_AVAILABLE: stage=STEP_VALIDATION blockedBy=CAD_MODEL rootErrorCode="
+                    + rootErrorCode(rootReason) + " rootErrorMessage=" + rootReason;
             reporter.update("STEP_VALIDATION", 68, reason);
             generated.addAll(blocked(List.of("assembly.dxf", "cad_preview.svg", "cad_preview.png",
                     "part_01.dxf", "part_02.dxf", "part_03.dxf", "part_04.dxf", "part_05.dxf",
@@ -191,6 +193,24 @@ public class DesignPackageService {
         return names.stream()
                 .map(name -> new Generated(new DrawingArtifact(name, new byte[0], mediaType(name)), reason))
                 .toList();
+    }
+
+    private String rootFailure(List<Generated> artifacts) {
+        if (artifacts == null) return "CAD Worker unavailable";
+        return artifacts.stream()
+                .filter(item -> !item.success())
+                .map(Generated::failureReason)
+                .filter(reason -> reason != null && !reason.isBlank())
+                .findFirst()
+                .orElse("CAD Worker unavailable");
+    }
+
+    private String rootErrorCode(String reason) {
+        if (reason == null || reason.isBlank()) return "CAD_WORKER_UNAVAILABLE";
+        int marker = reason.indexOf(':');
+        String code = marker > 0 ? reason.substring(0, marker).trim() : reason.trim();
+        code = code.replaceAll("[^A-Z0-9_]+", "_");
+        return code.isBlank() ? "CAD_WORKER_UNAVAILABLE" : code;
     }
 
     private List<Generated> generateDrawingGroup(Supplier<List<DrawingArtifact>> supplier) {
