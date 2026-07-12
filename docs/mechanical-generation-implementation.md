@@ -385,3 +385,18 @@ Date: 2026-07-11
 
 - CAD Worker health currently reports GLB export unavailable. A later pass should add a real STEP-to-GLB conversion path if the online preview must consume final CAD geometry instead of the current JSON preview.
 - `DrawingEngine` still needs a future upgrade from drawing-plan geometry to projection from reopened STEP topology for stricter hidden-line engineering drawings.
+
+## 2026-07-12 Render Build Retry Adjustment
+
+### Root Cause Hypothesis
+
+- The previous Docker image build made CadQuery installation and CAD Worker health check mandatory during Render build.
+- On Render free/runtime build environments this can fail because the CAD kernel wheel is large, platform dependencies may be missing, or dependency installation may exceed the build window.
+- A failed build blocked the whole DropAI service even though non-CAD features can still run and the mechanical pipeline already has runtime CAD health checks plus hard STEP quality gates.
+
+### Change
+
+- Kept Python, virtualenv and required headless system libraries in `Dockerfile.render`.
+- Changed CAD Python dependency installation to an optional, time-limited build step.
+- Removed the mandatory build-time `cad_worker.py --health` gate from Docker image construction.
+- Runtime behavior remains strict: if CAD dependencies are unavailable, `/api/mechanical/cad-worker/health` reports unavailable and mechanical STEP generation fails with a clear CAD Worker error instead of fake success.
