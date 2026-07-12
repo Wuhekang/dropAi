@@ -82,7 +82,17 @@ public class DesignPackageService {
         reporter.update("PART_GENERATION", 44, "Part feature data exported");
         reporter.update("ASSEMBLY", 54, "Solving assembly model and constraints");
         reporter.update("STEP_EXPORT", 60, "Exporting real STEP solids");
-        generated.addAll(generateGroup(List.of("assembly.step", "part_01.step", "part_02.step", "part_03.step", "part_04.step", "part_05.step", "assembly-validation.json"), () -> stepExportEngine.export(project)));
+        List<String> stepNames = List.of("assembly.step", "part_01.step", "part_02.step", "part_03.step", "part_04.step", "part_05.step", "assembly-validation.json");
+        List<Generated> stepArtifacts = generateGroup(stepNames, () -> stepExportEngine.export(project));
+        generated.addAll(stepArtifacts);
+        if (!allSuccess(stepArtifacts)) {
+            String reason = "CAD_MODEL_NOT_AVAILABLE: STEP validation failed or CAD Worker unavailable";
+            reporter.update("STEP_VALIDATION", 68, reason);
+            generated.addAll(blocked(List.of("assembly.dxf", "cad_preview.svg", "cad_preview.png",
+                    "part_01.dxf", "part_02.dxf", "part_03.dxf", "part_04.dxf", "part_05.dxf",
+                    "paper.docx", "manifest.json", "project_package.zip"), reason));
+            return result(project, generated, userId, reporter);
+        }
         reporter.update("STEP_VALIDATION", 68, "STEP export and reopen validation finished");
         reporter.update("DRAWING", 72, "Generating assembly drawing");
         generated.addAll(generateGroup(List.of("assembly.dxf"), () -> drawingEngine.drawAssemblyDrawing(project)));
@@ -103,6 +113,10 @@ public class DesignPackageService {
                     "deliverable validation failed: " + String.join("; ", report.errors())));
         }
 
+        return result(project, generated, userId, reporter);
+    }
+
+    private DesignPackageVO result(DesignProject project, List<Generated> generated, Long userId, StageReporter reporter) {
         DesignPackageVO result = new DesignPackageVO();
         result.setProject(project);
         List<DesignPackageVO.ArtifactVO> artifacts = generated.stream().map(item -> toArtifact(userId, project.getProjectTitle(), item)).toList();
@@ -167,6 +181,16 @@ public class DesignPackageService {
             log.error("文件组生成失败 names={} reason={}", expectedNames, reason, exception);
             return expectedNames.stream().map(name -> new Generated(new DrawingArtifact(name, new byte[0], mediaType(name)), reason)).toList();
         }
+    }
+
+    private boolean allSuccess(List<Generated> artifacts) {
+        return artifacts != null && !artifacts.isEmpty() && artifacts.stream().allMatch(Generated::success);
+    }
+
+    private List<Generated> blocked(List<String> names, String reason) {
+        return names.stream()
+                .map(name -> new Generated(new DrawingArtifact(name, new byte[0], mediaType(name)), reason))
+                .toList();
     }
 
     private List<Generated> generateDrawingGroup(Supplier<List<DrawingArtifact>> supplier) {

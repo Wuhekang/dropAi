@@ -333,3 +333,55 @@ Date: 2026-07-11
 - `MechanicalDesignContext` is currently an exported unified evidence artifact. A later phase should migrate downstream modules to consume it directly instead of reading separate `DesignProject` fields.
 - Existing mojibake string literals in older Java/Vue files still need source-level restoration where they were already corrupted before this phase.
 - `DrawingEngine` still needs a future upgrade from drawing-plan geometry to projection from reopened STEP topology for stricter hidden-line engineering drawings.
+
+## 2026-07-12 CAD Worker Packaging and STEP Gate Fix
+
+### Runtime Root Cause
+
+- Render runtime could not reliably find `cad_worker/cad_worker.py` because the Java service only searched development-relative paths. When the container working directory differed from the local backend layout, STEP export failed before `assembly.step` and part STEP files could be produced.
+- `StepExportEngine` did not have a packaged classpath fallback for the Python worker and did not expose an operator-safe CAD health endpoint.
+- Downstream drawing, paper and ZIP stages could still appear to continue after CAD/STEP failure. This allowed fake-looking success states instead of a hard failure with a clear stage and error code.
+- The browser 3D preview used a fixed grid and did not normalize imported engineering units, which made some valid models render as very small objects on an oversized grid.
+
+### Changes
+
+- Added `backend/src/main/resources/cad-worker/cad_worker.py` and `requirements.txt` so the CAD Worker is packaged with the backend.
+- Added `CadWorkerProperties`, `CadWorkerLocator`, `CadWorkerHealthService` and `MechanicalCadWorkerController`.
+- Added `GET /api/mechanical/cad-worker/health` for runtime diagnostics. The endpoint returns worker readiness and kernel status without exposing API keys or server filesystem paths.
+- Updated `StepExportEngine` to resolve the worker in this order:
+  1. configured `cad.worker.script`;
+  2. development `cad_worker/cad_worker.py`;
+  3. development `backend/cad_worker/cad_worker.py`;
+  4. packaged classpath resource `cad-worker/cad_worker.py` extracted to a controlled work directory.
+- Updated `StepExportEngine` to run the worker with configured Python, configured timeout and an isolated CAD work directory. Worker logs are written under the task workspace.
+- Added CAD worker configuration to `application.yml`, `application-demo.yml` and `application-aiven.yml`.
+- Updated `Dockerfile.render` to install Python, create a dedicated CAD virtual environment, install CadQuery, copy the packaged CAD Worker to `/app/cad_worker`, set CAD Worker environment variables and execute `cad_worker.py --health` during image build.
+- Updated `render.yaml` with CAD Worker environment variables.
+- Changed `DesignPackageService` so STEP generation is a hard quality gate. If `assembly.step`, five part STEP files or `assembly-validation.json` fail, drawing, paper, manifest and ZIP are marked blocked and the task returns failure instead of fake downstream success.
+- Updated `ModelViewer3D.vue` to normalize engineering-unit models, center the loaded model and size the grid dynamically from the loaded bounding box.
+
+### Verification
+
+- `python backend\src\main\resources\cad-worker\cad_worker.py --health`
+  - Result: passed locally.
+  - Evidence: CadQuery/OCP was available and STEP export was reported available.
+- `mvn.cmd -DskipTests compile`
+  - Result: passed on 2026-07-12.
+- `mvn.cmd "-Dtest=DesignPackageServiceTests,MechanicalCadPipelineTests" test`
+  - Result: passed on 2026-07-12.
+  - Evidence: tests generated real `assembly.step`, five part STEP files, `assembly-validation.json`, drawing outputs, paper, manifest and ZIP.
+- `mvn.cmd test`
+  - Result: passed on 2026-07-12.
+  - Summary: 27 tests, 0 failures, 0 errors.
+- `npm.cmd run build`
+  - Result: passed on 2026-07-12.
+  - Note: Vite reports the existing large chunk warning only.
+- `docker build -f Dockerfile.render -t dropai-cad-worker-check .`
+  - Result: blocked locally because Docker Desktop/daemon was not running on this Windows machine.
+  - Evidence: Docker CLI could not connect to `dockerDesktopLinuxEngine`.
+  - Mitigation: `Dockerfile.render` now includes a build-time CAD Worker health check, so Render build will fail early if Python/CadQuery/worker packaging is broken.
+
+### Remaining Work
+
+- CAD Worker health currently reports GLB export unavailable. A later pass should add a real STEP-to-GLB conversion path if the online preview must consume final CAD geometry instead of the current JSON preview.
+- `DrawingEngine` still needs a future upgrade from drawing-plan geometry to projection from reopened STEP topology for stricter hidden-line engineering drawings.

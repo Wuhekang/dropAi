@@ -19,12 +19,18 @@ services:
         value: https://ark.cn-beijing.volces.com/api/v3/chat/completions
       - key: DOUBAO_API_KEY
         sync: false
-      - key: MATRIX_API_KEY
-        sync: false
-      - key: MATRIX_MODEL
-        value: claude-opus-4-7
       - key: DOUBAO_DOCUMENT_CONCURRENCY
         value: 32
+      - key: CAD_WORKER_ENABLED
+        value: true
+      - key: CAD_WORKER_PYTHON
+        value: /opt/cad-worker-venv/bin/python
+      - key: CAD_WORKER_SCRIPT
+        value: /app/cad_worker/cad_worker.py
+      - key: CAD_WORKER_WORK_DIR
+        value: /app/data/cad-worker
+      - key: CAD_WORKER_TIMEOUT_SECONDS
+        value: 240
       - key: APP_BASE_URL
         value: https://dro.k8818.cn
       - key: EPAY_GATEWAY

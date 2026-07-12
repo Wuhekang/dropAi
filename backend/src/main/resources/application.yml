@@ -39,6 +39,15 @@ app:
     site-name: ${EPAY_SITE_NAME:DropAI}
     default-type: ${EPAY_DEFAULT_TYPE:alipay}
 
+cad:
+  worker:
+    enabled: ${CAD_WORKER_ENABLED:true}
+    script: ${CAD_WORKER_SCRIPT:}
+    python: ${CAD_WORKER_PYTHON:python}
+    work-dir: ${CAD_WORKER_WORK_DIR:}
+    timeout-seconds: ${CAD_WORKER_TIMEOUT_SECONDS:240}
+    engine: ${CAD_WORKER_ENGINE:cadquery}
+
 ai:
   doubao:
     enabled: true

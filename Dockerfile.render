@@ -18,12 +18,20 @@ WORKDIR /app
 ENV TZ=Asia/Shanghai
 ENV SPRING_PROFILES_ACTIVE=demo
 ENV APP_DATA_DIR=/app/data
+ENV CAD_WORKER_PYTHON=/opt/cad-worker-venv/bin/python
+ENV CAD_WORKER_SCRIPT=/app/cad_worker/cad_worker.py
+ENV CAD_WORKER_WORK_DIR=/app/data/cad-worker
 ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=60.0"
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends fonts-noto-cjk fontconfig \
+    && apt-get install -y --no-install-recommends fonts-noto-cjk fontconfig python3 python3-pip python3-venv \
+    && python3 -m venv /opt/cad-worker-venv \
+    && /opt/cad-worker-venv/bin/pip install --no-cache-dir --upgrade pip \
+    && /opt/cad-worker-venv/bin/pip install --no-cache-dir cadquery==2.5.2 \
     && fc-cache -f -v \
     && rm -rf /var/lib/apt/lists/* \
-    && mkdir -p /app/data /app/storage/uploads /app/storage/outputs /app/storage/jobs
+    && mkdir -p /app/data /app/storage/uploads /app/storage/outputs /app/storage/jobs /app/data/cad-worker
 COPY --from=backend-build /backend/target/*.jar /app/app.jar
+COPY backend/src/main/resources/cad-worker/ /app/cad_worker/
+RUN /opt/cad-worker-venv/bin/python /app/cad_worker/cad_worker.py --health
 EXPOSE 8080
 ENTRYPOINT ["java", "-jar", "/app/app.jar"]

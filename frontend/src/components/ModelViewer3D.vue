@@ -26,6 +26,7 @@ const model = shallowRef(null)
 const statusMessage = ref('')
 const qualityInfo = ref(null)
 let renderer, scene, camera, controls, frameId, observer
+let gridHelper
 const debugVisible = computed(() => import.meta.env.DEV || props.project?.debugModelQuality)
 
 function setupScene() {
@@ -59,9 +60,9 @@ function setupScene() {
   const fill = new THREE.DirectionalLight(0x93c5fd, 0.85)
   fill.position.set(-4, 3, -5)
   scene.add(fill)
-  const grid = new THREE.GridHelper(8, 16, 0x334155, 0x1e293b)
-  grid.position.y = -1
-  scene.add(grid)
+  gridHelper = new THREE.GridHelper(8, 16, 0x334155, 0x1e293b)
+  gridHelper.position.y = -1
+  scene.add(gridHelper)
   setModel()
   observer = new ResizeObserver(resize)
   observer.observe(wrap.value)
@@ -78,6 +79,7 @@ function setModel() {
     console.error('3D model generation failed, switched to demo model', error)
     model.value = buildParametricMechanicalModel({})
   }
+  normalizeModelRoot(model.value)
   qualityInfo.value = model.value?.userData?.quality || null
   if (model.value?.userData?.qualityFailed) {
     statusMessage.value = props.project?.errorCode
@@ -90,6 +92,40 @@ function setModel() {
   }
   scene.add(model.value)
   fitCameraToModel(model.value)
+}
+
+function normalizeModelRoot(object) {
+  if (!object) return
+  object.updateMatrixWorld(true)
+  let box = new THREE.Box3().setFromObject(object)
+  if (box.isEmpty()) return
+  const size = box.getSize(new THREE.Vector3())
+  const maxSide = Math.max(size.x, size.y, size.z)
+  if (!Number.isFinite(maxSide) || maxSide <= 0) return
+  if (maxSide > 50) {
+    object.scale.multiplyScalar(0.001)
+    object.updateMatrixWorld(true)
+    box = new THREE.Box3().setFromObject(object)
+  }
+  const center = box.getCenter(new THREE.Vector3())
+  if ([center.x, center.y, center.z].every(Number.isFinite)) {
+    object.position.sub(center)
+    object.updateMatrixWorld(true)
+  }
+  updateGridForModel(object)
+}
+
+function updateGridForModel(object) {
+  if (!scene || !object) return
+  const box = new THREE.Box3().setFromObject(object)
+  const size = box.getSize(new THREE.Vector3())
+  const radius = Math.max(size.x, size.y, size.z, 1)
+  const gridSize = THREE.MathUtils.clamp(radius * 2.4, 2, 40)
+  const divisions = Math.max(8, Math.min(40, Math.round(gridSize * 2)))
+  if (gridHelper) scene.remove(gridHelper)
+  gridHelper = new THREE.GridHelper(gridSize, divisions, 0x334155, 0x1e293b)
+  gridHelper.position.y = box.min.y - Math.max(radius * 0.05, 0.05)
+  scene.add(gridHelper)
 }
 
 function hasModelData(project = {}) {
@@ -128,6 +164,12 @@ function fitCameraToModel(object) {
   const size = box.getSize(new THREE.Vector3())
   const center = box.getCenter(new THREE.Vector3())
   const radius = Math.max(size.x, size.y, size.z, 0.5)
+  if (!Number.isFinite(radius) || !Number.isFinite(center.x) || !Number.isFinite(center.y) || !Number.isFinite(center.z)) {
+    camera.position.set(4.6, 3.2, 5.2)
+    controls.target.set(0, 0, 0)
+    controls.update()
+    return
+  }
   const distance = radius / Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5)) * 1.2
   camera.near = Math.max(distance / 500, 0.001)
   camera.far = Math.max(distance * 500, 1000)
