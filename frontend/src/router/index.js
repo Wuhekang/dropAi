@@ -8,6 +8,7 @@ import ResultIndex from '../views/Result/index.vue'
 import PointsAdmin from '../views/PointsAdmin.vue'
 import RechargeIndex from '../views/Recharge/index.vue'
 import ComputerGenerator from '../views/ComputerGenerator/index.vue'
+import WritingGenerator from '../views/WritingGenerator/index.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -47,6 +48,11 @@ const router = createRouter({
       name: 'ComputerGenerator',
       alias: '/project-generator',
       component: ComputerGenerator
+    },
+    {
+      path: '/writing-generator',
+      name: 'WritingGenerator',
+      component: WritingGenerator
     },
     {
       path: '/points-admin',

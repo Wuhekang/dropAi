@@ -407,3 +407,111 @@ export function downloadComputerGenerationZip(jobId) {
     timeout: 120000
   })
 }
+
+export function getWritingReferenceSearchStatus() {
+  return request.get('/writing/reference-search/status')
+}
+
+export function createWritingProject(data) {
+  return request.post('/writing/projects', data, { timeout: 120000 })
+}
+
+export function getWritingProject(id) {
+  return request.get(`/writing/projects/${id}`)
+}
+
+export function updateWritingProject(id, data) {
+  return request.put(`/writing/projects/${id}`, data)
+}
+
+export function generateWritingOutline(id) {
+  return request.post(`/writing/projects/${id}/outline/generate`, {}, { timeout: 120000 })
+}
+
+export function addWritingChapter(id, data) {
+  return request.post(`/writing/projects/${id}/chapters`, data)
+}
+
+export function updateWritingChapter(id, chapterId, data) {
+  return request.put(`/writing/projects/${id}/chapters/${chapterId}`, data)
+}
+
+export function deleteWritingChapter(id, chapterId) {
+  return request.delete(`/writing/projects/${id}/chapters/${chapterId}`)
+}
+
+export function reorderWritingChapters(id, chapterIds) {
+  return request.put(`/writing/projects/${id}/chapters/reorder`, chapterIds)
+}
+
+export function addWritingSection(id, chapterId, data) {
+  return request.post(`/writing/projects/${id}/chapters/${chapterId}/sections`, data)
+}
+
+export function updateWritingSection(id, sectionId, data) {
+  return request.put(`/writing/projects/${id}/sections/${sectionId}`, data)
+}
+
+export function deleteWritingSection(id, sectionId) {
+  return request.delete(`/writing/projects/${id}/sections/${sectionId}`)
+}
+
+export function addWritingChart(id, chapterId, data) {
+  return request.post(`/writing/projects/${id}/chapters/${chapterId}/charts`, data)
+}
+
+export function updateWritingChart(id, chartId, data) {
+  return request.put(`/writing/projects/${id}/charts/${chartId}`, data)
+}
+
+export function deleteWritingChart(id, chartId) {
+  return request.delete(`/writing/projects/${id}/charts/${chartId}`)
+}
+
+export function addWritingChartSeries(id, chartId, data) {
+  return request.post(`/writing/projects/${id}/charts/${chartId}/series`, data)
+}
+
+export function updateWritingChartSeries(id, seriesId, data) {
+  return request.put(`/writing/projects/${id}/chart-series/${seriesId}`, data)
+}
+
+export function deleteWritingChartSeries(id, seriesId) {
+  return request.delete(`/writing/projects/${id}/chart-series/${seriesId}`)
+}
+
+export function addWritingTable(id, chapterId, data) {
+  return request.post(`/writing/projects/${id}/chapters/${chapterId}/tables`, data)
+}
+
+export function updateWritingTable(id, tableId, data) {
+  return request.put(`/writing/projects/${id}/tables/${tableId}`, data)
+}
+
+export function deleteWritingTable(id, tableId) {
+  return request.delete(`/writing/projects/${id}/tables/${tableId}`)
+}
+
+export function searchWritingReferences(id) {
+  return request.post(`/writing/projects/${id}/references/search`, {}, { timeout: 180000 })
+}
+
+export function verifyWritingReferences(id) {
+  return request.post(`/writing/projects/${id}/references/verify`)
+}
+
+export function startWritingGeneration(id) {
+  return request.post(`/writing/projects/${id}/generate`, {}, { timeout: 120000 })
+}
+
+export function getWritingProgress(id) {
+  return request.get(`/writing/projects/${id}/progress`)
+}
+
+export function getWritingPreview(id) {
+  return request.get(`/writing/projects/${id}/preview`)
+}
+
+export function getWritingFiles(id) {
+  return request.get(`/writing/projects/${id}/files`)
+}

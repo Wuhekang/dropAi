@@ -54,7 +54,18 @@ ai:
     api-key: ${DOUBAO_API_KEY:}
     endpoint: ${DOUBAO_ENDPOINT:https://ark.cn-beijing.volces.com/api/v3/chat/completions}
     model: ${DOUBAO_MODEL:doubao-seed-2-0-lite-260428}
+    web-search-enabled: ${DOUBAO_WEB_SEARCH_ENABLED:false}
     temperature: 0.35
     connect-timeout-seconds: 10
     read-timeout-seconds: 120
     document-concurrency: 64
+
+writing:
+  max-retry: ${WRITING_MAX_RETRY:3}
+  chapter-timeout-seconds: ${WRITING_CHAPTER_TIMEOUT:180}
+  reference-search:
+    enabled: ${WRITING_REFERENCE_SEARCH_ENABLED:true}
+    provider: ${WRITING_REFERENCE_SEARCH_PROVIDER:doubao,openalex,crossref}
+    max-results: ${WRITING_REFERENCE_SEARCH_MAX_RESULTS:30}
+    timeout-seconds: ${WRITING_REFERENCE_SEARCH_TIMEOUT_SECONDS:30}
+    retry-count: ${WRITING_REFERENCE_SEARCH_RETRY_COUNT:3}
