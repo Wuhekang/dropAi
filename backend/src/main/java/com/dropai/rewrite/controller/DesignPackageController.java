@@ -7,6 +7,9 @@ import com.dropai.rewrite.modules.model.DesignProject;
 import com.dropai.rewrite.service.DesignPackageService;
 import com.dropai.rewrite.service.DesignPackageJobService;
 import com.dropai.rewrite.service.PointsNotEnoughException;
+import com.dropai.rewrite.service.ai.DoubaoMechanicalVisionService;
+import com.dropai.rewrite.service.ai.MechanicalVisionAnalysisResult;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.dropai.rewrite.vo.DesignAnalysisResultVO;
 import com.dropai.rewrite.vo.DesignPackageJobVO;
 import com.dropai.rewrite.vo.DesignPackageVO;
@@ -21,6 +24,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.util.ArrayList;
 import java.util.List;
 
 @RestController
@@ -31,15 +35,21 @@ public class DesignPackageController {
     private final DocumentParser documentParser;
     private final DesignAnalyzer designAnalyzer;
     private final TaskDrivenDesignPipeline designPipeline;
+    private final DoubaoMechanicalVisionService mechanicalVisionService;
+    private final ObjectMapper objectMapper;
 
     public DesignPackageController(DesignPackageService service, DesignPackageJobService jobService,
                                    DocumentParser documentParser, DesignAnalyzer designAnalyzer,
-                                   TaskDrivenDesignPipeline designPipeline) {
+                                   TaskDrivenDesignPipeline designPipeline,
+                                   DoubaoMechanicalVisionService mechanicalVisionService,
+                                   ObjectMapper objectMapper) {
         this.service = service;
         this.jobService = jobService;
         this.documentParser = documentParser;
         this.designAnalyzer = designAnalyzer;
         this.designPipeline = designPipeline;
+        this.mechanicalVisionService = mechanicalVisionService;
+        this.objectMapper = objectMapper;
     }
 
     @PostMapping("/generate")
@@ -63,7 +73,9 @@ public class DesignPackageController {
                                                   @RequestParam("files") List<MultipartFile> files,
                                                   @RequestParam(value = "types", required = false) List<String> types) {
         List<DocumentParser.ParsedDocument> documents = documentParser.parse(files, types == null ? List.of() : types);
-        List<DocumentParser.ParsedDocument> generationSources = documents.stream()
+        List<DocumentParser.ParsedDocument> documentsWithVision = new ArrayList<>(documents);
+        documentsWithVision.addAll(analyzeReferenceImages(files));
+        List<DocumentParser.ParsedDocument> generationSources = documentsWithVision.stream()
                 .filter(document -> documentParser.allowedForMechanicalDesign(document.type()))
                 .toList();
         if (generationSources.stream().noneMatch(document -> "TASK_BOOK".equals(document.type()))) {
@@ -76,7 +88,7 @@ public class DesignPackageController {
         DesignProject analyzed = designAnalyzer.analyze(title, generationSources);
         analyzed.setDesignDepth("engineering".equalsIgnoreCase(designDepth) ? "engineering" : "graduation");
         DesignProject project = designPipeline.analyzeNewTask(analyzed);
-        return Result.success(DesignAnalysisResultVO.of(project, documents));
+        return Result.success(DesignAnalysisResultVO.of(project, documentsWithVision));
     }
 
     @ExceptionHandler(PointsNotEnoughException.class)
@@ -88,5 +100,60 @@ public class DesignPackageController {
     public Result<Void> handleException(Exception exception) {
         String message = exception.getMessage();
         return Result.fail(message == null || message.isBlank() ? "成果生成失败，请稍后重试" : message);
+    }
+
+    private List<DocumentParser.ParsedDocument> analyzeReferenceImages(List<MultipartFile> files) {
+        List<DocumentParser.ParsedDocument> result = new ArrayList<>();
+        if (files == null) {
+            return result;
+        }
+        for (MultipartFile file : files) {
+            String fileName = file.getOriginalFilename() == null ? "image" : file.getOriginalFilename();
+            if (!isSupportedImage(fileName)) {
+                continue;
+            }
+            try {
+                DoubaoMechanicalVisionService.MechanicalVisionResponse response = mechanicalVisionService.analyze(
+                        file.getBytes(),
+                        fileName,
+                        "Analyze this uploaded mechanical reference image for the DropAI mechanical design workflow. Return strict JSON only."
+                );
+                MechanicalVisionAnalysisResult analysis = response.result();
+                String text = "Mechanical vision model: " + response.model()
+                        + "\nRequest contains image: " + response.requestContainsImage()
+                        + "\nMechanical vision JSON:\n" + objectMapper.writeValueAsString(analysis);
+                result.add(new DocumentParser.ParsedDocument(
+                        fileName + ".mechanical-vision.json",
+                        "PROPOSAL",
+                        text,
+                        "success",
+                        true,
+                        ""
+                ));
+            } catch (Exception exception) {
+                result.add(new DocumentParser.ParsedDocument(
+                        fileName,
+                        "IMAGE_REFERENCE",
+                        "",
+                        "failed",
+                        false,
+                        "Mechanical vision analysis failed: " + compact(exception.getMessage())
+                ));
+            }
+        }
+        return result;
+    }
+
+    private boolean isSupportedImage(String fileName) {
+        String lower = fileName == null ? "" : fileName.toLowerCase();
+        return lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".webp");
+    }
+
+    private String compact(String value) {
+        if (value == null || value.isBlank()) {
+            return "none";
+        }
+        String compacted = value.replaceAll("\\s+", " ").trim();
+        return compacted.length() > 260 ? compacted.substring(0, 260) + "..." : compacted;
     }
 }

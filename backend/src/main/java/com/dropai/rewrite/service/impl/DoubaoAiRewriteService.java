@@ -3,6 +3,8 @@ package com.dropai.rewrite.service.impl;
 import com.dropai.rewrite.config.DoubaoProperties;
 import com.dropai.rewrite.service.AiRewriteService;
 import com.dropai.rewrite.service.SkillPromptService;
+import com.dropai.rewrite.service.ai.AiRequestType;
+import com.dropai.rewrite.service.ai.DoubaoModelRouter;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.context.annotation.Primary;
@@ -28,12 +30,14 @@ public class DoubaoAiRewriteService implements AiRewriteService {
     private final ObjectMapper objectMapper;
     private final RestClient restClient;
     private final SkillPromptService skillPromptService;
+    private final DoubaoModelRouter modelRouter;
 
     public DoubaoAiRewriteService(
             DoubaoProperties properties,
             ObjectMapper objectMapper,
             RestClient.Builder restClientBuilder,
-            SkillPromptService skillPromptService
+            SkillPromptService skillPromptService,
+            DoubaoModelRouter modelRouter
     ) {
         this.properties = properties;
         this.objectMapper = objectMapper;
@@ -41,6 +45,7 @@ public class DoubaoAiRewriteService implements AiRewriteService {
                 .requestFactory(requestFactory(properties))
                 .build();
         this.skillPromptService = skillPromptService;
+        this.modelRouter = modelRouter;
     }
 
     @Override
@@ -62,7 +67,7 @@ public class DoubaoAiRewriteService implements AiRewriteService {
 
         try {
             Map<String, Object> requestBody = Map.of(
-                    "model", properties.getModel(),
+                    "model", modelRouter.resolveModel(AiRequestType.TEXT),
                     "stream", false,
                     "temperature", properties.getTemperature(),
                     "max_tokens", 4096,
@@ -100,7 +105,7 @@ public class DoubaoAiRewriteService implements AiRewriteService {
 
     @Override
     public String modelName() {
-        return properties.getModel();
+        return modelRouter.resolveModel(AiRequestType.TEXT);
     }
 
     @Override

@@ -15,6 +15,10 @@ services:
         sync: false
       - key: DOUBAO_MODEL
         value: doubao-seed-2-0-lite-260428
+      - key: DOUBAO_TEXT_MODEL
+        value: doubao-seed-2-0-lite-260428
+      - key: DOUBAO_MECHANICAL_VISION_MODEL
+        value: doubao-seed-2-1-turbo-260628
       - key: DOUBAO_ENDPOINT
         value: https://ark.cn-beijing.volces.com/api/v3/chat/completions
       - key: DOUBAO_API_KEY
@@ -23,6 +27,8 @@ services:
         value: 32
       - key: DOUBAO_WEB_SEARCH_ENABLED
         value: false
+      - key: DOUBAO_MAX_RETRIES
+        value: 2
       - key: WRITING_REFERENCE_SEARCH_ENABLED
         value: true
       - key: WRITING_REFERENCE_SEARCH_PROVIDER
