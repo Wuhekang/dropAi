@@ -43,6 +43,22 @@ public class WritingGenerationSchemaInitializer implements ApplicationRunner {
                 "CREATE TABLE IF NOT EXISTS writing_citation (id VARCHAR(64) PRIMARY KEY,project_id VARCHAR(64) NOT NULL,chapter_id VARCHAR(64),reference_id VARCHAR(64) NOT NULL,temporary_marker VARCHAR(120) NOT NULL,final_number INT,first_occurrence_order INT,context_text TEXT,created_at DATETIME NOT NULL,updated_at DATETIME NOT NULL,INDEX idx_writing_citation_project_order (project_id, first_occurrence_order),INDEX idx_writing_citation_reference (reference_id)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
                 "CREATE TABLE IF NOT EXISTS writing_generation_task (id VARCHAR(64) PRIMARY KEY,project_id VARCHAR(64) NOT NULL,user_id BIGINT NOT NULL,task_type VARCHAR(60) NOT NULL,status VARCHAR(30) NOT NULL DEFAULT 'PENDING',stage VARCHAR(120),progress INT NOT NULL DEFAULT 0,error_message TEXT,retryable TINYINT(1) NOT NULL DEFAULT 1,completed_chapters TEXT,generated_files TEXT,created_at DATETIME NOT NULL,updated_at DATETIME NOT NULL,INDEX idx_writing_task_project (project_id),INDEX idx_writing_task_user_created (user_id, created_at)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
                 "CREATE TABLE IF NOT EXISTS writing_export_file (id VARCHAR(64) PRIMARY KEY,project_id VARCHAR(64) NOT NULL,task_id VARCHAR(64),document_job_id VARCHAR(64),file_name VARCHAR(255) NOT NULL,file_type VARCHAR(20) NOT NULL,file_path VARCHAR(500),file_size BIGINT NOT NULL DEFAULT 0,download_url VARCHAR(500),created_at DATETIME NOT NULL,INDEX idx_writing_export_project (project_id)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+                "CREATE TABLE IF NOT EXISTS writing_request_dedup (request_id VARCHAR(80) PRIMARY KEY,project_id VARCHAR(64) NOT NULL,request_type VARCHAR(60) NOT NULL,client_revision BIGINT,result_revision BIGINT,response_json LONGTEXT,created_at DATETIME NOT NULL,INDEX idx_writing_request_project (project_id, request_type, created_at)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+                "ALTER TABLE writing_project ADD COLUMN chinese_reference_count INT NOT NULL DEFAULT 14",
+                "ALTER TABLE writing_project ADD COLUMN english_reference_count INT NOT NULL DEFAULT 6",
+                "ALTER TABLE writing_reference ADD COLUMN journal VARCHAR(500)",
+                "ALTER TABLE writing_reference ADD COLUMN publisher VARCHAR(500)",
+                "ALTER TABLE writing_reference ADD COLUMN source_url VARCHAR(700)",
+                "ALTER TABLE writing_reference ADD COLUMN landing_page_url VARCHAR(700)",
+                "ALTER TABLE writing_reference ADD COLUMN language VARCHAR(20) NOT NULL DEFAULT 'UNKNOWN'",
+                "ALTER TABLE writing_reference ADD COLUMN provider VARCHAR(80)",
+                "ALTER TABLE writing_reference ADD COLUMN provider_record_id VARCHAR(255)",
+                "ALTER TABLE writing_reference ADD COLUMN verified_at DATETIME",
+                "ALTER TABLE writing_reference ADD COLUMN citation_number INT",
+                "ALTER TABLE writing_reference ADD COLUMN raw_metadata LONGTEXT",
+                "CREATE INDEX idx_writing_reference_language ON writing_reference (project_id, language)",
+                "CREATE INDEX idx_writing_reference_citation ON writing_reference (project_id, citation_number)",
+                "CREATE INDEX idx_writing_reference_provider_record ON writing_reference (provider, provider_record_id)",
                 "INSERT INTO feature_pricing (feature_code, feature_name, cost_points, enabled) SELECT 'WRITING_DOCX', '纯文字稿生成', 60, 1 WHERE NOT EXISTS (SELECT 1 FROM feature_pricing WHERE feature_code = 'WRITING_DOCX')"
         );
     }

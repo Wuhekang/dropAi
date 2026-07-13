@@ -63,9 +63,9 @@ public class ReferenceSearchService {
         ReferenceSearchQuery query = new ReferenceSearchQuery(projectId, WritingJdbc.text(project.get("title")),
                 WritingJdbc.text(project.get("major")), keywords, chapterTitles,
                 WritingJdbc.integer(project.get("year_start"), 0), WritingJdbc.integer(project.get("year_end"), 0),
-                Math.max(20, WritingJdbc.integer(project.get("reference_count"), properties.getReferenceSearch().getMaxResults())),
-                WritingJdbc.integer(project.get("chinese_reference_count"), 8),
-                WritingJdbc.integer(project.get("english_reference_count"), 12));
+                Math.max(1, WritingJdbc.integer(project.get("chinese_reference_count"), 14) + WritingJdbc.integer(project.get("english_reference_count"), 6)),
+                WritingJdbc.integer(project.get("chinese_reference_count"), 14),
+                WritingJdbc.integer(project.get("english_reference_count"), 6));
 
         jdbcTemplate.update("UPDATE writing_project SET search_status=?, search_message=?, updated_at=? WHERE id=?",
                 "RUNNING", "正在联网检索参考文献", LocalDateTime.now(), projectId);
@@ -73,11 +73,13 @@ public class ReferenceSearchService {
         List<ReferenceCandidate> deduped = dedupe(candidates).stream()
                 .filter(ReferenceCandidate::basicallyVerified)
                 .sorted(Comparator.comparingDouble(ReferenceCandidate::relevanceScore).reversed())
-                .limit(query.maxResults())
                 .toList();
+        List<ReferenceCandidate> selected = new ArrayList<>();
+        selected.addAll(deduped.stream().filter(candidate -> "ZH".equals(languageOf(candidate))).limit(query.chineseTarget()).toList());
+        selected.addAll(deduped.stream().filter(candidate -> "EN".equals(languageOf(candidate))).limit(query.englishTarget()).toList());
         jdbcTemplate.update("DELETE FROM writing_reference WHERE project_id=?", projectId);
         int index = 1;
-        for (ReferenceCandidate candidate : deduped) {
+        for (ReferenceCandidate candidate : selected) {
             insertReference(projectId, candidate, index++, chapterNo);
         }
         jdbcTemplate.update("UPDATE writing_project SET search_provider=?, search_status=?, search_message=?, updated_at=? WHERE id=?",
@@ -88,7 +90,7 @@ public class ReferenceSearchService {
     public List<Map<String, Object>> references(Long userId, String projectId) {
         WritingJdbc.one(jdbcTemplate, "SELECT id FROM writing_project WHERE id=? AND user_id=?", projectId, userId);
         return WritingJdbc.list(jdbcTemplate,
-                "SELECT * FROM writing_reference WHERE project_id=? ORDER BY relevance_score DESC, created_at", projectId);
+                "SELECT * FROM writing_reference WHERE project_id=? ORDER BY citation_number IS NULL, citation_number, relevance_score DESC, created_at", projectId);
     }
 
     public void deleteReference(Long userId, String projectId, String referenceId) {
@@ -176,6 +178,37 @@ public class ReferenceSearchService {
                 candidate.url(), candidate.sourcePlatform(), candidate.abstractText(), candidate.searchKeywords(),
                 candidate.searchedAt(), chapterNo == null ? "" : String.valueOf(chapterNo),
                 candidate.verificationStatus(), candidate.relevanceScore(), formatted, now, now);
+        updateReferenceExtendedFields(id, candidate, index);
+    }
+
+    private void updateReferenceExtendedFields(String id, ReferenceCandidate candidate, int index) {
+        try {
+            jdbcTemplate.update("""
+                    UPDATE writing_reference SET language=?, provider=?, citation_number=?, source_url=?, landing_page_url=?,
+                    journal=?, publisher=?, verified_at=?, final_number=? WHERE id=?
+                    """,
+                    languageOf(candidate), providerOf(candidate), index, candidate.url(), candidate.url(),
+                    candidate.container(), candidate.container(), LocalDateTime.now(), index, id);
+        } catch (Exception ignored) {
+            try {
+                jdbcTemplate.update("UPDATE writing_reference SET final_number=? WHERE id=?", index, id);
+            } catch (Exception ignoredAgain) {
+            }
+        }
+    }
+
+    private String providerOf(ReferenceCandidate candidate) {
+        String source = candidate.sourcePlatform() == null ? "" : candidate.sourcePlatform().toUpperCase(Locale.ROOT).replace('-', '_');
+        if (source.contains("DOUBAO")) return "DOUBAO_WEB_SEARCH";
+        if (source.contains("OPENALEX")) return "OPENALEX";
+        if (source.contains("CROSSREF")) return "CROSSREF";
+        return source.isBlank() ? "MANUAL" : source;
+    }
+
+    private String languageOf(ReferenceCandidate candidate) {
+        String title = candidate.title() == null ? "" : candidate.title();
+        if (title.codePoints().anyMatch(code -> Character.UnicodeScript.of(code) == Character.UnicodeScript.HAN)) return "ZH";
+        return "EN";
     }
 
     private String blankToNull(String value) {

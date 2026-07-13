@@ -9,11 +9,20 @@ public class DoubaoProperties {
 
     private boolean enabled = true;
     private String apiKey;
+    private String baseUrl = "https://ark.cn-beijing.volces.com/api/v3";
+    private String responsesPath = "/responses";
+    private String chatPath = "/chat/completions";
     private String endpoint = "https://ark.cn-beijing.volces.com/api/v3/chat/completions";
-    private String model = "doubao-seed-2-0-lite-260428";
-    private String textModel;
+    private String model = "doubao-seed-2-1-turbo-260628";
+    private String textModel = "doubao-seed-2-1-turbo-260628";
+    private String reviewModel = "doubao-seed-2-1-pro-260628";
+    private String fallbackModel = "doubao-seed-2-0-lite-260428";
     private String visionModel;
     private String mechanicalVisionModel = "doubao-seed-2-1-turbo-260628";
+    private boolean webSearchEnabled = false;
+    private boolean webSearchForce = true;
+    private int maxOutputTokens = 8192;
+    private boolean debug = false;
     private double temperature = 0.35;
     private int connectTimeoutSeconds = 10;
     private int readTimeoutSeconds = 120;
@@ -34,6 +43,30 @@ public class DoubaoProperties {
 
     public void setApiKey(String apiKey) {
         this.apiKey = apiKey;
+    }
+
+    public String getBaseUrl() {
+        return baseUrl;
+    }
+
+    public void setBaseUrl(String baseUrl) {
+        this.baseUrl = baseUrl;
+    }
+
+    public String getResponsesPath() {
+        return responsesPath;
+    }
+
+    public void setResponsesPath(String responsesPath) {
+        this.responsesPath = responsesPath;
+    }
+
+    public String getChatPath() {
+        return chatPath;
+    }
+
+    public void setChatPath(String chatPath) {
+        this.chatPath = chatPath;
     }
 
     public String getEndpoint() {
@@ -60,6 +93,22 @@ public class DoubaoProperties {
         this.textModel = textModel;
     }
 
+    public String getReviewModel() {
+        return reviewModel;
+    }
+
+    public void setReviewModel(String reviewModel) {
+        this.reviewModel = reviewModel;
+    }
+
+    public String getFallbackModel() {
+        return fallbackModel;
+    }
+
+    public void setFallbackModel(String fallbackModel) {
+        this.fallbackModel = fallbackModel;
+    }
+
     public String getVisionModel() {
         return visionModel;
     }
@@ -74,6 +123,38 @@ public class DoubaoProperties {
 
     public void setMechanicalVisionModel(String mechanicalVisionModel) {
         this.mechanicalVisionModel = mechanicalVisionModel;
+    }
+
+    public boolean isWebSearchEnabled() {
+        return webSearchEnabled;
+    }
+
+    public void setWebSearchEnabled(boolean webSearchEnabled) {
+        this.webSearchEnabled = webSearchEnabled;
+    }
+
+    public boolean isWebSearchForce() {
+        return webSearchForce;
+    }
+
+    public void setWebSearchForce(boolean webSearchForce) {
+        this.webSearchForce = webSearchForce;
+    }
+
+    public int getMaxOutputTokens() {
+        return maxOutputTokens;
+    }
+
+    public void setMaxOutputTokens(int maxOutputTokens) {
+        this.maxOutputTokens = maxOutputTokens;
+    }
+
+    public boolean isDebug() {
+        return debug;
+    }
+
+    public void setDebug(boolean debug) {
+        this.debug = debug;
     }
 
     public double getTemperature() {

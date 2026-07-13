@@ -1,3 +1,14 @@
+CREATE TABLE IF NOT EXISTS writing_request_dedup (
+  request_id VARCHAR(80) PRIMARY KEY,
+  project_id VARCHAR(64) NOT NULL,
+  request_type VARCHAR(60) NOT NULL,
+  client_revision BIGINT,
+  result_revision BIGINT,
+  response_json CLOB,
+  created_at TIMESTAMP NOT NULL
+);
+
+
 CREATE TABLE IF NOT EXISTS rewrite_record (
   id BIGINT AUTO_INCREMENT PRIMARY KEY,
   user_id BIGINT NOT NULL,

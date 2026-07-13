@@ -1,5 +1,17 @@
 SET NAMES utf8mb4;
 
+CREATE TABLE IF NOT EXISTS writing_request_dedup (
+  request_id VARCHAR(80) PRIMARY KEY,
+  project_id VARCHAR(64) NOT NULL,
+  request_type VARCHAR(60) NOT NULL,
+  client_revision BIGINT,
+  result_revision BIGINT,
+  response_json LONGTEXT,
+  created_at DATETIME NOT NULL,
+  INDEX idx_writing_request_project (project_id, request_type, created_at)
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
 CREATE TABLE IF NOT EXISTS rewrite_record (
   id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '记录ID',
   user_id BIGINT NOT NULL COMMENT '所属账号',

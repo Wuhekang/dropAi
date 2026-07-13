@@ -56,8 +56,14 @@
           <el-form-item label="关键词数量">
             <el-input-number v-model="form.keywordCount" :min="3" :max="8" />
           </el-form-item>
-          <el-form-item label="参考文献数量">
-            <el-input-number v-model="form.referenceCount" :min="12" :max="50" />
+          <el-form-item label="&#20013;&#25991;&#21442;&#32771;&#25991;&#29486;&#25968;&#37327;">
+            <el-input-number v-model="form.chineseReferenceCount" :min="0" :max="50" />
+          </el-form-item>
+          <el-form-item label="&#33521;&#25991;&#21442;&#32771;&#25991;&#29486;&#25968;&#37327;">
+            <el-input-number v-model="form.englishReferenceCount" :min="0" :max="50" />
+          </el-form-item>
+          <el-form-item label="&#21442;&#32771;&#25991;&#29486;&#24635;&#25968;">
+            <el-input :model-value="referenceTotal" readonly />
           </el-form-item>
           <el-form-item label="年份范围">
             <div class="inline">
@@ -283,6 +289,9 @@ const searching = ref(false)
 const generating = ref(false)
 const previewText = ref('')
 let timer = null
+let chapterSaveTimer = null
+let chapterSaveRunning = false
+let pendingChapterSnapshot = null
 
 const documentTypes = ['毕业论文初稿', '课程论文', '调研报告', '分析报告', '设计说明书', '实践报告', '自定义']
 const chartTypes = [
@@ -311,8 +320,8 @@ const form = ref({
   abstractWordCount: 300,
   keywordCount: 4,
   referenceCount: 20,
-  chineseReferenceCount: 8,
-  englishReferenceCount: 12,
+  chineseReferenceCount: 14,
+  englishReferenceCount: 6,
   yearStart: 2020,
   yearEnd: 2026,
   citationStyle: 'GB/T 7714',
@@ -329,6 +338,7 @@ const providerText = computed(() => {
   return providers.map(item => `${item.name}:${item.available ? '可用' : '不可用'}`).join(' / ')
 })
 const verifiedCount = computed(() => references.value.filter(item => ['VERIFIED', 'PARTIALLY_VERIFIED'].includes(item.verification_status)).length)
+const referenceTotal = computed(() => Number(form.value.chineseReferenceCount || 0) + Number(form.value.englishReferenceCount || 0))
 
 function syncState(data) {
   project.value = data || {}
@@ -341,7 +351,11 @@ function syncState(data) {
 async function createOrUpdateProject() {
   saving.value = true
   try {
-    const payload = { ...form.value, chapters: chapters.value.length ? chapters.value : [] }
+    if (referenceTotal.value <= 0) {
+      ElMessage.error('中文和英文参考文献数量不能同时为 0')
+      return
+    }
+    const payload = { ...form.value, referenceCount: referenceTotal.value, chapters: chapters.value.length ? chapters.value : [] }
     const data = projectId.value ? await updateWritingProject(projectId.value, payload) : await createWritingProject(payload)
     syncState(data)
     activeStep.value = Math.max(activeStep.value, 1)
@@ -352,6 +366,7 @@ async function createOrUpdateProject() {
 }
 
 async function generateOutline() {
+  await flushChapterSave()
   syncState(await generateWritingOutline(projectId.value))
   activeStep.value = 2
 }
@@ -361,7 +376,8 @@ async function addChapter() {
 }
 
 async function saveChapter(row) {
-  syncState(await updateWritingChapter(projectId.value, row.id, {
+  pendingChapterSnapshot = {
+    id: row.id,
     title: row.title,
     targetWordCount: row.target_word_count,
     sectionCount: row.section_count,
@@ -369,7 +385,24 @@ async function saveChapter(row) {
     tableCount: row.table_count,
     useReferences: row.use_references,
     defaultChartType: row.default_chart_type
-  }))
+  }
+  clearTimeout(chapterSaveTimer)
+  chapterSaveTimer = setTimeout(flushChapterSave, 800)
+}
+
+async function flushChapterSave() {
+  clearTimeout(chapterSaveTimer)
+  if (!pendingChapterSnapshot || chapterSaveRunning || !projectId.value) return
+  chapterSaveRunning = true
+  try {
+    while (pendingChapterSnapshot) {
+      const snapshot = pendingChapterSnapshot
+      pendingChapterSnapshot = null
+      syncState(await updateWritingChapter(projectId.value, snapshot.id, snapshot))
+    }
+  } finally {
+    chapterSaveRunning = false
+  }
 }
 
 async function removeChapter(row) {
@@ -411,6 +444,7 @@ async function saveTable(table) { syncState(await updateWritingTable(projectId.v
 async function removeTable(table) { syncState(await deleteWritingTable(projectId.value, table.id)) }
 
 async function searchReferences() {
+  await flushChapterSave()
   searching.value = true
   try {
     references.value = await searchWritingReferences(projectId.value) || []
@@ -422,6 +456,7 @@ async function searchReferences() {
 }
 
 async function startGeneration() {
+  await flushChapterSave()
   generating.value = true
   syncState(await startWritingGeneration(projectId.value))
   activeStep.value = 4
@@ -463,7 +498,10 @@ function formatSize(size) {
 }
 
 onMounted(loadProviderStatus)
-onUnmounted(() => clearInterval(timer))
+onUnmounted(() => {
+  clearInterval(timer)
+  clearTimeout(chapterSaveTimer)
+})
 </script>
 
 <style scoped>
@@ -552,6 +590,28 @@ onUnmounted(() => clearInterval(timer))
 .series-table {
   display: grid;
   gap: 8px;
+}
+.chapter-table {
+  width: 100%;
+  overflow-x: auto;
+}
+.writing-page :deep(.el-input-number) {
+  width: 136px;
+  min-width: 136px;
+  flex-shrink: 0;
+}
+.writing-page :deep(.el-input-number .el-input__wrapper) {
+  overflow: visible;
+}
+.writing-page :deep(.el-input-number__increase),
+.writing-page :deep(.el-input-number__decrease) {
+  width: 32px;
+  min-width: 32px;
+  z-index: 2;
+}
+.writing-page :deep(.el-table__body-wrapper),
+.writing-page :deep(.el-table__inner-wrapper) {
+  overflow-x: auto;
 }
 .chapter-detail {
   padding: 16px;

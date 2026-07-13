@@ -41,8 +41,9 @@ public class WritingProjectService {
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 projectId, userId, title, text(request.get("major")), text(request.get("documentType")),
-                target, abstractWords, keywordCount, 0, WritingJdbc.integer(request.get("referenceCount"), 20),
-                WritingJdbc.integer(request.get("chineseReferenceCount"), 8), WritingJdbc.integer(request.get("englishReferenceCount"), 12),
+                target, abstractWords, keywordCount, 0,
+                WritingJdbc.integer(request.get("chineseReferenceCount"), 14) + WritingJdbc.integer(request.get("englishReferenceCount"), 6),
+                WritingJdbc.integer(request.get("chineseReferenceCount"), 14), WritingJdbc.integer(request.get("englishReferenceCount"), 6),
                 WritingJdbc.integer(request.get("yearStart"), 2020), WritingJdbc.integer(request.get("yearEnd"), 2026),
                 textOr(request.get("citationStyle"), "GB/T 7714"), textOr(request.get("writingTone"), "本科论文"),
                 bool(request.get("generateEnglishAbstract"), true), bool(request.get("generateToc"), true),
@@ -73,7 +74,10 @@ public class WritingProjectService {
     @Transactional
     public Map<String, Object> updateProject(String projectId, Map<String, Object> request) {
         Long userId = AuthContext.requireUserId();
-        WritingJdbc.one(jdbcTemplate, "SELECT id FROM writing_project WHERE id=? AND user_id=?", projectId, userId);
+        lockProjectForWrite(userId, projectId);
+        int chineseReferenceCount = Math.max(0, WritingJdbc.integer(request.get("chineseReferenceCount"), 14));
+        int englishReferenceCount = Math.max(0, WritingJdbc.integer(request.get("englishReferenceCount"), 6));
+        if (chineseReferenceCount + englishReferenceCount <= 0) throw new IllegalArgumentException("REFERENCE_COUNT_INSUFFICIENT");
         jdbcTemplate.update("""
                 UPDATE writing_project SET title=?, major=?, document_type=?, target_word_count=?, abstract_word_count=?,
                 keyword_count=?, reference_count=?, chinese_reference_count=?, english_reference_count=?, year_start=?,
@@ -82,8 +86,8 @@ public class WritingProjectService {
                 """,
                 required(request.get("title"), "文章题目不能为空"), text(request.get("major")), text(request.get("documentType")),
                 WritingJdbc.integer(request.get("targetWordCount"), 8000), WritingJdbc.integer(request.get("abstractWordCount"), 300),
-                WritingJdbc.integer(request.get("keywordCount"), 4), WritingJdbc.integer(request.get("referenceCount"), 20),
-                WritingJdbc.integer(request.get("chineseReferenceCount"), 8), WritingJdbc.integer(request.get("englishReferenceCount"), 12),
+                WritingJdbc.integer(request.get("keywordCount"), 4), chineseReferenceCount + englishReferenceCount,
+                chineseReferenceCount, englishReferenceCount,
                 WritingJdbc.integer(request.get("yearStart"), 2020), WritingJdbc.integer(request.get("yearEnd"), 2026),
                 textOr(request.get("citationStyle"), "GB/T 7714"), textOr(request.get("writingTone"), "本科论文"),
                 bool(request.get("generateEnglishAbstract"), true), bool(request.get("skipReferences"), false),
@@ -94,8 +98,7 @@ public class WritingProjectService {
     @Transactional
     public Map<String, Object> generateOutline(String projectId) {
         Long userId = AuthContext.requireUserId();
-        Map<String, Object> project = WritingJdbc.one(jdbcTemplate,
-                "SELECT * FROM writing_project WHERE id=? AND user_id=?", projectId, userId);
+        Map<String, Object> project = lockProjectForWrite(userId, projectId);
         List<Map<String, Object>> chapters = chapters(projectId);
         if (chapters.isEmpty()) {
             for (Map<String, Object> chapter : defaultChapters(WritingJdbc.text(project.get("title")), WritingJdbc.integer(project.get("target_word_count"), 8000))) {
@@ -111,7 +114,7 @@ public class WritingProjectService {
     @Transactional
     public Map<String, Object> addChapter(String projectId, Map<String, Object> request) {
         Long userId = AuthContext.requireUserId();
-        WritingJdbc.one(jdbcTemplate, "SELECT id FROM writing_project WHERE id=? AND user_id=?", projectId, userId);
+        lockProjectForWrite(userId, projectId);
         addChapterInternal(projectId, request, true);
         renumberProject(projectId);
         return detail(projectId);
@@ -120,6 +123,8 @@ public class WritingProjectService {
     @Transactional
     public Map<String, Object> updateChapter(String projectId, String chapterId, Map<String, Object> request) {
         Long userId = AuthContext.requireUserId();
+        lockProjectForWrite(userId, projectId);
+        lockChaptersForWrite(projectId);
         ownedChapter(userId, projectId, chapterId);
         int imageCount = WritingJdbc.integer(request.get("imageCount"), 1);
         int tableCount = WritingJdbc.integer(request.get("tableCount"), 1);
@@ -140,6 +145,8 @@ public class WritingProjectService {
     @Transactional
     public Map<String, Object> deleteChapter(String projectId, String chapterId) {
         Long userId = AuthContext.requireUserId();
+        lockProjectForWrite(userId, projectId);
+        lockChaptersForWrite(projectId);
         ownedChapter(userId, projectId, chapterId);
         jdbcTemplate.update("DELETE FROM writing_chapter WHERE id=?", chapterId);
         renumberProject(projectId);
@@ -149,7 +156,8 @@ public class WritingProjectService {
     @Transactional
     public Map<String, Object> reorderChapters(String projectId, List<String> ids) {
         Long userId = AuthContext.requireUserId();
-        WritingJdbc.one(jdbcTemplate, "SELECT id FROM writing_project WHERE id=? AND user_id=?", projectId, userId);
+        lockProjectForWrite(userId, projectId);
+        lockChaptersForWrite(projectId);
         int order = 1;
         for (String id : ids) jdbcTemplate.update("UPDATE writing_chapter SET sort_order=? WHERE project_id=? AND id=?", order++, projectId, id);
         renumberProject(projectId);
@@ -159,6 +167,7 @@ public class WritingProjectService {
     @Transactional
     public Map<String, Object> addSection(String projectId, String chapterId, Map<String, Object> request) {
         Long userId = AuthContext.requireUserId();
+        lockProjectForWrite(userId, projectId);
         ownedChapter(userId, projectId, chapterId);
         int next = WritingJdbc.integer(WritingJdbc.one(jdbcTemplate, "SELECT COALESCE(MAX(sort_order),0)+1 AS n FROM writing_section WHERE chapter_id=?", chapterId).get("n"), 1);
         insertSection(projectId, chapterId, next, textOr(request.get("title"), "新增小节"), WritingJdbc.integer(request.get("targetWordCount"), 400));
@@ -169,6 +178,7 @@ public class WritingProjectService {
     @Transactional
     public Map<String, Object> updateSection(String projectId, String sectionId, Map<String, Object> request) {
         Long userId = AuthContext.requireUserId();
+        lockProjectForWrite(userId, projectId);
         ownedProject(userId, projectId);
         jdbcTemplate.update("UPDATE writing_section SET title=?, target_word_count=?, updated_at=? WHERE project_id=? AND id=?",
                 required(request.get("title"), "小节标题不能为空"), WritingJdbc.integer(request.get("targetWordCount"), 400),
@@ -179,6 +189,7 @@ public class WritingProjectService {
     @Transactional
     public Map<String, Object> deleteSection(String projectId, String sectionId) {
         Long userId = AuthContext.requireUserId();
+        lockProjectForWrite(userId, projectId);
         ownedProject(userId, projectId);
         jdbcTemplate.update("DELETE FROM writing_section WHERE project_id=? AND id=?", projectId, sectionId);
         renumberProject(projectId);
@@ -198,6 +209,7 @@ public class WritingProjectService {
     @Transactional
     public Map<String, Object> addChart(String projectId, String chapterId, Map<String, Object> request) {
         Long userId = AuthContext.requireUserId();
+        lockProjectForWrite(userId, projectId);
         ownedChapter(userId, projectId, chapterId);
         int next = WritingJdbc.integer(WritingJdbc.one(jdbcTemplate, "SELECT COALESCE(MAX(sort_order),0)+1 AS n FROM writing_chart WHERE chapter_id=?", chapterId).get("n"), 1);
         insertChart(projectId, chapterId, next, textOr(request.get("chartType"), "COMBO"), text(request.get("title")));
@@ -208,6 +220,7 @@ public class WritingProjectService {
     @Transactional
     public Map<String, Object> updateChart(String projectId, String chartId, Map<String, Object> request) {
         Long userId = AuthContext.requireUserId();
+        lockProjectForWrite(userId, projectId);
         ownedProject(userId, projectId);
         jdbcTemplate.update("""
                 UPDATE writing_chart SET title=?, chart_type=?, source_type=?, source_name=?, source_url=?, is_simulated=?,
@@ -263,6 +276,7 @@ public class WritingProjectService {
     @Transactional
     public Map<String, Object> addTable(String projectId, String chapterId, Map<String, Object> request) {
         Long userId = AuthContext.requireUserId();
+        lockProjectForWrite(userId, projectId);
         ownedChapter(userId, projectId, chapterId);
         int next = WritingJdbc.integer(WritingJdbc.one(jdbcTemplate, "SELECT COALESCE(MAX(sort_order),0)+1 AS n FROM writing_table WHERE chapter_id=?", chapterId).get("n"), 1);
         insertTable(projectId, chapterId, next, text(request.get("title")));
@@ -273,6 +287,7 @@ public class WritingProjectService {
     @Transactional
     public Map<String, Object> updateTable(String projectId, String tableId, Map<String, Object> request) {
         Long userId = AuthContext.requireUserId();
+        lockProjectForWrite(userId, projectId);
         ownedProject(userId, projectId);
         jdbcTemplate.update("""
                 UPDATE writing_table SET title=?, table_type=?, source_type=?, source_name=?, source_url=?, is_simulated=?,
@@ -375,25 +390,52 @@ public class WritingProjectService {
     }
 
     private void renumberProject(String projectId) {
-        List<Map<String, Object>> chapters = WritingJdbc.list(jdbcTemplate, "SELECT * FROM writing_chapter WHERE project_id=? ORDER BY sort_order, created_at", projectId);
+        List<Map<String, Object>> chapters = WritingJdbc.list(jdbcTemplate, "SELECT * FROM writing_chapter WHERE project_id=? ORDER BY sort_order, created_at, id", projectId);
+        int temp = 1;
+        for (Map<String, Object> chapter : chapters.stream().sorted((a, b) -> WritingJdbc.text(a.get("id")).compareTo(WritingJdbc.text(b.get("id")))).toList()) {
+            jdbcTemplate.update("UPDATE writing_chapter SET chapter_no=?, sort_order=?, updated_at=? WHERE id=?",
+                    -(1000000 + temp), -(1000000 + temp), LocalDateTime.now(), chapter.get("id"));
+            temp++;
+        }
         int chapterNo = 1;
         for (Map<String, Object> chapter : chapters) {
             String chapterId = WritingJdbc.text(chapter.get("id"));
             jdbcTemplate.update("UPDATE writing_chapter SET chapter_no=?, sort_order=?, updated_at=? WHERE id=?", chapterNo, chapterNo, LocalDateTime.now(), chapterId);
             int sectionNo = 1;
-            for (Map<String, Object> section : WritingJdbc.list(jdbcTemplate, "SELECT * FROM writing_section WHERE chapter_id=? ORDER BY sort_order, created_at", chapterId)) {
+            List<Map<String, Object>> sections = WritingJdbc.list(jdbcTemplate, "SELECT * FROM writing_section WHERE chapter_id=? ORDER BY sort_order, created_at, id", chapterId);
+            int sectionTemp = 1;
+            for (Map<String, Object> section : sections.stream().sorted((a, b) -> WritingJdbc.text(a.get("id")).compareTo(WritingJdbc.text(b.get("id")))).toList()) {
+                jdbcTemplate.update("UPDATE writing_section SET section_no=?, sort_order=?, updated_at=? WHERE id=?",
+                        "tmp-" + sectionTemp, -(1000000 + sectionTemp), LocalDateTime.now(), section.get("id"));
+                sectionTemp++;
+            }
+            for (Map<String, Object> section : sections) {
                 jdbcTemplate.update("UPDATE writing_section SET section_no=?, sort_order=?, updated_at=? WHERE id=?",
                         chapterNo + "." + sectionNo, sectionNo, LocalDateTime.now(), section.get("id"));
                 sectionNo++;
             }
             int chartNo = 1;
-            for (Map<String, Object> chart : WritingJdbc.list(jdbcTemplate, "SELECT * FROM writing_chart WHERE chapter_id=? ORDER BY sort_order, created_at", chapterId)) {
+            List<Map<String, Object>> charts = WritingJdbc.list(jdbcTemplate, "SELECT * FROM writing_chart WHERE chapter_id=? ORDER BY sort_order, created_at, id", chapterId);
+            int chartTemp = 1;
+            for (Map<String, Object> chart : charts.stream().sorted((a, b) -> WritingJdbc.text(a.get("id")).compareTo(WritingJdbc.text(b.get("id")))).toList()) {
+                jdbcTemplate.update("UPDATE writing_chart SET chart_no=?, sort_order=?, updated_at=? WHERE id=?",
+                        "tmp-" + chartTemp, -(1000000 + chartTemp), LocalDateTime.now(), chart.get("id"));
+                chartTemp++;
+            }
+            for (Map<String, Object> chart : charts) {
                 jdbcTemplate.update("UPDATE writing_chart SET chart_no=?, sort_order=?, updated_at=? WHERE id=?",
                         chapterNo + "-" + chartNo, chartNo, LocalDateTime.now(), chart.get("id"));
                 chartNo++;
             }
             int tableNo = 1;
-            for (Map<String, Object> table : WritingJdbc.list(jdbcTemplate, "SELECT * FROM writing_table WHERE chapter_id=? ORDER BY sort_order, created_at", chapterId)) {
+            List<Map<String, Object>> tables = WritingJdbc.list(jdbcTemplate, "SELECT * FROM writing_table WHERE chapter_id=? ORDER BY sort_order, created_at, id", chapterId);
+            int tableTemp = 1;
+            for (Map<String, Object> table : tables.stream().sorted((a, b) -> WritingJdbc.text(a.get("id")).compareTo(WritingJdbc.text(b.get("id")))).toList()) {
+                jdbcTemplate.update("UPDATE writing_table SET table_no=?, sort_order=?, updated_at=? WHERE id=?",
+                        "tmp-" + tableTemp, -(1000000 + tableTemp), LocalDateTime.now(), table.get("id"));
+                tableTemp++;
+            }
+            for (Map<String, Object> table : tables) {
                 jdbcTemplate.update("UPDATE writing_table SET table_no=?, sort_order=?, updated_at=? WHERE id=?",
                         chapterNo + "-" + tableNo, tableNo, LocalDateTime.now(), table.get("id"));
                 tableNo++;
@@ -421,6 +463,22 @@ public class WritingProjectService {
 
     private Map<String, Object> ownedProject(Long userId, String projectId) {
         return WritingJdbc.one(jdbcTemplate, "SELECT id FROM writing_project WHERE id=? AND user_id=?", projectId, userId);
+    }
+
+    private Map<String, Object> lockProjectForWrite(Long userId, String projectId) {
+        try {
+            return WritingJdbc.one(jdbcTemplate, "SELECT * FROM writing_project WHERE id=? AND user_id=? FOR UPDATE", projectId, userId);
+        } catch (Exception exception) {
+            return WritingJdbc.one(jdbcTemplate, "SELECT * FROM writing_project WHERE id=? AND user_id=?", projectId, userId);
+        }
+    }
+
+    private void lockChaptersForWrite(String projectId) {
+        try {
+            WritingJdbc.list(jdbcTemplate, "SELECT id FROM writing_chapter WHERE project_id=? ORDER BY id ASC FOR UPDATE", projectId);
+        } catch (Exception exception) {
+            WritingJdbc.list(jdbcTemplate, "SELECT id FROM writing_chapter WHERE project_id=? ORDER BY id ASC", projectId);
+        }
     }
 
     private Map<String, Object> ownedChapter(Long userId, String projectId, String chapterId) {

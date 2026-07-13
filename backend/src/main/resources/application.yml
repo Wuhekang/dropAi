@@ -50,18 +50,26 @@ cad:
 
 ai:
   doubao:
-    enabled: true
+    enabled: ${DOUBAO_ENABLED:true}
     api-key: ${DOUBAO_API_KEY:}
-    endpoint: ${DOUBAO_ENDPOINT:https://ark.cn-beijing.volces.com/api/v3/chat/completions}
-    model: ${DOUBAO_MODEL:doubao-seed-2-0-lite-260428}
-    text-model: ${DOUBAO_TEXT_MODEL:${DOUBAO_MODEL:doubao-seed-2-0-lite-260428}}
+    base-url: ${DOUBAO_BASE_URL:https://ark.cn-beijing.volces.com/api/v3}
+    responses-path: ${DOUBAO_RESPONSES_PATH:/responses}
+    chat-path: ${DOUBAO_CHAT_PATH:/chat/completions}
+    endpoint: ${DOUBAO_ENDPOINT:${ai.doubao.base-url}${ai.doubao.chat-path}}
+    model: ${DOUBAO_MODEL:doubao-seed-2-1-turbo-260628}
+    text-model: ${DOUBAO_TEXT_MODEL:${DOUBAO_MODEL:doubao-seed-2-1-turbo-260628}}
+    review-model: ${DOUBAO_REVIEW_MODEL:doubao-seed-2-1-pro-260628}
+    fallback-model: ${DOUBAO_FALLBACK_MODEL:doubao-seed-2-0-lite-260428}
     vision-model: ${DOUBAO_VISION_MODEL:}
     mechanical-vision-model: ${DOUBAO_MECHANICAL_VISION_MODEL:doubao-seed-2-1-turbo-260628}
     web-search-enabled: ${DOUBAO_WEB_SEARCH_ENABLED:false}
+    web-search-force: ${DOUBAO_WEB_SEARCH_FORCE:true}
     temperature: 0.35
-    connect-timeout-seconds: 10
-    read-timeout-seconds: 120
+    connect-timeout-seconds: ${DOUBAO_CONNECT_TIMEOUT_SECONDS:10}
+    read-timeout-seconds: ${DOUBAO_TIMEOUT_SECONDS:120}
     max-retries: ${DOUBAO_MAX_RETRIES:2}
+    max-output-tokens: ${DOUBAO_MAX_OUTPUT_TOKENS:8192}
+    debug: ${DOUBAO_DEBUG:false}
     document-concurrency: 64
 
 writing:
