@@ -83,7 +83,7 @@
         <div class="block-head">
           <div>
             <h2>2. 动态章节与图表配置</h2>
-            <p>添加、删除、上移、下移后会自动重新编号；每章必须至少 1 个图或表。</p>
+            <p>添加、删除、上移、下移后会自动重新编号；每章可以单独选择是否需要图片或表格。</p>
           </div>
           <div class="actions">
             <button class="ghost-button" type="button" :disabled="!projectId" @click="generateOutline">生成/刷新提纲</button>
@@ -361,10 +361,6 @@ async function addChapter() {
 }
 
 async function saveChapter(row) {
-  if (Number(row.image_count || 0) + Number(row.table_count || 0) < 1) {
-    ElMessage.error('每个章节至少需要配置一个图或一个表。')
-    return
-  }
   syncState(await updateWritingChapter(projectId.value, row.id, {
     title: row.title,
     targetWordCount: row.target_word_count,

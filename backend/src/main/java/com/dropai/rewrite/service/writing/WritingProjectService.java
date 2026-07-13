@@ -123,7 +123,6 @@ public class WritingProjectService {
         ownedChapter(userId, projectId, chapterId);
         int imageCount = WritingJdbc.integer(request.get("imageCount"), 1);
         int tableCount = WritingJdbc.integer(request.get("tableCount"), 1);
-        if (imageCount + tableCount < 1) throw new IllegalArgumentException("每个章节至少需要配置一个图或一个表。");
         jdbcTemplate.update("""
                 UPDATE writing_chapter SET title=?, target_word_count=?, section_count=?, image_count=?, table_count=?,
                 use_references=?, default_chart_type=?, updated_at=? WHERE id=?
@@ -302,7 +301,6 @@ public class WritingProjectService {
         String id = WritingJdbc.id("wc");
         int imageCount = WritingJdbc.integer(request.get("imageCount"), 1);
         int tableCount = WritingJdbc.integer(request.get("tableCount"), 1);
-        if (imageCount + tableCount < 1) tableCount = 1;
         LocalDateTime now = LocalDateTime.now();
         jdbcTemplate.update("""
                 INSERT INTO writing_chapter (id, project_id, chapter_no, title, target_word_count, section_count,
@@ -326,8 +324,14 @@ public class WritingProjectService {
     private void ensureChartTableCounts(String projectId, String chapterId, int imageCount, int tableCount) {
         List<Map<String, Object>> charts = WritingJdbc.list(jdbcTemplate, "SELECT * FROM writing_chart WHERE chapter_id=? ORDER BY sort_order", chapterId);
         for (int i = charts.size() + 1; i <= imageCount; i++) insertChart(projectId, chapterId, i, "COMBO", "");
+        for (int i = imageCount; i < charts.size(); i++) {
+            jdbcTemplate.update("DELETE FROM writing_chart WHERE id=?", charts.get(i).get("id"));
+        }
         List<Map<String, Object>> tables = WritingJdbc.list(jdbcTemplate, "SELECT * FROM writing_table WHERE chapter_id=? ORDER BY sort_order", chapterId);
         for (int i = tables.size() + 1; i <= tableCount; i++) insertTable(projectId, chapterId, i, "");
+        for (int i = tableCount; i < tables.size(); i++) {
+            jdbcTemplate.update("DELETE FROM writing_table WHERE id=?", tables.get(i).get("id"));
+        }
     }
 
     private void insertSection(String projectId, String chapterId, int order, String title, int words) {

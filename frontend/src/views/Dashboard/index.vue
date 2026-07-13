@@ -9,6 +9,7 @@
         <button class="active" type="button">总览</button>
         <button type="button" @click="router.push('/new-project')">机械设计</button>
         <button type="button" @click="router.push('/computer-generator')">工程生成</button>
+        <button type="button" @click="router.push('/writing-generator')">纯文字稿生成</button>
         <button type="button" @click="router.push('/rewrite')">论文优化</button>
         <button type="button" @click="router.push('/recharge')">积分</button>
         <button v-if="isAdmin" type="button" @click="router.push('/points-admin')">积分配置</button>
@@ -25,6 +26,7 @@
           <p>最近项目、积分和下载记录，都收在一个清爽的工作区里。</p>
         </div>
         <div class="head-actions">
+          <button class="ghost-button" type="button" @click="router.push('/writing-generator')">打开纯文字稿页面</button>
           <button class="ghost-button" type="button" @click="router.push('/computer-generator')">工程生成</button>
           <button class="primary-button" type="button" @click="router.push('/new-project')">生成项目</button>
         </div>

@@ -30,9 +30,6 @@ public class WritingQualityGate {
         for (Map<String, Object> chapter : chapters) {
             String chapterId = WritingJdbc.text(chapter.get("id"));
             if (WritingJdbc.text(chapter.get("content")).isBlank()) errors.add("章节未生成正文：" + chapter.get("title"));
-            int figures = WritingJdbc.list(jdbcTemplate, "SELECT id FROM writing_chart WHERE chapter_id=?", chapterId).size();
-            int tables = WritingJdbc.list(jdbcTemplate, "SELECT id FROM writing_table WHERE chapter_id=?", chapterId).size();
-            if (figures + tables < 1) errors.add("章节缺少图或表：" + chapter.get("title"));
         }
         if (!WritingJdbc.list(jdbcTemplate, "SELECT id FROM writing_chapter WHERE project_id=? AND content LIKE '%[[REF:%'", projectId).isEmpty()) {
             errors.add("存在未解析的REF标记");

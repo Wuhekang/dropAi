@@ -140,10 +140,10 @@ public class WritingGenerationService {
                     Map<String, Object> ref = references.get(refIndex++ % references.size());
                     marker = "[[REF:" + ref.get("id") + "]]";
                 }
-                String figureCitation = firstNo("writing_chart", "chart_no", chapterId, "图");
-                String tableCitation = firstNo("writing_table", "table_no", chapterId, "表");
+                String visualCitation = visualCitation(chapterId);
                 String body = section.get("section_no") + " " + section.get("title") + "。围绕“" + title + "”，本节从概念界定、问题表现和实践约束三个方面展开。已有研究为该问题提供了可验证的理论和经验基础" + marker + "。"
-                        + "结合" + figureCitation + "和" + tableCitation + "可以看出，相关指标在不同维度上呈现差异化变化，因此路径设计需要同时考虑主体能力、资源条件和制度环境。"
+                        + visualCitation
+                        + "因此路径设计需要同时考虑主体能力、资源条件和制度环境。"
                         + "本节使用的图表数据均为模拟分析数据，用于展示趋势和结构关系，不代表真实统计调查结果。";
                 jdbcTemplate.update("UPDATE writing_section SET content=?, summary=?, status=?, updated_at=? WHERE id=?",
                         body, body.substring(0, Math.min(120, body.length())), "SUCCESS", LocalDateTime.now(), section.get("id"));
@@ -159,7 +159,22 @@ public class WritingGenerationService {
 
     private String firstNo(String table, String column, String chapterId, String prefix) {
         List<Map<String, Object>> rows = WritingJdbc.list(jdbcTemplate, "SELECT " + column + " AS no FROM " + table + " WHERE chapter_id=? ORDER BY sort_order LIMIT 1", chapterId);
-        return rows.isEmpty() ? prefix : prefix + rows.get(0).get("no");
+        return rows.isEmpty() ? "" : prefix + rows.get(0).get("no");
+    }
+
+    private String visualCitation(String chapterId) {
+        String figureCitation = firstNo("writing_chart", "chart_no", chapterId, "图");
+        String tableCitation = firstNo("writing_table", "table_no", chapterId, "表");
+        if (!figureCitation.isBlank() && !tableCitation.isBlank()) {
+            return "结合" + figureCitation + "和" + tableCitation + "可以看出，相关指标在不同维度上呈现差异化变化。";
+        }
+        if (!figureCitation.isBlank()) {
+            return "结合" + figureCitation + "可以看出，相关指标在不同维度上呈现差异化变化。";
+        }
+        if (!tableCitation.isBlank()) {
+            return "结合" + tableCitation + "可以看出，相关指标在不同维度上呈现差异化变化。";
+        }
+        return "从文献与章节分析可以看出，不同维度之间仍存在明显差异。";
     }
 
     private void writeDocumentJob(String projectId, Long userId, String fileName, byte[] bytes) throws Exception {

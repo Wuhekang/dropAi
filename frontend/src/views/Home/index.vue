@@ -9,6 +9,7 @@
         <button type="button" @click="router.push('/rewrite')">文档优化</button>
         <button type="button" @click="router.push('/new-project')">机械设计</button>
         <button type="button" @click="router.push('/computer-generator')">工程生成</button>
+        <button type="button" @click="router.push('/writing-generator')">纯文字稿生成</button>
         <button type="button" @click="router.push('/dashboard')">工作台</button>
         <button class="primary-button" type="button" @click="router.push('/rewrite')">开始优化</button>
       </div>
@@ -21,6 +22,7 @@
         <p class="hero-copy">智能优化论文表达，降低重复与AI痕迹。上传文档、选择优化方式、查看结果并下载，流程保持清晰可控。</p>
         <div class="hero-actions">
           <button class="primary-button" type="button" @click="router.push('/rewrite')">开始优化</button>
+          <button class="ghost-button" type="button" @click="router.push('/writing-generator')">打开纯文字稿页面</button>
           <button class="ghost-button" type="button" @click="router.push('/computer-generator')">生成工程项目</button>
         </div>
       </div>
