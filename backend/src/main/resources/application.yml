@@ -63,7 +63,13 @@ ai:
     vision-model: ${DOUBAO_VISION_MODEL:}
     mechanical-vision-model: ${DOUBAO_MECHANICAL_VISION_MODEL:doubao-seed-2-1-turbo-260628}
     web-search-enabled: ${DOUBAO_WEB_SEARCH_ENABLED:false}
+    web-search-model: ${DOUBAO_WEB_SEARCH_MODEL:}
+    responses-base-url: ${DOUBAO_RESPONSES_BASE_URL:${DOUBAO_BASE_URL:https://ark.cn-beijing.volces.com/api/v3}}
     web-search-force: ${DOUBAO_WEB_SEARCH_FORCE:true}
+    web-search-timeout-seconds: ${DOUBAO_WEB_SEARCH_TIMEOUT_SECONDS:60}
+    web-search-max-results: ${DOUBAO_WEB_SEARCH_MAX_RESULTS:30}
+    web-search-retry-count: ${DOUBAO_WEB_SEARCH_RETRY_COUNT:2}
+    web-search-max-queries: ${DOUBAO_WEB_SEARCH_MAX_QUERIES:12}
     temperature: 0.35
     connect-timeout-seconds: ${DOUBAO_CONNECT_TIMEOUT_SECONDS:10}
     read-timeout-seconds: ${DOUBAO_TIMEOUT_SECONDS:120}
@@ -77,7 +83,16 @@ writing:
   chapter-timeout-seconds: ${WRITING_CHAPTER_TIMEOUT:180}
   reference-search:
     enabled: ${WRITING_REFERENCE_SEARCH_ENABLED:true}
-    provider: ${WRITING_REFERENCE_SEARCH_PROVIDER:doubao,openalex,crossref}
+    provider: ${WRITING_REFERENCE_SEARCH_PROVIDER:doubao_web}
     max-results: ${WRITING_REFERENCE_SEARCH_MAX_RESULTS:30}
     timeout-seconds: ${WRITING_REFERENCE_SEARCH_TIMEOUT_SECONDS:30}
     retry-count: ${WRITING_REFERENCE_SEARCH_RETRY_COUNT:3}
+
+reference:
+  openalex:
+    enabled: ${OPENALEX_SEARCH_ENABLED:false}
+    api-key: ${OPENALEX_API_KEY:}
+  crossref:
+    enabled: ${CROSSREF_SEARCH_ENABLED:false}
+    mailto: ${CROSSREF_MAILTO:}
+    api-token: ${CROSSREF_API_TOKEN:}

@@ -34,6 +34,24 @@ public class WritingQualityGate {
         if (!WritingJdbc.list(jdbcTemplate, "SELECT id FROM writing_chapter WHERE project_id=? AND content LIKE '%[[REF:%'", projectId).isEmpty()) {
             errors.add("存在未解析的REF标记");
         }
+        List<Map<String, Object>> references = WritingJdbc.list(jdbcTemplate, "SELECT * FROM writing_reference WHERE project_id=?", projectId);
+        List<String> titles = new ArrayList<>();
+        List<String> dois = new ArrayList<>();
+        for (Map<String, Object> reference : references) {
+            String title = WritingJdbc.text(reference.get("title"));
+            String doi = WritingJdbc.text(reference.get("doi"));
+            String status = WritingJdbc.text(reference.get("verification_status"));
+            if (title.isBlank()) errors.add("参考文献缺少题名");
+            if (WritingJdbc.text(reference.get("authors")).isBlank()) errors.add("参考文献缺少作者：" + title);
+            if (WritingJdbc.integer(reference.get("publication_year"), 0) <= 1900) errors.add("参考文献缺少年份：" + title);
+            if (WritingJdbc.text(reference.get("journal_or_publisher")).isBlank()) errors.add("参考文献缺少来源：" + title);
+            if (WritingJdbc.text(reference.get("url")).isBlank()) errors.add("参考文献缺少公开URL：" + title);
+            if ("UNVERIFIED".equalsIgnoreCase(status) || "REJECTED".equalsIgnoreCase(status)) errors.add("存在未验证或已拒绝参考文献：" + title);
+            if (!title.isBlank() && titles.contains(title)) errors.add("参考文献题名重复：" + title);
+            if (!title.isBlank()) titles.add(title);
+            if (!doi.isBlank() && dois.contains(doi)) errors.add("参考文献DOI重复：" + doi);
+            if (!doi.isBlank()) dois.add(doi);
+        }
         for (Map<String, Object> chart : WritingJdbc.list(jdbcTemplate, "SELECT * FROM writing_chart WHERE project_id=?", projectId)) {
             String image = WritingJdbc.text(chart.get("image_path"));
             if (image.isBlank() || !Files.isRegularFile(Path.of(image))) errors.add("图表图片不存在：" + chart.get("chart_no"));
@@ -58,7 +76,7 @@ public class WritingQualityGate {
                 "chartChecks", WritingJdbc.list(jdbcTemplate, "SELECT id FROM writing_chart WHERE project_id=?", projectId).size(),
                 "tableChecks", WritingJdbc.list(jdbcTemplate, "SELECT id FROM writing_table WHERE project_id=?", projectId).size(),
                 "citationChecks", WritingJdbc.list(jdbcTemplate, "SELECT id FROM writing_citation WHERE project_id=?", projectId).size(),
-                "referenceChecks", WritingJdbc.list(jdbcTemplate, "SELECT id FROM writing_reference WHERE project_id=?", projectId).size()
+                "referenceChecks", references.size()
         );
     }
 

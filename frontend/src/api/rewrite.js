@@ -412,6 +412,10 @@ export function getWritingReferenceSearchStatus() {
   return request.get('/writing/reference-search/status')
 }
 
+export function getWritingReferenceProviders() {
+  return request.get('/writing/reference-search/providers')
+}
+
 export function createWritingProject(data) {
   return request.post('/writing/projects', data, { timeout: 120000 })
 }
@@ -496,8 +500,42 @@ export function searchWritingReferences(id) {
   return request.post(`/writing/projects/${id}/references/search`, {}, { timeout: 180000 })
 }
 
+export function searchWritingChineseReferences(id, data = {}) {
+  return request.post(`/writing/projects/${id}/references/search/chinese`, data, { timeout: 180000 })
+}
+
+export function generateWritingReferenceSearchPlan(id, data = {}) {
+  return request.post(`/writing/projects/${id}/references/search-plan`, data, { timeout: 60000 })
+}
+
+export function searchWritingEnglishReferences(id, data = {}) {
+  return request.post(`/writing/projects/${id}/references/search/english`, data, { timeout: 180000 })
+}
+
+export function importWritingReferences(id, file, sourcePlatform = 'IMPORTED_OTHER') {
+  const formData = new FormData()
+  formData.append('file', file.raw || file)
+  formData.append('sourcePlatform', sourcePlatform)
+  return request.post(`/writing/projects/${id}/references/import`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 180000
+  })
+}
+
+export function deduplicateWritingReferences(id) {
+  return request.post(`/writing/projects/${id}/references/deduplicate`)
+}
+
+export function assignWritingReferencesToChapters(id) {
+  return request.post(`/writing/projects/${id}/references/assign-to-chapters`)
+}
+
 export function verifyWritingReferences(id) {
   return request.post(`/writing/projects/${id}/references/verify`)
+}
+
+export function completeWritingReferenceMetadata(id, referenceId) {
+  return request.post(`/writing/projects/${id}/references/${referenceId}/complete-metadata`)
 }
 
 export function startWritingGeneration(id) {

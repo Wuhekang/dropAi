@@ -2,6 +2,7 @@ package com.dropai.rewrite.controller;
 
 import com.dropai.rewrite.auth.AuthContext;
 import com.dropai.rewrite.service.PointsNotEnoughException;
+import com.dropai.rewrite.service.writing.ChineseReferenceImportService;
 import com.dropai.rewrite.service.writing.ReferenceSearchService;
 import com.dropai.rewrite.service.writing.WritingGenerationService;
 import com.dropai.rewrite.service.writing.WritingProjectService;
@@ -13,8 +14,10 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 import java.util.Map;
@@ -25,13 +28,16 @@ public class WritingGenerationController {
     private final WritingProjectService projectService;
     private final ReferenceSearchService referenceSearchService;
     private final WritingGenerationService generationService;
+    private final ChineseReferenceImportService importService;
 
     public WritingGenerationController(WritingProjectService projectService,
                                        ReferenceSearchService referenceSearchService,
-                                       WritingGenerationService generationService) {
+                                       WritingGenerationService generationService,
+                                       ChineseReferenceImportService importService) {
         this.projectService = projectService;
         this.referenceSearchService = referenceSearchService;
         this.generationService = generationService;
+        this.importService = importService;
     }
 
     @PostMapping("/projects")
@@ -154,6 +160,26 @@ public class WritingGenerationController {
         return Result.success(referenceSearchService.searchAndSave(AuthContext.requireUserId(), id, null));
     }
 
+    @GetMapping("/reference-search/providers")
+    public Result<Object> referenceSearchProviders() {
+        return Result.success(referenceSearchService.providers());
+    }
+
+    @PostMapping("/projects/{id}/references/search/chinese")
+    public Result<List<Map<String, Object>>> searchChineseReferences(@PathVariable String id, @RequestBody Map<String, Object> request) {
+        return Result.success(referenceSearchService.searchAndSaveLanguage(AuthContext.requireUserId(), id, "ZH", request == null ? Map.of() : request));
+    }
+
+    @PostMapping("/projects/{id}/references/search-plan")
+    public Result<Map<String, Object>> referenceSearchPlan(@PathVariable String id, @RequestBody Map<String, Object> request) {
+        return Result.success(referenceSearchService.searchPlan(AuthContext.requireUserId(), id, request == null ? Map.of() : request));
+    }
+
+    @PostMapping("/projects/{id}/references/search/english")
+    public Result<List<Map<String, Object>>> searchEnglishReferences(@PathVariable String id, @RequestBody Map<String, Object> request) {
+        return Result.success(referenceSearchService.searchAndSaveLanguage(AuthContext.requireUserId(), id, "EN", request == null ? Map.of() : request));
+    }
+
     @PostMapping("/projects/{id}/references/search-by-chapter")
     public Result<List<Map<String, Object>>> searchReferencesByChapter(@PathVariable String id, @RequestBody Map<String, Object> request) {
         return Result.success(referenceSearchService.searchAndSave(AuthContext.requireUserId(), id, ((Number) request.getOrDefault("chapterNo", 1)).intValue()));
@@ -161,7 +187,34 @@ public class WritingGenerationController {
 
     @PostMapping("/projects/{id}/references/verify")
     public Result<List<Map<String, Object>>> verifyReferences(@PathVariable String id) {
-        return Result.success(referenceSearchService.references(AuthContext.requireUserId(), id));
+        return Result.success(referenceSearchService.verifySavedReferences(AuthContext.requireUserId(), id));
+    }
+
+    @PostMapping("/projects/{id}/references/{referenceId}/complete-metadata")
+    public Result<List<Map<String, Object>>> completeReferenceMetadata(@PathVariable String id, @PathVariable String referenceId) {
+        return Result.success(referenceSearchService.completeMetadata(AuthContext.requireUserId(), id, referenceId));
+    }
+
+    @PostMapping("/projects/{id}/references/deduplicate")
+    public Result<List<Map<String, Object>>> deduplicateReferences(@PathVariable String id) {
+        return Result.success(referenceSearchService.deduplicateSavedReferences(AuthContext.requireUserId(), id));
+    }
+
+    @PostMapping("/projects/{id}/references/assign-to-chapters")
+    public Result<List<Map<String, Object>>> assignReferencesToChapters(@PathVariable String id) {
+        return Result.success(referenceSearchService.assignSavedReferencesToChapters(AuthContext.requireUserId(), id));
+    }
+
+    @PostMapping("/projects/{id}/references/import")
+    public Result<Map<String, Object>> importReferences(@PathVariable String id,
+                                                       @RequestParam("file") MultipartFile file,
+                                                       @RequestParam(value = "sourcePlatform", defaultValue = "IMPORTED_OTHER") String sourcePlatform) {
+        return Result.success(importService.importFile(AuthContext.requireUserId(), id, file, sourcePlatform));
+    }
+
+    @GetMapping("/projects/{id}/references/search-logs")
+    public Result<List<Map<String, Object>>> referenceSearchLogs(@PathVariable String id) {
+        return Result.success(referenceSearchService.searchLogs(AuthContext.requireUserId(), id));
     }
 
     @GetMapping("/projects/{id}/references")

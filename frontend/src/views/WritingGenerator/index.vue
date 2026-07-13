@@ -207,13 +207,30 @@
             <h2>3. 联网检索参考文献</h2>
             <p>正式生成前默认必须检索真实文献；不会用普通模型虚构 DOI 或文献字段。</p>
           </div>
-          <button class="primary-button" type="button" :disabled="!projectId || searching || form.skipReferences" @click="searchReferences">真实联网搜索</button>
+          <div class="actions">
+            <button class="ghost-button" type="button" :disabled="!projectId || searching || form.skipReferences" @click="generateReferencePlan">&#29983;&#25104;&#20013;&#25991;&#26816;&#32034;&#35789;</button>
+            <button class="ghost-button" type="button" :disabled="!projectId || searching || form.skipReferences" @click="searchChineseReferences">&#25628;&#32034;&#20013;&#25991;&#25991;&#29486;</button>
+            <button class="ghost-button" type="button" :disabled="!projectId || searching || form.skipReferences" @click="searchEnglishReferences">&#25628;&#32034;&#33521;&#25991;&#25991;&#29486;</button>
+            <button class="ghost-button" type="button" :disabled="!projectId" @click="triggerImport">&#23548;&#20837;&#39064;&#24405;</button>
+            <button class="primary-button" type="button" :disabled="!projectId || searching || form.skipReferences" @click="searchReferences">&#37325;&#26032;&#25628;&#32034;</button>
+          </div>
+        </div>
+        <input ref="importInput" class="hidden-file" type="file" accept=".txt,.csv,.ris,.bib,.xml,.xlsx" @change="importReferencesFile" />
+        <div class="provider-grid">
+          <article v-for="provider in providerList" :key="provider.provider" class="provider-card">
+            <strong>{{ provider.provider }}</strong>
+            <span>{{ provider.available ? 'OK' : provider.message }}</span>
+            <small>{{ provider.errorCode || provider.authorizationMode }}</small>
+          </article>
         </div>
         <div class="stats">
           <span>Provider：{{ project.search_provider || providerText }}</span>
           <span>状态：{{ project.search_status || '未搜索' }}</span>
           <span>文献：{{ references.length }}</span>
           <span>已验证：{{ verifiedCount }}</span>
+          <button class="ghost-button small" type="button" :disabled="!projectId" @click="deduplicateReferences">&#25991;&#29486;&#21435;&#37325;</button>
+          <button class="ghost-button small" type="button" :disabled="!projectId" @click="verifyReferences">&#39564;&#35777;&#25991;&#29486;</button>
+          <button class="ghost-button small" type="button" :disabled="!projectId" @click="assignReferences">&#25353;&#31456;&#33410;&#20998;&#37197;</button>
         </div>
         <el-table :data="references.slice(0, 12)" max-height="360">
           <el-table-column prop="title" label="标题" min-width="280" />
@@ -221,6 +238,16 @@
           <el-table-column prop="publication_year" label="年份" width="80" />
           <el-table-column prop="source_platform" label="来源" width="110" />
           <el-table-column prop="verification_status" label="验证" width="130" />
+          <el-table-column label="URL" width="90">
+            <template #default="{ row }">
+              <button class="ghost-button small" type="button" :disabled="!(row.url || row.source_url)" @click="openReferenceUrl(row)">&#25171;&#24320;</button>
+            </template>
+          </el-table-column>
+          <el-table-column label="补全" width="90">
+            <template #default="{ row }">
+              <button class="ghost-button small" type="button" :disabled="!projectId" @click="completeReference(row)">&#34917;&#20840;</button>
+            </template>
+          </el-table-column>
         </el-table>
       </section>
 
@@ -254,18 +281,26 @@ import {
   addWritingChartSeries,
   addWritingSection,
   addWritingTable,
+  assignWritingReferencesToChapters,
+  completeWritingReferenceMetadata,
   createWritingProject,
+  deduplicateWritingReferences,
   deleteWritingChapter,
   deleteWritingChart,
   deleteWritingChartSeries,
   deleteWritingSection,
   deleteWritingTable,
   downloadArtifact,
+  generateWritingReferenceSearchPlan,
   generateWritingOutline,
   getWritingPreview,
+  getWritingReferenceProviders,
   getWritingProgress,
   getWritingReferenceSearchStatus,
+  importWritingReferences,
   reorderWritingChapters,
+  searchWritingChineseReferences,
+  searchWritingEnglishReferences,
   searchWritingReferences,
   startWritingGeneration,
   updateWritingChapter,
@@ -273,7 +308,8 @@ import {
   updateWritingChartSeries,
   updateWritingProject,
   updateWritingSection,
-  updateWritingTable
+  updateWritingTable,
+  verifyWritingReferences
 } from '../../api/rewrite'
 
 const router = useRouter()
@@ -284,6 +320,7 @@ const chapters = ref([])
 const references = ref([])
 const files = ref([])
 const providerStatus = ref(null)
+const importInput = ref(null)
 const saving = ref(false)
 const searching = ref(false)
 const generating = ref(false)
@@ -332,10 +369,11 @@ const form = ref({
   requirements: ''
 })
 
+const providerList = computed(() => Array.isArray(providerStatus.value) ? providerStatus.value : (providerStatus.value?.providers || []))
 const providerText = computed(() => {
-  const providers = providerStatus.value?.providers || []
-  if (!providers.length) return '未检测'
-  return providers.map(item => `${item.name}:${item.available ? '可用' : '不可用'}`).join(' / ')
+  const providers = providerList.value
+  if (!providers.length) return 'Not checked'
+  return providers.map(item => `${item.provider || item.name}:${item.available ? 'OK' : 'OFF'}`).join(' / ')
 })
 const verifiedCount = computed(() => references.value.filter(item => ['VERIFIED', 'PARTIALLY_VERIFIED'].includes(item.verification_status)).length)
 const referenceTotal = computed(() => Number(form.value.chineseReferenceCount || 0) + Number(form.value.englishReferenceCount || 0))
@@ -455,6 +493,85 @@ async function searchReferences() {
   }
 }
 
+function referenceSearchPayload(language) {
+  return {
+    targetCount: language === 'ZH' ? form.value.chineseReferenceCount : form.value.englishReferenceCount,
+    yearFrom: form.value.yearStart,
+    yearTo: form.value.yearEnd
+  }
+}
+
+async function generateReferencePlan() {
+  const plan = await generateWritingReferenceSearchPlan(projectId.value, referenceSearchPayload('ZH'))
+  providerStatus.value = { ...(providerStatus.value || {}), searchPlan: plan }
+  ElMessage.success(`Search queries: ${(plan.globalQueries || []).length}`)
+}
+
+async function searchChineseReferences() {
+  await flushChapterSave()
+  searching.value = true
+  try {
+    references.value = await searchWritingChineseReferences(projectId.value, referenceSearchPayload('ZH')) || []
+    activeStep.value = 3
+    ElMessage.success(`Chinese references: ${references.value.length}`)
+  } finally {
+    searching.value = false
+  }
+}
+
+async function searchEnglishReferences() {
+  await flushChapterSave()
+  searching.value = true
+  try {
+    references.value = await searchWritingEnglishReferences(projectId.value, referenceSearchPayload('EN')) || []
+    activeStep.value = 3
+    ElMessage.success(`English references: ${references.value.length}`)
+  } finally {
+    searching.value = false
+  }
+}
+
+function triggerImport() {
+  importInput.value?.click()
+}
+
+async function importReferencesFile(event) {
+  const file = event.target.files?.[0]
+  if (!file) return
+  try {
+    const result = await importWritingReferences(projectId.value, file, 'IMPORTED_CATALOG')
+    references.value = await searchWritingReferences(projectId.value) || references.value
+    ElMessage.success(`Imported references: ${result.successCount || 0}`)
+  } finally {
+    event.target.value = ''
+  }
+}
+
+async function deduplicateReferences() {
+  references.value = await deduplicateWritingReferences(projectId.value) || references.value
+  ElMessage.success('References deduplicated')
+}
+
+async function verifyReferences() {
+  references.value = await verifyWritingReferences(projectId.value) || references.value
+  ElMessage.success('References verified')
+}
+
+async function assignReferences() {
+  references.value = await assignWritingReferencesToChapters(projectId.value) || references.value
+  ElMessage.success('References assigned')
+}
+
+async function completeReference(row) {
+  references.value = await completeWritingReferenceMetadata(projectId.value, row.id) || references.value
+  ElMessage.success('Metadata completion queued')
+}
+
+function openReferenceUrl(row) {
+  const url = row.url || row.source_url
+  if (url) window.open(url, '_blank', 'noopener,noreferrer')
+}
+
 async function startGeneration() {
   await flushChapterSave()
   generating.value = true
@@ -477,7 +594,11 @@ function startPolling() {
 }
 
 async function loadProviderStatus() {
-  providerStatus.value = await getWritingReferenceSearchStatus()
+  try {
+    providerStatus.value = await getWritingReferenceProviders()
+  } catch (error) {
+    providerStatus.value = await getWritingReferenceSearchStatus()
+  }
 }
 
 async function downloadFile(file) {
@@ -576,6 +697,28 @@ onUnmounted(() => {
 .stats span {
   margin: 0;
   color: var(--muted);
+}
+.hidden-file {
+  display: none;
+}
+.provider-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin: 12px 0;
+}
+.provider-card {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid rgba(108, 99, 255, 0.14);
+  border-radius: 8px;
+  background: rgba(255,255,255,0.72);
+}
+.provider-card span,
+.provider-card small {
+  color: var(--muted);
+  overflow-wrap: anywhere;
 }
 .grid-form {
   display: grid;

@@ -28,4 +28,18 @@ public record ReferenceSearchQuery(
         if (text.contains("就业")) builder.append(" employability employment skills");
         return builder.toString().trim();
     }
+
+    public String joinedChineseKeywords() {
+        StringBuilder builder = new StringBuilder();
+        if (title != null) builder.append(title).append(' ');
+        if (major != null) builder.append(major).append(' ');
+        if (keywords != null) keywords.forEach(keyword -> builder.append(keyword).append(' '));
+        if (chapterTitles != null) chapterTitles.stream().filter(title -> title != null && !title.isBlank()).limit(5)
+                .forEach(title -> builder.append(title).append(' '));
+        String text = builder.toString().trim();
+        if (text.contains("人工智能") || text.contains("浜哄伐鏅鸿兘")) builder.append(" 人工智能");
+        if (text.contains("职业") || text.contains("鑱屼笟")) builder.append(" 职业教育 高职院校 职业院校");
+        if (text.contains("就业") || text.contains("灏变笟")) builder.append(" 就业能力 就业质量");
+        return builder.toString().trim();
+    }
 }
