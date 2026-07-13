@@ -8,8 +8,10 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
-import java.net.InetAddress;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -20,6 +22,7 @@ public class DoubaoWebSearchProvider implements ReferenceSearchProvider {
     private final DoubaoProperties properties;
     private final RestClient restClient;
     private final ObjectMapper objectMapper;
+    private final DoubaoWebSearchSourceExtractor sourceExtractor = new DoubaoWebSearchSourceExtractor();
 
     public DoubaoWebSearchProvider(DoubaoProperties properties,
                                    RestClient.Builder builder,
@@ -68,20 +71,34 @@ public class DoubaoWebSearchProvider implements ReferenceSearchProvider {
             return status(true, false, false, endpoint, "MISSING_API_KEY", "DOUBAO_API_KEY is not configured", elapsed(started));
         }
         if (isBlank(properties.getWebSearchModel())) {
-            return status(true, false, false, endpoint, "MISSING_WEB_SEARCH_MODEL", "DOUBAO_WEB_SEARCH_MODEL is not configured", elapsed(started));
+            return status(true, false, false, endpoint, "MISSING_MODEL", "DOUBAO_WEB_SEARCH_MODEL is not configured", elapsed(started));
         }
         try {
             ReferenceSearchQuery probe = new ReferenceSearchQuery("health",
-                    "中华人民共和国国家标准GB/T 7714-2025实施日期", "reference standard",
-                    List.of("GB/T 7714"), List.of(), 2024, 2026, 3, 3, 0);
-            List<ReferenceCandidate> found = search(probe);
-            boolean hasUrl = found.stream().anyMatch(candidate -> isSafePublicUrl(candidate.url()));
-            return status(true, true, hasUrl, endpoint, hasUrl ? "AVAILABLE" : "NO_SOURCE_URL",
-                    hasUrl ? "Responses API Web Search returned public source URLs"
-                            : "Responses API responded but no public source URL was found",
-                    elapsed(started));
+                    "搜索国家标准 GB/T 7714 的公开介绍页面，并返回来源链接", "reference standard",
+                    List.of("GB/T 7714", "公开介绍", "来源链接"), List.of(), 2020, 2026, 3, 3, 0);
+            JsonNode root = executeResponsesRequest(probe);
+            saveDiagnosticResponse(root);
+            DoubaoWebSearchSourceExtractor.ExtractionResult extraction = sourceExtractor.extract(root);
+            if (!extraction.toolInvoked()) {
+                return status(true, true, false, endpoint, "TOOL_NOT_INVOKED",
+                        "Responses API succeeded, but Web Search tool was not invoked", elapsed(started));
+            }
+            if (extraction.hasAcceptedSources()) {
+                return status(true, true, true, endpoint, "AVAILABLE",
+                        "Responses API Web Search returned public source URLs at "
+                                + extraction.sources().get(0).rawPath(), elapsed(started));
+            }
+            if (extraction.hasRejectedUrls()) {
+                DoubaoWebSearchSourceExtractor.RejectedUrl rejected = extraction.rejectedUrls().get(0);
+                return status(true, true, false, endpoint, "SOURCE_URL_REJECTED",
+                        "Source URLs were found but rejected by safety validation; first reason="
+                                + rejected.reason() + " path=" + rejected.rawPath(), elapsed(started));
+            }
+            return status(true, true, false, endpoint, "SOURCE_FIELD_NOT_FOUND",
+                    "Web Search was invoked, but no source URL field was found in the response", elapsed(started));
         } catch (Exception exception) {
-            return status(true, true, false, endpoint, exception.getClass().getSimpleName(),
+            return status(true, true, false, endpoint, "RESPONSE_PARSE_FAILED",
                     "Responses API Web Search check failed: " + safeMessage(exception), elapsed(started));
         }
     }
@@ -89,6 +106,16 @@ public class DoubaoWebSearchProvider implements ReferenceSearchProvider {
     @Override
     public List<ReferenceCandidate> search(ReferenceSearchQuery query) {
         if (!available()) return List.of();
+        JsonNode root = executeResponsesRequest(query);
+        saveDiagnosticResponse(root);
+        return parseCandidates(root, query).stream()
+                .filter(candidate -> isSafePublicUrl(candidate.url()))
+                .filter(ReferenceCandidate::basicallyVerified)
+                .limit(Math.max(1, properties.getWebSearchMaxResults()))
+                .toList();
+    }
+
+    private JsonNode executeResponsesRequest(ReferenceSearchQuery query) {
         Map<String, Object> request = Map.of(
                 "model", properties.getWebSearchModel(),
                 "stream", false,
@@ -97,18 +124,13 @@ public class DoubaoWebSearchProvider implements ReferenceSearchProvider {
                 "tool_choice", Map.of("type", "web_search"),
                 "input", webSearchPrompt(query)
         );
-        JsonNode root = restClient.post()
+        return restClient.post()
                 .uri(endpoint())
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + normalizeApiKey(properties.getApiKey()))
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(request)
                 .retrieve()
                 .body(JsonNode.class);
-        return parseCandidates(root, query).stream()
-                .filter(candidate -> isSafePublicUrl(candidate.url()))
-                .filter(ReferenceCandidate::basicallyVerified)
-                .limit(Math.max(1, properties.getWebSearchMaxResults()))
-                .toList();
     }
 
     private String webSearchPrompt(ReferenceSearchQuery query) {
@@ -220,20 +242,19 @@ public class DoubaoWebSearchProvider implements ReferenceSearchProvider {
     }
 
     public boolean isSafePublicUrl(String url) {
+        return sourceExtractor.validatePublicUrl(url).accepted();
+    }
+
+    private void saveDiagnosticResponse(JsonNode root) {
+        if (root == null || root.isNull()) return;
         try {
-            if (url == null || url.isBlank()) return false;
-            URI uri = URI.create(url.trim());
-            String scheme = uri.getScheme();
-            if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) return false;
-            String host = uri.getHost();
-            if (host == null || host.isBlank()) return false;
-            String lower = host.toLowerCase();
-            if ("localhost".equals(lower) || lower.endsWith(".localhost")) return false;
-            InetAddress address = InetAddress.getByName(host);
-            return !(address.isAnyLocalAddress() || address.isLoopbackAddress() || address.isLinkLocalAddress()
-                    || address.isSiteLocalAddress() || address.isMulticastAddress());
+            Path logDir = Path.of("logs");
+            Files.createDirectories(logDir);
+            String json = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(root);
+            json = json.replaceAll("(?i)Bearer\\s+[A-Za-z0-9._\\-]+", "Bearer ***")
+                    .replaceAll("(?i)(ark-[A-Za-z0-9._\\-]{8})[A-Za-z0-9._\\-]+", "$1***");
+            Files.writeString(logDir.resolve("doubao-web-search-raw-response.json"), json, StandardCharsets.UTF_8);
         } catch (Exception ignored) {
-            return false;
         }
     }
 

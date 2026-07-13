@@ -4,6 +4,8 @@ frontend/dist/
 frontend/.npm-cache/
 backend/storage/
 backend/data/standard-parts/cache/
+backend/logs/
+logs/
 work/
 .env
 frontend/.idea/
