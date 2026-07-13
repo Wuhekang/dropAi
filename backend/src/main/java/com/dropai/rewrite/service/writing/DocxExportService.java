@@ -66,9 +66,15 @@ public class DocxExportService {
                     }
                     if (sections.isEmpty()) paragraph(doc, WritingJdbc.text(chapter.get("content")));
                 }
-                heading(doc, "参考文献", 1);
+                heading(doc, "\u53c2\u8003\u6587\u732e", 1);
+                heading(doc, "\u4e2d\u6587\u53c2\u8003\u6587\u732e", 2);
                 for (Map<String, Object> ref : WritingJdbc.list(jdbcTemplate,
-                        "SELECT * FROM writing_reference WHERE project_id=? AND final_number IS NOT NULL ORDER BY final_number", projectId)) {
+                        "SELECT * FROM writing_reference WHERE project_id=? AND final_number IS NOT NULL AND COALESCE(language,'UNKNOWN')='ZH' ORDER BY final_number", projectId)) {
+                    paragraph(doc, "[" + ref.get("final_number") + "] " + WritingJdbc.text(ref.get("formatted_text")).replaceFirst("^\\[\\d+]\\s*", ""));
+                }
+                heading(doc, "English References", 2);
+                for (Map<String, Object> ref : WritingJdbc.list(jdbcTemplate,
+                        "SELECT * FROM writing_reference WHERE project_id=? AND final_number IS NOT NULL AND COALESCE(language,'UNKNOWN')<>'ZH' ORDER BY final_number", projectId)) {
                     paragraph(doc, "[" + ref.get("final_number") + "] " + WritingJdbc.text(ref.get("formatted_text")).replaceFirst("^\\[\\d+]\\s*", ""));
                 }
                 try (OutputStream out = Files.newOutputStream(output)) {
