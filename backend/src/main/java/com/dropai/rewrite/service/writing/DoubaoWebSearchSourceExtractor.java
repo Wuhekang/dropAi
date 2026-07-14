@@ -21,6 +21,14 @@ public class DoubaoWebSearchSourceExtractor {
         return new ExtractionResult(state.toolInvoked, new ArrayList<>(state.sources.values()), new ArrayList<>(state.rejectedUrls.values()));
     }
 
+    public StructureDiagnostics diagnose(JsonNode root) {
+        DiagnosticState state = new DiagnosticState();
+        diagnose(root, "$", null, state);
+        return new StructureDiagnostics(state.topLevelFields, state.outputCount, state.outputTypes,
+                state.contentTypes, state.annotationCount, state.webSearchCallCount, state.actionCount,
+                state.sourceCount, state.citationCount, state.urlLikeFieldPaths, state.httpTextPaths);
+    }
+
     private void walk(JsonNode node, String path, String fieldName, ExtractionState state) {
         if (node == null || node.isNull() || node.isMissingNode()) return;
 
@@ -30,10 +38,12 @@ public class DoubaoWebSearchSourceExtractor {
         }
 
         if (node.isObject()) {
-            if (node.hasNonNull("url") && node.path("url").isTextual()) {
-                addUrl(node.path("url").asText(), node, path + ".url", state);
-            }
-            node.fields().forEachRemaining(entry -> walk(entry.getValue(), path + "." + entry.getKey(), entry.getKey(), state));
+            node.fields().forEachRemaining(entry -> {
+                if (isUrlLikeField(entry.getKey().toLowerCase(Locale.ROOT)) && entry.getValue().isTextual()) {
+                    addUrl(entry.getValue().asText(), node, path + "." + entry.getKey(), state);
+                }
+                walk(entry.getValue(), path + "." + entry.getKey(), entry.getKey(), state);
+            });
             return;
         }
 
@@ -52,6 +62,51 @@ public class DoubaoWebSearchSourceExtractor {
         }
     }
 
+    private void diagnose(JsonNode node, String path, String fieldName, DiagnosticState state) {
+        if (node == null || node.isNull() || node.isMissingNode()) return;
+        String lowerField = fieldName == null ? "" : fieldName.toLowerCase(Locale.ROOT);
+        if ("$".equals(path) && node.isObject()) {
+            node.fieldNames().forEachRemaining(state.topLevelFields::add);
+        }
+        if (node.isObject()) {
+            String type = node.path("type").asText("");
+            if (path.matches("\\$\\.output\\[\\d+\\]")) {
+                state.outputCount++;
+                state.outputTypes.add(path + ".type=" + type);
+            }
+            if (path.contains(".content[") && !type.isBlank()) {
+                state.contentTypes.add(path + ".type=" + type);
+            }
+            if (isToolType(type)) state.webSearchCallCount++;
+            if (node.has("action")) state.actionCount++;
+            if (node.has("annotations") && node.path("annotations").isArray()) {
+                state.annotationCount += node.path("annotations").size();
+            }
+            if (node.has("sources") && node.path("sources").isArray()) {
+                state.sourceCount += node.path("sources").size();
+            }
+            if (node.has("citations") && node.path("citations").isArray()) {
+                state.citationCount += node.path("citations").size();
+            }
+            node.fields().forEachRemaining(entry -> diagnose(entry.getValue(), path + "." + entry.getKey(), entry.getKey(), state));
+            return;
+        }
+        if (node.isArray()) {
+            for (int i = 0; i < node.size(); i++) {
+                diagnose(node.get(i), path + "[" + i + "]", fieldName, state);
+            }
+            return;
+        }
+        if (node.isTextual()) {
+            if (isUrlLikeField(lowerField)) {
+                state.urlLikeFieldPaths.add(path + "=" + cleanUrl(node.asText("")));
+            }
+            if (node.asText("").contains("http://") || node.asText("").contains("https://")) {
+                state.httpTextPaths.add(path);
+            }
+        }
+    }
+
     private boolean isToolField(String field) {
         return field.contains("web_search_call")
                 || field.contains("tool_call")
@@ -62,6 +117,10 @@ public class DoubaoWebSearchSourceExtractor {
     private boolean isToolType(String type) {
         String value = type == null ? "" : type.toLowerCase(Locale.ROOT);
         return value.contains("web_search") || value.contains("tool_call") || value.contains("tool_use");
+    }
+
+    private boolean isUrlLikeField(String field) {
+        return "url".equals(field) || "uri".equals(field) || "link".equals(field) || "href".equals(field);
     }
 
     private void addUrl(String rawUrl, JsonNode parent, String rawPath, ExtractionState state) {
@@ -144,6 +203,20 @@ public class DoubaoWebSearchSourceExtractor {
         Map<String, RejectedUrl> rejectedUrls = new LinkedHashMap<>();
     }
 
+    private static class DiagnosticState {
+        List<String> topLevelFields = new ArrayList<>();
+        int outputCount;
+        List<String> outputTypes = new ArrayList<>();
+        List<String> contentTypes = new ArrayList<>();
+        int annotationCount;
+        int webSearchCallCount;
+        int actionCount;
+        int sourceCount;
+        int citationCount;
+        List<String> urlLikeFieldPaths = new ArrayList<>();
+        List<String> httpTextPaths = new ArrayList<>();
+    }
+
     public record ExtractionResult(boolean toolInvoked, List<SourceEvidence> sources, List<RejectedUrl> rejectedUrls) {
         public boolean hasAcceptedSources() {
             return !sources.isEmpty();
@@ -162,5 +235,11 @@ public class DoubaoWebSearchSourceExtractor {
     }
 
     public record UrlValidation(boolean accepted, String reason) {
+    }
+
+    public record StructureDiagnostics(List<String> topLevelFields, int outputCount, List<String> outputTypes,
+                                       List<String> contentTypes, int annotationCount, int webSearchCallCount,
+                                       int actionCount, int sourceCount, int citationCount,
+                                       List<String> urlLikeFieldPaths, List<String> httpTextPaths) {
     }
 }

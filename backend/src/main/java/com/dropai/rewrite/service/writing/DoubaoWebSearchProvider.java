@@ -7,6 +7,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientResponseException;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
@@ -14,6 +15,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -77,9 +79,9 @@ public class DoubaoWebSearchProvider implements ReferenceSearchProvider {
             ReferenceSearchQuery probe = new ReferenceSearchQuery("health",
                     "搜索国家标准 GB/T 7714 的公开介绍页面，并返回来源链接", "reference standard",
                     List.of("GB/T 7714", "公开介绍", "来源链接"), List.of(), 2020, 2026, 3, 3, 0);
-            JsonNode root = executeResponsesRequest(probe);
-            saveDiagnosticResponse(root);
-            DoubaoWebSearchSourceExtractor.ExtractionResult extraction = sourceExtractor.extract(root);
+            ResponsesResult response = executeResponsesRequest(probe);
+            saveDiagnosticResponse(response.root(), response);
+            DoubaoWebSearchSourceExtractor.ExtractionResult extraction = sourceExtractor.extract(response.root());
             if (!extraction.toolInvoked()) {
                 return status(true, true, false, endpoint, "TOOL_NOT_INVOKED",
                         "Responses API succeeded, but Web Search tool was not invoked", elapsed(started));
@@ -95,6 +97,10 @@ public class DoubaoWebSearchProvider implements ReferenceSearchProvider {
                         "Source URLs were found but rejected by safety validation; first reason="
                                 + rejected.reason() + " path=" + rejected.rawPath(), elapsed(started));
             }
+            if (response.includeUnsupported()) {
+                return status(true, true, false, endpoint, "SOURCE_INCLUDE_UNSUPPORTED",
+                        "Responses API did not accept source include; fallback response had no source URL field", elapsed(started));
+            }
             return status(true, true, false, endpoint, "SOURCE_FIELD_NOT_FOUND",
                     "Web Search was invoked, but no source URL field was found in the response", elapsed(started));
         } catch (Exception exception) {
@@ -106,8 +112,9 @@ public class DoubaoWebSearchProvider implements ReferenceSearchProvider {
     @Override
     public List<ReferenceCandidate> search(ReferenceSearchQuery query) {
         if (!available()) return List.of();
-        JsonNode root = executeResponsesRequest(query);
-        saveDiagnosticResponse(root);
+        ResponsesResult response = executeResponsesRequest(query);
+        JsonNode root = response.root();
+        saveDiagnosticResponse(root, response);
         return parseCandidates(root, query).stream()
                 .filter(candidate -> isSafePublicUrl(candidate.url()))
                 .filter(ReferenceCandidate::basicallyVerified)
@@ -115,15 +122,31 @@ public class DoubaoWebSearchProvider implements ReferenceSearchProvider {
                 .toList();
     }
 
-    private JsonNode executeResponsesRequest(ReferenceSearchQuery query) {
-        Map<String, Object> request = Map.of(
-                "model", properties.getWebSearchModel(),
-                "stream", false,
-                "max_output_tokens", Math.max(1024, properties.getMaxOutputTokens()),
-                "tools", List.of(Map.of("type", "web_search")),
-                "tool_choice", Map.of("type", "web_search"),
-                "input", webSearchPrompt(query)
-        );
+    private ResponsesResult executeResponsesRequest(ReferenceSearchQuery query) {
+        Map<String, Object> request = responsesRequest(query, true);
+        try {
+            return new ResponsesResult(postResponses(request), true, false);
+        } catch (RestClientResponseException exception) {
+            if (!looksLikeUnsupportedInclude(exception)) throw exception;
+            return new ResponsesResult(postResponses(responsesRequest(query, false)), false, true);
+        }
+    }
+
+    private Map<String, Object> responsesRequest(ReferenceSearchQuery query, boolean includeSources) {
+        Map<String, Object> request = new LinkedHashMap<>();
+        request.put("model", properties.getWebSearchModel());
+        request.put("stream", false);
+        request.put("max_output_tokens", Math.max(1024, properties.getMaxOutputTokens()));
+        request.put("tools", List.of(Map.of("type", "web_search")));
+        request.put("tool_choice", "auto");
+        if (includeSources) {
+            request.put("include", List.of("web_search_call.action.sources"));
+        }
+        request.put("input", webSearchPrompt(query));
+        return request;
+    }
+
+    private JsonNode postResponses(Map<String, Object> request) {
         return restClient.post()
                 .uri(endpoint())
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + normalizeApiKey(properties.getApiKey()))
@@ -131,6 +154,18 @@ public class DoubaoWebSearchProvider implements ReferenceSearchProvider {
                 .body(request)
                 .retrieve()
                 .body(JsonNode.class);
+    }
+
+    private boolean looksLikeUnsupportedInclude(RestClientResponseException exception) {
+        String body = exception.getResponseBodyAsString();
+        String message = (exception.getMessage() + " " + body).toLowerCase();
+        return message.contains("include") && (message.contains("unsupported")
+                || message.contains("unknown")
+                || message.contains("invalid")
+                || message.contains("not support")
+                || message.contains("不支持")
+                || message.contains("未知")
+                || message.contains("非法"));
     }
 
     private String webSearchPrompt(ReferenceSearchQuery query) {
@@ -245,15 +280,20 @@ public class DoubaoWebSearchProvider implements ReferenceSearchProvider {
         return sourceExtractor.validatePublicUrl(url).accepted();
     }
 
-    private void saveDiagnosticResponse(JsonNode root) {
+    private void saveDiagnosticResponse(JsonNode root, ResponsesResult response) {
         if (root == null || root.isNull()) return;
         try {
             Path logDir = Path.of("logs");
             Files.createDirectories(logDir);
-            String json = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(root);
+            Map<String, Object> diagnostic = new LinkedHashMap<>();
+            diagnostic.put("includeRequested", response.includeRequested());
+            diagnostic.put("includeUnsupported", response.includeUnsupported());
+            diagnostic.put("diagnostics", sourceExtractor.diagnose(root));
+            diagnostic.put("response", root);
+            String json = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(diagnostic);
             json = json.replaceAll("(?i)Bearer\\s+[A-Za-z0-9._\\-]+", "Bearer ***")
                     .replaceAll("(?i)(ark-[A-Za-z0-9._\\-]{8})[A-Za-z0-9._\\-]+", "$1***");
-            Files.writeString(logDir.resolve("doubao-web-search-raw-response.json"), json, StandardCharsets.UTF_8);
+            Files.writeString(logDir.resolve("doubao-web-search-response-sanitized.json"), json, StandardCharsets.UTF_8);
         } catch (Exception ignored) {
         }
     }
@@ -307,5 +347,8 @@ public class DoubaoWebSearchProvider implements ReferenceSearchProvider {
 
     private long elapsed(long started) {
         return System.currentTimeMillis() - started;
+    }
+
+    private record ResponsesResult(JsonNode root, boolean includeRequested, boolean includeUnsupported) {
     }
 }

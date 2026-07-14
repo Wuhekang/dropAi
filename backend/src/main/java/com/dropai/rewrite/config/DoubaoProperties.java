@@ -21,7 +21,7 @@ public class DoubaoProperties {
     private String mechanicalVisionModel = "doubao-seed-2-1-turbo-260628";
     private boolean webSearchEnabled = false;
     private boolean webSearchForce = true;
-    private String webSearchModel = "";
+    private String webSearchModel = "doubao-2-1-trubo-60628";
     private String responsesBaseUrl = "https://ark.cn-beijing.volces.com/api/v3";
     private int webSearchTimeoutSeconds = 60;
     private int webSearchMaxResults = 20;

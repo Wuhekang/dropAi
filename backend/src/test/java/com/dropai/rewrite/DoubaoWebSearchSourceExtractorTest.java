@@ -47,6 +47,34 @@ class DoubaoWebSearchSourceExtractorTest {
     }
 
     @Test
+    void extractsTopLevelSourcesCitationsAndSearchResults() throws Exception {
+        DoubaoWebSearchSourceExtractor.ExtractionResult result = extract("""
+                {"output":[{"type":"web_search_call","search_results":[{"url":"https://volcengine.com/docs"}]}],
+                "sources":[{"uri":"https://example.com/source"}],
+                "citations":[{"href":"https://example.com/citation"}]}
+                """);
+
+        assertTrue(result.toolInvoked());
+        assertEquals(3, result.sources().size());
+    }
+
+    @Test
+    void diagnosesResponseShapeAndUrlLikeFields() throws Exception {
+        JsonNode node = objectMapper.readTree("""
+                {"id":"resp","output":[{"type":"web_search_call","action":{"sources":[{"link":"https://example.com/a"}]}},
+                {"type":"message","content":[{"type":"output_text","annotations":[{"type":"url_citation","url":"https://example.com/b"}]}]}]}
+                """);
+
+        DoubaoWebSearchSourceExtractor.StructureDiagnostics diagnostics = extractor.diagnose(node);
+        assertEquals(2, diagnostics.outputCount());
+        assertTrue(diagnostics.outputTypes().contains("$.output[0].type=web_search_call"));
+        assertTrue(diagnostics.contentTypes().contains("$.output[1].content[0].type=output_text"));
+        assertEquals(1, diagnostics.annotationCount());
+        assertEquals(1, diagnostics.sourceCount());
+        assertEquals(2, diagnostics.urlLikeFieldPaths().size());
+    }
+
+    @Test
     void fallsBackToTextUrlsAndDeduplicates() throws Exception {
         DoubaoWebSearchSourceExtractor.ExtractionResult result = extract("""
                 {"output":[{"type":"web_search_call"},{"content":[{"text":"see https://example.com/a and https://example.com/a"}]}]}
