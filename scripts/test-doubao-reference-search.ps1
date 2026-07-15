@@ -1,4 +1,4 @@
-param(
+﻿param(
   [string]$Query = "Search the official public documentation for Volcengine Ark Web Search and cite public source URLs.",
   [int]$TimeoutSec = 60,
   [string]$EnvFile = "$env:USERPROFILE\Desktop\.env"
@@ -43,33 +43,31 @@ function Mask-Model([string]$value) {
 }
 
 function Test-PublicUrl([string]$url) {
-  try {
-    $uri = [Uri]$url
-    if ($uri.Scheme -ne "http" -and $uri.Scheme -ne "https") { return @{ accepted = $false; reason = "unsupported_scheme" } }
-    $host = $uri.Host.ToLowerInvariant()
-    if ([string]::IsNullOrWhiteSpace($host)) { return @{ accepted = $false; reason = "missing_host" } }
-    if ($host -eq "localhost" -or $host.EndsWith(".localhost")) { return @{ accepted = $false; reason = "localhost" } }
-    if ($host.EndsWith(".local") -or $host.EndsWith(".internal") -or $host.EndsWith(".lan")) { return @{ accepted = $false; reason = "internal_domain" } }
-    if ($host -match '^(\d{1,3}\.){3}\d{1,3}$') {
-      $ip = [System.Net.IPAddress]::Parse($host).GetAddressBytes()
-      if ($ip[0] -eq 10 -or $ip[0] -eq 127 -or ($ip[0] -eq 172 -and $ip[1] -ge 16 -and $ip[1] -le 31) -or ($ip[0] -eq 192 -and $ip[1] -eq 168)) {
-        return @{ accepted = $false; reason = "private_ip" }
-      }
+  if ([string]::IsNullOrWhiteSpace($url)) { return @{ accepted = $false; reason = "missing_url" } }
+  if ($url -notmatch '^(https?)://([^/:?#]+)') { return @{ accepted = $false; reason = "unsupported_scheme" } }
+  $urlHost = $Matches[2].ToLowerInvariant()
+  if ([string]::IsNullOrWhiteSpace($urlHost)) { return @{ accepted = $false; reason = "missing_host" } }
+  if ($urlHost -eq "localhost" -or $urlHost.EndsWith(".localhost")) { return @{ accepted = $false; reason = "localhost" } }
+  if ($urlHost.EndsWith(".local") -or $urlHost.EndsWith(".internal") -or $urlHost.EndsWith(".lan")) { return @{ accepted = $false; reason = "internal_domain" } }
+  if ($urlHost -match '^(\d{1,3}\.){3}\d{1,3}$') {
+    try {
+      $ip = [System.Net.IPAddress]::Parse($urlHost).GetAddressBytes()
+      if ($ip[0] -eq 10 -or $ip[0] -eq 127 -or ($ip[0] -eq 172 -and $ip[1] -ge 16 -and $ip[1] -le 31) -or ($ip[0] -eq 192 -and $ip[1] -eq 168)) { return @{ accepted = $false; reason = "private_ip" } }
+    } catch {
+      return @{ accepted = $false; reason = "invalid_ip" }
     }
-    return @{ accepted = $true; reason = "" }
-  } catch {
-    return @{ accepted = $false; reason = "invalid_url" }
   }
+  return @{ accepted = $true; reason = "" }
 }
 
 function Add-UrlEvidence($state, [string]$url, [string]$path) {
   if ([string]::IsNullOrWhiteSpace($url)) { return }
-  $clean = $url.Trim() -replace '[,.;，。；)）]+$', ''
+  $clean = $url.Trim() -replace '[,.;)]+$', ''
   $validation = Test-PublicUrl $clean
-  if ($validation.accepted) {
+  if ($validation["accepted"]) {
     if (-not $state.accepted.Contains($clean)) { $state.accepted[$clean] = $path }
   } else {
-    if (-not $state.rejected.Contains($clean)) { $state.rejected[$clean] = "$path|$($validation.reason)" }
+    if (-not $state.rejected.Contains($clean)) { $state.rejected[$clean] = "$path|$($validation["reason"])" }
   }
 }
 
@@ -158,10 +156,48 @@ function Invoke-DoubaoResponse([bool]$includeSources) {
   }
   if ($includeSources) { $bodyMap["include"] = @("web_search_call.action.sources") }
   $body = $bodyMap | ConvertTo-Json -Depth 12
-  return Invoke-WebRequest -Method Post -Uri $endpoint -TimeoutSec $TimeoutSec -Headers @{
-    Authorization = "Bearer $apiKey"
-    "Content-Type" = "application/json"
-  } -Body $body
+  $tempBody = Join-Path $env:TEMP ("doubao-web-search-" + [Guid]::NewGuid().ToString("N") + ".json")
+  [System.IO.File]::WriteAllText($tempBody, $body, [System.Text.UTF8Encoding]::new($false))
+  try {
+    $rawOutput = & curl.exe -sS --max-time $TimeoutSec -w "`nHTTP_STATUS:%{http_code}`n" `
+      -X POST $endpoint `
+      -H "Authorization: Bearer $apiKey" `
+      -H "Content-Type: application/json" `
+      --data-binary "@$tempBody"
+    if ($LASTEXITCODE -ne 0) { throw "curl failed with exit code $LASTEXITCODE" }
+  } finally {
+    Remove-Item $tempBody -Force -ErrorAction SilentlyContinue
+  }
+  $outputText = ($rawOutput | Out-String).Trim()
+  if ($outputText -notmatch '(?s)^(.*)\r?\nHTTP_STATUS:(\d{3})\s*$') {
+    throw "Unable to parse curl response status"
+  }
+  $content = $Matches[1].Trim()
+  $statusCode = [int]$Matches[2]
+  if ($statusCode -ge 400) { throw "HTTP $statusCode $content" }
+  return [pscustomobject]@{
+    StatusCode = $statusCode
+    Content = $content
+  }
+}
+
+function Get-ErrorText($exception) {
+  $message = if ($exception) { $exception.Message } else { "" }
+  if ($global:Error.Count -gt 0 -and $global:Error[0].ErrorDetails -and
+      -not [string]::IsNullOrWhiteSpace($global:Error[0].ErrorDetails.Message)) {
+    $message = "$message $($global:Error[0].ErrorDetails.Message)"
+  }
+  try {
+    if ($exception.Response) {
+      $stream = $exception.Response.GetResponseStream()
+      if ($stream) {
+        $body = (New-Object IO.StreamReader($stream)).ReadToEnd()
+        if (-not [string]::IsNullOrWhiteSpace($body)) { return "$message $body" }
+      }
+    }
+  } catch {
+  }
+  return $message
 }
 
 $started = Get-Date
@@ -169,8 +205,8 @@ try {
   try {
     $raw = Invoke-DoubaoResponse $true
   } catch {
-    $message = $_.Exception.Message
-    if ($message -match 'include|Include|INCLUDE|不支持|未知|invalid|unsupported') {
+    $message = Get-ErrorText $_.Exception
+    if ($message -match '(?i)include|unsupported|unknown type|not support') {
       $report.includeUnsupported = $true
       $raw = Invoke-DoubaoResponse $false
     } else {
@@ -225,7 +261,7 @@ try {
   Set-Content -Path "logs/doubao-web-search-response-sanitized.json" -Value $sanitized -Encoding UTF8
 } catch {
   $report.providerStatus = "RESPONSE_PARSE_FAILED"
-  $report.error = $_.Exception.Message -replace '(?i)Bearer\s+[A-Za-z0-9._\-]+', 'Bearer ***'
+  $report.error = (Get-ErrorText $_.Exception) -replace '(?i)Bearer\s+[A-Za-z0-9._\-]+', 'Bearer ***'
 } finally {
   $report.elapsedMs = [int]((Get-Date) - $started).TotalMilliseconds
 }

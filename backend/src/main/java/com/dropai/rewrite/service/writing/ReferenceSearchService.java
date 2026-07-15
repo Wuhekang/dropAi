@@ -174,7 +174,12 @@ public class ReferenceSearchService {
     public List<Map<String, Object>> references(Long userId, String projectId) {
         WritingJdbc.one(jdbcTemplate, "SELECT id FROM writing_project WHERE id=? AND user_id=?", projectId, userId);
         return WritingJdbc.list(jdbcTemplate,
-                "SELECT * FROM writing_reference WHERE project_id=? ORDER BY citation_number IS NULL, citation_number, relevance_score DESC, created_at", projectId);
+                """
+                SELECT * FROM writing_reference
+                WHERE project_id=?
+                ORDER BY final_number IS NULL, final_number,
+                citation_number IS NULL, citation_number, relevance_score DESC, created_at
+                """, projectId);
     }
 
     public void deleteReference(Long userId, String projectId, String referenceId) {
@@ -186,7 +191,12 @@ public class ReferenceSearchService {
     public List<Map<String, Object>> deduplicateSavedReferences(Long userId, String projectId) {
         WritingJdbc.one(jdbcTemplate, "SELECT id FROM writing_project WHERE id=? AND user_id=?", projectId, userId);
         List<Map<String, Object>> rows = WritingJdbc.list(jdbcTemplate,
-                "SELECT * FROM writing_reference WHERE project_id=? ORDER BY citation_number IS NULL, citation_number, relevance_score DESC, created_at",
+                """
+                SELECT * FROM writing_reference
+                WHERE project_id=?
+                ORDER BY final_number IS NULL, final_number,
+                citation_number IS NULL, citation_number, relevance_score DESC, created_at
+                """,
                 projectId);
         Map<String, Map<String, Object>> keep = new LinkedHashMap<>();
         List<Object> removeIds = new ArrayList<>();
@@ -220,7 +230,12 @@ public class ReferenceSearchService {
         List<Map<String, Object>> chapters = WritingJdbc.list(jdbcTemplate,
                 "SELECT * FROM writing_chapter WHERE project_id=? ORDER BY sort_order, chapter_no", projectId);
         List<Map<String, Object>> rows = WritingJdbc.list(jdbcTemplate,
-                "SELECT * FROM writing_reference WHERE project_id=? ORDER BY citation_number IS NULL, citation_number, relevance_score DESC, created_at",
+                """
+                SELECT * FROM writing_reference
+                WHERE project_id=?
+                ORDER BY final_number IS NULL, final_number,
+                citation_number IS NULL, citation_number, relevance_score DESC, created_at
+                """,
                 projectId);
         for (Map<String, Object> row : rows) {
             String haystack = normalize(String.join(" ",
@@ -360,7 +375,12 @@ public class ReferenceSearchService {
 
     private void renumber(String projectId) {
         List<Map<String, Object>> rows = WritingJdbc.list(jdbcTemplate,
-                "SELECT id FROM writing_reference WHERE project_id=? ORDER BY citation_number IS NULL, citation_number, relevance_score DESC, created_at",
+                """
+                SELECT id FROM writing_reference
+                WHERE project_id=?
+                ORDER BY final_number IS NULL, final_number,
+                citation_number IS NULL, citation_number, relevance_score DESC, created_at
+                """,
                 projectId);
         int index = 1;
         for (Map<String, Object> row : rows) {

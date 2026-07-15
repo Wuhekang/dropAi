@@ -39,7 +39,16 @@ public class CitationManagerService {
         for (Map.Entry<String, Integer> entry : order.entrySet()) {
             jdbcTemplate.update("UPDATE writing_reference SET final_number=? WHERE id=? AND project_id=?",
                     entry.getValue(), entry.getKey(), projectId);
+            String formatted = WritingJdbc.text(WritingJdbc.one(jdbcTemplate,
+                    "SELECT formatted_text FROM writing_reference WHERE id=? AND project_id=?", entry.getKey(), projectId).get("formatted_text"));
+            jdbcTemplate.update("UPDATE writing_reference SET formatted_text=?, updated_at=? WHERE id=? AND project_id=?",
+                    renumberFormatted(formatted, entry.getValue()), LocalDateTime.now(), entry.getKey(), projectId);
         }
+    }
+
+    private String renumberFormatted(String formatted, int number) {
+        String body = formatted == null ? "" : formatted.replaceFirst("^\\[\\d+]\\s*", "");
+        return "[" + number + "] " + body;
     }
 
     private void insertCitation(String projectId, String chapterId, String referenceId, int finalNumber, int order, String context) {

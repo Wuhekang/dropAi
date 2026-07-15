@@ -97,6 +97,7 @@ public class WritingGenerationService {
             chartRenderService.renderProjectCharts(projectId, root);
             update(projectId, taskId, "处理引用编号", 84, "RUNNING", "");
             citationManagerService.normalize(projectId);
+            appendReferencesToPreview(projectId);
             update(projectId, taskId, "组装DOCX", 92, "RUNNING", "");
             Path docx = docxExportService.export(projectId, root.resolve(safeName(WritingJdbc.text(project.get("title"))) + ".docx"));
             update(projectId, taskId, "执行质量检查", 97, "RUNNING", "");
@@ -155,6 +156,28 @@ public class WritingGenerationService {
                     .append(chapterContent).append("\n");
         }
         jdbcTemplate.update("UPDATE writing_project SET preview_text=? WHERE id=?", preview.toString(), projectId);
+    }
+
+    private void appendReferencesToPreview(String projectId) {
+        String preview = WritingJdbc.text(WritingJdbc.one(jdbcTemplate,
+                "SELECT preview_text FROM writing_project WHERE id=?", projectId).get("preview_text"));
+        String body = preview.replaceFirst("(?s)\\R*参考文献\\R.*$", "");
+        List<Map<String, Object>> refs = WritingJdbc.list(jdbcTemplate, """
+                SELECT * FROM writing_reference
+                WHERE project_id=? AND final_number IS NOT NULL
+                ORDER BY final_number
+                """, projectId);
+        if (refs.isEmpty()) {
+            jdbcTemplate.update("UPDATE writing_project SET preview_text=? WHERE id=?", body, projectId);
+            return;
+        }
+        StringBuilder builder = new StringBuilder(body.stripTrailing()).append("\n\n参考文献\n");
+        for (Map<String, Object> ref : refs) {
+            int number = WritingJdbc.integer(ref.get("final_number"), WritingJdbc.integer(ref.get("citation_number"), 0));
+            String formatted = WritingJdbc.text(ref.get("formatted_text")).replaceFirst("^\\[\\d+]\\s*", "");
+            builder.append("[").append(number).append("] ").append(formatted).append("\n");
+        }
+        jdbcTemplate.update("UPDATE writing_project SET preview_text=? WHERE id=?", builder.toString(), projectId);
     }
 
     private String firstNo(String table, String column, String chapterId, String prefix) {

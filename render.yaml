@@ -27,6 +27,8 @@ services:
         value: 32
       - key: DOUBAO_WEB_SEARCH_ENABLED
         value: true
+      - key: DOUBAO_WEB_SEARCH_MODEL
+        value: doubao-seed-2-1-turbo-260628
       - key: DOUBAO_MAX_RETRIES
         value: 2
       - key: WRITING_REFERENCE_SEARCH_ENABLED
