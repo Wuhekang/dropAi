@@ -64,7 +64,7 @@ set "MATRIX_MODEL=claude-opus-4-7"
 set "MATRIX_DESIGN_ENABLED=true"
 
 set "APP_BASE_URL=https://dro.k8818.cn"
-set "EPAY_GATEWAY=https://droapi.k8818.cn/submit.php"
+set "EPAY_GATEWAY=https://pay.dropai-demo.con/submit.php"
 set "EPAY_PID=1000"
 set "EPAY_KEY=T451e2G86pJlG2tcePGe41jpzMprQ14b"
 set "EPAY_NOTIFY_URL=https://dro.k8818.cn/api/recharge/notify"
