@@ -1,5 +1,12 @@
 <template>
-  <router-view />
+  <div class="app-shell">
+    <div class="app-content">
+      <router-view />
+    </div>
+    <footer class="site-footer">
+      <span>备案码：1f6ab239bcc5293ba45a04ebc5063c8c</span>
+    </footer>
+  </div>
 
   <admin-notice-modal v-model="adminNoticeVisible" />
 
@@ -147,6 +154,24 @@ watch(() => route.fullPath, () => loadNotice(), { immediate: true })
 </script>
 
 <style scoped>
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.app-content {
+  flex: 1;
+}
+
+.site-footer {
+  padding: 18px 20px 24px;
+  color: var(--muted-2);
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: center;
+}
+
 .recharge-summary {
   display: grid;
   gap: 12px;
