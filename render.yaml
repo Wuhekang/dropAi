@@ -58,7 +58,7 @@ services:
       - key: APP_BASE_URL
         value: https://dro.k8818.cn
       - key: EPAY_GATEWAY
-        sync: false
+        value: https://pay.dropai-demo.com/submit.php
       - key: EPAY_PID
         sync: false
       - key: EPAY_KEY
