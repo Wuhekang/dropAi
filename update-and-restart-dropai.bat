@@ -30,17 +30,20 @@ git rev-parse --is-inside-work-tree >nul 2>nul || (
   goto :fail
 )
 
-git diff --quiet || (
-  echo [ERROR] Tracked files have local changes. Update stopped to protect server configuration.
-  git status --short
-  goto :fail
-)
+set "STASHED_SERVER_CHANGES=0"
+git diff --quiet
+if errorlevel 1 goto :stash_server_changes
+git diff --cached --quiet
+if errorlevel 1 goto :stash_server_changes
+goto :server_changes_ready
 
-git diff --cached --quiet || (
-  echo [ERROR] Staged changes exist. Update stopped to protect server configuration.
-  git status --short
-  goto :fail
-)
+:stash_server_changes
+echo [INFO] Saving tracked server-specific changes before update...
+git status --short
+git stash push -m "dropai-auto-update-server-config" || goto :fail
+set "STASHED_SERVER_CHANGES=1"
+
+:server_changes_ready
 
 echo [1/6] Fetching origin/main...
 set "FETCH_OK=0"
@@ -59,9 +62,19 @@ if "!FETCH_OK!"=="0" (
 
 if "!FETCH_OK!"=="1" (
   echo [2/6] Fast-forwarding to origin/main...
-  git merge --ff-only origin/main || goto :fail
+  git merge --ff-only origin/main || goto :restore_and_fail
 ) else (
   echo [2/6] Skipping merge because GitHub is unavailable.
+)
+
+if "!STASHED_SERVER_CHANGES!"=="1" (
+  echo Restoring tracked server-specific changes...
+  git stash pop || (
+    echo [ERROR] Server configuration restore has conflicts.
+    echo Resolve the conflicts before restarting the backend.
+    goto :fail
+  )
+  set "STASHED_SERVER_CHANGES=0"
 )
 
 for /f %%H in ('git rev-parse --short HEAD') do set "CURRENT_COMMIT=%%H"
@@ -109,6 +122,13 @@ echo and its merchant key must match the runtime EPAY_KEY.
 echo.
 pause
 exit /b 0
+
+:restore_and_fail
+if "!STASHED_SERVER_CHANGES!"=="1" (
+  echo Restoring tracked server-specific changes after update failure...
+  git stash pop
+)
+goto :fail
 
 :fail
 echo.
