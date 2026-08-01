@@ -114,6 +114,13 @@
           </div>
         </div>
       </article>
+
+      <article class="product-card result-card review-card" :class="{ failed: !reviewStatus.passed && jobStatus === 'FAILED' }">
+        <span>工程审核</span>
+        <h3>{{ reviewStatus.passed ? '真实性审核通过' : '等待 / 未通过审核' }}</h3>
+        <p>{{ reviewStatus.text }}</p>
+        <small>只有 CAD、装配、工程图、BOM 和质量门控全部通过后，系统才显示成果包完成。</small>
+      </article>
     </section>
 
     <section class="detail-grid">
@@ -240,7 +247,7 @@ const StructureNode = defineComponent({
       return h('li', [
         h('div', { class: 'tree-node' }, [
           h('strong', node.name || '未命名结构'),
-          h('span', [node.type || 'structure', node.source ? ` 来源 ${node.source}` : ''])
+          h('span', cleanStructureMeta(node))
         ]),
         children.length ? h('ul', children.map(renderNode)) : null
       ])
@@ -270,14 +277,14 @@ const previewModal = reactive({ open: false, title: '', url: '', zoom: 1, origin
 let jobTimer = null
 
 const processSteps = [
-  { index: 1, label: '文件解析' },
-  { index: 2, label: '项目识别' },
-  { index: 3, label: '机械方案' },
-  { index: 4, label: '结构方案' },
-  { index: 5, label: '零件与装配' },
-  { index: 6, label: 'STEP与图纸' },
-  { index: 7, label: '论文与图片' },
-  { index: 8, label: '成果包完成' }
+  { index: 1, label: '需求解析' },
+  { index: 2, label: '参数设计' },
+  { index: 3, label: '机构设计' },
+  { index: 4, label: '装配设计' },
+  { index: 5, label: 'CAD生成' },
+  { index: 6, label: '工程图生成' },
+  { index: 7, label: '质量审核' },
+  { index: 8, label: '成果打包' }
 ]
 
 const project = reactive({
@@ -312,10 +319,23 @@ const project = reactive({
 })
 
 const canAnalyze = computed(() => Boolean(files.taskBook?.raw || taskText.value.trim()))
-const stageLabel = computed(() => artifacts.value.length ? '成果包已完成' : targetConfirmed.value ? '设计方案已生成' : '等待输入')
+const stageLabel = computed(() => {
+  if (jobStatus.value === 'FAILED') return '审核未通过'
+  if (packageSucceeded.value) return '成果包已完成'
+  if (generating.value) return stageName(jobStage.value)
+  if (targetConfirmed.value) return '设计方案已生成'
+  return '等待输入'
+})
 const allParameters = computed(() => parameters.value.length ? parameters.value : flattenParameters(project))
 const keyComponents = computed(() => (project.components || []).filter(item => item.keyPart).length ? (project.components || []).filter(item => item.keyPart) : (project.components || []))
-const bomRows = computed(() => project.bom?.length ? project.bom : project.drawingPlan?.bomTable || [])
+const bomRows = computed(() => mergeBom(project.bom?.length ? project.bom : project.drawingPlan?.bomTable || []))
+const reviewStatus = computed(() => {
+  const items = Array.isArray(project.verificationItems) ? project.verificationItems : []
+  const failed = items.find(item => String(item || '').startsWith('FAILED_REVIEW'))
+  if (failed) return { passed: false, text: failed.replace('FAILED_REVIEW:', '').trim() || '工程真实性审核未通过' }
+  const passed = items.some(item => String(item || '').startsWith('MechanicalRealityReviewer: PASSED'))
+  return { passed, text: passed ? 'CAD、装配、BOM、三视图和成果包门控已通过。' : '等待后端完成工程真实性审核。' }
+})
 const drawingFiles = computed(() => artifacts.value.filter(file => /\.(dxf|svg|png)$/i.test(file.fileName || '')))
 const drawingCards = computed(() => {
   const files = artifacts.value.filter(file => file.status !== 'failed')
@@ -641,6 +661,58 @@ function listText(items) {
   return Array.isArray(items) && items.length ? items.slice(0, 4).join('、') : '--'
 }
 
+function cleanStructureMeta(node = {}) {
+  const typeMap = {
+    root: '总装',
+    subAssembly: '子装配',
+    mechanism: '机构模块',
+    structure: '结构模块',
+    fixed: '固定连接',
+    bolted: '螺栓连接',
+    bearing: '轴承连接',
+    welded: '焊接连接',
+    keyed: '键连接'
+  }
+  const type = typeMap[node.type] || typeMap[node.relation] || '工程结构'
+  const confidence = Number(node.confidence)
+  return Number.isFinite(confidence) && confidence > 0 ? `${type} · 可信度 ${Math.round(confidence * 100)}%` : type
+}
+
+function mergeBom(rows = []) {
+  const map = new Map()
+  rows.forEach(row => {
+    const key = [row.name || '', row.material || '', row.remark || ''].join('|')
+    const existing = map.get(key)
+    const quantity = Math.max(1, Number(row.quantity || 1))
+    if (existing) {
+      existing.quantity += quantity
+    } else {
+      map.set(key, { ...row, sequence: map.size + 1, quantity })
+    }
+  })
+  return Array.from(map.values())
+}
+
+function stageName(stage = '') {
+  const map = {
+    PARSING: '需求解析',
+    ANALYZING: '需求解析',
+    PLANNING: '参数设计',
+    STRUCTURE: '机构设计',
+    PART_GENERATION: '装配设计',
+    ASSEMBLY: '装配设计',
+    STEP_EXPORT: 'CAD生成',
+    STEP_VALIDATION: 'CAD校核',
+    DRAWING: '工程图生成',
+    PAPER: '报告生成',
+    QUALITY_GATE: '质量审核',
+    PACKAGING: '成果打包',
+    COMPLETED: '成果包已完成',
+    FAILED: '审核未通过'
+  }
+  return map[stage] || '工程生成中'
+}
+
 function formatParameter(item) {
   const value = item.value ?? '--'
   return `${value}${item.unit || ''}`
@@ -690,7 +762,7 @@ onBeforeUnmount(() => {
 .depth-control{display:grid;grid-template-columns:1fr 1fr;gap:8px}.depth-control button{min-height:40px;border:1px solid rgba(108,99,255,.12);border-radius:var(--radius);color:var(--muted);background:rgba(255,255,255,.58);cursor:pointer}.depth-control .active{color:#fff;border-color:rgba(255,255,255,.82);background:var(--primary-gradient)}.action{width:100%}
 .output-panel{display:grid;gap:14px;min-width:0}.visual-stage{position:relative;min-height:540px;overflow:hidden}.visual-stage :deep(.model-viewer){min-height:540px;border-radius:var(--radius)}.stage-overlay{position:absolute;top:18px;left:18px;z-index:2;display:grid;gap:10px;max-width:min(460px,calc(100% - 36px));pointer-events:none}.stage-overlay strong{overflow-wrap:anywhere;font-size:clamp(20px,2.4vw,28px);line-height:1.18}.stage-overlay small{color:var(--muted)}
 .progress-card{padding:18px}.progress-head{display:flex;justify-content:space-between;gap:18px;margin-bottom:16px}.progress-head strong{color:var(--primary);font-size:34px}.design-flow{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:16px}.design-flow div{display:flex;align-items:center;gap:8px;min-height:42px;padding:10px;border:1px solid rgba(108,99,255,.1);border-radius:8px;color:var(--muted);background:rgba(255,255,255,.45);font-size:13px}.design-flow i{display:grid;place-items:center;width:22px;height:22px;border-radius:999px;background:rgba(108,99,255,.1);font-style:normal}.design-flow .done{color:var(--text);background:rgba(255,255,255,.72)}.design-flow .done i,.design-flow .active i{color:#fff;background:var(--primary-gradient)}
-.analysis-grid,.detail-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-top:18px}.detail-grid{grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr)}.result-card,.structure-panel,.drawing-panel,.bom-panel,.artifact-panel{padding:18px}.result-card>span,.artifact-file>span{color:var(--primary);font-size:12px;font-weight:800}.result-card h3{margin:8px 0 14px;font-size:22px}.result-card dl{display:grid;gap:10px;margin:0}.result-card dl div{display:grid;grid-template-columns:80px 1fr;gap:12px}.result-card dt{color:var(--muted);font-size:13px}.result-card dd{margin:0;line-height:1.55}
+.analysis-grid,.detail-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-top:18px}.detail-grid{grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr)}.result-card,.structure-panel,.drawing-panel,.bom-panel,.artifact-panel{padding:18px}.result-card>span,.artifact-file>span{color:var(--primary);font-size:12px;font-weight:800}.result-card h3{margin:8px 0 14px;font-size:22px}.result-card dl{display:grid;gap:10px;margin:0}.result-card dl div{display:grid;grid-template-columns:80px 1fr;gap:12px}.result-card dt{color:var(--muted);font-size:13px}.result-card dd{margin:0;line-height:1.55}.review-card p{margin:0 0 10px;color:var(--text);line-height:1.6}.review-card small{color:var(--muted);line-height:1.5}.review-card.failed{border-color:rgba(239,68,68,.25);background:rgba(254,242,242,.72)}
 .parameter-list,.component-list{display:grid;gap:10px}.parameter-list div,.component-list div{display:grid;gap:4px;padding:10px;border:1px solid rgba(108,99,255,.1);border-radius:8px;background:rgba(255,255,255,.52)}.parameter-list strong{color:var(--primary)}.parameter-list small,.component-list span{color:var(--muted);font-size:12px}
 .section-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:14px}.structure-tree,.structure-tree ul{display:grid;gap:8px;margin:0;padding-left:18px}.structure-tree{padding-left:0;list-style:none}.structure-tree :deep(li){list-style:none}.tree-node{display:grid;gap:4px;padding:10px;border:1px solid rgba(108,99,255,.1);border-radius:8px;background:rgba(255,255,255,.52)}.tree-node span{color:var(--muted);font-size:12px}
 .drawing-preview{display:grid;place-items:center;min-height:280px;margin-bottom:12px;overflow:hidden;border:1px solid rgba(108,99,255,.1);border-radius:8px;background:rgba(255,255,255,.55);cursor:zoom-in}.drawing-preview img{max-width:100%;max-height:420px;object-fit:contain}.drawing-placeholder{display:grid;place-items:center;min-height:220px;margin-bottom:12px;border:1px dashed rgba(108,99,255,.18);border-radius:8px;color:var(--muted);background:rgba(255,255,255,.42)}.drawing-files{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.drawing-card{display:grid;gap:7px;min-width:0;padding:10px;border:1px solid rgba(108,99,255,.1);border-radius:8px;color:var(--text);background:rgba(255,255,255,.56);text-align:left;cursor:pointer;transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease}.drawing-card:hover,.drawing-card.active{transform:translateY(-2px);border-color:rgba(255,126,179,.38);box-shadow:0 14px 34px rgba(108,99,255,.12)}.drawing-card img,.drawing-card i{display:grid;place-items:center;width:100%;height:112px;border-radius:7px;background:#fff;object-fit:contain;color:var(--muted);font-style:normal}.drawing-card strong,.drawing-card span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.drawing-card span,.drawing-card small{color:var(--muted);font-size:12px}.drawing-card em{display:flex;gap:8px;align-items:center;font-style:normal}.drawing-card em span{padding:5px 9px;border-radius:999px;color:#fff;background:var(--primary-gradient);font-size:12px;font-weight:700}

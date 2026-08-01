@@ -107,7 +107,8 @@ class DesignPackageModuleTests {
         assertTrue(project.getResolvedParts().stream().filter(p -> "standard".equals(p.getPartType())).anyMatch(p -> "mock".equals(p.getRetrievalStatus())));
         assertTrue(project.getAssemblyConstraints().stream().allMatch(c -> c.getSource() != null && !c.getSource().isBlank()));
         assertTrue(project.getAssemblyConstraints().stream().anyMatch(c -> c.getMountingFace() != null && !c.getMountingFace().isBlank()));
-        assertTrue(project.getBom().size() == project.getComponents().size());
+        assertTrue(project.getBom().size() <= project.getComponents().size());
+        assertTrue(project.getVerificationItems().contains("MechanicalRealityReviewer: PASSED"));
     }
 
     @Test

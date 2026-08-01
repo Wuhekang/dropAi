@@ -68,6 +68,10 @@ public class DesignDeliverableQualityGate {
         if (project.getBom() == null || project.getBom().isEmpty()) {
             errors.add("BOM is empty");
         }
+        if (project.getVerificationItems() != null && project.getVerificationItems().stream()
+                .anyMatch(item -> item != null && item.startsWith("FAILED_REVIEW"))) {
+            errors.add("mechanical reality review failed");
+        }
         if (project.getDrawingPlan() == null
                 || project.getDrawingPlan().getMainView().getVisibleParts().isEmpty()
                 || project.getDrawingPlan().getTopView().getVisibleParts().isEmpty()

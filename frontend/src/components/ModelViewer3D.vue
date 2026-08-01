@@ -1,6 +1,6 @@
 <template>
   <div ref="wrap" class="model-viewer" @mouseenter="hovering = true" @mouseleave="hovering = false">
-    <ModelControls @reset="resetView" @fullscreen="fullscreen" />
+    <ModelControls @reset="resetAssemblyView" @explode="toggleExplodedView" @fullscreen="fullscreen" />
     <div v-if="statusMessage" class="model-status">{{ statusMessage }}</div>
     <div v-if="debugVisible && qualityInfo" class="model-debug">
       <span>{{ '\u6a21\u578b\u5b8c\u6574\u5ea6\uff1a' }}{{ qualityInfo.qualityScore ?? 0 }}</span>
@@ -27,6 +27,7 @@ const statusMessage = ref('')
 const qualityInfo = ref(null)
 let renderer, scene, camera, controls, frameId, observer
 let gridHelper
+let exploded = false
 const debugVisible = computed(() => import.meta.env.DEV || props.project?.debugModelQuality)
 
 function setupScene() {
@@ -73,6 +74,7 @@ function setupScene() {
 function setModel() {
   if (!scene) return
   if (model.value) scene.remove(model.value)
+  exploded = false
   try {
     model.value = buildParametricMechanicalModel(props.project)
   } catch (error) {
@@ -150,6 +152,37 @@ function resize() {
 
 function resetView() {
   fitCameraToModel(model.value)
+}
+
+function resetAssemblyView() {
+  exploded = false
+  applyExplodedLayout(false)
+  fitCameraToModel(model.value)
+}
+
+function toggleExplodedView() {
+  exploded = !exploded
+  applyExplodedLayout(exploded)
+  fitCameraToModel(model.value)
+}
+
+function applyExplodedLayout(enabled) {
+  if (!model.value) return
+  model.value.updateMatrixWorld(true)
+  const rootBox = new THREE.Box3().setFromObject(model.value)
+  const center = rootBox.getCenter(new THREE.Vector3())
+  model.value.children.forEach(child => {
+    if (child === gridHelper || child.name === '装配基准平面' || child.name?.includes('基准')) return
+    if (!child.userData.originalPosition) child.userData.originalPosition = child.position.clone()
+    if (!enabled) {
+      child.position.copy(child.userData.originalPosition)
+      return
+    }
+    const direction = child.userData.originalPosition.clone().sub(center)
+    if (direction.length() < 0.001) direction.set(Math.random() - 0.5, 0.25, Math.random() - 0.5)
+    direction.normalize()
+    child.position.copy(child.userData.originalPosition).add(direction.multiplyScalar(rootBox.getSize(new THREE.Vector3()).length() * 0.12))
+  })
 }
 
 function fitCameraToModel(object) {

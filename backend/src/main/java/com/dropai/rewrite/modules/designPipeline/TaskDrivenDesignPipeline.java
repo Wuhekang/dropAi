@@ -10,6 +10,7 @@ import com.dropai.rewrite.modules.drawingPlannerAgent.DrawingPlannerAgent;
 import com.dropai.rewrite.modules.designReferenceAgent.DesignReferenceAgent;
 import com.dropai.rewrite.modules.mechanicalDesignAgent.MechanicalDesignAgent;
 import com.dropai.rewrite.modules.mechanicalDesignPlanner.MechanicalDesignPlanner;
+import com.dropai.rewrite.modules.mechanicalRealityReviewer.MechanicalRealityReviewer;
 import com.dropai.rewrite.modules.model.DesignProject;
 import com.dropai.rewrite.modules.nonStandardPartGenerator.NonStandardPartGenerator;
 import com.dropai.rewrite.modules.partGeneratorAgent.PartGeneratorAgent;
@@ -42,6 +43,7 @@ public class TaskDrivenDesignPipeline {
     private final BOMGenerator bomGenerator;
     private final CalculationEngine calculationEngine;
     private final DrawingPlanBuilder drawingPlanBuilder;
+    private final MechanicalRealityReviewer mechanicalRealityReviewer = new MechanicalRealityReviewer();
 
     public TaskDrivenDesignPipeline(ProjectSessionReset sessionReset, ParameterEngine parameterEngine,
                                     ProjectAnalyzer projectAnalyzer, StructureTreeBuilder structureTreeBuilder,
@@ -109,6 +111,7 @@ public class TaskDrivenDesignPipeline {
         project = drawingPlannerAgent.plan(project);
         project = drawingPlanBuilder.build(project);
         score(project);
+        project = mechanicalRealityReviewer.review(project);
         project.getEnhancementNotes().removeIf(item -> item != null && item.contains("任务书驱动结构树流水线"));
         project.getEnhancementNotes().add("任务书驱动结构树流水线：StructureTree + StandardPartSelector + NonStandardPartGenerator + AssemblyTree 已生成当前项目专属结构。");
         return project;
