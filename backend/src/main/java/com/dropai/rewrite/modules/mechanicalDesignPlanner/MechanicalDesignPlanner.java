@@ -7,6 +7,10 @@ import com.dropai.rewrite.modules.mechanicalReasoning.MaterialSelectionReasoner;
 import com.dropai.rewrite.modules.mechanicalReasoning.MechanismSelector;
 import com.dropai.rewrite.modules.mechanicalReasoning.MechanicalDesignReviewer;
 import com.dropai.rewrite.modules.mechanicalReasoning.RequirementReasoner;
+import com.dropai.rewrite.modules.mechanicalOptimization.AlternativeDesignGenerator;
+import com.dropai.rewrite.modules.mechanicalOptimization.CostEstimationEngine;
+import com.dropai.rewrite.modules.mechanicalOptimization.DesignOptimizer;
+import com.dropai.rewrite.modules.mechanicalOptimization.DesignScoreEngine;
 import org.springframework.stereotype.Service;
 
 import java.util.LinkedHashMap;
@@ -22,23 +26,36 @@ public class MechanicalDesignPlanner {
     private final MaterialSelectionReasoner materialSelectionReasoner;
     private final ManufacturingReasoner manufacturingReasoner;
     private final MechanicalDesignReviewer designReviewer;
+    private final AlternativeDesignGenerator alternativeDesignGenerator;
+    private final CostEstimationEngine costEstimationEngine;
+    private final DesignScoreEngine designScoreEngine;
+    private final DesignOptimizer designOptimizer;
 
     public MechanicalDesignPlanner() {
         this(new RequirementReasoner(), new MechanismSelector(), new ForceAnalysisReasoner(),
-                new MaterialSelectionReasoner(), new ManufacturingReasoner(), new MechanicalDesignReviewer());
+                new MaterialSelectionReasoner(), new ManufacturingReasoner(), new MechanicalDesignReviewer(),
+                new AlternativeDesignGenerator(), new CostEstimationEngine(), new DesignScoreEngine(), new DesignOptimizer());
     }
 
     public MechanicalDesignPlanner(RequirementReasoner requirementReasoner, MechanismSelector mechanismSelector,
                                    ForceAnalysisReasoner forceAnalysisReasoner,
                                    MaterialSelectionReasoner materialSelectionReasoner,
                                    ManufacturingReasoner manufacturingReasoner,
-                                   MechanicalDesignReviewer designReviewer) {
+                                   MechanicalDesignReviewer designReviewer,
+                                   AlternativeDesignGenerator alternativeDesignGenerator,
+                                   CostEstimationEngine costEstimationEngine,
+                                   DesignScoreEngine designScoreEngine,
+                                   DesignOptimizer designOptimizer) {
         this.requirementReasoner = requirementReasoner;
         this.mechanismSelector = mechanismSelector;
         this.forceAnalysisReasoner = forceAnalysisReasoner;
         this.materialSelectionReasoner = materialSelectionReasoner;
         this.manufacturingReasoner = manufacturingReasoner;
         this.designReviewer = designReviewer;
+        this.alternativeDesignGenerator = alternativeDesignGenerator;
+        this.costEstimationEngine = costEstimationEngine;
+        this.designScoreEngine = designScoreEngine;
+        this.designOptimizer = designOptimizer;
     }
 
     public DesignProject plan(DesignProject project) {
@@ -66,6 +83,7 @@ public class MechanicalDesignPlanner {
         project.getEnhancementNotes().add("EngineeringDecisionLog: " + plan.getEngineeringDecisionLog().getRecommendedMechanism());
         project.getEnhancementNotes().add("DesignReviewReport: score=" + plan.getDesignReviewReport().getScore()
                 + ", passed=" + plan.getDesignReviewReport().isPassed());
+        project.getEnhancementNotes().add("OptimizationReport: selected=" + plan.getOptimizationReport().getSelectedDesign());
         return project;
     }
 
@@ -87,10 +105,25 @@ public class MechanicalDesignPlanner {
         List<String> materialDecisions = materialSelectionReasoner.decide(project, plan);
         plan.setManufacturingPlan(manufacturingReasoner.plan(plan, materialDecisions));
         plan.setDesignReviewReport(designReviewer.review(project, plan));
+        applyOptimization(project, plan);
         project.getVerificationItems().add("DecisionLog");
         project.getVerificationItems().add("ForceReport");
         project.getVerificationItems().add("ManufacturingPlan");
         project.getVerificationItems().add("DesignReviewReport");
+        project.getVerificationItems().add("AlternativeDesign");
+        project.getVerificationItems().add("ScoreCard");
+        project.getVerificationItems().add("OptimizationReport");
+    }
+
+    private void applyOptimization(DesignProject project, MechanicalDesignPlan plan) {
+        List<MechanicalDesignPlan.AlternativeDesign> alternatives = alternativeDesignGenerator.generate(project, plan);
+        alternatives.forEach(design -> design.setCostEstimate(costEstimationEngine.estimate(design, plan)));
+        List<MechanicalDesignPlan.ScoreCard> scoreCards = designScoreEngine.score(alternatives);
+        plan.setAlternativeDesigns(alternatives);
+        plan.setScoreCards(scoreCards);
+        plan.setOptimizationReport(designOptimizer.optimize(alternatives, scoreCards));
+        plan.getPlanningNotes().add("AlternativeDesignGenerator generated " + alternatives.size() + " candidates.");
+        plan.getPlanningNotes().add("DesignScoreEngine selected " + plan.getOptimizationReport().getSelectedDesign() + ".");
     }
 
     private void planWallClimbingRobot(DesignProject project, MechanicalDesignPlan plan) {

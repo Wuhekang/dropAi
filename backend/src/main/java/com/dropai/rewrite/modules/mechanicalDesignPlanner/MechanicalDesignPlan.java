@@ -21,6 +21,9 @@ public class MechanicalDesignPlan {
     private ForceReport forceReport = new ForceReport();
     private ManufacturingPlan manufacturingPlan = new ManufacturingPlan();
     private DesignReviewReport designReviewReport = new DesignReviewReport();
+    private List<AlternativeDesign> alternativeDesigns = new ArrayList<>();
+    private List<ScoreCard> scoreCards = new ArrayList<>();
+    private OptimizationReport optimizationReport = new OptimizationReport();
 
     public String getProjectName() { return projectName; }
     public void setProjectName(String projectName) { this.projectName = projectName == null ? "" : projectName; }
@@ -56,6 +59,12 @@ public class MechanicalDesignPlan {
     public void setManufacturingPlan(ManufacturingPlan value) { manufacturingPlan = value == null ? new ManufacturingPlan() : value; }
     public DesignReviewReport getDesignReviewReport() { return designReviewReport; }
     public void setDesignReviewReport(DesignReviewReport value) { designReviewReport = value == null ? new DesignReviewReport() : value; }
+    public List<AlternativeDesign> getAlternativeDesigns() { return alternativeDesigns; }
+    public void setAlternativeDesigns(List<AlternativeDesign> value) { alternativeDesigns = safe(value); }
+    public List<ScoreCard> getScoreCards() { return scoreCards; }
+    public void setScoreCards(List<ScoreCard> value) { scoreCards = safe(value); }
+    public OptimizationReport getOptimizationReport() { return optimizationReport; }
+    public void setOptimizationReport(OptimizationReport value) { optimizationReport = value == null ? new OptimizationReport() : value; }
 
     private static <T> List<T> safe(List<T> value) {
         return value == null ? new ArrayList<>() : new ArrayList<>(value);
@@ -172,5 +181,99 @@ public class MechanicalDesignPlan {
         public void setRisks(List<String> value) { risks = safe(value); }
         public List<String> getRecommendations() { return recommendations; }
         public void setRecommendations(List<String> value) { recommendations = safe(value); }
+    }
+
+    public static class AlternativeDesign {
+        private String name = "";
+        private String mechanism = "";
+        private List<String> structure = new ArrayList<>();
+        private List<String> advantages = new ArrayList<>();
+        private List<String> disadvantages = new ArrayList<>();
+        private CostEstimate costEstimate = new CostEstimate();
+        private double reliability;
+        private double maintainability;
+        private double estimatedWeightKg;
+
+        public String getName() { return name; }
+        public void setName(String value) { name = value == null ? "" : value; }
+        public String getMechanism() { return mechanism; }
+        public void setMechanism(String value) { mechanism = value == null ? "" : value; }
+        public List<String> getStructure() { return structure; }
+        public void setStructure(List<String> value) { structure = safe(value); }
+        public List<String> getAdvantages() { return advantages; }
+        public void setAdvantages(List<String> value) { advantages = safe(value); }
+        public List<String> getDisadvantages() { return disadvantages; }
+        public void setDisadvantages(List<String> value) { disadvantages = safe(value); }
+        public CostEstimate getCostEstimate() { return costEstimate; }
+        public void setCostEstimate(CostEstimate value) { costEstimate = value == null ? new CostEstimate() : value; }
+        public double getReliability() { return reliability; }
+        public void setReliability(double value) { reliability = value; }
+        public double getMaintainability() { return maintainability; }
+        public void setMaintainability(double value) { maintainability = value; }
+        public double getEstimatedWeightKg() { return estimatedWeightKg; }
+        public void setEstimatedWeightKg(double value) { estimatedWeightKg = value; }
+    }
+
+    public static class CostEstimate {
+        private double materialCost;
+        private double machiningCost;
+        private double assemblyCost;
+        private double totalCost;
+        private String currency = "CNY";
+
+        public double getMaterialCost() { return materialCost; }
+        public void setMaterialCost(double value) { materialCost = value; }
+        public double getMachiningCost() { return machiningCost; }
+        public void setMachiningCost(double value) { machiningCost = value; }
+        public double getAssemblyCost() { return assemblyCost; }
+        public void setAssemblyCost(double value) { assemblyCost = value; }
+        public double getTotalCost() { return totalCost; }
+        public void setTotalCost(double value) { totalCost = value; }
+        public String getCurrency() { return currency; }
+        public void setCurrency(String value) { currency = value == null || value.isBlank() ? "CNY" : value; }
+    }
+
+    public static class ScoreCard {
+        private String designName = "";
+        private double functionScore;
+        private double reliabilityScore;
+        private double costScore;
+        private double weightScore;
+        private double maintenanceScore;
+        private double totalScore;
+
+        public String getDesignName() { return designName; }
+        public void setDesignName(String value) { designName = value == null ? "" : value; }
+        public double getFunctionScore() { return functionScore; }
+        public void setFunctionScore(double value) { functionScore = value; }
+        public double getReliabilityScore() { return reliabilityScore; }
+        public void setReliabilityScore(double value) { reliabilityScore = value; }
+        public double getCostScore() { return costScore; }
+        public void setCostScore(double value) { costScore = value; }
+        public double getWeightScore() { return weightScore; }
+        public void setWeightScore(double value) { weightScore = value; }
+        public double getMaintenanceScore() { return maintenanceScore; }
+        public void setMaintenanceScore(double value) { maintenanceScore = value; }
+        public double getTotalScore() { return totalScore; }
+        public void setTotalScore(double value) { totalScore = value; }
+    }
+
+    public static class OptimizationReport {
+        private String selectedDesign = "";
+        private String selectedMechanism = "";
+        private List<String> comparisonSummary = new ArrayList<>();
+        private List<String> optimizationActions = new ArrayList<>();
+        private List<String> selectionReasons = new ArrayList<>();
+
+        public String getSelectedDesign() { return selectedDesign; }
+        public void setSelectedDesign(String value) { selectedDesign = value == null ? "" : value; }
+        public String getSelectedMechanism() { return selectedMechanism; }
+        public void setSelectedMechanism(String value) { selectedMechanism = value == null ? "" : value; }
+        public List<String> getComparisonSummary() { return comparisonSummary; }
+        public void setComparisonSummary(List<String> value) { comparisonSummary = safe(value); }
+        public List<String> getOptimizationActions() { return optimizationActions; }
+        public void setOptimizationActions(List<String> value) { optimizationActions = safe(value); }
+        public List<String> getSelectionReasons() { return selectionReasons; }
+        public void setSelectionReasons(List<String> value) { selectionReasons = safe(value); }
     }
 }
