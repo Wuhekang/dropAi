@@ -1,6 +1,12 @@
 package com.dropai.rewrite.modules.mechanicalDesignPlanner;
 
 import com.dropai.rewrite.modules.model.DesignProject;
+import com.dropai.rewrite.modules.mechanicalReasoning.ForceAnalysisReasoner;
+import com.dropai.rewrite.modules.mechanicalReasoning.ManufacturingReasoner;
+import com.dropai.rewrite.modules.mechanicalReasoning.MaterialSelectionReasoner;
+import com.dropai.rewrite.modules.mechanicalReasoning.MechanismSelector;
+import com.dropai.rewrite.modules.mechanicalReasoning.MechanicalDesignReviewer;
+import com.dropai.rewrite.modules.mechanicalReasoning.RequirementReasoner;
 import org.springframework.stereotype.Service;
 
 import java.util.LinkedHashMap;
@@ -10,6 +16,31 @@ import java.util.Map;
 
 @Service
 public class MechanicalDesignPlanner {
+    private final RequirementReasoner requirementReasoner;
+    private final MechanismSelector mechanismSelector;
+    private final ForceAnalysisReasoner forceAnalysisReasoner;
+    private final MaterialSelectionReasoner materialSelectionReasoner;
+    private final ManufacturingReasoner manufacturingReasoner;
+    private final MechanicalDesignReviewer designReviewer;
+
+    public MechanicalDesignPlanner() {
+        this(new RequirementReasoner(), new MechanismSelector(), new ForceAnalysisReasoner(),
+                new MaterialSelectionReasoner(), new ManufacturingReasoner(), new MechanicalDesignReviewer());
+    }
+
+    public MechanicalDesignPlanner(RequirementReasoner requirementReasoner, MechanismSelector mechanismSelector,
+                                   ForceAnalysisReasoner forceAnalysisReasoner,
+                                   MaterialSelectionReasoner materialSelectionReasoner,
+                                   ManufacturingReasoner manufacturingReasoner,
+                                   MechanicalDesignReviewer designReviewer) {
+        this.requirementReasoner = requirementReasoner;
+        this.mechanismSelector = mechanismSelector;
+        this.forceAnalysisReasoner = forceAnalysisReasoner;
+        this.materialSelectionReasoner = materialSelectionReasoner;
+        this.manufacturingReasoner = manufacturingReasoner;
+        this.designReviewer = designReviewer;
+    }
+
     public DesignProject plan(DesignProject project) {
         if (project == null) return new DesignProject();
         MechanicalDesignPlan plan = new MechanicalDesignPlan();
@@ -27,11 +58,39 @@ public class MechanicalDesignPlanner {
         }
 
         copyExplicitParameters(project, plan);
+        applyReasoning(project, plan);
         normalizeProjectFromPlan(project, plan);
         plan.setConfidence(confidence(project, plan));
         project.setMechanicalDesignPlan(plan);
         project.getEnhancementNotes().add("MechanicalDesignPlanner已生成机械设计方案，后续结构树、零件、装配、图纸和论文均基于该方案继续生成。");
+        project.getEnhancementNotes().add("EngineeringDecisionLog: " + plan.getEngineeringDecisionLog().getRecommendedMechanism());
+        project.getEnhancementNotes().add("DesignReviewReport: score=" + plan.getDesignReviewReport().getScore()
+                + ", passed=" + plan.getDesignReviewReport().isPassed());
         return project;
+    }
+
+    private void applyReasoning(DesignProject project, MechanicalDesignPlan plan) {
+        RequirementReasoner.RequirementReport requirements = requirementReasoner.analyze(project);
+        MechanismSelector.MechanismDecision mechanism = mechanismSelector.select(project);
+        MechanicalDesignPlan.EngineeringDecisionLog log = new MechanicalDesignPlan.EngineeringDecisionLog();
+        log.setFunctionalRequirements(requirements.functionalRequirements());
+        log.setConstraints(requirements.constraints());
+        log.setDesignObjectives(requirements.designObjectives());
+        log.setMechanismCandidates(mechanism.candidates());
+        log.setRecommendedMechanism(firstNonBlank(plan.getMechanismType(), mechanism.recommendedMechanism()));
+        log.setDecisionReasons(mechanism.reasons());
+        plan.setEngineeringDecisionLog(log);
+        plan.getPlanningNotes().add("RequirementReasoner completed functional requirement and constraint analysis.");
+        plan.getPlanningNotes().add("MechanismSelector recommended " + mechanism.recommendedMechanism() + ".");
+
+        plan.setForceReport(forceAnalysisReasoner.analyze(project, plan));
+        List<String> materialDecisions = materialSelectionReasoner.decide(project, plan);
+        plan.setManufacturingPlan(manufacturingReasoner.plan(plan, materialDecisions));
+        plan.setDesignReviewReport(designReviewer.review(project, plan));
+        project.getVerificationItems().add("DecisionLog");
+        project.getVerificationItems().add("ForceReport");
+        project.getVerificationItems().add("ManufacturingPlan");
+        project.getVerificationItems().add("DesignReviewReport");
     }
 
     private void planWallClimbingRobot(DesignProject project, MechanicalDesignPlan plan) {

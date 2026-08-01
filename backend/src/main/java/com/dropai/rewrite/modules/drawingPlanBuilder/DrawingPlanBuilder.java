@@ -102,7 +102,24 @@ public class DrawingPlanBuilder {
                     .sorted(componentOrder())
                     .toList();
         }
-        return uniqueBySemantic(selected).stream().limit(maxParts).toList();
+        List<DesignProject.Component> unique = new ArrayList<>(uniqueBySemantic(selected));
+        if (unique.size() < 3) {
+            for (DesignProject.Component component : project.getComponents().stream().sorted(componentOrder()).toList()) {
+                if (unique.stream().noneMatch(existing -> sameComponent(existing, component))) {
+                    unique.add(component);
+                }
+                if (unique.size() >= 3) break;
+            }
+        }
+        return unique.stream().limit(maxParts).toList();
+    }
+
+    private boolean sameComponent(DesignProject.Component left, DesignProject.Component right) {
+        if (left == right) return true;
+        if (left == null || right == null) return false;
+        String leftId = safe(left.getPartId());
+        String rightId = safe(right.getPartId());
+        return !leftId.isBlank() && leftId.equals(rightId);
     }
 
     private Comparator<DesignProject.Component> componentOrder() {
