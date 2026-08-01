@@ -1,0 +1,13 @@
+{
+  "sourceNotes": [
+    "Preliminary gear design rules summarized from public machine design references. Final design needs the project standard, material, heat treatment, and contact/bending strength calculations."
+  ],
+  "rules": [
+    "Define power, input speed, output speed, service factor, and transmission ratio before choosing module.",
+    "Use standard modules and pressure angles unless the project explicitly requires custom tooling.",
+    "Check bending strength, contact stress, shaft center distance, bearing reactions, lubrication, and enclosure.",
+    "Avoid very small tooth counts without profile shift because undercut and weak teeth become likely.",
+    "Gear outputs must include module, teeth count, pressure angle, face width, material, heat treatment, accuracy grade, and lubrication note."
+  ],
+  "minimumFields": ["module", "teeth", "ratio", "pressureAngle", "faceWidth", "material", "heatTreatment", "strengthCheck"]
+}

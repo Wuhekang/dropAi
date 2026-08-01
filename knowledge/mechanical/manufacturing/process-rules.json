@@ -1,0 +1,23 @@
+{
+  "sourceNotes": [
+    "Manufacturability rules summarized from general machining, sheet metal, welding, and assembly practice."
+  ],
+  "processRules": [
+    {
+      "process": "machining",
+      "checks": ["avoid unreachable internal corners", "add fillets/chamfers", "define datum faces", "state tolerances for fit surfaces"]
+    },
+    {
+      "process": "sheet metal",
+      "checks": ["keep bend radius manufacturable", "avoid holes too close to bends", "state thickness and bend direction", "prefer standard sheet thickness"]
+    },
+    {
+      "process": "welding",
+      "checks": ["define weld type and length", "allow distortion control", "add post-weld inspection notes", "avoid closed cavities without venting"]
+    },
+    {
+      "process": "3d printing",
+      "checks": ["state material and layer direction", "avoid unsupported overhangs", "do not use for production load parts without validation"]
+    }
+  ]
+}

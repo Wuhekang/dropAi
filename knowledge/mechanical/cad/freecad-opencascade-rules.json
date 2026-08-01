@@ -1,0 +1,13 @@
+{
+  "sourceNotes": [
+    "Summarized from FreeCAD PartDesign documentation and Open CASCADE Technology overview documentation."
+  ],
+  "cadRules": [
+    "Represent each manufacturable part as a stable feature tree rather than an anonymous primitive.",
+    "Prefer sketch-driven extrude, revolve, cut, hole, fillet, and chamfer features for mechanical parts.",
+    "Keep datum planes, named faces, and coordinate systems stable for downstream assembly constraints.",
+    "STEP export should preserve assembly structure when the CAD kernel supports it.",
+    "Generated geometry should avoid non-manifold solids, self-intersections, and zero-thickness faces."
+  ],
+  "featureTreeOrder": ["Sketch", "Extrude/Revolve", "Cut", "Hole", "Pattern", "Fillet", "Chamfer", "AssignMaterial", "Export"]
+}

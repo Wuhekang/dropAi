@@ -1,0 +1,29 @@
+{
+  "sourceNotes": [
+    "Summarized from SKF bearing selection process and common rolling bearing engineering practice."
+  ],
+  "selectionFlow": [
+    "Define radial load, axial load, speed, duty cycle, and environment.",
+    "Select bearing type by load direction and misalignment tolerance.",
+    "Estimate equivalent dynamic load and required rating life.",
+    "Check limiting speed, lubrication method, sealing, fits, and mounting space.",
+    "Document bearing designation and installation constraints."
+  ],
+  "bearingTypeRules": [
+    {
+      "type": "deep groove ball bearing",
+      "useWhen": ["moderate radial load", "limited axial load", "high speed", "compact support"],
+      "avoidWhen": ["large axial load", "large misalignment", "heavy shock load"]
+    },
+    {
+      "type": "tapered roller bearing",
+      "useWhen": ["combined radial and axial load", "shaft support with adjustable preload"],
+      "avoidWhen": ["very high speed without thermal design", "space is very limited"]
+    },
+    {
+      "type": "self-aligning bearing",
+      "useWhen": ["shaft deflection or mounting misalignment is expected"],
+      "avoidWhen": ["high positioning accuracy is required without additional constraints"]
+    }
+  ]
+}

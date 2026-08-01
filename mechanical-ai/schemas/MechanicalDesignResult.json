@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dropai.local/schemas/MechanicalDesignResult.json",
+  "title": "MechanicalDesignResult",
+  "type": "object",
+  "required": [
+    "product",
+    "requirements",
+    "architecture",
+    "structureTree",
+    "parts",
+    "assembly",
+    "cadFeatures",
+    "drawings",
+    "bom",
+    "materials",
+    "calculations",
+    "manufacturing",
+    "documentation"
+  ],
+  "properties": {
+    "product": { "type": "object" },
+    "requirements": { "type": "array", "items": { "type": "string" } },
+    "architecture": { "type": "object" },
+    "structureTree": { "type": "object" },
+    "parts": { "type": "array", "items": { "type": "object" } },
+    "assembly": { "type": "object" },
+    "cadFeatures": { "type": "array", "items": { "type": "object" } },
+    "drawings": { "type": "object" },
+    "bom": { "type": "array", "items": { "type": "object" } },
+    "materials": { "type": "array", "items": { "type": "string" } },
+    "calculations": { "type": "array", "items": { "type": "object" } },
+    "manufacturing": { "type": "array", "items": { "type": "string" } },
+    "documentation": { "type": "object" }
+  }
+}

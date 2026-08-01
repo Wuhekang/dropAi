@@ -1,0 +1,13 @@
+{
+  "sourceNotes": [
+    "General motor sizing workflow compiled from common manufacturer selection guidance."
+  ],
+  "selectionFlow": [
+    "Calculate load force or torque from mechanism geometry and duty cycle.",
+    "Convert to required shaft torque and speed after transmission efficiency.",
+    "Apply service factor for shock, acceleration, and uncertain friction.",
+    "Select motor and reducer together, not independently.",
+    "Check thermal duty, braking, holding torque, IP rating, mounting, and control interface."
+  ],
+  "requiredOutputFields": ["ratedPower", "ratedTorque", "ratedSpeed", "reducerRatio", "efficiency", "serviceFactor", "mountingType"]
+}

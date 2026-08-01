@@ -4,6 +4,7 @@ import com.dropai.rewrite.modules.drawingEngine.DrawingArtifact;
 import com.dropai.rewrite.modules.mechanicalDesignContext.MechanicalDesignContext;
 import com.dropai.rewrite.modules.model.DesignProject;
 import com.dropai.rewrite.modules.modelQualityGate.ModelQualityGate;
+import com.dropai.rewrite.modules.modelQualityGate.MechanicalQualityReviewer;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 
@@ -18,11 +19,16 @@ import java.util.zip.ZipOutputStream;
 public class ExportEngine {
     private final ObjectMapper objectMapper;
     private final ModelQualityGate modelQualityGate;
-    public ExportEngine() { this(new ObjectMapper(), new ModelQualityGate()); }
-    public ExportEngine(ObjectMapper objectMapper) { this(objectMapper, new ModelQualityGate()); }
+    private final MechanicalQualityReviewer mechanicalQualityReviewer;
+    public ExportEngine() { this(new ObjectMapper(), new ModelQualityGate(), new MechanicalQualityReviewer()); }
+    public ExportEngine(ObjectMapper objectMapper) { this(objectMapper, new ModelQualityGate(), new MechanicalQualityReviewer()); }
     public ExportEngine(ObjectMapper objectMapper, ModelQualityGate modelQualityGate) {
+        this(objectMapper, modelQualityGate, new MechanicalQualityReviewer());
+    }
+    public ExportEngine(ObjectMapper objectMapper, ModelQualityGate modelQualityGate, MechanicalQualityReviewer mechanicalQualityReviewer) {
         this.objectMapper = objectMapper;
         this.modelQualityGate = modelQualityGate;
+        this.mechanicalQualityReviewer = mechanicalQualityReviewer;
     }
 
     public List<DrawingArtifact> appendManifests(DesignProject project, List<DrawingArtifact> artifacts) {
@@ -45,7 +51,8 @@ public class ExportEngine {
                     "components", project.getComponents(),
                     "assemblyTree", project.getAssemblyTree(),
                     "assemblyConstraints", project.getAssemblyConstraints(),
-                    "modelQuality", modelQualityGate.evaluate(project)
+                    "modelQuality", modelQualityGate.evaluate(project),
+                    "mechanicalQuality", mechanicalQualityReviewer.review(project)
             ));
         } catch (Exception e) {
             throw new IllegalStateException("生成3D模型数据失败", e);
@@ -92,7 +99,8 @@ public class ExportEngine {
                     "cadInput", java.util.Map.of(
                             "assemblyModel", project.getAssemblyModel(),
                             "drawingPlan", project.getDrawingPlan()
-                    )
+                    ),
+                    "mechanicalQuality", mechanicalQualityReviewer.review(project)
             ));
         } catch (Exception e) {
             throw new IllegalStateException("生成机械流水线审计JSON失败", e);
@@ -121,7 +129,8 @@ public class ExportEngine {
                     "constraintCount", project.getAssemblyModel().getConstraints().size(),
                     "structureNodeCount", project.getStructureTree().getChildren().size(),
                     "validationMessages", project.getAssemblyModel().getValidationMessages(),
-                    "modelQuality", modelQualityGate.evaluate(project)
+                    "modelQuality", modelQualityGate.evaluate(project),
+                    "mechanicalQuality", mechanicalQualityReviewer.review(project)
             ));
         } catch (Exception e) {
             throw new IllegalStateException("生成模型报告JSON失败", e);

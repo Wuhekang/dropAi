@@ -1,0 +1,33 @@
+{
+  "sourceNotes": [
+    "Summarized from ISO fastener family references, manufacturer catalog conventions, and MISUMI-style mechanical design guidance.",
+    "Do not treat these as a substitute for final standard tables."
+  ],
+  "rules": [
+    {
+      "topic": "bolt selection",
+      "checks": [
+        "Choose thread diameter from load, joint stiffness, available edge distance, and assembly access.",
+        "Prefer standard metric coarse threads for general machine assembly.",
+        "Use property class 8.8 or higher only when the joint calculation and mating material justify it."
+      ]
+    },
+    {
+      "topic": "hole and edge design",
+      "checks": [
+        "Keep enough edge distance around clearance holes to avoid tearing or local yielding.",
+        "Slot holes should state adjustment direction and locking method.",
+        "Thread engagement in aluminum should be longer than in steel or use inserts."
+      ]
+    },
+    {
+      "topic": "locking",
+      "checks": [
+        "Use spring washers, thread locker, lock nuts, or mechanical locking for vibration.",
+        "Mark high-vibration joints for maintenance inspection.",
+        "Avoid hidden fasteners that cannot be installed with standard tools."
+      ]
+    }
+  ],
+  "requiredOutputFields": ["standard", "diameter", "length", "propertyClass", "quantity", "jointFunction", "lockingMethod"]
+}

@@ -1,0 +1,48 @@
+{
+  "sourceNotes": [
+    "Summarized engineering reference values from public material data pages such as MatWeb and common mechanical design handbooks.",
+    "Values are typical ranges for preliminary design only; final production must verify supplier certificates and project standards."
+  ],
+  "materials": [
+    {
+      "name": "6061-T6 aluminum",
+      "densityKgM3": 2700,
+      "elasticModulusGPa": 68.9,
+      "yieldStrengthMPaTypical": 276,
+      "tensileStrengthMPaTypical": 310,
+      "useCases": ["light brackets", "frames", "covers", "machined plates"],
+      "manufacturingNotes": ["good machinability", "good corrosion resistance", "avoid high-temperature strength assumptions"],
+      "selectionRules": ["Use when weight matters and loads are moderate.", "Add threaded inserts or larger thread engagement for repeated assembly."]
+    },
+    {
+      "name": "45 steel / AISI 1045",
+      "densityKgM3": 7850,
+      "elasticModulusGPa": 205,
+      "yieldStrengthMPaTypical": 310,
+      "tensileStrengthMPaTypical": 565,
+      "useCases": ["shafts", "pins", "gears after heat treatment", "load-bearing machined parts"],
+      "manufacturingNotes": ["machinable", "can be normalized or quenched and tempered", "needs corrosion protection"],
+      "selectionRules": ["Use for shafts and torque-carrying parts.", "Require heat-treatment note when using it for wear or gear teeth."]
+    },
+    {
+      "name": "304 stainless steel",
+      "densityKgM3": 8000,
+      "elasticModulusGPa": 193,
+      "yieldStrengthMPaTypical": 215,
+      "tensileStrengthMPaTypical": 505,
+      "useCases": ["corrosion-resistant covers", "food or wet environments", "fasteners in mild corrosion"],
+      "manufacturingNotes": ["good corrosion resistance", "work hardens during machining", "avoid assuming high yield strength without grade condition"],
+      "selectionRules": ["Use where corrosion resistance is more important than low cost.", "Check galling risk for stainless threaded assemblies."]
+    },
+    {
+      "name": "Q235B structural steel",
+      "densityKgM3": 7850,
+      "elasticModulusGPa": 200,
+      "yieldStrengthMPaTypical": 235,
+      "tensileStrengthMPaTypical": 370,
+      "useCases": ["welded frames", "base plates", "guards", "low-cost structural members"],
+      "manufacturingNotes": ["weldable", "good for plates and sections", "surface treatment usually required"],
+      "selectionRules": ["Use for welded machine frames and low-speed equipment.", "Add weld symbols, anti-rust coating, and tolerance notes."]
+    }
+  ]
+}

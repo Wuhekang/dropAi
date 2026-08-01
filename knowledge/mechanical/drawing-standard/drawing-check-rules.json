@@ -1,0 +1,14 @@
+{
+  "sourceNotes": [
+    "Compiled from ISO technical drawing overview pages and common GB/ISO drawing practice. Use project-specific standards for final release."
+  ],
+  "drawingRules": [
+    "Every part drawing needs part name, material, scale, projection method, drawing number, revision, and unit.",
+    "Manufacturing drawings need enough views to define geometry without ambiguity.",
+    "Functional dimensions, fit dimensions, hole positions, and datum references must be explicit.",
+    "Do not use a 3D preview as a substitute for orthographic views.",
+    "Assembly drawings need BOM balloons, part list, main mounting dimensions, and assembly notes.",
+    "Unspecified tolerances, surface treatment, deburring, and inspection notes should be included when applicable."
+  ],
+  "qualityChecks": ["viewCompleteness", "dimensionCompleteness", "datumPresence", "bomBalloonConsistency", "manufacturingNotes"]
+}
