@@ -114,9 +114,9 @@ public class DesignPackageService {
         if (report.passed()) {
             generated.add(generateOne("manifest.json", "application/json", () -> manifest(successfulArtifacts, project)));
             reporter.update("PACKAGING", 98, "Packaging final ZIP");
-            List<DrawingArtifact> zipInputs = generated.stream().filter(Generated::success).map(Generated::artifact).toList();
-            generated.add(generateOne("project_package.zip", "application/zip", () -> exportEngine.zip(zipInputs)));
+            generated.add(generateOne("project_package.zip", "application/zip", () -> userPackage(successfulArtifacts)));
         } else {
+            log.warn("deliverable quality gate rejected project title={} errors={}", project.getProjectTitle(), report.errors());
             generated.add(new Generated(new DrawingArtifact("project_package.zip", new byte[0], "application/zip"),
                     "deliverable validation failed: " + String.join("; ", report.errors())));
         }
@@ -189,6 +189,26 @@ public class DesignPackageService {
             log.error("文件组生成失败 names={} reason={}", expectedNames, reason, exception);
             return expectedNames.stream().map(name -> new Generated(new DrawingArtifact(name, new byte[0], mediaType(name)), reason)).toList();
         }
+    }
+
+    private byte[] userPackage(List<DrawingArtifact> artifacts) {
+        DrawingArtifact assembly = requiredArtifact(artifacts, "assembly.step");
+        DrawingArtifact paper = requiredArtifact(artifacts, "paper.docx");
+        List<DrawingArtifact> drawingFiles = artifacts.stream()
+                .filter(item -> item.fileName().matches("(assembly|part_\\d{2})\\.(dxf|svg|png)"))
+                .toList();
+        if (drawingFiles.size() < 18) throw new IllegalStateException("DRAWING_PACKAGE_INCOMPLETE");
+        byte[] drawingsZip = exportEngine.zip(drawingFiles);
+        return exportEngine.zip(List.of(
+                new DrawingArtifact("01_Assembly.step", assembly.content(), assembly.mediaType()),
+                new DrawingArtifact("02_Drawings.zip", drawingsZip, "application/zip"),
+                new DrawingArtifact("03_Design_Report.docx", paper.content(), paper.mediaType())
+        ));
+    }
+
+    private DrawingArtifact requiredArtifact(List<DrawingArtifact> artifacts, String name) {
+        return artifacts.stream().filter(item -> name.equals(item.fileName())).findFirst()
+                .orElseThrow(() -> new IllegalStateException("missing user deliverable: " + name));
     }
 
     private boolean allSuccess(List<Generated> artifacts) {

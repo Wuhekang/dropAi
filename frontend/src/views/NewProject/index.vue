@@ -80,7 +80,13 @@
       </section>
     </section>
 
-    <section class="analysis-grid">
+    <nav class="workspace-tabs panel" aria-label="机械研发工作台视图">
+      <button v-for="tab in workspaceTabs" :key="tab.key" type="button" :class="{ active: activeTab === tab.key }" @click="activeTab = tab.key">
+        {{ tab.label }}
+      </button>
+    </nav>
+
+    <section v-show="activeTab === 'report'" class="analysis-grid">
       <article class="product-card result-card">
         <span>项目识别</span>
         <h3>{{ project.projectTitle || '待识别项目' }}</h3>
@@ -123,7 +129,7 @@
       </article>
     </section>
 
-    <section class="detail-grid">
+    <section v-show="activeTab === 'assembly'" class="workspace-single">
       <article class="panel structure-panel">
         <div class="section-head">
           <div>
@@ -137,6 +143,9 @@
         </ul>
       </article>
 
+    </section>
+
+    <section v-show="activeTab === 'drawings'" class="workspace-single">
       <article class="panel drawing-panel">
         <div class="section-head">
           <div>
@@ -165,7 +174,7 @@
       </article>
     </section>
 
-    <section class="detail-grid">
+    <section v-show="activeTab === 'bom'" class="workspace-single">
       <article class="panel bom-panel">
         <div class="section-head">
           <div>
@@ -186,6 +195,9 @@
         </div>
       </article>
 
+    </section>
+
+    <section v-show="activeTab === 'deliverables'" class="workspace-single">
       <article class="panel artifact-panel">
         <div class="section-head">
           <div>
@@ -195,7 +207,7 @@
           <button class="primary-button" type="button" :disabled="!zipArtifact" @click="downloadFile(zipArtifact)">下载ZIP</button>
         </div>
         <div class="artifact-grid">
-          <article v-for="file in artifacts" :key="file.fileName" class="artifact-file">
+          <article v-for="file in visibleArtifacts" :key="file.fileName" class="artifact-file">
             <span>{{ artifactType(file) }}</span>
             <strong>{{ file.fileName }}</strong>
             <small>{{ file.status === 'failed' ? file.failureReason : formatSize(file.size) }}</small>
@@ -263,6 +275,14 @@ const analyzing = ref(false)
 const generating = ref(false)
 const targetConfirmed = ref(false)
 const artifacts = ref([])
+const activeTab = ref('assembly')
+const workspaceTabs = [
+  { key: 'assembly', label: '总装模型' },
+  { key: 'drawings', label: '工程图' },
+  { key: 'bom', label: 'BOM' },
+  { key: 'report', label: '设计报告' },
+  { key: 'deliverables', label: '成果下载' }
+]
 const parameters = ref([])
 const packageMessage = ref('等待任务书输入。')
 const currentStep = ref(0)
@@ -359,6 +379,9 @@ const drawingCards = computed(() => {
 })
 const activeDrawingCard = computed(() => drawingCards.value.find(card => card.baseName === activeDrawingBase.value) || drawingCards.value[0] || null)
 const zipArtifact = computed(() => artifacts.value.find(file => /\.zip$/i.test(file.fileName || '')))
+const visibleArtifacts = computed(() => artifacts.value.filter(file =>
+  /^(project_package\.zip|assembly\.step|paper\.docx|assembly\.(dxf|svg|png)|part_\d{2}\.(dxf|svg|png))$/i.test(file.fileName || '')
+))
 const packageSucceeded = computed(() => Boolean(zipArtifact.value) && artifacts.value.every(file => file.status !== 'failed'))
 const progress = computed(() => activeJobId.value ? Math.max(0, Math.min(100, Number(jobProgress.value || 0))) : packageSucceeded.value ? 100 : Math.min(98, Math.round((currentStep.value / processSteps.length) * 100)))
 const displayedStep = computed(() => activeJobId.value ? stepFromProgress(progress.value) : currentStep.value)
@@ -674,8 +697,7 @@ function cleanStructureMeta(node = {}) {
     keyed: '键连接'
   }
   const type = typeMap[node.type] || typeMap[node.relation] || '工程结构'
-  const confidence = Number(node.confidence)
-  return Number.isFinite(confidence) && confidence > 0 ? `${type} · 可信度 ${Math.round(confidence * 100)}%` : type
+  return type
 }
 
 function mergeBom(rows = []) {
@@ -762,6 +784,7 @@ onBeforeUnmount(() => {
 .depth-control{display:grid;grid-template-columns:1fr 1fr;gap:8px}.depth-control button{min-height:40px;border:1px solid rgba(108,99,255,.12);border-radius:var(--radius);color:var(--muted);background:rgba(255,255,255,.58);cursor:pointer}.depth-control .active{color:#fff;border-color:rgba(255,255,255,.82);background:var(--primary-gradient)}.action{width:100%}
 .output-panel{display:grid;gap:14px;min-width:0}.visual-stage{position:relative;min-height:540px;overflow:hidden}.visual-stage :deep(.model-viewer){min-height:540px;border-radius:var(--radius)}.stage-overlay{position:absolute;top:18px;left:18px;z-index:2;display:grid;gap:10px;max-width:min(460px,calc(100% - 36px));pointer-events:none}.stage-overlay strong{overflow-wrap:anywhere;font-size:clamp(20px,2.4vw,28px);line-height:1.18}.stage-overlay small{color:var(--muted)}
 .progress-card{padding:18px}.progress-head{display:flex;justify-content:space-between;gap:18px;margin-bottom:16px}.progress-head strong{color:var(--primary);font-size:34px}.design-flow{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:16px}.design-flow div{display:flex;align-items:center;gap:8px;min-height:42px;padding:10px;border:1px solid rgba(108,99,255,.1);border-radius:8px;color:var(--muted);background:rgba(255,255,255,.45);font-size:13px}.design-flow i{display:grid;place-items:center;width:22px;height:22px;border-radius:999px;background:rgba(108,99,255,.1);font-style:normal}.design-flow .done{color:var(--text);background:rgba(255,255,255,.72)}.design-flow .done i,.design-flow .active i{color:#fff;background:var(--primary-gradient)}
+.workspace-tabs{display:flex;gap:6px;margin-top:18px;padding:6px;overflow-x:auto}.workspace-tabs button{flex:0 0 auto;min-width:112px;border:0;border-radius:6px;padding:11px 14px;color:var(--muted);background:transparent;cursor:pointer;font-weight:700}.workspace-tabs button.active{color:#fff;background:var(--primary)}.workspace-single{display:grid;grid-template-columns:1fr;gap:14px;margin-top:14px}.workspace-single>.panel{min-width:0}
 .analysis-grid,.detail-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-top:18px}.detail-grid{grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr)}.result-card,.structure-panel,.drawing-panel,.bom-panel,.artifact-panel{padding:18px}.result-card>span,.artifact-file>span{color:var(--primary);font-size:12px;font-weight:800}.result-card h3{margin:8px 0 14px;font-size:22px}.result-card dl{display:grid;gap:10px;margin:0}.result-card dl div{display:grid;grid-template-columns:80px 1fr;gap:12px}.result-card dt{color:var(--muted);font-size:13px}.result-card dd{margin:0;line-height:1.55}.review-card p{margin:0 0 10px;color:var(--text);line-height:1.6}.review-card small{color:var(--muted);line-height:1.5}.review-card.failed{border-color:rgba(239,68,68,.25);background:rgba(254,242,242,.72)}
 .parameter-list,.component-list{display:grid;gap:10px}.parameter-list div,.component-list div{display:grid;gap:4px;padding:10px;border:1px solid rgba(108,99,255,.1);border-radius:8px;background:rgba(255,255,255,.52)}.parameter-list strong{color:var(--primary)}.parameter-list small,.component-list span{color:var(--muted);font-size:12px}
 .section-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:14px}.structure-tree,.structure-tree ul{display:grid;gap:8px;margin:0;padding-left:18px}.structure-tree{padding-left:0;list-style:none}.structure-tree :deep(li){list-style:none}.tree-node{display:grid;gap:4px;padding:10px;border:1px solid rgba(108,99,255,.1);border-radius:8px;background:rgba(255,255,255,.52)}.tree-node span{color:var(--muted);font-size:12px}

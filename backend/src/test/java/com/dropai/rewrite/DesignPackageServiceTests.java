@@ -34,6 +34,11 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import java.util.List;
+import java.io.ByteArrayInputStream;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -107,6 +112,20 @@ class DesignPackageServiceTests {
         verify(mapper, org.mockito.Mockito.atLeastOnce()).insert(captor.capture());
         assertTrue(captor.getAllValues().stream().allMatch(record -> record.getMode() != null && record.getMode().length() <= 10));
         assertTrue(captor.getAllValues().stream().filter(record -> record.getFileName().endsWith(".docx")).allMatch(record -> "docx".equals(record.getMode())));
+        DocumentJobRecord userPackage = captor.getAllValues().stream()
+                .filter(record -> "project_package.zip".equals(record.getFileName())).findFirst().orElseThrow();
+        assertEquals(Set.of("01_Assembly.step", "02_Drawings.zip", "03_Design_Report.docx"), zipNames(userPackage.getOutputFile()));
+    }
+
+    private Set<String> zipNames(byte[] content) {
+        Set<String> names = new HashSet<>();
+        try (ZipInputStream zip = new ZipInputStream(new ByteArrayInputStream(content))) {
+            ZipEntry entry;
+            while ((entry = zip.getNextEntry()) != null) names.add(entry.getName());
+            return names;
+        } catch (Exception exception) {
+            throw new AssertionError("unable to inspect user deliverable ZIP", exception);
+        }
     }
 
     private DesignProject validProject() {

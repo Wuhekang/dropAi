@@ -1,0 +1,9 @@
+{
+  "id": "agv",
+  "version": 1,
+  "reusePolicy": "architecture-and-rules-only",
+  "modules": ["frame", "drive", "steering", "battery", "sensor", "control"],
+  "parameterRules": ["derive wheel load from payload distribution", "derive motor torque from rolling resistance and acceleration"],
+  "assemblyRules": ["ground frame", "wheel axes aligned", "battery near center of mass", "sensors keep unobstructed field of view"],
+  "cadRules": ["model welded frame as manufacturable members", "validate service clearances", "validate STEP by reopen"]
+}

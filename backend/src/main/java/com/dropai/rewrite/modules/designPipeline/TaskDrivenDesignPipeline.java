@@ -11,6 +11,7 @@ import com.dropai.rewrite.modules.designReferenceAgent.DesignReferenceAgent;
 import com.dropai.rewrite.modules.mechanicalDesignAgent.MechanicalDesignAgent;
 import com.dropai.rewrite.modules.mechanicalDesignPlanner.MechanicalDesignPlanner;
 import com.dropai.rewrite.modules.mechanicalRealityReviewer.MechanicalRealityReviewer;
+import com.dropai.rewrite.modules.mechanicalWorkflowMemory.MechanicalWorkflowMemory;
 import com.dropai.rewrite.modules.model.DesignProject;
 import com.dropai.rewrite.modules.nonStandardPartGenerator.NonStandardPartGenerator;
 import com.dropai.rewrite.modules.partGeneratorAgent.PartGeneratorAgent;
@@ -44,6 +45,7 @@ public class TaskDrivenDesignPipeline {
     private final CalculationEngine calculationEngine;
     private final DrawingPlanBuilder drawingPlanBuilder;
     private final MechanicalRealityReviewer mechanicalRealityReviewer = new MechanicalRealityReviewer();
+    private final MechanicalWorkflowMemory workflowMemory = new MechanicalWorkflowMemory();
 
     public TaskDrivenDesignPipeline(ProjectSessionReset sessionReset, ParameterEngine parameterEngine,
                                     ProjectAnalyzer projectAnalyzer, StructureTreeBuilder structureTreeBuilder,
@@ -98,6 +100,7 @@ public class TaskDrivenDesignPipeline {
             project = requirementCompleter.complete(project);
         }
         project = projectAnalyzer.analyze(project);
+        project = workflowMemory.apply(project);
         project = mechanicalDesignPlanner.plan(project);
         project = structureTreeBuilder.build(project);
         project = mechanicalDesignAgent.design(project);

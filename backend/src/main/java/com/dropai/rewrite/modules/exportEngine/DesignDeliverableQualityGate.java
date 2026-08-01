@@ -9,6 +9,8 @@ import java.util.List;
 import java.security.MessageDigest;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.imageio.ImageIO;
+import java.io.ByteArrayInputStream;
 
 public class DesignDeliverableQualityGate {
     private static final int MIN_STEP_SIZE = 300;
@@ -52,6 +54,12 @@ public class DesignDeliverableQualityGate {
         }
         assertArtifactSize(artifacts, "assembly.step", MIN_STEP_SIZE, errors);
         assertArtifactSize(artifacts, "paper.docx", MIN_PAPER_SIZE, errors);
+        validateStep(artifacts, errors);
+        validateDrawingValidation(artifacts, errors);
+        validateSvg(artifacts, "assembly.svg", errors);
+        validateSvg(artifacts, "cad_preview.svg", errors);
+        validatePng(artifacts, "assembly.png", errors);
+        validatePng(artifacts, "cad_preview.png", errors);
         artifacts.stream().filter(item -> "assembly-validation.json".equals(item.fileName())).findFirst()
                 .ifPresentOrElse(item -> {
                     String json = new String(item.content(), java.nio.charset.StandardCharsets.UTF_8);
@@ -65,6 +73,7 @@ public class DesignDeliverableQualityGate {
         if (project.getAssemblyModel() == null || project.getAssemblyModel().getConstraints().size() < 5) {
             errors.add("assembly model has fewer than 5 constraints");
         }
+        validateAssemblyReferences(project, errors);
         if (project.getBom() == null || project.getBom().isEmpty()) {
             errors.add("BOM is empty");
         }
@@ -116,7 +125,56 @@ public class DesignDeliverableQualityGate {
             if (entities < minEntities) {
                 errors.add(name + " has too few DXF entities: " + entities);
             }
+            if (!content.contains("SECTION") || !content.endsWith("EOF\n")) {
+                errors.add(name + " is not a complete DXF document");
+            }
         }, () -> errors.add("missing drawing artifact: " + name));
+    }
+
+    private void validateStep(List<DrawingArtifact> artifacts, List<String> errors) {
+        artifacts.stream().filter(item -> "assembly.step".equals(item.fileName())).findFirst().ifPresent(item -> {
+            String content = new String(item.content(), java.nio.charset.StandardCharsets.ISO_8859_1);
+            if (!content.contains("ISO-10303-21") || !content.contains("END-ISO-10303-21")) {
+                errors.add("assembly.step is not a complete STEP exchange file");
+            }
+        });
+    }
+
+    private void validateDrawingValidation(List<DrawingArtifact> artifacts, List<String> errors) {
+        artifacts.stream().filter(item -> "drawing-validation.json".equals(item.fileName())).findFirst()
+                .ifPresentOrElse(item -> {
+                    String json = new String(item.content(), java.nio.charset.StandardCharsets.UTF_8);
+                    if (!json.contains("\"passed\": true") && !json.contains("\"pass\": true")) {
+                        errors.add("drawing-validation.json did not pass");
+                    }
+                }, () -> errors.add("missing drawing-validation.json"));
+    }
+
+    private void validateSvg(List<DrawingArtifact> artifacts, String name, List<String> errors) {
+        artifacts.stream().filter(item -> name.equals(item.fileName())).findFirst().ifPresentOrElse(item -> {
+            String svg = new String(item.content(), java.nio.charset.StandardCharsets.UTF_8).trim();
+            if (!svg.startsWith("<svg") || !svg.endsWith("</svg>")) errors.add(name + " is not renderable SVG");
+        }, () -> errors.add("missing drawing preview: " + name));
+    }
+
+    private void validatePng(List<DrawingArtifact> artifacts, String name, List<String> errors) {
+        artifacts.stream().filter(item -> name.equals(item.fileName())).findFirst().ifPresentOrElse(item -> {
+            try {
+                if (ImageIO.read(new ByteArrayInputStream(item.content())) == null) errors.add(name + " is not a readable PNG");
+            } catch (Exception exception) {
+                errors.add(name + " is not a readable PNG");
+            }
+        }, () -> errors.add("missing drawing preview: " + name));
+    }
+
+    private void validateAssemblyReferences(DesignProject project, List<String> errors) {
+        if (project.getAssemblyModel() == null) return;
+        Set<String> ids = project.getAssemblyModel().getComponents().stream()
+                .map(item -> item.getId()).filter(id -> id != null && !id.isBlank()).collect(Collectors.toSet());
+        project.getAssemblyModel().getConstraints().forEach(item -> {
+            if (!ids.contains(item.getComponentA())) errors.add("assembly constraint references missing component: " + item.getComponentA());
+            if (item.getComponentB() == null || item.getComponentB().isBlank()) errors.add("assembly constraint has empty mate target: " + item.getComponentA());
+        });
     }
 
     private String sha256(byte[] content) {

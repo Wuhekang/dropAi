@@ -1,0 +1,9 @@
+{
+  "id": "wall-climbing-robot",
+  "version": 1,
+  "reusePolicy": "architecture-and-rules-only",
+  "modules": ["frame", "left-track", "right-track", "adhesion", "inspection", "control"],
+  "parameterRules": ["derive adhesion from weight and safety factor", "derive drive torque from slope and resistance"],
+  "assemblyRules": ["ground frame", "track modules symmetric about center plane", "drive wheels coaxial with reducers", "adhesion working faces point toward wall"],
+  "cadRules": ["one manufacturable part per feature tree", "standard parts remain library components", "validate STEP by reopen"]
+}
