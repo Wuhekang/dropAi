@@ -167,13 +167,20 @@ class DesignPackageModuleTests {
     @Test
     void partDrawingEngineProducesMajorEngineeringPartDrawings() {
         List<DrawingArtifact> partDrawings = new DrawingEngine().drawPartDrawing(structuredProject());
-        assertTrue(partDrawings.size() == 5);
+        assertTrue(partDrawings.stream().filter(file -> file.fileName().endsWith(".dxf")).count() == 5);
         String combined = partDrawings.stream()
                 .map(file -> new String(file.content(), StandardCharsets.UTF_8))
                 .reduce("", String::concat);
         assertTrue(combined.contains("结构特征"));
         assertTrue(combined.contains("未注尺寸公差"));
         assertTrue(combined.contains("基准A"));
+        assertTrue(combined.contains("Datum A"));
+        assertTrue(combined.contains("Front View"));
+        assertTrue(combined.contains("Top View"));
+        assertTrue(combined.contains("Side View"));
+        assertTrue(combined.contains("BOM"));
+        assertTrue(combined.contains("材料"));
+        assertTrue(combined.contains("表面处理"));
         assertTrue(combined.contains("位置度"));
     }
 

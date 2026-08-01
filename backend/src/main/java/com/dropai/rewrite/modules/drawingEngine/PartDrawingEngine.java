@@ -15,6 +15,7 @@ public class PartDrawingEngine {
     private final DimensionEngine dimensionEngine = new DimensionEngine();
     private final AnnotationEngine annotationEngine = new AnnotationEngine();
     private final ToleranceGenerator toleranceGenerator = new ToleranceGenerator();
+    private final EngineeringDrawingGenerator engineeringDrawingGenerator = new EngineeringDrawingGenerator();
     private final DrawingPreviewRenderer previewRenderer = new DrawingPreviewRenderer();
 
     public List<DrawingArtifact> drawPartDrawing(DesignProject project) {
@@ -33,6 +34,7 @@ public class PartDrawingEngine {
             annotationEngine.drawMaterialBlock(canvas, part, 535, 275);
             toleranceGenerator.drawDatumAndGdt(canvas, 535, 235);
             toleranceGenerator.drawToleranceBlock(canvas, 535, 92, toleranceGenerator.partRequirements(part, features));
+            engineeringDrawingGenerator.drawPartStandardBlock(canvas, part, features);
             String baseName = "part_%02d".formatted(i + 1);
             result.add(new DrawingArtifact(baseName + ".dxf", canvas.dxf().getBytes(StandardCharsets.UTF_8), "application/dxf"));
             result.add(previewRenderer.svg(baseName + ".svg", canvas));
