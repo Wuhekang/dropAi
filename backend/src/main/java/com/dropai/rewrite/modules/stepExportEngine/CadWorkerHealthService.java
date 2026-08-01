@@ -16,18 +16,23 @@ import java.util.concurrent.TimeUnit;
 public class CadWorkerHealthService {
     private final CadWorkerProperties properties;
     private final CadWorkerLocator locator;
+    private final CadWorkerEnvironmentChecker environmentChecker;
     private final ObjectMapper objectMapper;
 
-    public CadWorkerHealthService(CadWorkerProperties properties, CadWorkerLocator locator, ObjectMapper objectMapper) {
+    public CadWorkerHealthService(CadWorkerProperties properties, CadWorkerLocator locator,
+                                  CadWorkerEnvironmentChecker environmentChecker, ObjectMapper objectMapper) {
         this.properties = properties;
         this.locator = locator;
+        this.environmentChecker = environmentChecker;
         this.objectMapper = objectMapper;
     }
 
     public Map<String, Object> health() {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("enabled", properties.isEnabled());
-        result.put("pythonCommand", properties.getPython());
+        result.put("configuredPythonCommand", properties.getPython());
+        result.put("pythonCommand", locator.locatePython());
+        result.put("isolatedEnvironment", locator.usingIsolatedPython());
         result.put("engine", properties.getEngine());
         result.put("lastCheckedAt", Instant.now().toString());
         if (!properties.isEnabled()) {
@@ -39,7 +44,15 @@ public class CadWorkerHealthService {
             Path script = locator.locateScript();
             result.put("scriptLocated", true);
             result.put("scriptFileName", script.getFileName().toString());
-            Process process = new ProcessBuilder(properties.getPython(), script.toAbsolutePath().toString(), "--health")
+            Map<String, Object> env = environmentChecker.check();
+            result.put("environment", env);
+            if (!"UP".equals(env.get("status"))) {
+                result.put("status", "DOWN");
+                result.put("errorCode", env.getOrDefault("errorCode", "CAD_WORKER_ENV_INVALID"));
+                result.put("message", env.getOrDefault("message", "CAD worker environment is invalid"));
+                return result;
+            }
+            Process process = new ProcessBuilder(locator.locatePython(), script.toAbsolutePath().toString(), "--health")
                     .redirectErrorStream(true)
                     .start();
             boolean finished = process.waitFor(Duration.ofSeconds(Math.min(30, Math.max(5, properties.getTimeoutSeconds()))).toMillis(), TimeUnit.MILLISECONDS);
@@ -71,7 +84,7 @@ public class CadWorkerHealthService {
         } catch (Exception exception) {
             result.put("status", "DOWN");
             result.put("errorCode", "CAD_WORKER_SCRIPT_NOT_FOUND");
-            result.put("message", "CAD Worker script is not reachable from the configured path or packaged resource");
+            result.put("message", "CAD Worker script or Python environment is not reachable from the configured path or packaged resource");
             return result;
         }
     }

@@ -39,6 +39,36 @@ public class CadWorkerLocator {
         return Path.of(System.getProperty("java.io.tmpdir"), "dropai-cad-worker").toAbsolutePath().normalize();
     }
 
+    public String locatePython() {
+        String envPython = System.getenv("CAD_WORKER_PYTHON");
+        if (hasText(envPython) && Files.isRegularFile(Path.of(envPython))) {
+            return Path.of(envPython).toAbsolutePath().normalize().toString();
+        }
+        for (Path candidate : venvPythonCandidates()) {
+            if (Files.isRegularFile(candidate)) {
+                return candidate.toAbsolutePath().normalize().toString();
+            }
+        }
+        if (hasText(properties.getPython())) {
+            return properties.getPython();
+        }
+        return "python";
+    }
+
+    public boolean usingIsolatedPython() {
+        String python = locatePython().toLowerCase();
+        return python.contains("\\cad_worker\\.venv\\") || python.contains("/cad_worker/.venv/");
+    }
+
+    private List<Path> venvPythonCandidates() {
+        Path userDir = Path.of(System.getProperty("user.dir", ".")).toAbsolutePath().normalize();
+        return List.of(
+                userDir.resolve(Path.of("cad_worker", ".venv", "Scripts", "python.exe")),
+                userDir.resolve(Path.of("backend", "cad_worker", ".venv", "Scripts", "python.exe")),
+                locateScript().getParent().resolve(Path.of(".venv", "Scripts", "python.exe"))
+        );
+    }
+
     private Path extractClasspathWorker() {
         ClassPathResource resource = new ClassPathResource("cad-worker/cad_worker.py");
         if (!resource.exists()) {

@@ -31,11 +31,19 @@ public class StepExportEngine {
     private final CadWorkerLocator locator;
 
     public StepExportEngine() {
-        this(new ObjectMapper(), new CadWorkerProperties(), null);
+        this(new ObjectMapper(), defaultProperties());
     }
 
     public StepExportEngine(ObjectMapper objectMapper) {
-        this(objectMapper, new CadWorkerProperties(), null);
+        this(objectMapper, defaultProperties());
+    }
+
+    private StepExportEngine(ObjectMapper objectMapper, CadWorkerProperties properties) {
+        this(objectMapper, properties, new CadWorkerLocator(properties));
+    }
+
+    private static CadWorkerProperties defaultProperties() {
+        return new CadWorkerProperties();
     }
 
     @Autowired
@@ -57,7 +65,8 @@ public class StepExportEngine {
             Files.createDirectories(output);
             objectMapper.writerWithDefaultPrettyPrinter().writeValue(input.toFile(), project);
 
-            Process process = new ProcessBuilder(properties.getPython(), worker.toAbsolutePath().toString(), input.toAbsolutePath().toString(), output.toAbsolutePath().toString())
+            String python = locator == null ? properties.getPython() : locator.locatePython();
+            Process process = new ProcessBuilder(python, worker.toAbsolutePath().toString(), input.toAbsolutePath().toString(), output.toAbsolutePath().toString())
                     .directory(workspace.toFile())
                     .redirectErrorStream(true)
                     .start();
