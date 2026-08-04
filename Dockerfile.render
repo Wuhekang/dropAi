@@ -18,29 +18,19 @@ WORKDIR /app
 ENV TZ=Asia/Shanghai
 ENV SPRING_PROFILES_ACTIVE=demo
 ENV APP_DATA_DIR=/app/data
-ENV CAD_WORKER_PYTHON=/opt/dropai-cad-venv/bin/python
-ENV CAD_WORKER_SCRIPT=/app/cad_worker/cad_worker.py
-ENV CAD_WORKER_WORK_DIR=/tmp/dropai-cad-worker
+ENV FREECAD_CMD=/usr/local/bin/freecadcmd
 ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=60.0"
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends openjdk-17-jre-headless fonts-noto-cjk fontconfig libgl1 libglib2.0-0 libxrender1 libxext6 ca-certificates bash \
+    && apt-get install -y --no-install-recommends openjdk-17-jre-headless fonts-noto-cjk fontconfig libgl1 libglib2.0-0 libxrender1 libxext6 ca-certificates bash freecad freecad-python3 \
     && python --version \
     && python3 --version \
-    && python -m venv /opt/dropai-cad-venv \
-    && /opt/dropai-cad-venv/bin/python --version \
-    && /opt/dropai-cad-venv/bin/python -c "import sys; assert sys.version_info[:2] == (3, 11), sys.version; print(sys.executable)" \
-    && /opt/dropai-cad-venv/bin/python -m pip install --no-cache-dir --upgrade pip setuptools wheel \
+    && FREECAD_BIN="$(command -v freecadcmd || command -v FreeCADCmd || find /usr -type f -name FreeCADCmd -print -quit)" \
+    && test -n "$FREECAD_BIN" \
+    && ln -s "$FREECAD_BIN" /usr/local/bin/freecadcmd \
+    && /usr/local/bin/freecadcmd --version \
     && fc-cache -f -v \
     && rm -rf /var/lib/apt/lists/* \
-    && mkdir -p /app/data /app/storage/uploads /app/storage/outputs /app/storage/jobs /tmp/dropai-cad-worker
+    && mkdir -p /app/data /app/storage/uploads /app/storage/outputs /app/storage/jobs
 COPY --from=backend-build /backend/target/*.jar /app/app.jar
-COPY backend/src/main/resources/cad-worker/ /app/cad_worker/
-COPY scripts/render-cad-preflight.sh /app/scripts/render-cad-preflight.sh
-RUN chmod +x /app/scripts/render-cad-preflight.sh \
-    && /opt/dropai-cad-venv/bin/python -m pip install --no-cache-dir -r /app/cad_worker/requirements.txt \
-    && /opt/dropai-cad-venv/bin/python -m pip check \
-    && /opt/dropai-cad-venv/bin/python -m pip show cadquery \
-    && /opt/dropai-cad-venv/bin/python -c "import sys; import cadquery as cq; import OCP; assert sys.version_info[:2] == (3, 11), sys.version; print('PYTHON=', sys.version); print('EXECUTABLE=', sys.executable); print('CADQUERY=', cq.__version__); print('OCP_OK')" \
-    && /app/scripts/render-cad-preflight.sh
 EXPOSE 8080
 ENTRYPOINT ["java", "-jar", "/app/app.jar"]

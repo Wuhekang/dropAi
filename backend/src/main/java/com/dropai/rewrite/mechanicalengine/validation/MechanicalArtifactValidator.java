@@ -16,7 +16,11 @@ import java.util.Set;
 @Service
 public class MechanicalArtifactValidator {
     private final ObjectMapper mapper;
-    public MechanicalArtifactValidator(ObjectMapper mapper) { this.mapper = mapper; }
+    private final CADRealityValidator realityValidator;
+    public MechanicalArtifactValidator(ObjectMapper mapper, CADRealityValidator realityValidator) {
+        this.mapper = mapper;
+        this.realityValidator = realityValidator;
+    }
 
     public ValidationReport validate(MechanicalProject project, Path root) {
         List<String> errors = new ArrayList<>();
@@ -32,7 +36,7 @@ public class MechanicalArtifactValidator {
         }
         requireStep(root.resolve("02_STEP/Assembly.STEP"), "assembly STEP", errors);
         requireStl(root.resolve("02_STEP/Assembly.stl"), errors);
-        validateReceipt(root.resolve("02_STEP/brep-validation.json"), project.getParts().size(), errors);
+        errors.addAll(realityValidator.validate(project, root));
         requireSvg(root.resolve("03_Drawing/Assembly.svg"), "assembly drawing", errors);
         validateProjection(root.resolve("03_Drawing/projection-lines.json"), errors);
         requireDxf(root.resolve("03_Drawing/Assembly.dxf"), errors);
@@ -44,17 +48,6 @@ public class MechanicalArtifactValidator {
         return new ValidationReport(errors.isEmpty(), errors);
     }
 
-    private void validateReceipt(Path file, int expectedParts, List<String> errors) {
-        try {
-            JsonNode node = mapper.readTree(file.toFile());
-            if (!node.path("passed").asBoolean()) errors.add("OpenCascade BRep validation did not pass");
-            if (!"OpenCascade".equals(node.path("kernel").asText())) errors.add("geometry kernel is not OpenCascade");
-            if (node.path("parts").size() != expectedParts) errors.add("validated part count does not match CAD DSL");
-            for (JsonNode part : node.path("parts")) {
-                if (part.path("volume").asDouble() <= 0 || part.path("solidCount").asInt() <= 0) errors.add("BRep contains an empty part");
-            }
-        } catch (Exception exception) { errors.add("BRep validation receipt is missing or invalid"); }
-    }
     private void requireStep(Path file, String label, List<String> errors) {
         String value = text(file, label, errors);
         if (!value.contains("ISO-10303-21") || !value.contains("END-ISO-10303-21")) errors.add(label + " is incomplete");

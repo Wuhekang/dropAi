@@ -300,17 +300,6 @@ export function generateEngineeringDocument(data) {
   })
 }
 
-export function submitEngineeringWorkflow(data) {
-  return request.post('/engineering-writing/workflows', data, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-    timeout: 120000
-  })
-}
-
-export function getEngineeringWorkflow(workflowId) {
-  return request.get(`/engineering-writing/workflows/${workflowId}`)
-}
-
 export function analyzeEngineeringDesign(data) {
   return request.post('/engineering-writing/analyze', data, {
     headers: { 'Content-Type': 'multipart/form-data' },
@@ -322,16 +311,12 @@ export function getEngineeringAiStatus() {
   return request.get('/engineering-writing/ai/status', { timeout: 240000 })
 }
 
-export function downloadEngineeringDxf(params) {
-  return request.get('/engineering-writing/cad/dxf', {
-    params,
-    responseType: 'blob',
-    timeout: 120000
-  })
-}
-
 export function designMechanicalProject(payload) {
   return request.post('/mechanical/projects/design', payload, { timeout: 120000 })
+}
+
+export function designMechanicalSpec(payload) {
+  return request.post('/mechanical/projects/design-spec', payload, { timeout: 120000 })
 }
 
 export function executeMechanicalProject(payload) {

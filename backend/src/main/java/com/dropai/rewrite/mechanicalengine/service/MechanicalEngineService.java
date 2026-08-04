@@ -5,7 +5,7 @@ import com.dropai.rewrite.entity.DocumentJobRecord;
 import com.dropai.rewrite.mapper.DocumentJobMapper;
 import com.dropai.rewrite.mechanicalengine.cad.CadDslService;
 import com.dropai.rewrite.mechanicalengine.cad.FreeCadExecutor;
-import com.dropai.rewrite.mechanicalengine.cad.FreeCadJobGenerator;
+import com.dropai.rewrite.mechanicalengine.cadcore.PartDesignJobGenerator;
 import com.dropai.rewrite.mechanicalengine.domain.MechanicalProject;
 import com.dropai.rewrite.mechanicalengine.validation.MechanicalArtifactValidator;
 import org.springframework.stereotype.Service;
@@ -19,7 +19,7 @@ import java.util.UUID;
 public class MechanicalEngineService {
     private final MechanicalChiefEngineer chiefEngineer;
     private final CadDslService cadDslService;
-    private final FreeCadJobGenerator jobGenerator;
+    private final PartDesignJobGenerator jobGenerator;
     private final FreeCadExecutor executor;
     private final EngineeringArtifactService artifactService;
     private final MechanicalArtifactValidator validator;
@@ -27,7 +27,7 @@ public class MechanicalEngineService {
     private final DocumentJobMapper mapper;
 
     public MechanicalEngineService(MechanicalChiefEngineer chiefEngineer, CadDslService cadDslService,
-                                   FreeCadJobGenerator jobGenerator, FreeCadExecutor executor,
+                                   PartDesignJobGenerator jobGenerator, FreeCadExecutor executor,
                                    EngineeringArtifactService artifactService, MechanicalArtifactValidator validator,
                                    MechanicalPackageBuilder packageBuilder, DocumentJobMapper mapper) {
         this.chiefEngineer = chiefEngineer; this.cadDslService = cadDslService; this.jobGenerator = jobGenerator;
@@ -37,22 +37,24 @@ public class MechanicalEngineService {
 
     public MechanicalProject execute(String requirementText) {
         MechanicalProject project = chiefEngineer.design(requirementText);
-        pass(project,"REQUIREMENT_UNDERSTANDING","Product, usage, and functions extracted without copying task-book dimensions.");
-        pass(project,"CONCEPT_DESIGN","Three concepts compared; the highest-scoring feasible architecture was selected.");
-        pass(project,"PARAMETER_GENERATION","Dimensions, load, material, and safety factor generated with reasons.");
-        pass(project,"MECHANICAL_ARCHITECTURE","Functional modules and meaningful parts defined.");
-        pass(project,"CAD_DSL","Part intents, BRep features, materials, processes, and constraints encoded in CAD DSL.");
+        pass(project,"PRODUCT_DEFINITION","Product type, purpose, environment, performance goals, and operating conditions identified.");
+        pass(project,"FUNCTIONAL_DECOMPOSITION","Function tree created before physical architecture selection.");
+        pass(project,"MECHANICAL_ARCHITECTURE","Modules, interfaces, installation methods, load path, and motion path defined.");
+        pass(project,"PART_PLANNING","Every part has a function, material, manufacturing process, and CAD feature intent.");
+        pass(project,"ENGINEERING_PARAMETERS","Dimensions, load, material, and safety factor generated with engineering reasons.");
+        pass(project,"ASSEMBLY_INTENT","Fixed, coincident, slider, and concentric relationships defined without design-stage coordinates.");
+        pass(project,"FEATURE_SPEC","Constrained sketches and ordered PartDesign features encoded in FeatureBasedCADSpec.");
         Path workspace;
         try { workspace=Files.createTempDirectory("dropai-cad-"+project.getProjectId()); }
         catch(Exception e){ return fail(project,"WORKSPACE_CREATE_FAILED",e.getMessage()); }
 
         Path spec=cadDslService.write(project,workspace);
         Path script=jobGenerator.generate(workspace);
-        running(project,"BREP_GENERATION","Generating parameterized OpenCascade BRep solids through FreeCADCmd.");
+        running(project,"FEATURE_EXECUTION","Executing Sketcher and PartDesign feature histories through FreeCADCmd.");
         FreeCadExecutor.ExecutionResult result=executor.execute(script,spec,workspace);
         if(!result.success()) return fail(project,result.errorCode(),result.message());
-        pass(project,"BREP_GENERATION","OpenCascade BRep parts and assembly generated.");
-        pass(project,"ASSEMBLY","Placements and mechanical constraints applied to the assembly.");
+        pass(project,"FEATURE_EXECUTION","FreeCAD PartDesign bodies and editable feature histories generated.");
+        pass(project,"ASSEMBLY","Assembly constraint objects created and solved into component placements.");
         pass(project,"STEP_EXPORT","Assembly and per-part STEP files exported from BRep solids.");
 
         artifactService.generate(project,workspace);
@@ -61,7 +63,7 @@ public class MechanicalEngineService {
         pass(project,"DOCUMENTATION","Design report generated and bound to project data.");
         MechanicalArtifactValidator.ValidationReport validation=validator.validate(project,workspace);
         if(!validation.passed()) return fail(project,"ARTIFACT_VALIDATION_FAILED",String.join("; ",validation.errors()));
-        pass(project,"VALIDATION","BRep volume, feature diversity, STEP, assembly, drawing, analysis, and document checks passed.");
+        pass(project,"VALIDATION","PartDesign bodies, sketches, feature histories, solved constraints, STEP, drawings, and documents passed reality checks.");
 
         try {
             persistFile(project,workspace.resolve("02_STEP/Assembly.stl"),"Assembly.stl","MODEL","model/stl");

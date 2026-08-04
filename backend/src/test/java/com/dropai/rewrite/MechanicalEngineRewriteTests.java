@@ -1,10 +1,13 @@
 package com.dropai.rewrite;
 
 import com.dropai.rewrite.mechanicalengine.cad.CadDslService;
-import com.dropai.rewrite.mechanicalengine.cad.FreeCadJobGenerator;
+import com.dropai.rewrite.mechanicalengine.cadcore.FeatureBasedCadSpec;
+import com.dropai.rewrite.mechanicalengine.cadcore.FeatureInterpreter;
+import com.dropai.rewrite.mechanicalengine.cadcore.PartDesignJobGenerator;
 import com.dropai.rewrite.mechanicalengine.domain.MechanicalProject;
 import com.dropai.rewrite.mechanicalengine.service.MechanicalChiefEngineer;
 import com.dropai.rewrite.mechanicalengine.service.MechanicalPackageBuilder;
+import com.dropai.rewrite.mechanicalengine.validation.CADRealityValidator;
 import com.dropai.rewrite.mechanicalengine.validation.MechanicalArtifactValidator;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -20,49 +23,76 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class MechanicalEngineRewriteTests {
     private final ObjectMapper mapper = new ObjectMapper();
+    private final FeatureInterpreter interpreter = new FeatureInterpreter();
 
     @Test
-    void clampDemoProducesIntentDrivenCadDslAndAssemblyConstraints() throws Exception {
-        MechanicalProject project = new MechanicalChiefEngineer().design("设计一个可调自动夹具");
-        assertEquals("参数化丝杆自动夹具", project.getProductName());
+    void clampDemoProducesPartDesignFeatureSpecAndConstraints() throws Exception {
+        MechanicalProject project = new MechanicalChiefEngineer().design("automatic clamp");
         assertEquals(5, project.getParts().size());
-        assertTrue(project.getParts().stream().allMatch(p -> !p.purpose().isBlank() && !p.manufacturing().isBlank()));
-        assertTrue(project.getParts().stream().flatMap(p -> p.features().stream()).anyMatch(f -> "hole_pattern".equals(f.type())));
-        assertTrue(project.getParts().stream().flatMap(p -> p.features().stream()).anyMatch(f -> "revolve".equals(f.type())));
+        assertTrue(project.getParts().stream().allMatch(part ->
+                part.features().stream().anyMatch(feature -> "SKETCH".equals(feature.type())) &&
+                part.features().stream().anyMatch(feature -> "PAD".equals(feature.type()))));
+        assertTrue(project.getParts().stream().flatMap(part -> part.features().stream()).anyMatch(feature -> "HOLE".equals(feature.type())));
+        assertTrue(project.getParts().stream().flatMap(part -> part.features().stream()).anyMatch(feature -> "FILLET".equals(feature.type())));
         assertEquals(project.getAssembly().getComponents().size(), project.getAssembly().getConstraints().size());
-        assertTrue(project.getParameters().stream().allMatch(p -> !p.reason().isBlank()));
-        Path root=Files.createTempDirectory("cad-dsl-");
-        Path spec=new CadDslService(mapper).write(project,root);
-        assertEquals(5,mapper.readTree(spec.toFile()).path("parts").size());
-        assertTrue(Files.readString(new FreeCadJobGenerator().generate(root)).contains("OpenCascade"));
+
+        FeatureBasedCadSpec featureSpec = FeatureBasedCadSpec.from(project);
+        assertDoesNotThrow(() -> interpreter.validate(featureSpec));
+        Path root = Files.createTempDirectory("feature-cad-");
+        Path spec = new CadDslService(mapper, interpreter).write(project, root);
+        assertEquals(5, mapper.readTree(spec.toFile()).path("parts").size());
+        String script = Files.readString(new PartDesignJobGenerator().generate(root));
+        assertTrue(script.contains("PartDesign::Body"));
+        assertTrue(script.contains("Sketcher::SketchObject"));
+        assertTrue(script.contains("PartDesign::Pad"));
+        assertTrue(script.contains("PartDesign::Hole"));
+        assertTrue(script.contains("PartDesign::Fillet"));
+        assertFalse(script.contains("makeBox"));
+        assertFalse(script.contains("makeCylinder"));
+        assertFalse(script.contains("makeSphere"));
     }
 
     @Test
-    void validatorRejectsFakeOrEmptyArtifacts() throws Exception {
-        Path root=Files.createTempDirectory("cad-invalid-");
-        MechanicalProject project=new MechanicalChiefEngineer().design("自动夹具");
+    void interpreterRejectsPrimitiveAndIncompleteFeatureSpecs() {
+        MechanicalProject project = new MechanicalChiefEngineer().design("automatic clamp");
+        FeatureBasedCadSpec valid = FeatureBasedCadSpec.from(project);
+        FeatureBasedCadSpec invalid = new FeatureBasedCadSpec(valid.projectId(), java.util.List.of(
+                new FeatureBasedCadSpec.Part("P999", "Forbidden", "Q235B", java.util.List.of(
+                        new FeatureBasedCadSpec.Feature(1, "BOX", "forbidden", java.util.Map.of())
+                ))), valid.assembly());
+        IllegalArgumentException failure = assertThrows(IllegalArgumentException.class,
+                () -> interpreter.validate(invalid));
+        assertTrue(failure.getMessage().contains("unsupported feature BOX"));
+    }
+
+    @Test
+    void realityValidatorRejectsMissingFeatureHistory() throws Exception {
+        Path root = Files.createTempDirectory("cad-invalid-");
+        MechanicalProject project = new MechanicalChiefEngineer().design("automatic clamp");
         Files.createDirectories(root.resolve("01_Model/Parts"));
         Files.createDirectories(root.resolve("02_STEP"));
-        Files.writeString(root.resolve("01_Model/Assembly.FCStd"),"fake");
-        for(var part:project.getParts()) Files.writeString(root.resolve("01_Model/Parts/"+part.partNumber()+".brep"),"box");
-        Files.writeString(root.resolve("02_STEP/Assembly.STEP"),"fake step");
-        var report=new MechanicalArtifactValidator(mapper).validate(project,root);
+        Files.writeString(root.resolve("01_Model/Assembly.FCStd"), "fake");
+        for (var part : project.getParts()) Files.writeString(root.resolve("01_Model/Parts/" + part.partNumber() + ".brep"), "box");
+        Files.writeString(root.resolve("02_STEP/Assembly.STEP"), "fake step");
+        var report = new MechanicalArtifactValidator(mapper, new CADRealityValidator(mapper)).validate(project, root);
         assertFalse(report.passed());
-        assertTrue(report.errors().stream().anyMatch(e->e.contains("not an OpenCascade BRep")));
-        assertTrue(report.errors().stream().anyMatch(e->e.contains("assembly STEP is incomplete")));
+        assertTrue(report.errors().stream().anyMatch(error -> error.contains("CAD reality report is missing")));
     }
 
     @Test
     void packageContainsOnlyFiveUserFacingEngineeringFolders() throws Exception {
-        Path root=Files.createTempDirectory("cad-package-");
-        Set<String> expected=new HashSet<>();
-        for(String directory:new String[]{"01_Model","02_STEP","03_Drawing","04_Document","05_Analysis"}){
-            Files.createDirectories(root.resolve(directory)); Files.writeString(root.resolve(directory+"/artifact.bin"),directory);
-            expected.add(directory+"/artifact.bin");
+        Path root = Files.createTempDirectory("cad-package-");
+        Set<String> expected = new HashSet<>();
+        for (String directory : new String[]{"01_Model", "02_STEP", "03_Drawing", "04_Document", "05_Analysis"}) {
+            Files.createDirectories(root.resolve(directory));
+            Files.writeString(root.resolve(directory + "/artifact.bin"), directory);
+            expected.add(directory + "/artifact.bin");
         }
-        Files.writeString(root.resolve("cad-model-spec.json"),"internal");
-        byte[] zip=new MechanicalPackageBuilder().build(root); Set<String> names=new HashSet<>();
-        try(ZipInputStream input=new ZipInputStream(new ByteArrayInputStream(zip))){for(var entry=input.getNextEntry();entry!=null;entry=input.getNextEntry())names.add(entry.getName());}
-        assertEquals(expected,names);
+        byte[] zip = new MechanicalPackageBuilder().build(root);
+        Set<String> names = new HashSet<>();
+        try (ZipInputStream input = new ZipInputStream(new ByteArrayInputStream(zip))) {
+            for (var entry = input.getNextEntry(); entry != null; entry = input.getNextEntry()) names.add(entry.getName());
+        }
+        assertEquals(expected, names);
     }
 }

@@ -2,6 +2,7 @@ package com.dropai.rewrite.mechanicalengine.controller;
 
 import com.dropai.rewrite.vo.Result;
 import com.dropai.rewrite.mechanicalengine.domain.MechanicalProject;
+import com.dropai.rewrite.mechanicalengine.domain.MechanicalDesignSpec;
 import com.dropai.rewrite.mechanicalengine.plugin.EngineeringPluginManager;
 import com.dropai.rewrite.mechanicalengine.service.MechanicalChiefEngineer;
 import com.dropai.rewrite.mechanicalengine.service.MechanicalEngineService;
@@ -35,6 +36,11 @@ public class MechanicalEngineController {
     @PostMapping("/design")
     public Result<MechanicalProject> design(@RequestBody MechanicalRequest request) {
         return Result.success(chiefEngineer.design(request.requirement()));
+    }
+
+    @PostMapping("/design-spec")
+    public Result<MechanicalDesignSpec> designSpec(@RequestBody MechanicalRequest request) {
+        return Result.success(chiefEngineer.designSpec(request.requirement()));
     }
 
     @PostMapping("/execute")

@@ -12,6 +12,7 @@ public class MechanicalProject {
     private String currentStage = "REQUIREMENT_UNDERSTANDING";
     private String failureCode = "";
     private String failureMessage = "";
+    private MechanicalDesignSpec designSpec;
     private FunctionalRequirement requirement = new FunctionalRequirement();
     private MechanicalConcept concept = new MechanicalConcept();
     private List<EngineeringParameter> parameters = new ArrayList<>();
@@ -29,6 +30,7 @@ public class MechanicalProject {
     public String getCurrentStage() { return currentStage; } public void setCurrentStage(String v) { currentStage = v; }
     public String getFailureCode() { return failureCode; } public void setFailureCode(String v) { failureCode = v; }
     public String getFailureMessage() { return failureMessage; } public void setFailureMessage(String v) { failureMessage = v; }
+    public MechanicalDesignSpec getDesignSpec() { return designSpec; } public void setDesignSpec(MechanicalDesignSpec v) { designSpec = v; }
     public FunctionalRequirement getRequirement() { return requirement; } public void setRequirement(FunctionalRequirement v) { requirement = v; }
     public MechanicalConcept getConcept() { return concept; } public void setConcept(MechanicalConcept v) { concept = v; }
     public List<EngineeringParameter> getParameters() { return parameters; } public void setParameters(List<EngineeringParameter> v) { parameters = v; }
