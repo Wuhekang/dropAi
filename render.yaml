@@ -4,6 +4,7 @@ services:
     runtime: docker
     plan: free
     dockerfilePath: ./Dockerfile.render
+    healthCheckPath: /healthz
     envVars:
       - key: SPRING_PROFILES_ACTIVE
         value: aiven
@@ -48,7 +49,7 @@ services:
       - key: FREECAD_CMD
         value: /usr/local/bin/freecadcmd
       - key: APP_BASE_URL
-        value: https://dro.k8818.cn
+        value: https://dropai-demo.com
       - key: EPAY_GATEWAY
         value: https://pay.dropai-demo.com/submit.php
       - key: EPAY_PID
@@ -56,9 +57,9 @@ services:
       - key: EPAY_KEY
         sync: false
       - key: EPAY_NOTIFY_URL
-        value: https://dro.k8818.cn/api/recharge/notify
+        value: https://dropai-demo.com/api/recharge/notify
       - key: EPAY_RETURN_URL
-        value: https://dro.k8818.cn/recharge
+        value: https://dropai-demo.com/recharge
       - key: EPAY_SITE_NAME
         value: DropAI
       - key: EPAY_DEFAULT_TYPE
