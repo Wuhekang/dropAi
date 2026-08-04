@@ -24,19 +24,26 @@ public class MechanicalEngineService {
     private final EngineeringArtifactService artifactService;
     private final MechanicalArtifactValidator validator;
     private final MechanicalPackageBuilder packageBuilder;
+    private final MechanicalAnalysisEngine analysisEngine;
     private final DocumentJobMapper mapper;
 
     public MechanicalEngineService(MechanicalChiefEngineer chiefEngineer, CadDslService cadDslService,
                                    PartDesignJobGenerator jobGenerator, FreeCadExecutor executor,
                                    EngineeringArtifactService artifactService, MechanicalArtifactValidator validator,
-                                   MechanicalPackageBuilder packageBuilder, DocumentJobMapper mapper) {
+                                   MechanicalPackageBuilder packageBuilder, MechanicalAnalysisEngine analysisEngine, DocumentJobMapper mapper) {
         this.chiefEngineer = chiefEngineer; this.cadDslService = cadDslService; this.jobGenerator = jobGenerator;
         this.executor = executor; this.artifactService = artifactService; this.validator = validator;
         this.packageBuilder = packageBuilder; this.mapper = mapper;
+        this.analysisEngine = analysisEngine;
     }
 
     public MechanicalProject execute(String requirementText) {
         MechanicalProject project = chiefEngineer.design(requirementText);
+        project.setAnalysisReport(analysisEngine.analyze(project.getDesignSpec()));
+        project.getAnalysis().setMaximumStressMpa(project.getAnalysisReport().estimatedStressMpa());
+        project.getAnalysis().setDisplacementMm(project.getAnalysisReport().estimatedDisplacementMm());
+        project.getAnalysis().setSafetyFactor(project.getAnalysisReport().safetyFactor());
+        project.getAnalysis().setConclusion(project.getAnalysisReport().conclusion());
         pass(project,"PRODUCT_DEFINITION","Product type, purpose, environment, performance goals, and operating conditions identified.");
         pass(project,"FUNCTIONAL_DECOMPOSITION","Function tree created before physical architecture selection.");
         pass(project,"MECHANICAL_ARCHITECTURE","Modules, interfaces, installation methods, load path, and motion path defined.");

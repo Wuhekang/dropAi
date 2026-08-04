@@ -1,13 +1,17 @@
 package com.dropai.rewrite.mechanicalengine.service;
 
 import com.dropai.rewrite.mechanicalengine.domain.MechanicalDesignSpec;
+import com.dropai.rewrite.mechanicalengine.productplanner.ProductFamily;
+import com.dropai.rewrite.mechanicalengine.productplanner.ProductPlanner;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.Map;
 
 @Service
-public class MechanicalDesignPlanner {
+public class MechanicalDesignPlanner implements ProductPlanner {
+    public ProductFamily family() { return ProductFamily.FIXTURE; }
+
     public MechanicalDesignSpec plan(String requirement) {
         if (requirement == null || requirement.isBlank()) throw new IllegalArgumentException("Mechanical requirement cannot be empty");
         String normalized = requirement.toLowerCase();
@@ -48,7 +52,8 @@ public class MechanicalDesignPlanner {
                 part("P005", "旋转把手", "M03", "向丝杆输入人工转矩", "Q235", "车削",
                         feature(1,"SKETCH","建立把手截面",Map.of("profile","circle","diameter",10)),
                         feature(2,"PAD","形成180 mm把手杆",Map.of("length",180)),
-                        feature(3,"FILLET","消除握持端锐边",Map.of("radius",2)))
+                        feature(3,"HOLE","形成端部防脱销孔",Map.of("diameter",4,"depth",10)),
+                        feature(4,"FILLET","消除握持端锐边",Map.of("radius",2)))
         );
         return new MechanicalDesignSpec(
                 new MechanicalDesignSpec.Product("automatic_clamp", "可调梯形丝杆夹具", "工件定位与可靠夹紧", "室内机加工环境", "梯形丝杆将输入转矩转换为移动钳口轴向夹紧力", List.of("定位", "夹紧", "自锁", "快速维护")),

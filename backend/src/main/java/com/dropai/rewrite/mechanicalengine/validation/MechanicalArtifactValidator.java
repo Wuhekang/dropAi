@@ -40,6 +40,7 @@ public class MechanicalArtifactValidator {
         requireSvg(root.resolve("03_Drawing/Assembly.svg"), "assembly drawing", errors);
         validateProjection(root.resolve("03_Drawing/projection-lines.json"), errors);
         requireDxf(root.resolve("03_Drawing/Assembly.dxf"), errors);
+        validateDrawingMetadata(root.resolve("03_Drawing/drawing-metadata.json"), project, errors);
         requirePdf(root.resolve("03_Drawing/Assembly_Drawing.pdf"), "drawing PDF", errors);
         for (MechanicalProject.CADModelSpec part : project.getParts()) requireSvg(root.resolve("03_Drawing/Parts_Drawing/" + part.partNumber() + ".svg"), "part drawing " + part.partNumber(), errors);
         requireSvg(root.resolve("05_Analysis/stress-cloud.svg"), "analysis cloud", errors);
@@ -69,6 +70,16 @@ public class MechanicalArtifactValidator {
             JsonNode node=mapper.readTree(file.toFile());
             if(node.path("front").isEmpty()||node.path("top").isEmpty()||node.path("right").isEmpty()) errors.add("BRep drawing projections are incomplete");
         } catch(Exception exception) { errors.add("BRep drawing projection data is missing or invalid"); }
+    }
+    private void validateDrawingMetadata(Path file, MechanicalProject project, List<String> errors) {
+        try {
+            JsonNode node = mapper.readTree(file.toFile());
+            if (!"FreeCAD PartDesign BRep".equals(node.path("source").asText())) errors.add("drawing is not traceable to PartDesign BRep");
+            if (node.path("views").size() < 3) errors.add("drawing metadata has fewer than three views");
+            if (node.path("generalTolerance").asText().isBlank()) errors.add("drawing has no general tolerance");
+            if (node.path("materials").size() != project.getParts().size()) errors.add("drawing material table is incomplete");
+            if (node.path("technicalRequirements").isEmpty()) errors.add("drawing technical requirements are missing");
+        } catch (Exception exception) { errors.add("drawing metadata is missing or invalid"); }
     }
     private void requirePdf(Path file, String label, List<String> errors) {
         try {

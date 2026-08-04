@@ -20,6 +20,7 @@ public class MechanicalProject {
     private List<CADModelSpec> parts = new ArrayList<>();
     private DrawingSpec drawings = new DrawingSpec();
     private AnalysisSpec analysis = new AnalysisSpec();
+    private MechanicalAnalysisReport analysisReport;
     private List<StageState> stages = new ArrayList<>();
     private List<Artifact> artifacts = new ArrayList<>();
 
@@ -38,6 +39,7 @@ public class MechanicalProject {
     public List<CADModelSpec> getParts() { return parts; } public void setParts(List<CADModelSpec> v) { parts = v; }
     public DrawingSpec getDrawings() { return drawings; } public void setDrawings(DrawingSpec v) { drawings = v; }
     public AnalysisSpec getAnalysis() { return analysis; } public void setAnalysis(AnalysisSpec v) { analysis = v; }
+    public MechanicalAnalysisReport getAnalysisReport() { return analysisReport; } public void setAnalysisReport(MechanicalAnalysisReport v) { analysisReport = v; }
     public List<StageState> getStages() { return stages; } public void setStages(List<StageState> v) { stages = v; }
     public List<Artifact> getArtifacts() { return artifacts; } public void setArtifacts(List<Artifact> v) { artifacts = v; }
 
