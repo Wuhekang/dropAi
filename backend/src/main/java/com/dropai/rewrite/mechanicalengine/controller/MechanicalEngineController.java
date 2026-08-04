@@ -18,7 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/mechanical/projects")
+@RequestMapping("/api/mechanical/projects")
 public class MechanicalEngineController {
     private final MechanicalChiefEngineer chiefEngineer;
     private final MechanicalEngineService engineService;
