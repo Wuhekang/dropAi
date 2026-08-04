@@ -24,7 +24,7 @@
     <section class="viewer-panel panel">
       <div class="real-model-state">
         <strong>机械模型仅在 Mechanical Workspace 展示</strong>
-        <p>系统不再使用浏览器 Primitive 模型作为工程成果。请查看经过 SolidWorks 生成并由 FreeCAD 验证的文件。</p>
+        <p>系统不使用 Primitive 模型冒充成果。请在 Mechanical Workspace 查看由 OpenCascade BRep 生成并验证的模型。</p>
         <button class="primary-button" type="button" @click="router.push('/new-project')">打开 Mechanical Workspace</button>
       </div>
     </section>

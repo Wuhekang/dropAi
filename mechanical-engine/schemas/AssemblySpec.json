@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"AssemblySpec","type":"object","required":["root","components","constraints"],"properties":{"components":{"type":"array","minItems":2},"constraints":{"type":"array","minItems":2}}}

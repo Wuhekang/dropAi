@@ -1,9 +1,9 @@
 <template>
   <section class="home-hero-3d">
     <div class="engine-state">
-      <span>SolidWorks Automation</span>
-      <strong>真实 CAD 工程链</strong>
-      <p>原生模型、STEP、工程图和 FreeCAD 预览通过验证后才交付。</p>
+      <span>OpenCascade BRep Engine</span>
+      <strong>参数化 CAD 工程链</strong>
+      <p>BRep 实体、STEP、工程图、分析云图和浏览器 3D 预览通过验证后才交付。</p>
     </div>
   </section>
 </template>

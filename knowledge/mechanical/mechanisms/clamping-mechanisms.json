@@ -1,0 +1,1 @@
+{"mechanisms":[{"name":"trapezoidal-lead-screw-clamp","advantages":["self-locking","stable force","simple maintenance"],"limitations":["lower actuation speed"],"selectionRules":["manual or low-cycle fixture","no external power source","controlled clamping force"]}]}

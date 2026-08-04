@@ -2,6 +2,7 @@ package com.dropai.rewrite.mechanicalengine.domain;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 public class MechanicalProject {
     private String projectId = "";
@@ -14,9 +15,10 @@ public class MechanicalProject {
     private FunctionalRequirement requirement = new FunctionalRequirement();
     private MechanicalConcept concept = new MechanicalConcept();
     private List<EngineeringParameter> parameters = new ArrayList<>();
-    private AssemblySpecification assembly = new AssemblySpecification();
-    private List<CADSpecification> parts = new ArrayList<>();
-    private DrawingSpecification drawings = new DrawingSpecification();
+    private AssemblySpec assembly = new AssemblySpec();
+    private List<CADModelSpec> parts = new ArrayList<>();
+    private DrawingSpec drawings = new DrawingSpec();
+    private AnalysisSpec analysis = new AnalysisSpec();
     private List<StageState> stages = new ArrayList<>();
     private List<Artifact> artifacts = new ArrayList<>();
 
@@ -30,9 +32,10 @@ public class MechanicalProject {
     public FunctionalRequirement getRequirement() { return requirement; } public void setRequirement(FunctionalRequirement v) { requirement = v; }
     public MechanicalConcept getConcept() { return concept; } public void setConcept(MechanicalConcept v) { concept = v; }
     public List<EngineeringParameter> getParameters() { return parameters; } public void setParameters(List<EngineeringParameter> v) { parameters = v; }
-    public AssemblySpecification getAssembly() { return assembly; } public void setAssembly(AssemblySpecification v) { assembly = v; }
-    public List<CADSpecification> getParts() { return parts; } public void setParts(List<CADSpecification> v) { parts = v; }
-    public DrawingSpecification getDrawings() { return drawings; } public void setDrawings(DrawingSpecification v) { drawings = v; }
+    public AssemblySpec getAssembly() { return assembly; } public void setAssembly(AssemblySpec v) { assembly = v; }
+    public List<CADModelSpec> getParts() { return parts; } public void setParts(List<CADModelSpec> v) { parts = v; }
+    public DrawingSpec getDrawings() { return drawings; } public void setDrawings(DrawingSpec v) { drawings = v; }
+    public AnalysisSpec getAnalysis() { return analysis; } public void setAnalysis(AnalysisSpec v) { analysis = v; }
     public List<StageState> getStages() { return stages; } public void setStages(List<StageState> v) { stages = v; }
     public List<Artifact> getArtifacts() { return artifacts; } public void setArtifacts(List<Artifact> v) { artifacts = v; }
 
@@ -43,35 +46,51 @@ public class MechanicalProject {
         public List<String> getConstraints() { return constraints; } public void setConstraints(List<String> v) { constraints = v; }
     }
     public static class MechanicalConcept {
+        private List<ConceptOption> alternatives = new ArrayList<>();
         private String selectedConcept = "";
         private String selectionReason = "";
         private List<String> modules = new ArrayList<>();
+        public List<ConceptOption> getAlternatives() { return alternatives; } public void setAlternatives(List<ConceptOption> v) { alternatives = v; }
         public String getSelectedConcept() { return selectedConcept; } public void setSelectedConcept(String v) { selectedConcept = v; }
         public String getSelectionReason() { return selectionReason; } public void setSelectionReason(String v) { selectionReason = v; }
         public List<String> getModules() { return modules; } public void setModules(List<String> v) { modules = v; }
     }
+    public record ConceptOption(String name, String advantages, String limitations, double score) {}
     public record EngineeringParameter(String name, double value, String unit, String reason) {}
-    public static class AssemblySpecification {
+    public static class AssemblySpec {
         private String root = "Assembly";
         private List<AssemblyComponent> components = new ArrayList<>();
-        private List<Mate> mates = new ArrayList<>();
+        private List<Constraint> constraints = new ArrayList<>();
         public String getRoot() { return root; } public void setRoot(String v) { root = v; }
         public List<AssemblyComponent> getComponents() { return components; } public void setComponents(List<AssemblyComponent> v) { components = v; }
-        public List<Mate> getMates() { return mates; } public void setMates(List<Mate> v) { mates = v; }
+        public List<Constraint> getConstraints() { return constraints; } public void setConstraints(List<Constraint> v) { constraints = v; }
     }
-    public record AssemblyComponent(String id, String name, String parent, Pose position, Pose orientation) {}
+    public record AssemblyComponent(String partNumber, String name, String parent, Pose position, Pose orientation) {}
     public record Pose(double x, double y, double z) {}
-    public record Mate(String type, String componentA, String referenceA, String componentB, String referenceB) {}
-    public record CADSpecification(String partNumber, String name, String material, List<Feature> featureTree) {}
-    public record Feature(int order, String type, String plane, String parameters) {}
-    public static class DrawingSpecification {
-        private List<String> assemblyViews = List.of("Front", "Top", "Right", "Isometric");
-        private List<String> partDrawings = new ArrayList<>();
-        private String standard = "GB/T + ISO";
-        public List<String> getAssemblyViews() { return assemblyViews; } public void setAssemblyViews(List<String> v) { assemblyViews = v; }
-        public List<String> getPartDrawings() { return partDrawings; } public void setPartDrawings(List<String> v) { partDrawings = v; }
+    public record Constraint(String type, String componentA, String referenceA, String componentB, String referenceB) {}
+    public record CADModelSpec(String partNumber, String name, String purpose, String material, String manufacturing,
+                               List<CADFeature> features) {}
+    public record CADFeature(int order, String type, String intent, Map<String, Object> parameters) {}
+    public static class DrawingSpec {
+        private List<String> views = List.of("front", "top", "right", "section", "isometric");
+        private String standard = "GB/T 14689 + ISO 128";
+        private List<String> outputs = List.of("SVG", "DXF", "PDF");
+        public List<String> getViews() { return views; } public void setViews(List<String> v) { views = v; }
         public String getStandard() { return standard; } public void setStandard(String v) { standard = v; }
+        public List<String> getOutputs() { return outputs; } public void setOutputs(List<String> v) { outputs = v; }
+    }
+    public static class AnalysisSpec {
+        private String method = "RULE_BASED_PHASE_1";
+        private double maximumStressMpa;
+        private double displacementMm;
+        private double safetyFactor;
+        private String conclusion = "";
+        public String getMethod() { return method; } public void setMethod(String v) { method = v; }
+        public double getMaximumStressMpa() { return maximumStressMpa; } public void setMaximumStressMpa(double v) { maximumStressMpa = v; }
+        public double getDisplacementMm() { return displacementMm; } public void setDisplacementMm(double v) { displacementMm = v; }
+        public double getSafetyFactor() { return safetyFactor; } public void setSafetyFactor(double v) { safetyFactor = v; }
+        public String getConclusion() { return conclusion; } public void setConclusion(String v) { conclusion = v; }
     }
     public record StageState(String stage, String status, String message) {}
-    public record Artifact(String name, String type, long size, String downloadUrl, boolean validated) {}
+    public record Artifact(String name, String category, String mediaType, long size, String downloadUrl, boolean validated) {}
 }

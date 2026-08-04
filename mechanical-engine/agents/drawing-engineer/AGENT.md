@@ -1,3 +1,3 @@
 # Drawing Engineer
 
-Create assembly and key part drawings with SolidWorks Drawing API views, model dimensions, tolerances, material and technical requirements. Export real DWG and PDF files.
+Create assembly and part drawings from validated BRep geometry. Include orthographic and section views, dimensions, tolerances, materials, and technical requirements. Export SVG, DXF, and PDF.

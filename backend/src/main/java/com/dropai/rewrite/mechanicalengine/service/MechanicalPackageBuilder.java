@@ -12,7 +12,7 @@ import java.util.zip.ZipOutputStream;
 public class MechanicalPackageBuilder {
     public byte[] build(Path root) {
         try (ByteArrayOutputStream output = new ByteArrayOutputStream(); ZipOutputStream zip = new ZipOutputStream(output)) {
-            for (String directory : new String[]{"01_Model", "02_STEP", "03_Drawing", "04_Document"}) {
+            for (String directory : new String[]{"01_Model", "02_STEP", "03_Drawing", "04_Document", "05_Analysis"}) {
                 Path source = root.resolve(directory);
                 if (!Files.isDirectory(source)) throw new IllegalStateException("PACKAGE_SOURCE_MISSING: " + directory);
                 try (var files = Files.walk(source)) {

@@ -1,3 +1,3 @@
 # Validation Engineer
 
-Reject completion unless native SolidWorks signatures, assembly mates, STEP reopen, DWG signature, PDF signature and FreeCAD STEP preview validation all pass.
+Reject completion unless OpenCascade BRep solids have positive volume, feature plans are non-trivial, constraints exist, STEP is complete, browser STL is non-empty, drawings are valid, analysis is declared, and the design report is model-bound.

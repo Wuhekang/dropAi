@@ -1,74 +1,95 @@
 package com.dropai.rewrite.mechanicalengine.validation;
 
 import com.dropai.rewrite.mechanicalengine.domain.MechanicalProject;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 @Service
 public class MechanicalArtifactValidator {
+    private final ObjectMapper mapper;
+    public MechanicalArtifactValidator(ObjectMapper mapper) { this.mapper = mapper; }
+
     public ValidationReport validate(MechanicalProject project, Path root) {
         List<String> errors = new ArrayList<>();
-        requireCompound(root.resolve("01_Model/Assembly.SLDASM"), "SolidWorks assembly", errors);
-        for (MechanicalProject.CADSpecification part : project.getParts()) {
-            requireCompound(root.resolve("01_Model/Parts/" + part.partNumber() + ".SLDPRT"), "SolidWorks part " + part.partNumber(), errors);
-            requireDwg(root.resolve("03_Drawing/Parts_Drawing/" + part.partNumber() + ".DWG"), "part drawing " + part.partNumber(), errors);
+        requireFile(root.resolve("01_Model/Assembly.FCStd"), 64, "FreeCAD assembly", errors);
+        for (MechanicalProject.CADModelSpec part : project.getParts()) {
+            Path brep = root.resolve("01_Model/Parts/" + part.partNumber() + ".brep");
+            String value = text(brep, "BRep " + part.partNumber(), errors);
+            if (!value.contains("DBRep_DrawableShape") && !value.contains("CASCADE Topology")) errors.add(part.partNumber() + " is not an OpenCascade BRep file");
+            requireStep(root.resolve("02_STEP/" + part.partNumber() + ".step"), "STEP " + part.partNumber(), errors);
+            Set<String> featureTypes = new HashSet<>();
+            part.features().forEach(feature -> featureTypes.add(feature.type()));
+            if (part.features().size() < 2 || featureTypes.size() < 2) errors.add(part.partNumber() + " has only trivial primitive geometry");
         }
-        requireStep(root.resolve("02_STEP/Assembly.STEP"), errors);
-        requireDwg(root.resolve("03_Drawing/Assembly.DWG"), "assembly drawing", errors);
-        requirePng(root.resolve("02_STEP/freecad-preview.png"), errors);
-        requireFreeCadReceipt(root.resolve("02_STEP/freecad-validation.json"), errors);
-        requirePdf(root.resolve("04_Document/Design_Report.pdf"), errors);
-        if (project.getAssembly().getMates().size() < project.getAssembly().getComponents().size() - 1) errors.add("assembly mate count is incomplete");
-        if (!freeCadAvailable()) errors.add("FreeCAD preview validator is unavailable");
+        requireStep(root.resolve("02_STEP/Assembly.STEP"), "assembly STEP", errors);
+        requireStl(root.resolve("02_STEP/Assembly.stl"), errors);
+        validateReceipt(root.resolve("02_STEP/brep-validation.json"), project.getParts().size(), errors);
+        requireSvg(root.resolve("03_Drawing/Assembly.svg"), "assembly drawing", errors);
+        validateProjection(root.resolve("03_Drawing/projection-lines.json"), errors);
+        requireDxf(root.resolve("03_Drawing/Assembly.dxf"), errors);
+        requirePdf(root.resolve("03_Drawing/Assembly_Drawing.pdf"), "drawing PDF", errors);
+        for (MechanicalProject.CADModelSpec part : project.getParts()) requireSvg(root.resolve("03_Drawing/Parts_Drawing/" + part.partNumber() + ".svg"), "part drawing " + part.partNumber(), errors);
+        requireSvg(root.resolve("05_Analysis/stress-cloud.svg"), "analysis cloud", errors);
+        requirePdf(root.resolve("04_Document/Design_Report.pdf"), "design report", errors);
+        if (project.getAssembly().getConstraints().size() < project.getAssembly().getComponents().size()) errors.add("assembly constraints are incomplete");
         return new ValidationReport(errors.isEmpty(), errors);
     }
 
-    private void requireCompound(Path file, String label, List<String> errors) {
-        byte[] signature = bytes(file, 8, label, errors);
-        byte[] expected = {(byte) 0xD0, (byte) 0xCF, 0x11, (byte) 0xE0, (byte) 0xA1, (byte) 0xB1, 0x1A, (byte) 0xE1};
-        if (signature.length == 8 && !java.util.Arrays.equals(signature, expected)) errors.add(label + " is not a native SolidWorks compound document");
-    }
-    private void requireStep(Path file, List<String> errors) {
-        String value = text(file, "STEP", errors);
-        if (!value.contains("ISO-10303-21") || !value.contains("END-ISO-10303-21")) errors.add("STEP cannot be reopened as a complete exchange document");
-    }
-    private void requireDwg(Path file, String label, List<String> errors) {
-        byte[] value = bytes(file, 6, label, errors);
-        if (value.length == 6 && !new String(value, StandardCharsets.US_ASCII).startsWith("AC10")) errors.add(label + " signature is invalid");
-    }
-    private void requirePng(Path file, List<String> errors) {
-        byte[] value = bytes(file, 8, "FreeCAD preview", errors);
-        byte[] expected = {(byte) 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A};
-        if (value.length == 8 && !java.util.Arrays.equals(value, expected)) errors.add("FreeCAD preview is not a PNG image");
-    }
-    private void requireFreeCadReceipt(Path file, List<String> errors) {
-        String value = text(file, "FreeCAD validation receipt", errors);
-        if (!value.contains("\"passed\":true") && !value.contains("\"passed\": true")) {
-            errors.add("FreeCAD did not confirm that Assembly.STEP reopened successfully");
-        }
-    }
-    private void requirePdf(Path file, List<String> errors) {
-        byte[] value = bytes(file, 5, "PDF report", errors);
-        if (value.length == 5 && !new String(value, StandardCharsets.US_ASCII).equals("%PDF-")) errors.add("design report PDF signature is invalid");
-    }
-    private byte[] bytes(Path file, int length, String label, List<String> errors) {
+    private void validateReceipt(Path file, int expectedParts, List<String> errors) {
         try {
-            if (!Files.isRegularFile(file) || Files.size(file) < length) { errors.add(label + " is missing or empty"); return new byte[0]; }
-            byte[] all = Files.readAllBytes(file); return java.util.Arrays.copyOf(all, length);
-        } catch (Exception exception) { errors.add(label + " cannot be read"); return new byte[0]; }
+            JsonNode node = mapper.readTree(file.toFile());
+            if (!node.path("passed").asBoolean()) errors.add("OpenCascade BRep validation did not pass");
+            if (!"OpenCascade".equals(node.path("kernel").asText())) errors.add("geometry kernel is not OpenCascade");
+            if (node.path("parts").size() != expectedParts) errors.add("validated part count does not match CAD DSL");
+            for (JsonNode part : node.path("parts")) {
+                if (part.path("volume").asDouble() <= 0 || part.path("solidCount").asInt() <= 0) errors.add("BRep contains an empty part");
+            }
+        } catch (Exception exception) { errors.add("BRep validation receipt is missing or invalid"); }
+    }
+    private void requireStep(Path file, String label, List<String> errors) {
+        String value = text(file, label, errors);
+        if (!value.contains("ISO-10303-21") || !value.contains("END-ISO-10303-21")) errors.add(label + " is incomplete");
+    }
+    private void requireStl(Path file, List<String> errors) {
+        try { if (!Files.isRegularFile(file) || Files.size(file) < 84) errors.add("browser STL preview is missing or empty"); }
+        catch (Exception exception) { errors.add("browser STL preview cannot be read"); }
+    }
+    private void requireSvg(Path file, String label, List<String> errors) {
+        String value = text(file, label, errors);
+        if (!value.contains("<svg") || !value.contains("</svg>")) errors.add(label + " is not valid SVG");
+    }
+    private void requireDxf(Path file, List<String> errors) {
+        String value = text(file, "DXF drawing", errors);
+        if (!value.contains("SECTION") || !value.contains("ENTITIES") || !value.contains("EOF")) errors.add("DXF drawing is incomplete");
+    }
+    private void validateProjection(Path file, List<String> errors) {
+        try {
+            JsonNode node=mapper.readTree(file.toFile());
+            if(node.path("front").isEmpty()||node.path("top").isEmpty()||node.path("right").isEmpty()) errors.add("BRep drawing projections are incomplete");
+        } catch(Exception exception) { errors.add("BRep drawing projection data is missing or invalid"); }
+    }
+    private void requirePdf(Path file, String label, List<String> errors) {
+        try {
+            byte[] value = Files.readAllBytes(file);
+            if (value.length < 5 || !new String(value, 0, 5, StandardCharsets.US_ASCII).equals("%PDF-")) errors.add(label + " is invalid");
+        } catch (Exception exception) { errors.add(label + " is missing or unreadable"); }
+    }
+    private void requireFile(Path file, long min, String label, List<String> errors) {
+        try { if (!Files.isRegularFile(file) || Files.size(file) < min) errors.add(label + " is missing or empty"); }
+        catch (Exception exception) { errors.add(label + " cannot be read"); }
     }
     private String text(Path file, String label, List<String> errors) {
         try { return Files.readString(file, StandardCharsets.ISO_8859_1); }
         catch (Exception exception) { errors.add(label + " is missing or unreadable"); return ""; }
-    }
-    private boolean freeCadAvailable() {
-        String command = System.getenv("FREECAD_VALIDATION_COMMAND");
-        return command != null && !command.isBlank();
     }
     public record ValidationReport(boolean passed, List<String> errors) {}
 }
