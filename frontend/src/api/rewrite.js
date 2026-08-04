@@ -330,23 +330,22 @@ export function downloadEngineeringDxf(params) {
   })
 }
 
-export function generateDesignPackage(project) {
-  return request.post('/design-packages/generate', project, { timeout: 300000 })
+export function designMechanicalProject(payload) {
+  return request.post('/mechanical/projects/design', payload, { timeout: 120000 })
 }
 
-export function createDesignPackageJob(project) {
-  return request.post('/design-packages/jobs', project, { timeout: 60000 })
+export function executeMechanicalProject(payload) {
+  return request.post('/mechanical/projects/execute', payload, { timeout: 1800000 })
 }
 
-export function getDesignPackageJob(jobId) {
-  return request.get(`/design-packages/jobs/${jobId}`, { timeout: 60000 })
+export function getMechanicalTools() {
+  return request.get('/mechanical/projects/tools', { timeout: 30000 })
 }
 
-export function analyzeDesignPackage(data) {
-  return request.post('/design-packages/analyze', data, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-    timeout: 180000
-  })
+export function extractMechanicalRequirement(file) {
+  const form = new FormData()
+  form.append('file', file)
+  return request.post('/mechanical/projects/requirement/extract', form, { headers: { 'Content-Type': 'multipart/form-data' } })
 }
 
 export function downloadArtifact(downloadUrl) {

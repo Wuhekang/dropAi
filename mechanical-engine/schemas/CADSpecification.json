@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"CADSpecification","type":"object","required":["partNumber","name","material","featureTree"],"properties":{"featureTree":{"type":"array","minItems":3,"items":{"type":"object","required":["order","type","parameters"]}}}}

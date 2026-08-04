@@ -22,7 +22,11 @@
     </header>
 
     <section class="viewer-panel panel">
-      <ModelViewer3D :project="demoProject" />
+      <div class="real-model-state">
+        <strong>机械模型仅在 Mechanical Workspace 展示</strong>
+        <p>系统不再使用浏览器 Primitive 模型作为工程成果。请查看经过 SolidWorks 生成并由 FreeCAD 验证的文件。</p>
+        <button class="primary-button" type="button" @click="router.push('/new-project')">打开 Mechanical Workspace</button>
+      </div>
     </section>
 
     <section class="downloads">
@@ -49,7 +53,6 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import ModelViewer3D from '../../components/ModelViewer3D.vue'
 import { downloadArtifact, getMyDocuments } from '../../api/rewrite'
 
 const router = useRouter()
@@ -61,14 +64,6 @@ const cadFiles = computed(() => documents.value.filter(file => /\.(dxf|svg|png)$
 const paperFiles = computed(() => documents.value.filter(file => /\.(docx|pdf)$/i.test(file.fileName || '') || ['docx', 'pdf'].includes(file.fileType)))
 const zipFile = computed(() => documents.value.find(file => /\.(zip)$/i.test(file.fileName || '') || file.fileType === 'zip' || file.packageUrl))
 
-const demoProject = computed(() => ({
-  projectTitle: projectName.value,
-  equipmentName: '生成装配体',
-  designType: '参数化系统',
-  totalLength: 4200,
-  totalWidth: 1800,
-  totalHeight: 2600
-}))
 
 async function loadDocuments() {
   const result = await getMyDocuments({ pageNum: 1, pageSize: 20 })

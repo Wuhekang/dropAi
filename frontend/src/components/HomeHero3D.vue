@@ -1,20 +1,14 @@
 <template>
   <section class="home-hero-3d">
-    <ModelInfoPanel :project="project" :status="status" />
-    <div class="viewer-shell">
-      <ModelViewer3D :project="project" />
+    <div class="engine-state">
+      <span>SolidWorks Automation</span>
+      <strong>真实 CAD 工程链</strong>
+      <p>原生模型、STEP、工程图和 FreeCAD 预览通过验证后才交付。</p>
     </div>
   </section>
 </template>
 
-<script setup>
-import ModelInfoPanel from './ModelInfoPanel.vue'
-import ModelViewer3D from './ModelViewer3D.vue'
-defineProps({ project: { type: Object, default: () => ({}) }, status: String })
-</script>
-
 <style scoped>
-.home-hero-3d{display:grid;grid-template-columns:.9fr 1.1fr;gap:22px;align-items:stretch;padding:18px;border-radius:30px;background:linear-gradient(135deg,#0f172a,#172554 55%,#1e3a8a);box-shadow:0 24px 70px rgba(15,23,42,.24)}
-.viewer-shell{min-height:460px}
-@media(max-width:980px){.home-hero-3d{grid-template-columns:1fr}.viewer-shell{min-height:380px}}
+.home-hero-3d{display:grid;place-items:center;min-height:420px;padding:18px;background:#edf2f0}
+.engine-state{max-width:440px;padding:30px;border-left:4px solid #176b57;background:#fff}.engine-state span{color:#176b57;font-size:12px;text-transform:uppercase}.engine-state strong{display:block;margin-top:8px;font-size:28px}.engine-state p{margin:10px 0 0;color:#69736f;line-height:1.6}
 </style>
