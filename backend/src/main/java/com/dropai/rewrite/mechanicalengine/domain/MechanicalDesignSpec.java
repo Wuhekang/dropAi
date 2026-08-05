@@ -13,7 +13,8 @@ public record MechanicalDesignSpec(
         List<AssemblyIntent> assemblyIntent,
         List<Parameter> parameters,
         List<MaterialDecision> materials,
-        List<ManufacturingDecision> manufacturing
+        List<ManufacturingDecision> manufacturing,
+        DesignProvenance provenance
 ) {
     public record Product(String type, String name, String purpose, String environment,
                           String operatingPrinciple, List<String> coreFunctions) {}
@@ -32,4 +33,6 @@ public record MechanicalDesignSpec(
     public record Parameter(String name, double value, String unit, String engineeringReason) {}
     public record MaterialDecision(String partNumber, String material, String reason) {}
     public record ManufacturingDecision(String partNumber, String process, String reason) {}
+    public record DesignProvenance(String reasoningSource, List<String> knowledgeReferences,
+                                   List<String> architectureDecisions) {}
 }

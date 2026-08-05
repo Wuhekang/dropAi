@@ -32,7 +32,9 @@ abstract class AbstractCatalogProductPlanner implements ProductPlanner {
                         "Selected for manufacturability, serviceability, and a direct load path", loadPath, motionPath),
                 modules, parts, intents, parameters,
                 parts.stream().map(part -> new MechanicalDesignSpec.MaterialDecision(part.partNumber(), part.material(), "matched to load, wear, mass, and cost")).toList(),
-                parts.stream().map(part -> new MechanicalDesignSpec.ManufacturingDecision(part.partNumber(), part.manufacturing(), "matched to geometry and production volume")).toList());
+                parts.stream().map(part -> new MechanicalDesignSpec.ManufacturingDecision(part.partNumber(), part.manufacturing(), "matched to geometry and production volume")).toList(),
+                new MechanicalDesignSpec.DesignProvenance("GOLDEN_BENCHMARK", List.of(getClass().getSimpleName()),
+                        List.of("Deterministic benchmark retained for regression acceptance only")));
     }
 
     private MechanicalDesignSpec.PartPlan part(PartSeed seed, List<MechanicalDesignSpec.Module> modules) {

@@ -75,7 +75,9 @@ public class MechanicalDesignPlanner implements ProductPlanner {
                         parameter("base_width",120,"mm","确保横向稳定并适配常见机台安装空间"),
                         parameter("design_safety_factor",2.2,"","覆盖载荷波动和人工过度拧紧")),
                 parts.stream().map(part -> new MechanicalDesignSpec.MaterialDecision(part.partNumber(),part.material(),"满足该零件载荷、耐磨性和成本要求")).toList(),
-                parts.stream().map(part -> new MechanicalDesignSpec.ManufacturingDecision(part.partNumber(),part.manufacturing(),"与零件形状、材料和批量匹配")).toList()
+                parts.stream().map(part -> new MechanicalDesignSpec.ManufacturingDecision(part.partNumber(),part.manufacturing(),"与零件形状、材料和批量匹配")).toList(),
+                new MechanicalDesignSpec.DesignProvenance("GOLDEN_BENCHMARK", List.of("MechanicalDesignPlanner"),
+                        List.of("Deterministic clamp benchmark retained for regression acceptance only"))
         );
     }
 
