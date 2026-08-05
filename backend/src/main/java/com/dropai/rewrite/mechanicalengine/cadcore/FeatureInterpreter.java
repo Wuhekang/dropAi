@@ -9,7 +9,7 @@ import java.util.Set;
 @Service
 public class FeatureInterpreter {
     private static final Set<String> SUPPORTED = Set.of("SKETCH", "PAD", "POCKET", "HOLE", "FILLET", "CHAMFER");
-    private static final Set<String> ASSEMBLY_CONSTRAINTS = Set.of("FIXED", "COINCIDENT", "CONCENTRIC", "DISTANCE", "ANGLE", "SLIDER");
+    private static final Set<String> ASSEMBLY_CONSTRAINTS = Set.of("FIXED", "FASTENED", "COINCIDENT", "CONCENTRIC", "DISTANCE", "ANGLE", "SLIDER");
 
     public void validate(FeatureBasedCadSpec spec) {
         List<String> errors = new ArrayList<>();

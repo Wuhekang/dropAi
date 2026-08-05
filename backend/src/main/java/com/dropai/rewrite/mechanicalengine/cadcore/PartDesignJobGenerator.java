@@ -169,7 +169,7 @@ for c in spec['assembly']['constraints']:
     if a and component:
         pos=component['position']; rot=component['orientation']
         solved=App.Vector(pos['x'],pos['y'],pos['z'])
-        if obj.Type in ('COINCIDENT','SLIDER') and b:
+        if obj.Type in ('FASTENED','COINCIDENT','SLIDER') and b:
             solved=App.Vector(pos['x'],pos['y'],b.Placement.Base.z+b.Tip.Shape.BoundBox.ZLength)
         elif obj.Type=='CONCENTRIC' and b:
             ac=a.Tip.Shape.BoundBox.Center; bc=b.Tip.Shape.BoundBox.Center + b.Placement.Base

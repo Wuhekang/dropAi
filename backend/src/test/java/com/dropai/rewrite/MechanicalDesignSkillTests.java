@@ -49,4 +49,31 @@ class MechanicalDesignSkillTests {
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class, () -> chief.designSpec("设计一台未知设备"));
         assertTrue(error.getMessage().contains("UNSUPPORTED_MECHANICAL_PRODUCT"));
     }
+
+    @Test
+    void oilTankWallClimbingTaskBookProducesGraduationLevelFeatureSpec() {
+        String taskBook = "油罐检测爬壁机器人结构设计：要求履带行走、驱动轮、从动轮、支重轮、张紧机构、永磁吸附、圆盘刷清扫、传感器滑轨快拆、电机减速传动和防护外壳";
+        MechanicalDesignSpec design = chief.designSpec(taskBook);
+
+        assertEquals("wall_climbing_tank_inspection_robot", design.product().type());
+        assertTrue(design.modules().size() >= 5);
+        assertTrue(design.parts().size() >= 30);
+        String names = design.parts().stream().map(MechanicalDesignSpec.PartPlan::name).reduce("", (a,b) -> a + " " + b);
+        assertAll(
+                () -> assertTrue(names.contains("驱动轮")),
+                () -> assertTrue(names.contains("从动轮")),
+                () -> assertTrue(names.contains("支重轮")),
+                () -> assertTrue(names.contains("永磁体")),
+                () -> assertTrue(names.contains("圆盘刷")),
+                () -> assertTrue(names.contains("传感器直线滑轨")),
+                () -> assertTrue(names.contains("密封上盖")));
+        assertDoesNotThrow(() -> quality.validate(design));
+
+        var cad = converter.convert("tank-robot-graduation-design", design);
+        assertEquals(design.parts().size(), cad.parts().size());
+        assertDoesNotThrow(() -> new FeatureInterpreter().validate(cad));
+        assertTrue(cad.parts().stream().allMatch(part -> part.body().stream().anyMatch(feature -> "SKETCH".equals(feature.featureType()))));
+        assertTrue(cad.parts().stream().allMatch(part -> part.body().stream().anyMatch(feature -> "PAD".equals(feature.featureType()))));
+        assertTrue(cad.assembly().constraints().size() >= 30);
+    }
 }

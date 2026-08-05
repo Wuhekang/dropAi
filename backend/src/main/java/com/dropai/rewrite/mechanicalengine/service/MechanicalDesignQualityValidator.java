@@ -39,7 +39,28 @@ public class MechanicalDesignQualityValidator {
             if (!connected) errors.add(partNumber + " has no assembly relationship");
         }
         if (spec.parameters().stream().anyMatch(parameter -> blank(parameter.engineeringReason()))) errors.add("engineering parameter without reason");
+        validateGraduationRobot(spec, errors);
         if (!errors.isEmpty()) throw new IllegalArgumentException("MECHANICAL_DESIGN_INVALID: " + String.join("; ", errors));
+    }
+
+    private void validateGraduationRobot(MechanicalDesignSpec spec, List<String> errors) {
+        if (!"wall_climbing_tank_inspection_robot".equals(spec.product().type())) return;
+        if (spec.modules().size() < 5) errors.add("graduation robot requires at least five functional modules");
+        if (spec.parts().size() < 30) errors.add("graduation robot requires at least thirty engineered parts");
+        String designText = (spec.modules().stream().map(module -> module.name() + " " + module.function()).reduce("", (a,b) -> a + " " + b)
+                + " " + spec.parts().stream().map(part -> part.name() + " " + part.function()).reduce("", (a,b) -> a + " " + b)).toLowerCase();
+        requireAny(designText, errors, "crawler travel mechanism", "履带", "crawler", "track belt");
+        requireAny(designText, errors, "permanent-magnet adhesion mechanism", "永磁", "磁吸", "permanent magnet");
+        requireAny(designText, errors, "rotary cleaning mechanism", "清扫", "刷盘", "cleaning brush");
+        requireAny(designText, errors, "inspection sensor adjustment mechanism", "检测", "传感器", "sensor");
+        requireAny(designText, errors, "drive and transmission mechanism", "驱动轴", "减速电机", "transmission");
+        requireAny(designText, errors, "protective enclosure", "防护", "密封上盖", "guard");
+        requireAny(designText, errors, "track tensioning mechanism", "张紧", "tension");
+    }
+
+    private void requireAny(String text, List<String> errors, String label, String... terms) {
+        for (String term : terms) if (text.contains(term.toLowerCase())) return;
+        errors.add("task-book mechanism missing: " + label);
     }
 
     private boolean blank(String value) { return value == null || value.isBlank(); }

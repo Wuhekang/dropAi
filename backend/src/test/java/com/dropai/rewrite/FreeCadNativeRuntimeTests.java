@@ -18,6 +18,40 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class FreeCadNativeRuntimeTests {
     @Test
+    void oilTankWallClimbingRobotProducesAllPlannedNativeParts() throws Exception {
+        String freeCad = System.getenv("FREECAD_CMD");
+        boolean required = Boolean.getBoolean("freecad.required");
+        if (freeCad == null || freeCad.isBlank()) {
+            assertFalse(required, "FREECAD_CMD is required for native acceptance testing");
+            Assumptions.abort("FREECAD_CMD is not configured; native test skipped outside acceptance mode");
+        }
+        Path workspace = Path.of("target", "freecad-native-tank-robot-" + System.currentTimeMillis()).toAbsolutePath();
+        Files.createDirectories(workspace);
+        String taskBook = "油罐检测爬壁机器人结构设计，包含履带行走、永磁吸附、圆盘刷清扫、检测滑轨、快拆、防护和减速传动";
+        var project = new MechanicalChiefEngineer().design(taskBook);
+        assertEquals(42, project.getParts().size());
+        Path spec = new CadDslService(new ObjectMapper(), new FeatureInterpreter()).write(project, workspace);
+        Path script = new PartDesignJobGenerator().generate(workspace);
+        long started = System.nanoTime();
+        var result = new FreeCadExecutor().execute(script, spec, workspace, event ->
+                System.out.printf("TANK_ROBOT_PROGRESS %d %s %s%n", event.progress(), event.stage(), event.message()));
+        double seconds = (System.nanoTime() - started) / 1_000_000_000.0;
+        System.out.printf("TANK_ROBOT_WORKSPACE=%s%nTANK_ROBOT_RUNTIME_SECONDS=%.3f%n", workspace, seconds);
+        assertTrue(result.success(), () -> result.errorCode() + ": " + result.message());
+        for (String file : new String[]{"01_Model/Assembly.FCStd", "02_STEP/Assembly.STEP", "02_STEP/Assembly.stl",
+                "02_STEP/cad-reality-report.json", "03_Drawing/Assembly.svg", "03_Drawing/Assembly.dxf"}) {
+            assertTrue(Files.size(workspace.resolve(file)) > 0, file);
+        }
+        for (int i = 1; i <= 42; i++) {
+            String number = "P%03d".formatted(i);
+            assertTrue(Files.size(workspace.resolve("01_Model/Parts/" + number + ".brep")) > 0, number + " BRep");
+            assertTrue(Files.size(workspace.resolve("02_STEP/" + number + ".step")) > 0, number + " STEP");
+            assertTrue(Files.size(workspace.resolve("02_STEP/" + number + ".stl")) > 0, number + " STL");
+        }
+        assertTrue(seconds < 180, "Graduation robot exceeded three minutes");
+    }
+
+    @Test
     void simplifiedFivePartClampProducesNativeArtifacts() throws Exception {
         String freeCad = System.getenv("FREECAD_CMD");
         boolean required = Boolean.getBoolean("freecad.required");
