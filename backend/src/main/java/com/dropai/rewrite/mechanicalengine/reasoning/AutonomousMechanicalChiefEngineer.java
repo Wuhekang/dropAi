@@ -30,16 +30,21 @@ public class AutonomousMechanicalChiefEngineer {
                 Assembly types may only be FIXED, FASTENED, COINCIDENT, CONCENTRIC, DISTANCE, ANGLE, SLIDER.
                 Return fields: product, requirements, functions, architecture, modules, parts, assemblyIntent, parameters, materials,
                 manufacturing, provenance. provenance.reasoningSource must be AI; include knowledgeReferences and architectureDecisions.
+                Preserve each analysis.requiredSystems phrase verbatim in a module name or function so coverage is auditable.
                 Do not reuse a fixed product structure and do not output markdown.
                 """;
+        String response;
         try {
             String input = mapper.writeValueAsString(java.util.Map.of("analysis", analysis, "advisoryKnowledge", knowledge));
-            MechanicalDesignSpec design = mapper.readValue(MechanicalRequirementReasoner.json(model.generate(instructions, input)), MechanicalDesignSpec.class);
+            try { response = model.generate(instructions, input); }
+            catch (Exception exception) { throw new IllegalStateException("AI_REASONING_UNAVAILABLE: " + compact(exception.getMessage()), exception); }
+            MechanicalDesignSpec design = mapper.readValue(MechanicalRequirementReasoner.json(response), MechanicalDesignSpec.class);
             if (design.provenance() == null || !"AI".equals(design.provenance().reasoningSource())) {
                 throw new IllegalArgumentException("missing AI provenance");
             }
             return design;
         } catch (Exception exception) {
+            if (exception instanceof IllegalStateException state && state.getMessage().startsWith("AI_REASONING_UNAVAILABLE")) throw state;
             throw new IllegalArgumentException("INVALID_MECHANICAL_DESIGN: " + compact(exception.getMessage()), exception);
         }
     }
