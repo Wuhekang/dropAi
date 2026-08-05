@@ -2,6 +2,7 @@ package com.dropai.rewrite.mechanicalengine.service;
 
 import com.dropai.rewrite.mechanicalengine.cadcore.MechanicalDesignCadConverter;
 import com.dropai.rewrite.mechanicalengine.domain.MechanicalDesignSpec;
+import com.dropai.rewrite.mechanicalengine.domain.MechanicalRequirementAnalysis;
 import com.dropai.rewrite.mechanicalengine.domain.MechanicalProject;
 import com.dropai.rewrite.mechanicalengine.productplanner.AgvProductPlanner;
 import com.dropai.rewrite.mechanicalengine.productplanner.ConveyorProductPlanner;
@@ -10,6 +11,9 @@ import com.dropai.rewrite.mechanicalengine.productplanner.MechanismProductPlanne
 import com.dropai.rewrite.mechanicalengine.productplanner.ProductFamily;
 import com.dropai.rewrite.mechanicalengine.productplanner.ProductPlanner;
 import com.dropai.rewrite.mechanicalengine.productplanner.RobotProductPlanner;
+import com.dropai.rewrite.mechanicalengine.reasoning.AutonomousMechanicalChiefEngineer;
+import com.dropai.rewrite.mechanicalengine.reasoning.MechanicalRequirementReasoner;
+import com.dropai.rewrite.mechanicalengine.validation.ArchitectureReviewValidator;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -22,6 +26,9 @@ public class MechanicalChiefEngineer {
     private final List<ProductPlanner> planners;
     private final MechanicalDesignQualityValidator validator;
     private final MechanicalDesignCadConverter converter;
+    private final MechanicalRequirementReasoner requirementReasoner;
+    private final AutonomousMechanicalChiefEngineer autonomousEngineer;
+    private final ArchitectureReviewValidator architectureReview;
 
     public MechanicalChiefEngineer() {
         this(new MechanicalProductFamilyResolver(), defaultPlanners(), new MechanicalDesignQualityValidator(), new MechanicalDesignCadConverter());
@@ -32,16 +39,34 @@ public class MechanicalChiefEngineer {
         this(new MechanicalProductFamilyResolver(), defaultPlanners(), validator, converter);
     }
 
-    @Autowired
     public MechanicalChiefEngineer(MechanicalProductFamilyResolver familyResolver, List<ProductPlanner> planners,
                                    MechanicalDesignQualityValidator validator, MechanicalDesignCadConverter converter) {
         this.familyResolver = familyResolver;
         this.planners = List.copyOf(planners);
         this.validator = validator;
         this.converter = converter;
+        this.requirementReasoner = null;
+        this.autonomousEngineer = null;
+        this.architectureReview = null;
+    }
+
+    @Autowired
+    public MechanicalChiefEngineer(MechanicalRequirementReasoner requirementReasoner,
+                                   AutonomousMechanicalChiefEngineer autonomousEngineer,
+                                   ArchitectureReviewValidator architectureReview,
+                                   MechanicalDesignQualityValidator validator,
+                                   MechanicalDesignCadConverter converter) {
+        this.familyResolver = null;
+        this.planners = List.of();
+        this.validator = validator;
+        this.converter = converter;
+        this.requirementReasoner = requirementReasoner;
+        this.autonomousEngineer = autonomousEngineer;
+        this.architectureReview = architectureReview;
     }
 
     public MechanicalDesignSpec designSpec(String requirement) {
+        if (requirementReasoner != null) return autonomousDesign(requirement).design();
         ProductFamily family = familyResolver.resolve(requirement);
         ProductPlanner planner = planners.stream().filter(candidate -> candidate.family() == family).findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("UNSUPPORTED_MECHANICAL_PRODUCT: no planner for " + family));
@@ -51,10 +76,12 @@ public class MechanicalChiefEngineer {
     }
 
     public MechanicalProject design(String requirement) {
-        MechanicalDesignSpec design = designSpec(requirement);
+        AutonomousResult autonomous = requirementReasoner == null ? null : autonomousDesign(requirement);
+        MechanicalDesignSpec design = autonomous == null ? designSpec(requirement) : autonomous.design();
         MechanicalProject project = new MechanicalProject();
         project.setProjectId("mech_" + UUID.randomUUID().toString().replace("-", ""));
         project.setDesignSpec(design);
+        if (autonomous != null) project.setRequirementAnalysis(autonomous.analysis());
         project.setProductName(design.product().name());
         project.setScenario(design.product().environment());
         project.getRequirement().setFunctions(design.requirements().functions());
@@ -76,6 +103,16 @@ public class MechanicalChiefEngineer {
         project.getAnalysis().setConclusion("Engineering estimate completed; native FEA remains a separate verification stage.");
         return project;
     }
+
+    private AutonomousResult autonomousDesign(String requirement) {
+        MechanicalRequirementAnalysis analysis = requirementReasoner.analyze(requirement);
+        MechanicalDesignSpec design = autonomousEngineer.design(analysis);
+        architectureReview.validate(analysis, design);
+        validator.validate(design);
+        return new AutonomousResult(analysis, design);
+    }
+
+    private record AutonomousResult(MechanicalRequirementAnalysis analysis, MechanicalDesignSpec design) {}
 
     private double value(MechanicalDesignSpec design, String name, double fallback) {
         return design.parameters().stream().filter(parameter -> name.equals(parameter.name()))
