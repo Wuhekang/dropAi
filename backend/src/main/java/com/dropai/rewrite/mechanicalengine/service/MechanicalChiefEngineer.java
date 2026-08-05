@@ -3,6 +3,7 @@ package com.dropai.rewrite.mechanicalengine.service;
 import com.dropai.rewrite.mechanicalengine.cadcore.MechanicalDesignCadConverter;
 import com.dropai.rewrite.mechanicalengine.domain.MechanicalDesignSpec;
 import com.dropai.rewrite.mechanicalengine.domain.MechanicalRequirementAnalysis;
+import com.dropai.rewrite.mechanicalengine.domain.DesignReviewReport;
 import com.dropai.rewrite.mechanicalengine.domain.MechanicalProject;
 import com.dropai.rewrite.mechanicalengine.productplanner.AgvProductPlanner;
 import com.dropai.rewrite.mechanicalengine.productplanner.ConveyorProductPlanner;
@@ -13,6 +14,7 @@ import com.dropai.rewrite.mechanicalengine.productplanner.ProductPlanner;
 import com.dropai.rewrite.mechanicalengine.productplanner.RobotProductPlanner;
 import com.dropai.rewrite.mechanicalengine.reasoning.AutonomousMechanicalChiefEngineer;
 import com.dropai.rewrite.mechanicalengine.reasoning.MechanicalRequirementReasoner;
+import com.dropai.rewrite.mechanicalengine.reasoning.MechanicalDesignCritic;
 import com.dropai.rewrite.mechanicalengine.validation.ArchitectureReviewValidator;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -29,6 +31,7 @@ public class MechanicalChiefEngineer {
     private final MechanicalRequirementReasoner requirementReasoner;
     private final AutonomousMechanicalChiefEngineer autonomousEngineer;
     private final ArchitectureReviewValidator architectureReview;
+    private final MechanicalDesignCritic designCritic;
 
     public MechanicalChiefEngineer() {
         this(new MechanicalProductFamilyResolver(), defaultPlanners(), new MechanicalDesignQualityValidator(), new MechanicalDesignCadConverter());
@@ -48,11 +51,13 @@ public class MechanicalChiefEngineer {
         this.requirementReasoner = null;
         this.autonomousEngineer = null;
         this.architectureReview = null;
+        this.designCritic = null;
     }
 
     @Autowired
     public MechanicalChiefEngineer(MechanicalRequirementReasoner requirementReasoner,
                                    AutonomousMechanicalChiefEngineer autonomousEngineer,
+                                   MechanicalDesignCritic designCritic,
                                    ArchitectureReviewValidator architectureReview,
                                    MechanicalDesignQualityValidator validator,
                                    MechanicalDesignCadConverter converter) {
@@ -63,6 +68,7 @@ public class MechanicalChiefEngineer {
         this.requirementReasoner = requirementReasoner;
         this.autonomousEngineer = autonomousEngineer;
         this.architectureReview = architectureReview;
+        this.designCritic = designCritic;
     }
 
     public MechanicalDesignSpec designSpec(String requirement) {
@@ -82,6 +88,7 @@ public class MechanicalChiefEngineer {
         project.setProjectId("mech_" + UUID.randomUUID().toString().replace("-", ""));
         project.setDesignSpec(design);
         if (autonomous != null) project.setRequirementAnalysis(autonomous.analysis());
+        if (autonomous != null) project.setDesignReviewReport(autonomous.review());
         project.setProductName(design.product().name());
         project.setScenario(design.product().environment());
         project.getRequirement().setFunctions(design.requirements().functions());
@@ -107,12 +114,15 @@ public class MechanicalChiefEngineer {
     private AutonomousResult autonomousDesign(String requirement) {
         MechanicalRequirementAnalysis analysis = requirementReasoner.analyze(requirement);
         MechanicalDesignSpec design = autonomousEngineer.design(analysis);
+        DesignReviewReport review = designCritic.review(analysis, design);
+        if (!review.approval()) throw new IllegalArgumentException("DESIGN_REVIEW_REJECTED: score=" + review.score()
+                + "; " + review.issues().stream().map(DesignReviewReport.Issue::message).reduce("", (a,b) -> a.isBlank() ? b : a + "; " + b));
         architectureReview.validate(analysis, design);
         validator.validate(design);
-        return new AutonomousResult(analysis, design);
+        return new AutonomousResult(analysis, design, review);
     }
 
-    private record AutonomousResult(MechanicalRequirementAnalysis analysis, MechanicalDesignSpec design) {}
+    private record AutonomousResult(MechanicalRequirementAnalysis analysis, MechanicalDesignSpec design, DesignReviewReport review) {}
 
     private double value(MechanicalDesignSpec design, String name, double fallback) {
         return design.parameters().stream().filter(parameter -> name.equals(parameter.name()))

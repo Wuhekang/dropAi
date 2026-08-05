@@ -2,6 +2,7 @@ package com.dropai.rewrite;
 
 import com.dropai.rewrite.mechanicalengine.cadcore.MechanicalDesignCadConverter;
 import com.dropai.rewrite.mechanicalengine.domain.MechanicalDesignSpec;
+import com.dropai.rewrite.mechanicalengine.domain.DesignReviewReport;
 import com.dropai.rewrite.mechanicalengine.domain.MechanicalRequirementAnalysis;
 import com.dropai.rewrite.mechanicalengine.knowledge.ProductFamilyKnowledgeRepository;
 import com.dropai.rewrite.mechanicalengine.productplanner.AgvProductPlanner;
@@ -11,6 +12,7 @@ import com.dropai.rewrite.mechanicalengine.productplanner.RobotProductPlanner;
 import com.dropai.rewrite.mechanicalengine.reasoning.AutonomousMechanicalChiefEngineer;
 import com.dropai.rewrite.mechanicalengine.reasoning.MechanicalAiGateway;
 import com.dropai.rewrite.mechanicalengine.reasoning.MechanicalRequirementReasoner;
+import com.dropai.rewrite.mechanicalengine.reasoning.MechanicalDesignCritic;
 import com.dropai.rewrite.mechanicalengine.service.MechanicalChiefEngineer;
 import com.dropai.rewrite.mechanicalengine.service.MechanicalDesignPlanner;
 import com.dropai.rewrite.mechanicalengine.service.MechanicalDesignQualityValidator;
@@ -39,7 +41,7 @@ class AutonomousMechanicalReasoningTests {
         for (Case item : cases) {
             MechanicalDesignSpec aiDesign = withAiProvenance(item.design());
             MechanicalRequirementAnalysis analysis = analysis(item.category(), aiDesign);
-            ScriptedGateway gateway = new ScriptedGateway(mapper.writeValueAsString(analysis), mapper.writeValueAsString(aiDesign));
+            ScriptedGateway gateway = new ScriptedGateway(mapper.writeValueAsString(analysis), mapper.writeValueAsString(aiDesign), approvedReview());
             MechanicalChiefEngineer chief = productionChief(gateway);
             var project = chief.design(item.requirement());
             assertEquals("AI", project.getDesignSpec().provenance().reasoningSource());
@@ -86,10 +88,32 @@ class AutonomousMechanicalReasoningTests {
         assertTrue(error.getMessage().startsWith("ARCHITECTURE_REVIEW_FAILED"));
     }
 
+    @Test
+    void criticRejectsInjectedDefectsAcrossFourMechanicalFamilies() throws Exception {
+        MechanicalDesignSpec oilRobot = withAiProvenance(new RobotProductPlanner().plan("油罐爬壁履带磁吸机器人"));
+        MechanicalDesignSpec agv = withAiProvenance(new AgvProductPlanner().plan("AGV"));
+        MechanicalDesignSpec arm = withAiProvenance(new MechanismProductPlanner().plan("mechanism"));
+        MechanicalDesignSpec fixture = withAiProvenance(new MechanicalDesignPlanner().plan("automatic clamp"));
+
+        List<ReviewCase> cases = List.of(
+                new ReviewCase(analysisWithRequired("robot", oilRobot, "vacuum adhesion system"), oilRobot),
+                new ReviewCase(analysis("agv", agv), withAssembly(agv, List.of())),
+                new ReviewCase(analysisWithRequired("mechanism", arm, "joint brake system"), arm),
+                new ReviewCase(analysis("fixture", fixture), withParts(fixture,
+                        java.util.stream.Stream.concat(fixture.parts().stream(), java.util.stream.Stream.of(fixture.parts().get(0))).toList())));
+
+        for (ReviewCase item : cases) {
+            MechanicalDesignCritic critic = new MechanicalDesignCritic(new ScriptedGateway(approvedReview()), mapper);
+            DesignReviewReport report = critic.review(item.analysis(), item.design());
+            assertFalse(report.approval());
+            assertTrue(report.issues().stream().anyMatch(issue -> "CRITICAL".equals(issue.severity())));
+        }
+    }
+
     private MechanicalChiefEngineer productionChief(MechanicalAiGateway gateway) {
         var reasoner = new MechanicalRequirementReasoner(gateway, mapper);
         var autonomous = new AutonomousMechanicalChiefEngineer(gateway, mapper, new ProductFamilyKnowledgeRepository(mapper));
-        return new MechanicalChiefEngineer(reasoner, autonomous, new ArchitectureReviewValidator(),
+        return new MechanicalChiefEngineer(reasoner, autonomous, new MechanicalDesignCritic(gateway, mapper), new ArchitectureReviewValidator(),
                 new MechanicalDesignQualityValidator(), new MechanicalDesignCadConverter());
     }
 
@@ -107,7 +131,29 @@ class AutonomousMechanicalReasoningTests {
                         List.of("Compared candidate mechanisms", "Selected architecture against functional constraints")));
     }
 
+    private MechanicalRequirementAnalysis analysisWithRequired(String category, MechanicalDesignSpec design, String required) {
+        MechanicalRequirementAnalysis base = analysis(category, design);
+        return new MechanicalRequirementAnalysis(base.productDescription(), base.productCategory(), base.applicationScenario(),
+                base.coreFunctions(), base.operatingEnvironment(), base.performanceRequirements(), base.mechanicalChallenges(),
+                List.of(required), base.constraints());
+    }
+
+    private MechanicalDesignSpec withAssembly(MechanicalDesignSpec source, List<MechanicalDesignSpec.AssemblyIntent> assembly) {
+        return new MechanicalDesignSpec(source.product(), source.requirements(), source.functions(), source.architecture(), source.modules(),
+                source.parts(), assembly, source.parameters(), source.materials(), source.manufacturing(), source.provenance());
+    }
+
+    private MechanicalDesignSpec withParts(MechanicalDesignSpec source, List<MechanicalDesignSpec.PartPlan> parts) {
+        return new MechanicalDesignSpec(source.product(), source.requirements(), source.functions(), source.architecture(), source.modules(),
+                parts, source.assemblyIntent(), source.parameters(), source.materials(), source.manufacturing(), source.provenance());
+    }
+
+    private String approvedReview() throws Exception {
+        return mapper.writeValueAsString(new DesignReviewReport(92, List.of(), List.of("Proceed to detailed verification"), true, "AI_CRITIC"));
+    }
+
     private record Case(String requirement, String category, MechanicalDesignSpec design) {}
+    private record ReviewCase(MechanicalRequirementAnalysis analysis, MechanicalDesignSpec design) {}
     private static class ScriptedGateway implements MechanicalAiGateway {
         private final ArrayDeque<String> responses = new ArrayDeque<>();
         ScriptedGateway(String... values) { responses.addAll(List.of(values)); }
