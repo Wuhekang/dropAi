@@ -31,6 +31,8 @@ objects, feature_log, assembly_log, manifest = [], [], [], []
 
 def value(params, key, default): return float(params.get(key, default))
 def log(number, feature, status, result): feature_log.append({'partNumber':number,'feature':feature,'status':status,'result':result})
+def progress(percent, stage, message):
+    print('DROP_AI_PROGRESS|%d|%s|%s' % (percent, stage, message), flush=True)
 def rectangle(sketch, width, height):
     x, y = width / 2.0, height / 2.0
     points=[App.Vector(-x,-y,0),App.Vector(x,-y,0),App.Vector(x,y,0),App.Vector(-x,y,0)]
@@ -44,13 +46,18 @@ def circle(sketch, diameter):
     sketch.addGeometry(Part.Circle(App.Vector(0,0,0),App.Vector(0,0,1),diameter/2.0),False)
     sketch.addConstraint(Sketcher.Constraint('Diameter',0,diameter))
 
-for part in spec['parts']:
+part_count = max(len(spec['parts']), 1)
+progress(35, 'FREECAD_STARTING', 'FreeCAD document initialized')
+for part_index, part in enumerate(spec['parts']):
     number, name = part['partNumber'], part['partName']
+    part_start = 36 + int(part_index * 38 / part_count)
+    progress(part_start, 'PART_BUILDING', 'Building %s %s' % (number, name))
     body = doc.addObject('PartDesign::Body', number + '_Body'); body.Label = name
     current, profile = None, None
     try:
         for f in sorted(part['body'], key=lambda item:item['order']):
             kind, params = f['featureType'], f.get('parameters') or {}
+            progress(min(part_start + 2, 73), 'FEATURE_EXECUTION', '%s: executing %s' % (number, kind))
             if kind == 'SKETCH':
                 profile = body.newObject('Sketcher::SketchObject', number + '_Sketch')
                 if params.get('profile','rectangle').lower() == 'circle': circle(profile,value(params,'diameter',20))
@@ -80,12 +87,16 @@ for part in spec['parts']:
         if body.Tip is None or body.Tip.Shape.isNull() or body.Tip.Shape.Volume <= 0: raise RuntimeError('EMPTY_PARTDESIGN_BODY')
         body.addProperty('App::PropertyString','Material','Engineering').Material=part['material']
         objects.append(body)
+        progress(min(part_start + 4, 74), 'BREP_EXPORTING', '%s: exporting BRep' % number)
         body.Tip.Shape.exportBrep(os.path.join(root,'01_Model','Parts',number+'.brep'))
+        progress(min(part_start + 6, 75), 'PART_STEP_EXPORTING', '%s: exporting STEP' % number)
         Part.export([body],os.path.join(root,'02_STEP',number+'.step'))
         manifest.append({'partNumber':number,'name':name,'volume':body.Tip.Shape.Volume,'solidCount':len(body.Tip.Shape.Solids),'body':body.Name,'tip':body.Tip.Name,'featureCount':len(body.Group),'features':[o.TypeId for o in body.Group]})
+        progress(36 + int((part_index + 1) * 38 / part_count), 'PART_COMPLETED', '%s completed (%d/%d)' % (number, part_index + 1, part_count))
     except Exception as ex:
         log(number,kind,'FAILED',str(ex)); raise
 
+progress(76, 'ASSEMBLY_GENERATING', 'Solving assembly constraints')
 assembly_group=doc.addObject('App::DocumentObjectGroup','AssemblyConstraints')
 by_number={p['partNumber']: doc.getObject(p['partNumber']+'_Body') for p in spec['parts']}
 for c in spec['assembly']['constraints']:
@@ -112,7 +123,10 @@ for c in spec['assembly']['constraints']:
     else: raise RuntimeError('ASSEMBLY_CONSTRAINT_UNRESOLVED:'+obj.Name)
 
 doc.recompute(); doc.saveAs(os.path.join(root,'01_Model','Assembly.FCStd'))
-Part.export(objects,os.path.join(root,'02_STEP','Assembly.STEP')); Mesh.export(objects,os.path.join(root,'02_STEP','Assembly.stl'))
+progress(81, 'ASSEMBLY_STEP_EXPORTING', 'Exporting assembly STEP')
+Part.export(objects,os.path.join(root,'02_STEP','Assembly.STEP'))
+progress(85, 'STL_EXPORTING', 'Exporting browser STL preview')
+Mesh.export(objects,os.path.join(root,'02_STEP','Assembly.stl'))
 placed=[]
 for body in objects:
     s=body.Tip.Shape.copy(); s.Placement=body.Placement; placed.append(s)
@@ -129,6 +143,7 @@ def projected_lines(shape, view):
     if not lines: raise RuntimeError('EMPTY_PROJECTED_VIEW:'+view)
     return lines
 
+progress(88, 'DRAWING_PROJECTING', 'Generating front, top and right projections')
 views={view:projected_lines(assembly_shape,view) for view in ['front','top','right']}
 with open(os.path.join(root,'03_Drawing','projection-lines.json'),'w',encoding='utf-8') as f: json.dump(views,f)
 
@@ -153,6 +168,7 @@ dxf.extend(['0','ENDSEC','0','EOF'])
 with open(os.path.join(root,'03_Drawing','Assembly.dxf'),'w',encoding='ascii') as f: f.write('\\n'.join(dxf)+'\\n')
 receipt={'passed':True,'kernel':'OpenCascade','modelingMethod':'FreeCAD PartDesign','primitiveOnly':False,'parts':manifest,'featureLog':feature_log,'assemblyConstraints':assembly_log}
 with open(os.path.join(root,'02_STEP','cad-reality-report.json'),'w',encoding='utf-8') as f: json.dump(receipt,f,indent=2)
+progress(90, 'FREECAD_COMPLETED', 'FreeCAD CAD artifacts completed')
 print(json.dumps({'status':'SUCCESS','parts':len(objects),'features':len(feature_log),'constraints':len(assembly_log)}))
 """;
 }

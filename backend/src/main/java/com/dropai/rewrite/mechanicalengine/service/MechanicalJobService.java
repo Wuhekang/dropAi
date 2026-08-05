@@ -55,9 +55,9 @@ public class MechanicalJobService {
     }
 
     private void run(String jobId, String requirement, Long userId) {
-        update(jobId, MechanicalJobStatus.FREECAD_RUNNING, 35, "FREECAD_RUNNING", "FreeCAD PartDesign generation is running", null, null);
         try {
-            MechanicalProject project = engine.execute(requirement, userId);
+            MechanicalProject project = engine.execute(requirement, userId, event ->
+                    update(jobId, status(event.stage()), event.progress(), event.stage(), event.message(), null, null));
             if (!"COMPLETED".equals(project.getStatus())) {
                 update(jobId, MechanicalJobStatus.FAILED, 100, project.getCurrentStage(), project.getFailureMessage(), project, null);
                 return;
@@ -68,6 +68,17 @@ public class MechanicalJobService {
         } catch (Exception exception) {
             update(jobId, MechanicalJobStatus.FAILED, 100, "FAILED", readable(exception), null, null);
         }
+    }
+
+    private MechanicalJobStatus status(String stage) {
+        if (stage == null) return MechanicalJobStatus.CAD_GENERATING;
+        if (stage.startsWith("REQUIREMENT")) return MechanicalJobStatus.REQUIREMENT_ANALYSIS;
+        if (stage.startsWith("DESIGN")) return MechanicalJobStatus.DESIGNING;
+        if (stage.contains("STEP")) return MechanicalJobStatus.STEP_EXPORTING;
+        if (stage.contains("DRAWING")) return MechanicalJobStatus.DRAWING_GENERATING;
+        if (stage.contains("VALIDAT")) return MechanicalJobStatus.VALIDATING;
+        if (stage.contains("FREECAD") || stage.contains("FEATURE") || stage.contains("PART")) return MechanicalJobStatus.FREECAD_RUNNING;
+        return MechanicalJobStatus.CAD_GENERATING;
     }
 
     private MechanicalDesignResult toResult(String resultId, MechanicalProject project) {

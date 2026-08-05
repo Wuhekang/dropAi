@@ -14,6 +14,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.UUID;
+import java.util.function.Consumer;
+import com.dropai.rewrite.mechanicalengine.domain.MechanicalProgress;
 
 @Service
 public class MechanicalEngineService {
@@ -42,7 +44,13 @@ public class MechanicalEngineService {
     }
 
     public MechanicalProject execute(String requirementText, Long userId) {
+        return execute(requirementText, userId, progress -> {});
+    }
+
+    public MechanicalProject execute(String requirementText, Long userId, Consumer<MechanicalProgress> progress) {
+        progress.accept(new MechanicalProgress(5, "REQUIREMENT_ANALYSIS", "Analyzing product requirements"));
         MechanicalProject project = chiefEngineer.design(requirementText);
+        progress.accept(new MechanicalProgress(18, "DESIGNING", "Mechanical architecture and part plan completed"));
         project.setAnalysisReport(analysisEngine.analyze(project.getDesignSpec()));
         project.getAnalysis().setMaximumStressMpa(project.getAnalysisReport().estimatedStressMpa());
         project.getAnalysis().setDisplacementMm(project.getAnalysisReport().estimatedDisplacementMm());
@@ -62,16 +70,20 @@ public class MechanicalEngineService {
         Path spec=cadDslService.write(project,workspace);
         Path script=jobGenerator.generate(workspace);
         running(project,"FEATURE_EXECUTION","Executing Sketcher and PartDesign feature histories through FreeCADCmd.");
-        FreeCadExecutor.ExecutionResult result=executor.execute(script,spec,workspace);
+        progress.accept(new MechanicalProgress(30, "CAD_GENERATING", "FeatureBasedCadSpec generated"));
+        FreeCadExecutor.ExecutionResult result=executor.execute(script,spec,workspace,
+                event -> progress.accept(new MechanicalProgress(event.progress(), event.stage(), event.message())));
         if(!result.success()) return fail(project,result.errorCode(),result.message());
         pass(project,"FEATURE_EXECUTION","FreeCAD PartDesign bodies and editable feature histories generated.");
         pass(project,"ASSEMBLY","Assembly constraint objects created and solved into component placements.");
         pass(project,"STEP_EXPORT","Assembly and per-part STEP files exported from BRep solids.");
 
+        progress.accept(new MechanicalProgress(91, "DRAWING_GENERATING", "Generating drawing PDF and analysis artifacts"));
         artifactService.generate(project,workspace);
         pass(project,"DRAWING_GENERATION","Assembly and part drawings generated in SVG, DXF, and PDF.");
         pass(project,"ENGINEERING_ANALYSIS","Phase-1 rule analysis and stress cloud generated.");
         MechanicalArtifactValidator.ValidationReport validation=validator.validate(project,workspace);
+        progress.accept(new MechanicalProgress(96, "VALIDATING", "Validating CAD reality and required artifacts"));
         if(!validation.passed()) return fail(project,"ARTIFACT_VALIDATION_FAILED",String.join("; ",validation.errors()));
         pass(project,"VALIDATION","PartDesign bodies, sketches, feature histories, solved constraints, STEP, and drawings passed reality checks.");
 
@@ -87,6 +99,7 @@ public class MechanicalEngineService {
             project.getArtifacts().add(persist(userId,project,"Mechanical_Result.zip","PACKAGE","application/zip",zip));
         } catch(Exception e) { return fail(project,"ARTIFACT_PERSIST_FAILED",e.getMessage()); }
         pass(project,"PACKAGE","Validated mechanical project package completed.");
+        progress.accept(new MechanicalProgress(99, "PACKAGING", "Mechanical result package completed"));
         project.setStatus("COMPLETED"); project.setCurrentStage("COMPLETED");
         return project;
     }
