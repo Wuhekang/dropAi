@@ -10,6 +10,7 @@ public record MechanicalJobSnapshot(
         String message,
         MechanicalProject project,
         MechanicalDesignResult result,
+        java.util.List<MechanicalProject.Artifact> liveArtifacts,
         boolean resumable,
         LocalDateTime createdAt,
         LocalDateTime updatedAt

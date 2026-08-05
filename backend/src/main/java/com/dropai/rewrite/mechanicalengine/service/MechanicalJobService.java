@@ -12,6 +12,11 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.Resource;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 
 @Service
 public class MechanicalJobService {
@@ -36,7 +41,7 @@ public class MechanicalJobService {
         catch (Exception exception) { throw new IllegalStateException("MECHANICAL_WORKSPACE_CREATE_FAILED", exception); }
         contexts.put(jobId, new JobContext(requirement, userId, workspace));
         MechanicalJobSnapshot created = new MechanicalJobSnapshot(jobId, MechanicalJobStatus.CREATED, 0,
-                "CREATED", "Mechanical job queued", null, null, false, now, now);
+                "CREATED", "Mechanical job queued", null, null, List.of(), false, now, now);
         jobs.put(jobId, created);
         executor.execute(() -> run(jobId, requirement, userId));
         return created;
@@ -45,7 +50,20 @@ public class MechanicalJobService {
     public MechanicalJobSnapshot get(String jobId) {
         MechanicalJobSnapshot job = jobs.get(jobId);
         if (job == null) throw new IllegalArgumentException("MECHANICAL_JOB_NOT_FOUND");
-        return job;
+        return new MechanicalJobSnapshot(job.jobId(), job.status(), job.progress(), job.stage(), job.message(),
+                job.project(), job.result(), liveArtifacts(jobId), job.resumable(), job.createdAt(), job.updatedAt());
+    }
+
+    public Resource artifact(String jobId, String name) {
+        JobContext context = ownedContext(jobId);
+        try (var files = Files.walk(context.workspace())) {
+            Path match = files.filter(Files::isRegularFile)
+                    .filter(path -> path.getFileName().toString().equals(name)).findFirst()
+                    .orElseThrow(() -> new IllegalArgumentException("MECHANICAL_LIVE_ARTIFACT_NOT_FOUND"));
+            return new FileSystemResource(match);
+        } catch (java.io.IOException exception) {
+            throw new IllegalStateException("MECHANICAL_LIVE_ARTIFACT_READ_FAILED", exception);
+        }
     }
 
     public MechanicalJobSnapshot resume(String jobId) {
@@ -122,13 +140,42 @@ public class MechanicalJobService {
                         MechanicalProject project, MechanicalDesignResult result, boolean resumable) {
         MechanicalJobSnapshot previous = jobs.get(id);
         jobs.put(id, new MechanicalJobSnapshot(id, status, progress, stage, message, project, result,
-                resumable,
+                previous == null ? List.of() : previous.liveArtifacts(), resumable,
                 previous == null ? LocalDateTime.now() : previous.createdAt(), LocalDateTime.now()));
     }
 
     private String readable(Exception exception) {
         String message = exception.getMessage();
         return message == null || message.isBlank() ? exception.getClass().getSimpleName() : message;
+    }
+
+    private List<MechanicalProject.Artifact> liveArtifacts(String jobId) {
+        JobContext context = contexts.get(jobId);
+        if (context == null || !Files.isDirectory(context.workspace())) return List.of();
+        List<MechanicalProject.Artifact> artifacts = new ArrayList<>();
+        try (var files = Files.walk(context.workspace())) {
+            for (Path path : files.filter(Files::isRegularFile).toList()) {
+                String name = path.getFileName().toString();
+                String category;
+                String mediaType;
+                if (name.matches("P\\d+\\.stl") || name.equals("Assembly.stl")) { category="MODEL"; mediaType="model/stl"; }
+                else if (name.matches("P\\d+\\.step") || name.equals("Assembly.STEP")) { category="STEP"; mediaType="application/step"; }
+                else if (name.endsWith(".svg") || name.endsWith(".dxf")) { category="DRAWING"; mediaType=name.endsWith(".svg")?"image/svg+xml":"image/vnd.dxf"; }
+                else continue;
+                String url = "/api/mechanical/jobs/" + jobId + "/artifacts/" + URLEncoder.encode(name, StandardCharsets.UTF_8);
+                artifacts.add(new MechanicalProject.Artifact(name, category, mediaType, Files.size(path), url, true));
+            }
+        } catch (Exception ignored) {
+            return List.of();
+        }
+        return artifacts.stream().sorted(java.util.Comparator.comparing(MechanicalProject.Artifact::name)).toList();
+    }
+
+    private JobContext ownedContext(String jobId) {
+        JobContext context = contexts.get(jobId);
+        if (context == null) throw new IllegalArgumentException("MECHANICAL_JOB_NOT_FOUND");
+        if (!context.userId().equals(AuthContext.requireUserId())) throw new IllegalArgumentException("MECHANICAL_JOB_FORBIDDEN");
+        return context;
     }
 
     private record JobContext(String requirement, Long userId, Path workspace) {}

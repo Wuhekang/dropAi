@@ -104,6 +104,10 @@ for part_index, part in enumerate(spec['parts']):
             progress(min(part_start + 6, 75), 'PART_STEP_EXPORTING', '%s: exporting STEP' % number)
             body.Tip.Shape.exportStep(step_path)
         else: progress(min(part_start + 6, 75), 'STEP_REUSED', '%s: existing STEP reused' % number)
+        part_stl_path = os.path.join(root,'02_STEP',number+'.stl')
+        if not os.path.isfile(part_stl_path) or os.path.getsize(part_stl_path) == 0:
+            progress(min(part_start + 7, 75), 'PART_PREVIEW_EXPORTING', '%s: exporting live STL preview' % number)
+            Mesh.export([body],part_stl_path)
         manifest.append({'partNumber':number,'name':name,'volume':body.Tip.Shape.Volume,'solidCount':len(body.Tip.Shape.Solids),'body':body.Name,'tip':body.Tip.Name,'featureCount':len(body.Group),'features':[o.TypeId for o in body.Group]})
         progress(36 + int((part_index + 1) * 38 / part_count), 'PART_COMPLETED', '%s completed (%d/%d)' % (number, part_index + 1, part_count))
     except Exception as ex:

@@ -97,6 +97,7 @@ const jobProgress = ref(0)
 const mechanicalResultId = ref('')
 const documentBusy = ref(false)
 const canResume = ref(false)
+const loadedPreviewKey = ref('')
 let pollTimer = null
 const process = [
   ['PRODUCT_DEFINITION', '产品定义'], ['FUNCTIONAL_DECOMPOSITION', '功能树'], ['MECHANICAL_ARCHITECTURE', '机械架构'],
@@ -133,6 +134,12 @@ async function pollMechanicalJob() {
     jobStage.value = job.stage || job.status
     jobProgress.value = job.progress || 0
     if (job.project) Object.assign(project, job.project)
+    if (job.liveArtifacts?.length) {
+      const merged = new Map((project.artifacts || []).map(item => [item.name, item]))
+      job.liveArtifacts.forEach(item => merged.set(item.name, item))
+      project.artifacts = [...merged.values()]
+      await loadModel()
+    }
     if (job.status === 'COMPLETED') {
       busy.value = false
       mechanicalResultId.value = job.result?.resultId || ''
@@ -184,11 +191,15 @@ async function generateDocument() {
   finally { documentBusy.value = false }
 }
 async function loadModel() {
-  const file = (project.artifacts || []).find(item => item.name === 'Assembly.stl')
+  const models = (project.artifacts || []).filter(item => item.name === 'Assembly.stl' || /^P\d+\.stl$/i.test(item.name))
+  const file = models.find(item => item.name === 'Assembly.stl') || models.at(-1)
   if (!file) return
+  const previewKey = `${file.name}:${file.size}`
+  if (loadedPreviewKey.value === previewKey) return
   const blob = await downloadArtifact(file.downloadUrl)
   if (modelUrl.value) URL.revokeObjectURL(modelUrl.value)
   modelUrl.value = URL.createObjectURL(blob)
+  loadedPreviewKey.value = previewKey
 }
 async function downloadFile(file) {
   try {
