@@ -19,9 +19,10 @@ public class PartDesignJobGenerator {
     }
 
     static final String SCRIPT = """
-import FreeCAD as App, Part, Sketcher, Mesh, Drawing, importDXF, json, os, sys, traceback
+import FreeCAD as App, Part, Sketcher, Mesh, json, os, sys, traceback
 
-spec_path, root = sys.argv[-2], sys.argv[-1]
+spec_path = os.environ['DROP_AI_CAD_SPEC']
+root = os.environ['DROP_AI_CAD_WORKSPACE']
 with open(spec_path, 'r', encoding='utf-8') as f: spec = json.load(f)
 for folder in ['01_Model/Parts','02_STEP','03_Drawing/Parts_Drawing','04_Document','05_Analysis']:
     os.makedirs(os.path.join(root, folder), exist_ok=True)
@@ -116,24 +117,40 @@ placed=[]
 for body in objects:
     s=body.Tip.Shape.copy(); s.Placement=body.Placement; placed.append(s)
 assembly_shape=Part.makeCompound(placed)
-views={}
-for view in ['front','top','right']:
-    views[view]=[]
-    for edge in assembly_shape.Edges:
+def projected_lines(shape, view):
+    lines=[]
+    for edge in shape.Edges:
         try:
             pts=edge.discretize(Number=16)
         except Exception:
             pts=[vertex.Point for vertex in edge.Vertexes]
         line=[[q.x,q.z] for q in pts] if view=='front' else ([[q.x,q.y] for q in pts] if view=='top' else [[q.y,q.z] for q in pts])
-        if len(line)>1: views[view].append(line)
-    if not views[view]: raise RuntimeError('EMPTY_PROJECTED_VIEW:'+view)
+        if len(line)>1: lines.append(line)
+    if not lines: raise RuntimeError('EMPTY_PROJECTED_VIEW:'+view)
+    return lines
+
+views={view:projected_lines(assembly_shape,view) for view in ['front','top','right']}
 with open(os.path.join(root,'03_Drawing','projection-lines.json'),'w',encoding='utf-8') as f: json.dump(views,f)
-directions=[('front',App.Vector(0,-1,0)),('top',App.Vector(0,0,1)),('right',App.Vector(1,0,0))]
-fragments=['<g transform="translate(%d,%d) scale(1,-1)">%s</g>'%(80+(i%2)*500,330+(i//2)*360,Drawing.projectToSVG(assembly_shape,d)) for i,(v,d) in enumerate(directions)]
+
+def svg_group(lines,tx,ty):
+    paths=[]
+    for line in lines:
+        points=' '.join('%.3f,%.3f'%(point[0],-point[1]) for point in line)
+        paths.append('<polyline points="'+points+'" fill="none" stroke="#111" stroke-width="0.7"/>')
+    return '<g transform="translate(%d,%d)">%s</g>'%(tx,ty,''.join(paths))
+
+fragments=[svg_group(views['front'],80,330),svg_group(views['top'],580,330),svg_group(views['right'],80,690)]
 with open(os.path.join(root,'03_Drawing','Assembly.svg'),'w',encoding='utf-8') as f: f.write('<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="800"><rect width="100%" height="100%" fill="white"/>'+''.join(fragments)+'</svg>')
 for body in objects:
-    with open(os.path.join(root,'03_Drawing','Parts_Drawing',body.Name.replace('_Body','')+'.svg'),'w',encoding='utf-8') as f: f.write('<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600"><g transform="translate(80,400) scale(1,-1)">'+Drawing.projectToSVG(body.Tip.Shape,App.Vector(0,-1,0))+'</g></svg>')
-importDXF.export(objects,os.path.join(root,'03_Drawing','Assembly.dxf'))
+    part_lines=projected_lines(body.Tip.Shape,'front')
+    with open(os.path.join(root,'03_Drawing','Parts_Drawing',body.Name.replace('_Body','')+'.svg'),'w',encoding='utf-8') as f: f.write('<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600"><rect width="100%" height="100%" fill="white"/>'+svg_group(part_lines,80,400)+'</svg>')
+
+dxf=['0','SECTION','2','HEADER','0','ENDSEC','0','SECTION','2','ENTITIES']
+for line in views['front']:
+    for p1,p2 in zip(line,line[1:]):
+        dxf.extend(['0','LINE','8','FRONT','10',str(p1[0]),'20',str(p1[1]),'30','0','11',str(p2[0]),'21',str(p2[1]),'31','0'])
+dxf.extend(['0','ENDSEC','0','EOF'])
+with open(os.path.join(root,'03_Drawing','Assembly.dxf'),'w',encoding='ascii') as f: f.write('\n'.join(dxf)+'\n')
 receipt={'passed':True,'kernel':'OpenCascade','modelingMethod':'FreeCAD PartDesign','primitiveOnly':False,'parts':manifest,'featureLog':feature_log,'assemblyConstraints':assembly_log}
 with open(os.path.join(root,'02_STEP','cad-reality-report.json'),'w',encoding='utf-8') as f: json.dump(receipt,f,indent=2)
 print(json.dumps({'status':'SUCCESS','parts':len(objects),'features':len(feature_log),'constraints':len(assembly_log)}))

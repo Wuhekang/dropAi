@@ -18,8 +18,11 @@ public class FreeCadExecutor {
                     "FREECAD_CMD is not configured; OpenCascade BRep generation cannot run", List.of());
         }
         try {
-            Process process = new ProcessBuilder(command, script.toString(), spec.toString(), workspace.toString())
-                    .directory(workspace.toFile()).redirectErrorStream(true).start();
+            ProcessBuilder builder = new ProcessBuilder(command, script.toString())
+                    .directory(workspace.toFile()).redirectErrorStream(true);
+            builder.environment().put("DROP_AI_CAD_SPEC", spec.toAbsolutePath().toString());
+            builder.environment().put("DROP_AI_CAD_WORKSPACE", workspace.toAbsolutePath().toString());
+            Process process = builder.start();
             boolean finished = process.waitFor(Duration.ofMinutes(10).toMillis(), TimeUnit.MILLISECONDS);
             if (!finished) {
                 process.destroyForcibly();
