@@ -18,6 +18,7 @@
         <button :disabled="busy || !requirement.trim()" @click="designOnly">生成设计方案</button>
         <button class="primary" :disabled="busy || !requirement.trim()" @click="execute">生成 PartDesign 成果</button>
         <button v-if="mechanicalResultId" :disabled="documentBusy" @click="generateDocument">生成设计文档</button>
+        <button v-if="canResume" class="resume" :disabled="busy" @click="resumeGeneration">继续生成</button>
         <p v-if="jobId" class="job-status">{{ jobStage }} · {{ jobProgress }}%</p>
         <div class="tools">
           <span>运行环境</span>
@@ -81,7 +82,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import MechanicalBrepViewer from '../../components/MechanicalBrepViewer.vue'
 import MechanicalArtifactPanel from '../../components/MechanicalArtifactPanel.vue'
-import { designMechanicalProject, downloadArtifact, extractMechanicalRequirement, getMechanicalTools, getMechanicalJob, startMechanicalDocument, getMechanicalDocumentJob, startMechanicalGeneration } from '../../api/rewrite'
+import { continueMechanicalJob, designMechanicalProject, downloadArtifact, extractMechanicalRequirement, getMechanicalTools, getMechanicalJob, startMechanicalDocument, getMechanicalDocumentJob, startMechanicalGeneration } from '../../api/rewrite'
 
 const router = useRouter()
 const requirement = ref('设计一个可调丝杆夹具，用于工件定位和可靠夹紧。')
@@ -95,6 +96,7 @@ const jobStage = ref('')
 const jobProgress = ref(0)
 const mechanicalResultId = ref('')
 const documentBusy = ref(false)
+const canResume = ref(false)
 let pollTimer = null
 const process = [
   ['PRODUCT_DEFINITION', '产品定义'], ['FUNCTIONAL_DECOMPOSITION', '功能树'], ['MECHANICAL_ARCHITECTURE', '机械架构'],
@@ -115,6 +117,7 @@ async function execute() {
   try {
     const created = await startMechanicalGeneration(project.projectId || 'new', { requirement: requirement.value.trim() })
     jobId.value = created.jobId
+    canResume.value = false
     jobStage.value = created.stage
     jobProgress.value = created.progress || 0
     pollMechanicalJob()
@@ -133,12 +136,15 @@ async function pollMechanicalJob() {
     if (job.status === 'COMPLETED') {
       busy.value = false
       mechanicalResultId.value = job.result?.resultId || ''
+      canResume.value = false
       await loadModel()
       ElMessage.success('机械成果已生成')
       return
     }
     if (job.status === 'FAILED') {
       busy.value = false
+      canResume.value = Boolean(job.resumable)
+      await loadModel()
       ElMessage.error(job.message || '机械成果生成失败')
       return
     }
@@ -146,6 +152,20 @@ async function pollMechanicalJob() {
   } catch (error) {
     busy.value = false
     ElMessage.error(error.message || '机械任务状态读取失败')
+  }
+}
+async function resumeGeneration() {
+  busy.value = true
+  canResume.value = false
+  try {
+    const resumed = await continueMechanicalJob(jobId.value)
+    jobStage.value = resumed.stage
+    jobProgress.value = resumed.progress || jobProgress.value
+    pollMechanicalJob()
+  } catch (error) {
+    busy.value = false
+    canResume.value = true
+    ElMessage.error(error.message || '继续生成失败')
   }
 }
 async function generateDocument() {

@@ -48,6 +48,14 @@ public class MechanicalEngineService {
     }
 
     public MechanicalProject execute(String requirementText, Long userId, Consumer<MechanicalProgress> progress) {
+        try {
+            return execute(requirementText, userId, progress, Files.createTempDirectory("dropai-cad-job-"));
+        } catch (Exception exception) {
+            throw new IllegalStateException("WORKSPACE_CREATE_FAILED: " + exception.getMessage(), exception);
+        }
+    }
+
+    public MechanicalProject execute(String requirementText, Long userId, Consumer<MechanicalProgress> progress, Path workspace) {
         progress.accept(new MechanicalProgress(5, "REQUIREMENT_ANALYSIS", "Analyzing product requirements"));
         MechanicalProject project = chiefEngineer.design(requirementText);
         progress.accept(new MechanicalProgress(18, "DESIGNING", "Mechanical architecture and part plan completed"));
@@ -63,8 +71,7 @@ public class MechanicalEngineService {
         pass(project,"ENGINEERING_PARAMETERS","Dimensions, load, material, and safety factor generated with engineering reasons.");
         pass(project,"ASSEMBLY_INTENT","Fixed, coincident, slider, and concentric relationships defined without design-stage coordinates.");
         pass(project,"FEATURE_SPEC","Constrained sketches and ordered PartDesign features encoded in FeatureBasedCADSpec.");
-        Path workspace;
-        try { workspace=Files.createTempDirectory("dropai-cad-"+project.getProjectId()); }
+        try { Files.createDirectories(workspace); }
         catch(Exception e){ return fail(project,"WORKSPACE_CREATE_FAILED",e.getMessage()); }
 
         Path spec=cadDslService.write(project,workspace);
@@ -73,7 +80,10 @@ public class MechanicalEngineService {
         progress.accept(new MechanicalProgress(30, "CAD_GENERATING", "FeatureBasedCadSpec generated"));
         FreeCadExecutor.ExecutionResult result=executor.execute(script,spec,workspace,
                 event -> progress.accept(new MechanicalProgress(event.progress(), event.stage(), event.message())));
-        if(!result.success()) return fail(project,result.errorCode(),result.message());
+        if(!result.success()) {
+            persistPartialArtifacts(project, userId, workspace);
+            return fail(project,result.errorCode(),result.message());
+        }
         pass(project,"FEATURE_EXECUTION","FreeCAD PartDesign bodies and editable feature histories generated.");
         pass(project,"ASSEMBLY","Assembly constraint objects created and solved into component placements.");
         pass(project,"STEP_EXPORT","Assembly and per-part STEP files exported from BRep solids.");
@@ -102,6 +112,26 @@ public class MechanicalEngineService {
         progress.accept(new MechanicalProgress(99, "PACKAGING", "Mechanical result package completed"));
         project.setStatus("COMPLETED"); project.setCurrentStage("COMPLETED");
         return project;
+    }
+
+    private void persistPartialArtifacts(MechanicalProject project, Long userId, Path workspace) {
+        try {
+            persistIfPresent(project,userId,workspace.resolve("01_Model/Generation_Checkpoint.FCStd"),"Generation_Checkpoint.FCStd","MODEL","application/octet-stream");
+            persistIfPresent(project,userId,workspace.resolve("01_Model/Assembly.FCStd"),"Assembly.FCStd","MODEL","application/octet-stream");
+            persistIfPresent(project,userId,workspace.resolve("02_STEP/Assembly.STEP"),"Assembly.STEP","STEP","application/step");
+            persistIfPresent(project,userId,workspace.resolve("02_STEP/Assembly.stl"),"Assembly.stl","MODEL","model/stl");
+            persistIfPresent(project,userId,workspace.resolve("03_Drawing/Assembly.svg"),"Assembly.svg","DRAWING","image/svg+xml");
+            try (var files = Files.list(workspace.resolve("02_STEP"))) {
+                for (Path file : files.filter(path -> path.getFileName().toString().matches("P\\d+\\.step")).toList())
+                    persistIfPresent(project,userId,file,file.getFileName().toString(),"STEP","application/step");
+            }
+        } catch (Exception ignored) {
+            // The original CAD failure remains the primary error; partial collection is best effort.
+        }
+    }
+
+    private void persistIfPresent(MechanicalProject project, Long userId, Path path, String name, String category, String mediaType) throws Exception {
+        if (Files.isRegularFile(path) && Files.size(path) > 0) persistFile(project,userId,path,name,category,mediaType);
     }
 
     private void persistFile(MechanicalProject project,Long userId,Path path,String name,String category,String mediaType)throws Exception{

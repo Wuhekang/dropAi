@@ -10,6 +10,7 @@ public record MechanicalJobSnapshot(
         String message,
         MechanicalProject project,
         MechanicalDesignResult result,
+        boolean resumable,
         LocalDateTime createdAt,
         LocalDateTime updatedAt
 ) {}

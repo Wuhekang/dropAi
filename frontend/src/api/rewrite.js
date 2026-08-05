@@ -331,6 +331,10 @@ export function getMechanicalJob(jobId) {
   return request.get(`/mechanical/jobs/${jobId}`, { timeout: 30000 })
 }
 
+export function continueMechanicalJob(jobId) {
+  return request.post(`/mechanical/jobs/${jobId}/continue`, {}, { timeout: 30000 })
+}
+
 export function startMechanicalDocument(payload) {
   return request.post('/documents/generate', payload, { timeout: 30000 })
 }

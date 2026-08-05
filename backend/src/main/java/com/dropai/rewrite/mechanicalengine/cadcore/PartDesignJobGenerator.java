@@ -26,7 +26,8 @@ root = os.environ['DROP_AI_CAD_WORKSPACE']
 with open(spec_path, 'r', encoding='utf-8') as f: spec = json.load(f)
 for folder in ['01_Model/Parts','02_STEP','03_Drawing/Parts_Drawing','04_Document','05_Analysis']:
     os.makedirs(os.path.join(root, folder), exist_ok=True)
-doc = App.newDocument('DropAI_Feature_CAD')
+checkpoint = os.path.join(root, '01_Model', 'Generation_Checkpoint.FCStd')
+doc = App.openDocument(checkpoint) if os.path.isfile(checkpoint) else App.newDocument('DropAI_Feature_CAD')
 objects, feature_log, assembly_log, manifest = [], [], [], []
 
 def value(params, key, default): return float(params.get(key, default))
@@ -51,11 +52,15 @@ progress(35, 'FREECAD_STARTING', 'FreeCAD document initialized')
 for part_index, part in enumerate(spec['parts']):
     number, name = part['partNumber'], part['partName']
     part_start = 36 + int(part_index * 38 / part_count)
-    progress(part_start, 'PART_BUILDING', 'Building %s %s' % (number, name))
-    body = doc.addObject('PartDesign::Body', number + '_Body'); body.Label = name
-    current, profile = None, None
+    body = doc.getObject(number + '_Body')
+    resumed = body is not None and body.Tip is not None and not body.Tip.Shape.isNull()
+    progress(part_start, 'PART_RESUMING' if resumed else 'PART_BUILDING', ('Resuming' if resumed else 'Building') + ' %s %s' % (number, name))
+    if body is None:
+        body = doc.addObject('PartDesign::Body', number + '_Body'); body.Label = name
+    current, profile = (body.Tip if resumed else None), None
     try:
         for f in sorted(part['body'], key=lambda item:item['order']):
+            if resumed: break
             kind, params = f['featureType'], f.get('parameters') or {}
             progress(min(part_start + 2, 73), 'FEATURE_EXECUTION', '%s: executing %s' % (number, kind))
             if kind == 'SKETCH':
@@ -85,12 +90,20 @@ for part_index, part in enumerate(spec['parts']):
                 else: feature.Size=value(params,'distance',1)
                 current=feature; doc.recompute(); log(number,kind,'SUCCESS','edge_feature_created')
         if body.Tip is None or body.Tip.Shape.isNull() or body.Tip.Shape.Volume <= 0: raise RuntimeError('EMPTY_PARTDESIGN_BODY')
-        body.addProperty('App::PropertyString','Material','Engineering').Material=part['material']
+        if 'Material' not in body.PropertiesList: body.addProperty('App::PropertyString','Material','Engineering')
+        body.Material=part['material']
         objects.append(body)
-        progress(min(part_start + 4, 74), 'BREP_EXPORTING', '%s: exporting BRep' % number)
-        body.Tip.Shape.exportBrep(os.path.join(root,'01_Model','Parts',number+'.brep'))
-        progress(min(part_start + 6, 75), 'PART_STEP_EXPORTING', '%s: exporting STEP' % number)
-        Part.export([body],os.path.join(root,'02_STEP',number+'.step'))
+        doc.recompute(); doc.saveAs(checkpoint)
+        brep_path = os.path.join(root,'01_Model','Parts',number+'.brep')
+        step_path = os.path.join(root,'02_STEP',number+'.step')
+        if not os.path.isfile(brep_path) or os.path.getsize(brep_path) == 0:
+            progress(min(part_start + 4, 74), 'BREP_EXPORTING', '%s: exporting BRep' % number)
+            body.Tip.Shape.exportBrep(brep_path)
+        else: progress(min(part_start + 4, 74), 'BREP_REUSED', '%s: existing BRep reused' % number)
+        if not os.path.isfile(step_path) or os.path.getsize(step_path) == 0:
+            progress(min(part_start + 6, 75), 'PART_STEP_EXPORTING', '%s: exporting STEP' % number)
+            body.Tip.Shape.exportStep(step_path)
+        else: progress(min(part_start + 6, 75), 'STEP_REUSED', '%s: existing STEP reused' % number)
         manifest.append({'partNumber':number,'name':name,'volume':body.Tip.Shape.Volume,'solidCount':len(body.Tip.Shape.Solids),'body':body.Name,'tip':body.Tip.Name,'featureCount':len(body.Group),'features':[o.TypeId for o in body.Group]})
         progress(36 + int((part_index + 1) * 38 / part_count), 'PART_COMPLETED', '%s completed (%d/%d)' % (number, part_index + 1, part_count))
     except Exception as ex:
