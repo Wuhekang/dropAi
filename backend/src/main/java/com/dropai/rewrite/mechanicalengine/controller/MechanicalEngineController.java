@@ -6,6 +6,9 @@ import com.dropai.rewrite.mechanicalengine.domain.MechanicalDesignSpec;
 import com.dropai.rewrite.mechanicalengine.plugin.EngineeringPluginManager;
 import com.dropai.rewrite.mechanicalengine.service.MechanicalChiefEngineer;
 import com.dropai.rewrite.mechanicalengine.service.MechanicalEngineService;
+import com.dropai.rewrite.mechanicalengine.service.MechanicalJobService;
+import com.dropai.rewrite.mechanicalengine.domain.MechanicalJobSnapshot;
+import org.springframework.web.bind.annotation.PathVariable;
 import com.dropai.rewrite.modules.documentParser.DocumentParser;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.multipart.MultipartFile;
@@ -24,13 +27,16 @@ public class MechanicalEngineController {
     private final MechanicalEngineService engineService;
     private final EngineeringPluginManager pluginManager;
     private final DocumentParser documentParser;
+    private final MechanicalJobService jobService;
 
     public MechanicalEngineController(MechanicalChiefEngineer chiefEngineer, MechanicalEngineService engineService,
-                                      EngineeringPluginManager pluginManager, DocumentParser documentParser) {
+                                      EngineeringPluginManager pluginManager, DocumentParser documentParser,
+                                      MechanicalJobService jobService) {
         this.chiefEngineer = chiefEngineer;
         this.engineService = engineService;
         this.pluginManager = pluginManager;
         this.documentParser = documentParser;
+        this.jobService = jobService;
     }
 
     @PostMapping("/design")
@@ -46,6 +52,11 @@ public class MechanicalEngineController {
     @PostMapping("/execute")
     public Result<MechanicalProject> execute(@RequestBody MechanicalRequest request) {
         return Result.success(engineService.execute(request.requirement()));
+    }
+
+    @PostMapping("/{projectId}/generate")
+    public Result<MechanicalJobSnapshot> generate(@PathVariable String projectId, @RequestBody MechanicalRequest request) {
+        return Result.success(jobService.start(request.requirement()));
     }
 
     @GetMapping("/tools")

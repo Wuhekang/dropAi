@@ -44,7 +44,6 @@ public class MechanicalArtifactValidator {
         requirePdf(root.resolve("03_Drawing/Assembly_Drawing.pdf"), "drawing PDF", errors);
         for (MechanicalProject.CADModelSpec part : project.getParts()) requireSvg(root.resolve("03_Drawing/Parts_Drawing/" + part.partNumber() + ".svg"), "part drawing " + part.partNumber(), errors);
         requireSvg(root.resolve("05_Analysis/stress-cloud.svg"), "analysis cloud", errors);
-        requirePdf(root.resolve("04_Document/Design_Report.pdf"), "design report", errors);
         if (project.getAssembly().getConstraints().size() < project.getAssembly().getComponents().size()) errors.add("assembly constraints are incomplete");
         return new ValidationReport(errors.isEmpty(), errors);
     }

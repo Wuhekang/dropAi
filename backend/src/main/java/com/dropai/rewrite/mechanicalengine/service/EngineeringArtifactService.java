@@ -18,18 +18,15 @@ import java.nio.file.Path;
 @Service
 public class EngineeringArtifactService {
     private final ObjectMapper mapper;
-    private final MechanicalDocumentAgent documentAgent;
-    public EngineeringArtifactService(ObjectMapper mapper, MechanicalDocumentAgent documentAgent) {
+    public EngineeringArtifactService(ObjectMapper mapper) {
         this.mapper=mapper;
-        this.documentAgent=documentAgent;
     }
 
     public void generate(MechanicalProject project,Path root){
         try{
-            Path analysis=root.resolve("05_Analysis"),document=root.resolve("04_Document"),drawing=root.resolve("03_Drawing");
-            Files.createDirectories(analysis);Files.createDirectories(document);
+            Path analysis=root.resolve("05_Analysis"),drawing=root.resolve("03_Drawing");
+            Files.createDirectories(analysis);
             Files.writeString(analysis.resolve("stress-cloud.svg"),analysisSvg(project),StandardCharsets.UTF_8);
-            documentAgent.generate(project,document.resolve("Design_Report.pdf"));
             createDrawingPdf(project,drawing.resolve("projection-lines.json"),drawing.resolve("Assembly_Drawing.pdf"));
             mapper.writerWithDefaultPrettyPrinter().writeValue(drawing.resolve("drawing-metadata.json").toFile(), java.util.Map.of(
                     "source", "FreeCAD PartDesign BRep",

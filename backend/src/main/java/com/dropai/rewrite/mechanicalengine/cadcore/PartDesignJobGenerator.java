@@ -150,7 +150,7 @@ for line in views['front']:
     for p1,p2 in zip(line,line[1:]):
         dxf.extend(['0','LINE','8','FRONT','10',str(p1[0]),'20',str(p1[1]),'30','0','11',str(p2[0]),'21',str(p2[1]),'31','0'])
 dxf.extend(['0','ENDSEC','0','EOF'])
-with open(os.path.join(root,'03_Drawing','Assembly.dxf'),'w',encoding='ascii') as f: f.write('\n'.join(dxf)+'\n')
+with open(os.path.join(root,'03_Drawing','Assembly.dxf'),'w',encoding='ascii') as f: f.write('\\n'.join(dxf)+'\\n')
 receipt={'passed':True,'kernel':'OpenCascade','modelingMethod':'FreeCAD PartDesign','primitiveOnly':False,'parts':manifest,'featureLog':feature_log,'assemblyConstraints':assembly_log}
 with open(os.path.join(root,'02_STEP','cad-reality-report.json'),'w',encoding='utf-8') as f: json.dump(receipt,f,indent=2)
 print(json.dumps({'status':'SUCCESS','parts':len(objects),'features':len(feature_log),'constraints':len(assembly_log)}))

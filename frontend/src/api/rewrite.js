@@ -323,6 +323,22 @@ export function executeMechanicalProject(payload) {
   return request.post('/mechanical/projects/execute', payload, { timeout: 1800000 })
 }
 
+export function startMechanicalGeneration(projectId, payload) {
+  return request.post(`/mechanical/projects/${projectId}/generate`, payload, { timeout: 30000 })
+}
+
+export function getMechanicalJob(jobId) {
+  return request.get(`/mechanical/jobs/${jobId}`, { timeout: 30000 })
+}
+
+export function startMechanicalDocument(payload) {
+  return request.post('/documents/generate', payload, { timeout: 30000 })
+}
+
+export function getMechanicalDocumentJob(jobId) {
+  return request.get(`/documents/jobs/${jobId}`, { timeout: 30000 })
+}
+
 export function getMechanicalTools() {
   return request.get('/mechanical/projects/tools', { timeout: 30000 })
 }

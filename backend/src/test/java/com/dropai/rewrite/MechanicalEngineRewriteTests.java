@@ -80,10 +80,10 @@ class MechanicalEngineRewriteTests {
     }
 
     @Test
-    void packageContainsOnlyFiveUserFacingEngineeringFolders() throws Exception {
+    void mechanicalPackageExcludesDocumentOutputs() throws Exception {
         Path root = Files.createTempDirectory("cad-package-");
         Set<String> expected = new HashSet<>();
-        for (String directory : new String[]{"01_Model", "02_STEP", "03_Drawing", "04_Document", "05_Analysis"}) {
+        for (String directory : new String[]{"01_Model", "02_STEP", "03_Drawing", "05_Analysis"}) {
             Files.createDirectories(root.resolve(directory));
             Files.writeString(root.resolve(directory + "/artifact.bin"), directory);
             expected.add(directory + "/artifact.bin");
@@ -94,5 +94,6 @@ class MechanicalEngineRewriteTests {
             for (var entry = input.getNextEntry(); entry != null; entry = input.getNextEntry()) names.add(entry.getName());
         }
         assertEquals(expected, names);
+        assertTrue(names.stream().noneMatch(name -> name.endsWith(".docx") || name.contains("Design_Report")));
     }
 }

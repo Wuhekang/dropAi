@@ -17,6 +17,8 @@
         <label class="upload">导入任务书<input type="file" accept=".docx,.pdf,.txt,.md" @change="uploadRequirement" /></label>
         <button :disabled="busy || !requirement.trim()" @click="designOnly">生成设计方案</button>
         <button class="primary" :disabled="busy || !requirement.trim()" @click="execute">生成 PartDesign 成果</button>
+        <button v-if="mechanicalResultId" :disabled="documentBusy" @click="generateDocument">生成设计文档</button>
+        <p v-if="jobId" class="job-status">{{ jobStage }} · {{ jobProgress }}%</p>
         <div class="tools">
           <span>运行环境</span>
           <div v-for="(value, key) in tools" :key="key"><b>{{ toolName(key) }}</b><em :class="{ ok: value !== 'missing' }">{{ value === 'missing' ? '未配置' : '可用' }}</em></div>
@@ -79,7 +81,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import MechanicalBrepViewer from '../../components/MechanicalBrepViewer.vue'
 import MechanicalArtifactPanel from '../../components/MechanicalArtifactPanel.vue'
-import { designMechanicalProject, downloadArtifact, executeMechanicalProject, extractMechanicalRequirement, getMechanicalTools } from '../../api/rewrite'
+import { designMechanicalProject, downloadArtifact, extractMechanicalRequirement, getMechanicalTools, getMechanicalJob, startMechanicalDocument, getMechanicalDocumentJob, startMechanicalGeneration } from '../../api/rewrite'
 
 const router = useRouter()
 const requirement = ref('设计一个可调丝杆夹具，用于工件定位和可靠夹紧。')
@@ -88,6 +90,12 @@ const activeTab = ref('design')
 const tools = reactive({})
 const project = reactive({ status: 'PENDING', stages: [], artifacts: [] })
 const modelUrl = ref('')
+const jobId = ref('')
+const jobStage = ref('')
+const jobProgress = ref(0)
+const mechanicalResultId = ref('')
+const documentBusy = ref(false)
+let pollTimer = null
 const process = [
   ['PRODUCT_DEFINITION', '产品定义'], ['FUNCTIONAL_DECOMPOSITION', '功能树'], ['MECHANICAL_ARCHITECTURE', '机械架构'],
   ['PART_PLANNING', '零件规划'], ['ASSEMBLY_INTENT', '装配意图'], ['FEATURE_SPEC', 'Feature Spec'],
@@ -95,15 +103,66 @@ const process = [
 ].map(([key, label]) => ({ key, label }))
 const tabs = [
   { key: 'design', label: '设计方案' }, { key: 'features', label: 'Feature Tree' }, { key: 'assembly', label: '装配约束' },
-  { key: 'drawing', label: '工程图' }, { key: 'analysis', label: '分析' },
-  { key: 'document', label: '文档' }, { key: 'package', label: '成果包' }
+  { key: 'drawing', label: '工程图' }, { key: 'analysis', label: '分析' }, { key: 'package', label: '成果包' }
 ]
-const categoryForTab = computed(() => ({ drawing: 'DRAWING', analysis: 'ANALYSIS', document: 'DOCUMENT', package: 'PACKAGE' })[activeTab.value] || '')
+const categoryForTab = computed(() => ({ drawing: 'DRAWING', analysis: 'ANALYSIS', package: 'PACKAGE' })[activeTab.value] || '')
 const statusText = computed(() => project.status === 'COMPLETED' ? '真实性验证通过' : project.status === 'DESIGN_FAILED' ? '生成失败' : busy.value ? '正在执行' : '等待输入')
 const statusClass = computed(() => ({ failed: project.status === 'DESIGN_FAILED', passed: project.status === 'COMPLETED' }))
 
 async function designOnly() { await run(designMechanicalProject, 'Feature 设计方案已生成') }
-async function execute() { await run(executeMechanicalProject, 'PartDesign 成果已生成'); if (project.status === 'COMPLETED') await loadModel() }
+async function execute() {
+  busy.value = true
+  try {
+    const created = await startMechanicalGeneration(project.projectId || 'new', { requirement: requirement.value.trim() })
+    jobId.value = created.jobId
+    jobStage.value = created.stage
+    jobProgress.value = created.progress || 0
+    pollMechanicalJob()
+  } catch (error) {
+    busy.value = false
+    ElMessage.error(error.message || '机械任务创建失败')
+  }
+}
+async function pollMechanicalJob() {
+  clearTimeout(pollTimer)
+  try {
+    const job = await getMechanicalJob(jobId.value)
+    jobStage.value = job.stage || job.status
+    jobProgress.value = job.progress || 0
+    if (job.project) Object.assign(project, job.project)
+    if (job.status === 'COMPLETED') {
+      busy.value = false
+      mechanicalResultId.value = job.result?.resultId || ''
+      await loadModel()
+      ElMessage.success('机械成果已生成')
+      return
+    }
+    if (job.status === 'FAILED') {
+      busy.value = false
+      ElMessage.error(job.message || '机械成果生成失败')
+      return
+    }
+    pollTimer = setTimeout(pollMechanicalJob, 2000)
+  } catch (error) {
+    busy.value = false
+    ElMessage.error(error.message || '机械任务状态读取失败')
+  }
+}
+async function generateDocument() {
+  documentBusy.value = true
+  try {
+    const created = await startMechanicalDocument({ mechanicalResultId: mechanicalResultId.value, documentType: 'ENGINEERING' })
+    let current = created
+    while (!['COMPLETED', 'FAILED'].includes(current.status)) {
+      await new Promise(resolve => setTimeout(resolve, 2000))
+      current = await getMechanicalDocumentJob(created.documentJobId)
+    }
+    if (current.status === 'FAILED') throw new Error(current.message)
+    project.artifacts = [...(project.artifacts || []), ...(current.artifacts || [])]
+    ElMessage.success('设计文档已生成')
+  } catch (error) { ElMessage.error(error.message || '设计文档生成失败') }
+  finally { documentBusy.value = false }
+}
 async function loadModel() {
   const file = (project.artifacts || []).find(item => item.name === 'Assembly.stl')
   if (!file) return
@@ -138,7 +197,7 @@ function stageClass(key) { const state = (project.stages || []).find(item => ite
 function number(value) { return Number(value || 0).toFixed(2) }
 function toolName(key) { return ({ OPENCASCADE_BREP: 'OpenCascade', FREECAD_STEP_EXPORT: 'FreeCAD PartDesign', BROWSER_STL_VIEWER: '3D 预览', ENGINEERING_DRAWING: '工程图', RULE_ANALYSIS: '规则分析', CALCULIX_FEA: 'CalculiX FEA' })[key] || key }
 onMounted(async () => { try { Object.assign(tools, await getMechanicalTools()) } catch {} })
-onBeforeUnmount(() => { if (modelUrl.value) URL.revokeObjectURL(modelUrl.value) })
+onBeforeUnmount(() => { clearTimeout(pollTimer); if (modelUrl.value) URL.revokeObjectURL(modelUrl.value) })
 </script>
 
 <style scoped>

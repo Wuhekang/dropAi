@@ -38,6 +38,10 @@ public class MechanicalEngineService {
     }
 
     public MechanicalProject execute(String requirementText) {
+        return execute(requirementText, AuthContext.requireUserId());
+    }
+
+    public MechanicalProject execute(String requirementText, Long userId) {
         MechanicalProject project = chiefEngineer.design(requirementText);
         project.setAnalysisReport(analysisEngine.analyze(project.getDesignSpec()));
         project.getAnalysis().setMaximumStressMpa(project.getAnalysisReport().estimatedStressMpa());
@@ -67,31 +71,33 @@ public class MechanicalEngineService {
         artifactService.generate(project,workspace);
         pass(project,"DRAWING_GENERATION","Assembly and part drawings generated in SVG, DXF, and PDF.");
         pass(project,"ENGINEERING_ANALYSIS","Phase-1 rule analysis and stress cloud generated.");
-        pass(project,"DOCUMENTATION","Design report generated and bound to project data.");
         MechanicalArtifactValidator.ValidationReport validation=validator.validate(project,workspace);
         if(!validation.passed()) return fail(project,"ARTIFACT_VALIDATION_FAILED",String.join("; ",validation.errors()));
-        pass(project,"VALIDATION","PartDesign bodies, sketches, feature histories, solved constraints, STEP, drawings, and documents passed reality checks.");
+        pass(project,"VALIDATION","PartDesign bodies, sketches, feature histories, solved constraints, STEP, and drawings passed reality checks.");
 
         try {
-            persistFile(project,workspace.resolve("02_STEP/Assembly.stl"),"Assembly.stl","MODEL","model/stl");
-            persistFile(project,workspace.resolve("03_Drawing/Assembly.svg"),"Assembly.svg","DRAWING","image/svg+xml");
-            persistFile(project,workspace.resolve("05_Analysis/stress-cloud.svg"),"stress-cloud.svg","ANALYSIS","image/svg+xml");
-            persistFile(project,workspace.resolve("04_Document/Design_Report.pdf"),"Design_Report.pdf","DOCUMENT","application/pdf");
+            persistFile(project,userId,workspace.resolve("01_Model/Assembly.FCStd"),"Assembly.FCStd","MODEL","application/octet-stream");
+            persistFile(project,userId,workspace.resolve("02_STEP/Assembly.STEP"),"Assembly.STEP","STEP","application/step");
+            persistFile(project,userId,workspace.resolve("02_STEP/Assembly.stl"),"Assembly.stl","MODEL","model/stl");
+            persistFile(project,userId,workspace.resolve("03_Drawing/Assembly.svg"),"Assembly.svg","DRAWING","image/svg+xml");
+            persistFile(project,userId,workspace.resolve("03_Drawing/Assembly.dxf"),"Assembly.dxf","DRAWING","image/vnd.dxf");
+            persistFile(project,userId,workspace.resolve("03_Drawing/Assembly_Drawing.pdf"),"Assembly_Drawing.pdf","DRAWING","application/pdf");
+            persistFile(project,userId,workspace.resolve("05_Analysis/stress-cloud.svg"),"stress-cloud.svg","ANALYSIS","image/svg+xml");
             byte[] zip=packageBuilder.build(workspace);
-            project.getArtifacts().add(persist(project,"Mechanical_Project.zip","PACKAGE","application/zip",zip));
+            project.getArtifacts().add(persist(userId,project,"Mechanical_Result.zip","PACKAGE","application/zip",zip));
         } catch(Exception e) { return fail(project,"ARTIFACT_PERSIST_FAILED",e.getMessage()); }
         pass(project,"PACKAGE","Validated mechanical project package completed.");
         project.setStatus("COMPLETED"); project.setCurrentStage("COMPLETED");
         return project;
     }
 
-    private void persistFile(MechanicalProject project,Path path,String name,String category,String mediaType)throws Exception{
-        project.getArtifacts().add(persist(project,name,category,mediaType,Files.readAllBytes(path)));
+    private void persistFile(MechanicalProject project,Long userId,Path path,String name,String category,String mediaType)throws Exception{
+        project.getArtifacts().add(persist(userId,project,name,category,mediaType,Files.readAllBytes(path)));
     }
-    private MechanicalProject.Artifact persist(MechanicalProject project,String name,String category,String mediaType,byte[] content){
+    private MechanicalProject.Artifact persist(Long userId,MechanicalProject project,String name,String category,String mediaType,byte[] content){
         String jobId=project.getProjectId()+"_"+UUID.randomUUID().toString().substring(0,8);
         DocumentJobRecord r=new DocumentJobRecord();
-        r.setJobId(jobId); r.setUserId(AuthContext.requireUserId()); r.setFileName(name); r.setSourceFeature("MECHANICAL_CAD_ENGINE");
+        r.setJobId(jobId); r.setUserId(userId); r.setFileName(name); r.setSourceFeature("MECHANICAL_CAD_ENGINE");
         r.setMode(category.toLowerCase()); r.setModeName(category); r.setPlatform("OPENCASCADE"); r.setPlatformName("FreeCAD/OpenCascade");
         r.setStatus("SUCCESS"); r.setTotalParagraphs(1); r.setProcessedParagraphs(1); r.setRewrittenParagraphs(1);
         r.setMessage("Validated mechanical engineering artifact"); r.setParagraphsJson("[]"); r.setOutputFile(content);
