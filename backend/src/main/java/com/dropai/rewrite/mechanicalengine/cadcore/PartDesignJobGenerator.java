@@ -120,9 +120,13 @@ views={}
 for view in ['front','top','right']:
     views[view]=[]
     for edge in assembly_shape.Edges:
-        pts=edge.discretize(Number=16)
+        try:
+            pts=edge.discretize(Number=16)
+        except Exception:
+            pts=[vertex.Point for vertex in edge.Vertexes]
         line=[[q.x,q.z] for q in pts] if view=='front' else ([[q.x,q.y] for q in pts] if view=='top' else [[q.y,q.z] for q in pts])
         if len(line)>1: views[view].append(line)
+    if not views[view]: raise RuntimeError('EMPTY_PROJECTED_VIEW:'+view)
 with open(os.path.join(root,'03_Drawing','projection-lines.json'),'w',encoding='utf-8') as f: json.dump(views,f)
 directions=[('front',App.Vector(0,-1,0)),('top',App.Vector(0,0,1)),('right',App.Vector(1,0,0))]
 fragments=['<g transform="translate(%d,%d) scale(1,-1)">%s</g>'%(80+(i%2)*500,330+(i//2)*360,Drawing.projectToSVG(assembly_shape,d)) for i,(v,d) in enumerate(directions)]

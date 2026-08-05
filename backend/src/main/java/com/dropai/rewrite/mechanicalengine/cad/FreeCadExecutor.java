@@ -29,6 +29,20 @@ public class FreeCadExecutor {
             if (process.exitValue() != 0) return new ExecutionResult(false, "BREP_GENERATION_FAILED", output, List.of());
             List<Path> files;
             try (var stream = Files.walk(workspace)) { files = stream.filter(Files::isRegularFile).toList(); }
+            List<Path> required = List.of(
+                    workspace.resolve("01_Model/Assembly.FCStd"),
+                    workspace.resolve("02_STEP/Assembly.STEP"),
+                    workspace.resolve("02_STEP/Assembly.stl"),
+                    workspace.resolve("02_STEP/cad-reality-report.json"),
+                    workspace.resolve("03_Drawing/projection-lines.json"),
+                    workspace.resolve("03_Drawing/Assembly.svg"),
+                    workspace.resolve("03_Drawing/Assembly.dxf"));
+            List<String> missing = required.stream().filter(path -> !Files.isRegularFile(path))
+                    .map(path -> workspace.relativize(path).toString()).toList();
+            if (!missing.isEmpty()) {
+                return new ExecutionResult(false, "FREECAD_OUTPUT_INCOMPLETE",
+                        "FreeCAD finished without required outputs: " + String.join(", ", missing) + "\n" + output, files);
+            }
             return new ExecutionResult(true, "", output, files);
         } catch (Exception exception) {
             return new ExecutionResult(false, "FREECAD_EXECUTION_FAILED", exception.getMessage(), List.of());

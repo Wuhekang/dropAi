@@ -42,6 +42,9 @@ public class EngineeringArtifactService {
     }
 
     private void createDrawingPdf(MechanicalProject project,Path projection,Path output)throws Exception{
+        if (!Files.isRegularFile(projection)) {
+            throw new IllegalStateException("FREECAD_PROJECTION_MISSING: " + projection);
+        }
         JsonNode views=mapper.readTree(projection.toFile());
         try(PDDocument doc=new PDDocument()){
             PDPage page=new PDPage(PDRectangle.A3);doc.addPage(page);
