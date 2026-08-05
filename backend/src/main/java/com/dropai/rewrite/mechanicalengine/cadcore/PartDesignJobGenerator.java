@@ -90,12 +90,37 @@ for part_index, part in enumerate(spec['parts']):
                     current.Length=value(params,'depth',50)
                 doc.recompute(); log(number,kind,'SUCCESS','subtractive_feature_created')
             elif kind in ('FILLET','CHAMFER'):
-                edge_ids=list(range(1,min(len(current.Shape.Edges),4)+1))
-                feature=body.newObject('PartDesign::Fillet',number+'_Fillet') if kind=='FILLET' else body.newObject('PartDesign::Chamfer',number+'_Chamfer')
-                feature.Base=(current,['Edge'+str(i) for i in edge_ids])
-                if kind=='FILLET': feature.Radius=value(params,'radius',2)
-                else: feature.Size=value(params,'distance',1)
-                current=feature; doc.recompute(); log(number,kind,'SUCCESS','edge_feature_created')
+                edge_value=value(params,'radius',2) if kind=='FILLET' else value(params,'distance',1)
+                candidates=[(i,e.Length) for i,e in enumerate(current.Shape.Edges,1) if len(e.Vertexes)==2 and e.Length>(edge_value*2.0)]
+                if not candidates: raise RuntimeError('NO_SAFE_EDGE')
+                base_feature=current
+                feature,valid_edge=None,None
+                attempt=0
+                for candidate_value in (edge_value,edge_value*0.5,edge_value*0.25):
+                    if candidate_value < 0.1: continue
+                    for edge_id,_ in sorted(candidates,key=lambda item:item[1],reverse=True):
+                        attempt+=1
+                        feature=body.newObject('PartDesign::Fillet',number+'_Fillet_'+str(attempt)) if kind=='FILLET' else body.newObject('PartDesign::Chamfer',number+'_Chamfer_'+str(attempt))
+                        feature.Base=(base_feature,['Edge'+str(edge_id)])
+                        if kind=='FILLET': feature.Radius=candidate_value
+                        else: feature.Size=candidate_value
+                        body.Tip=feature; doc.recompute()
+                        if not feature.Shape.isNull() and feature.Shape.isValid() and len(feature.Shape.Solids)>0:
+                            valid_edge=edge_id; break
+                        body.Tip=base_feature; doc.removeObject(feature.Name); doc.recompute(); feature=None
+                    if valid_edge is not None: break
+                if valid_edge is None:
+                    current=base_feature; body.Tip=base_feature; doc.recompute()
+                    if current.Shape.isNull() or not current.Shape.isValid(): raise RuntimeError('BASE_FEATURE_INVALID_AFTER_EDGE_RETRY')
+                    log(number,kind,'SKIPPED','NO_VALID_EDGE_RESULT')
+                    feature_event(number,kind,'SKIPPED',time.monotonic()-feature_started,error='NO_VALID_EDGE_RESULT')
+                    continue
+                current=feature
+                log(number,kind,'SUCCESS','edge_feature_created')
+            if kind != 'SKETCH' and current is not None:
+                body.Tip=current; doc.recompute()
+                if current.Shape.isNull(): raise RuntimeError('FEATURE_SHAPE_NULL')
+                if not current.Shape.isValid(): raise RuntimeError('FEATURE_SHAPE_INVALID')
             feature_event(number,kind,'SUCCESS',time.monotonic()-feature_started)
         current_feature = 'TOPOLOGY_VALIDATION'
         if body.Tip is None: raise RuntimeError('INVALID_BREP:NO_TIP')
