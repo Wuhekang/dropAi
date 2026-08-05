@@ -48,6 +48,11 @@ public class MechanicalJobService {
     }
 
     public MechanicalJobSnapshot get(String jobId) {
+        ownedContext(jobId);
+        return snapshot(jobId);
+    }
+
+    private MechanicalJobSnapshot snapshot(String jobId) {
         MechanicalJobSnapshot job = jobs.get(jobId);
         if (job == null) throw new IllegalArgumentException("MECHANICAL_JOB_NOT_FOUND");
         return new MechanicalJobSnapshot(job.jobId(), job.status(), job.progress(), job.stage(), job.message(),
@@ -73,20 +78,22 @@ public class MechanicalJobService {
         update(jobId, MechanicalJobStatus.CREATED, Math.max(previous.progress(), 1), "RESUME_QUEUED",
                 "Resume queued from the existing FreeCAD checkpoint", previous.project(), null, false);
         executor.execute(() -> run(jobId, context));
-        return get(jobId);
+        return snapshot(jobId);
     }
 
     public MechanicalDesignResult requireResult(String resultId) {
         MechanicalDesignResult result = results.get(resultId);
         if (result == null) throw new IllegalArgumentException("MECHANICAL_RESULT_NOT_FOUND");
+        ownedContext(resultId);
         return result;
     }
 
-    public MechanicalProject requireProjectByResult(String resultId) {
-        return jobs.values().stream()
-                .filter(job -> job.result() != null && resultId.equals(job.result().resultId()) && job.project() != null)
-                .map(MechanicalJobSnapshot::project).findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("MECHANICAL_RESULT_PROJECT_NOT_FOUND"));
+    public MechanicalProject requireProjectByResult(String resultId, Long userId) {
+        JobContext context = contexts.get(resultId);
+        if (context == null || !context.userId().equals(userId)) throw new IllegalArgumentException("MECHANICAL_RESULT_FORBIDDEN");
+        MechanicalProject project = snapshot(resultId).project();
+        if (project == null) throw new IllegalArgumentException("MECHANICAL_RESULT_PROJECT_NOT_FOUND");
+        return project;
     }
 
     private void run(String jobId, String requirement, Long userId) {
@@ -98,14 +105,14 @@ public class MechanicalJobService {
             MechanicalProject project = engine.execute(context.requirement(), context.userId(), event ->
                     update(jobId, status(event.stage()), event.progress(), event.stage(), event.message(), null, null, false), context.workspace());
             if (!"COMPLETED".equals(project.getStatus())) {
-                update(jobId, MechanicalJobStatus.FAILED, get(jobId).progress(), project.getCurrentStage(), project.getFailureMessage(), project, null, true);
+                update(jobId, MechanicalJobStatus.FAILED, snapshot(jobId).progress(), project.getCurrentStage(), project.getFailureMessage(), project, null, true);
                 return;
             }
             MechanicalDesignResult result = toResult(jobId, project);
             results.put(result.resultId(), result);
             update(jobId, MechanicalJobStatus.COMPLETED, 100, "COMPLETED", "Mechanical result is ready", project, result, false);
         } catch (Exception exception) {
-            update(jobId, MechanicalJobStatus.FAILED, get(jobId).progress(), "FAILED", readable(exception), get(jobId).project(), null, true);
+            update(jobId, MechanicalJobStatus.FAILED, snapshot(jobId).progress(), "FAILED", readable(exception), snapshot(jobId).project(), null, true);
         }
     }
 
@@ -114,9 +121,11 @@ public class MechanicalJobService {
         if (stage.startsWith("REQUIREMENT")) return MechanicalJobStatus.REQUIREMENT_ANALYSIS;
         if (stage.startsWith("DESIGN")) return MechanicalJobStatus.DESIGNING;
         if (stage.contains("STEP")) return MechanicalJobStatus.STEP_EXPORTING;
+        if (stage.contains("PART_BUILDING") || stage.contains("FEATURE")) return MechanicalJobStatus.BUILDING_PART;
+        if (stage.contains("EXPORTING")) return MechanicalJobStatus.EXPORTING;
         if (stage.contains("DRAWING")) return MechanicalJobStatus.DRAWING_GENERATING;
         if (stage.contains("VALIDAT")) return MechanicalJobStatus.VALIDATING;
-        if (stage.contains("FREECAD") || stage.contains("FEATURE") || stage.contains("PART")) return MechanicalJobStatus.FREECAD_RUNNING;
+        if (stage.contains("FREECAD") || stage.contains("PART")) return MechanicalJobStatus.FREECAD_RUNNING;
         return MechanicalJobStatus.CAD_GENERATING;
     }
 
@@ -161,6 +170,7 @@ public class MechanicalJobService {
                 if (name.matches("P\\d+\\.stl") || name.equals("Assembly.stl")) { category="MODEL"; mediaType="model/stl"; }
                 else if (name.matches("P\\d+\\.step") || name.equals("Assembly.STEP")) { category="STEP"; mediaType="application/step"; }
                 else if (name.endsWith(".svg") || name.endsWith(".dxf")) { category="DRAWING"; mediaType=name.endsWith(".svg")?"image/svg+xml":"image/vnd.dxf"; }
+                else if (name.equals("freecad-runtime-report.json")) { category="ANALYSIS"; mediaType="application/json"; }
                 else continue;
                 String url = "/api/mechanical/jobs/" + jobId + "/artifacts/" + URLEncoder.encode(name, StandardCharsets.UTF_8);
                 artifacts.add(new MechanicalProject.Artifact(name, category, mediaType, Files.size(path), url, true));

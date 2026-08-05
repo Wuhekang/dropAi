@@ -121,6 +121,7 @@ public class MechanicalEngineService {
             persistIfPresent(project,userId,workspace.resolve("02_STEP/Assembly.STEP"),"Assembly.STEP","STEP","application/step");
             persistIfPresent(project,userId,workspace.resolve("02_STEP/Assembly.stl"),"Assembly.stl","MODEL","model/stl");
             persistIfPresent(project,userId,workspace.resolve("03_Drawing/Assembly.svg"),"Assembly.svg","DRAWING","image/svg+xml");
+            persistIfPresent(project,userId,workspace.resolve("freecad-runtime-report.json"),"freecad-runtime-report.json","ANALYSIS","application/json");
             try (var files = Files.list(workspace.resolve("02_STEP"))) {
                 for (Path file : files.filter(path -> path.getFileName().toString().matches("P\\d+\\.step")).toList())
                     persistIfPresent(project,userId,file,file.getFileName().toString(),"STEP","application/step");

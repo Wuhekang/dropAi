@@ -47,6 +47,12 @@ class MechanicalEngineRewriteTests {
         assertTrue(script.contains("PartDesign::Pad"));
         assertTrue(script.contains("PartDesign::Hole"));
         assertTrue(script.contains("PartDesign::Fillet"));
+        assertTrue(script.contains("DROP_AI_FEATURE|"));
+        assertTrue(script.contains("shape.isValid()"));
+        assertTrue(script.contains("len(shape.Solids) <= 0"));
+        assertTrue(script.contains("shape.exportStep(step_path)"));
+        assertFalse(script.contains("Part.export([body]"));
+        assertTrue(script.contains("FEATURE_FAILED:%s:%s:%s"));
         assertFalse(script.contains("makeBox"));
         assertFalse(script.contains("makeCylinder"));
         assertFalse(script.contains("makeSphere"));

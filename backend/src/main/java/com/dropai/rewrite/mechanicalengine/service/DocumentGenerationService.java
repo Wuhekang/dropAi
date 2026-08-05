@@ -57,7 +57,7 @@ public class DocumentGenerationService {
         jobs.put(jobId, new DocumentGenerationResult(jobId, resultId, type, "RUNNING", 20,
                 "Generating documents from the immutable mechanical result", List.of(), previous.createdAt(), LocalDateTime.now()));
         try {
-            MechanicalProject project = mechanicalJobs.requireProjectByResult(resultId);
+            MechanicalProject project = mechanicalJobs.requireProjectByResult(resultId, userId);
             List<MechanicalProject.Artifact> artifacts = new ArrayList<>();
             Path pdf = Files.createTempFile(jobId, ".pdf");
             documentAgent.generate(project, pdf);

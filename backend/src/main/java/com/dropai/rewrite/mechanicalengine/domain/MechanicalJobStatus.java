@@ -6,6 +6,8 @@ public enum MechanicalJobStatus {
     DESIGNING,
     CAD_GENERATING,
     FREECAD_RUNNING,
+    BUILDING_PART,
+    EXPORTING,
     STEP_EXPORTING,
     DRAWING_GENERATING,
     VALIDATING,

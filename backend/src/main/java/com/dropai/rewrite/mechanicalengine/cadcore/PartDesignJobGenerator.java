@@ -19,7 +19,7 @@ public class PartDesignJobGenerator {
     }
 
     static final String SCRIPT = """
-import FreeCAD as App, Part, Sketcher, Mesh, json, os, sys, traceback
+import FreeCAD as App, Part, Sketcher, Mesh, json, os, sys, traceback, time
 
 spec_path = os.environ['DROP_AI_CAD_SPEC']
 root = os.environ['DROP_AI_CAD_WORKSPACE']
@@ -34,6 +34,11 @@ def value(params, key, default): return float(params.get(key, default))
 def log(number, feature, status, result): feature_log.append({'partNumber':number,'feature':feature,'status':status,'result':result})
 def progress(percent, stage, message):
     print('DROP_AI_PROGRESS|%d|%s|%s' % (percent, stage, message), flush=True)
+def feature_event(part, feature, status, elapsed=None, error=None):
+    event={'stage':'FEATURE_EXECUTION','part':part,'feature':feature,'status':status}
+    if elapsed is not None: event['time']=round(elapsed,3)
+    if error is not None: event['error']=str(error)
+    print('DROP_AI_FEATURE|'+json.dumps(event,separators=(',',':')), flush=True)
 def rectangle(sketch, width, height):
     x, y = width / 2.0, height / 2.0
     points=[App.Vector(-x,-y,0),App.Vector(x,-y,0),App.Vector(x,y,0),App.Vector(-x,y,0)]
@@ -58,10 +63,12 @@ for part_index, part in enumerate(spec['parts']):
     if body is None:
         body = doc.addObject('PartDesign::Body', number + '_Body'); body.Label = name
     current, profile = (body.Tip if resumed else None), None
+    current_feature = 'PART_INITIALIZATION'
     try:
         for f in sorted(part['body'], key=lambda item:item['order']):
             if resumed: break
             kind, params = f['featureType'], f.get('parameters') or {}
+            current_feature = kind; feature_started = time.monotonic(); feature_event(number,kind,'START')
             progress(min(part_start + 2, 73), 'FEATURE_EXECUTION', '%s: executing %s' % (number, kind))
             if kind == 'SKETCH':
                 profile = body.newObject('Sketcher::SketchObject', number + '_Sketch')
@@ -89,7 +96,15 @@ for part_index, part in enumerate(spec['parts']):
                 if kind=='FILLET': feature.Radius=value(params,'radius',2)
                 else: feature.Size=value(params,'distance',1)
                 current=feature; doc.recompute(); log(number,kind,'SUCCESS','edge_feature_created')
-        if body.Tip is None or body.Tip.Shape.isNull() or body.Tip.Shape.Volume <= 0: raise RuntimeError('EMPTY_PARTDESIGN_BODY')
+            feature_event(number,kind,'SUCCESS',time.monotonic()-feature_started)
+        current_feature = 'TOPOLOGY_VALIDATION'
+        if body.Tip is None: raise RuntimeError('INVALID_BREP:NO_TIP')
+        shape = body.Tip.Shape
+        if shape.isNull(): raise RuntimeError('INVALID_BREP:NULL_SHAPE')
+        if not shape.isValid(): raise RuntimeError('INVALID_BREP:INVALID_SHAPE')
+        if len(shape.Solids) <= 0: raise RuntimeError('INVALID_BREP:NO_SOLIDS')
+        if shape.Volume <= 0: raise RuntimeError('INVALID_BREP:ZERO_VOLUME')
+        if len(body.Group) <= 0: raise RuntimeError('INVALID_BREP:NO_FEATURE_HISTORY')
         if 'Material' not in body.PropertiesList: body.addProperty('App::PropertyString','Material','Engineering')
         body.Material=part['material']
         objects.append(body)
@@ -98,20 +113,23 @@ for part_index, part in enumerate(spec['parts']):
         step_path = os.path.join(root,'02_STEP',number+'.step')
         if not os.path.isfile(brep_path) or os.path.getsize(brep_path) == 0:
             progress(min(part_start + 4, 74), 'BREP_EXPORTING', '%s: exporting BRep' % number)
-            body.Tip.Shape.exportBrep(brep_path)
+            shape.exportBrep(brep_path)
         else: progress(min(part_start + 4, 74), 'BREP_REUSED', '%s: existing BRep reused' % number)
         if not os.path.isfile(step_path) or os.path.getsize(step_path) == 0:
             progress(min(part_start + 6, 75), 'PART_STEP_EXPORTING', '%s: exporting STEP' % number)
-            body.Tip.Shape.exportStep(step_path)
+            shape.exportStep(step_path)
         else: progress(min(part_start + 6, 75), 'STEP_REUSED', '%s: existing STEP reused' % number)
         part_stl_path = os.path.join(root,'02_STEP',number+'.stl')
         if not os.path.isfile(part_stl_path) or os.path.getsize(part_stl_path) == 0:
             progress(min(part_start + 7, 75), 'PART_PREVIEW_EXPORTING', '%s: exporting live STL preview' % number)
-            Mesh.export([body],part_stl_path)
+            preview=doc.addObject('Part::Feature',number+'_PreviewExport'); preview.Shape=shape.copy(); doc.recompute()
+            Mesh.export([preview],part_stl_path); doc.removeObject(preview.Name); doc.recompute()
         manifest.append({'partNumber':number,'name':name,'volume':body.Tip.Shape.Volume,'solidCount':len(body.Tip.Shape.Solids),'body':body.Name,'tip':body.Tip.Name,'featureCount':len(body.Group),'features':[o.TypeId for o in body.Group]})
         progress(36 + int((part_index + 1) * 38 / part_count), 'PART_COMPLETED', '%s completed (%d/%d)' % (number, part_index + 1, part_count))
     except Exception as ex:
-        log(number,kind,'FAILED',str(ex)); raise
+        feature_event(number,current_feature,'FAILED',error=ex)
+        log(number,current_feature,'FAILED',str(ex))
+        raise RuntimeError('FEATURE_FAILED:%s:%s:%s' % (number,current_feature,str(ex)))
 
 progress(76, 'ASSEMBLY_GENERATING', 'Solving assembly constraints')
 assembly_group=doc.addObject('App::DocumentObjectGroup','AssemblyConstraints')
@@ -140,14 +158,18 @@ for c in spec['assembly']['constraints']:
     else: raise RuntimeError('ASSEMBLY_CONSTRAINT_UNRESOLVED:'+obj.Name)
 
 doc.recompute(); doc.saveAs(os.path.join(root,'01_Model','Assembly.FCStd'))
-progress(81, 'ASSEMBLY_STEP_EXPORTING', 'Exporting assembly STEP')
-Part.export(objects,os.path.join(root,'02_STEP','Assembly.STEP'))
-progress(85, 'STL_EXPORTING', 'Exporting browser STL preview')
-Mesh.export(objects,os.path.join(root,'02_STEP','Assembly.stl'))
 placed=[]
 for body in objects:
     s=body.Tip.Shape.copy(); s.Placement=body.Placement; placed.append(s)
 assembly_shape=Part.makeCompound(placed)
+if assembly_shape.isNull() or not assembly_shape.isValid() or len(assembly_shape.Solids) <= 0 or assembly_shape.Volume <= 0:
+    raise RuntimeError('INVALID_BREP:ASSEMBLY')
+progress(81, 'ASSEMBLY_STEP_EXPORTING', 'Exporting assembly STEP')
+assembly_shape.exportStep(os.path.join(root,'02_STEP','Assembly.STEP'))
+progress(85, 'STL_EXPORTING', 'Exporting browser STL preview')
+assembly_preview=doc.addObject('Part::Feature','AssemblyPreviewExport'); assembly_preview.Shape=assembly_shape
+doc.recompute(); Mesh.export([assembly_preview],os.path.join(root,'02_STEP','Assembly.stl'))
+doc.removeObject(assembly_preview.Name); doc.recompute()
 def projected_lines(shape, view):
     lines=[]
     for edge in shape.Edges:
