@@ -15,6 +15,7 @@ import WritingOutlineV2 from '../views/WritingOutlineV2/index.vue'
 import WritingGenerationV2 from '../views/WritingGenerationV2/index.vue'
 import WritingExportV2 from '../views/WritingExportV2/index.vue'
 import WritingMaterialsV2 from '../views/WritingMaterialsV2/index.vue'
+import PptGenerator from '../views/PptGenerator/index.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -59,6 +60,11 @@ const router = createRouter({
       name: 'ComputerGenerator',
       alias: '/project-generator',
       component: ComputerGenerator
+    },
+    {
+      path: '/ppt-generator',
+      name: 'PptGenerator',
+      component: PptGenerator
     },
     {
       path: '/writing-generator',

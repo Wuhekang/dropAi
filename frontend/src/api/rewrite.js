@@ -633,3 +633,17 @@ export function getWritingPreview(id) {
 export function getWritingFiles(id) {
   return request.get(`/writing/projects/${id}/files`)
 }
+
+export function createPptProject(data) { return request.post('/ppt/projects', data) }
+export function listPptProjects() { return request.get('/ppt/projects') }
+export function getPptProject(id) { return request.get(`/ppt/projects/${id}`) }
+export function uploadPptSource(id, file) { const form = new FormData(); form.append('file', file?.raw || file); return request.post(`/ppt/projects/${id}/upload`, form, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 180000 }) }
+export function analyzePptProject(id) { return request.post(`/ppt/projects/${id}/analyze`, {}, { timeout: 300000 }) }
+export function generatePptOutline(id) { return request.post(`/ppt/projects/${id}/outline`, {}, { timeout: 300000 }) }
+export function savePptOutline(id, items) { return request.put(`/ppt/projects/${id}/outline`, items) }
+export function planPptSlides(id) { return request.post(`/ppt/projects/${id}/plan`, {}, { timeout: 300000 }) }
+export function updatePptSlide(id, slideId, data) { return request.put(`/ppt/projects/${id}/slides/${slideId}`, data) }
+export function regeneratePptSlide(id, slideId) { return request.post(`/ppt/projects/${id}/slides/${slideId}/regenerate`, {}, { timeout: 180000 }) }
+export function generatePptFile(id) { return request.post(`/ppt/projects/${id}/generate`, {}, { timeout: 600000 }) }
+export function getPptProgress(id) { return request.get(`/ppt/projects/${id}/progress`) }
+export function downloadPptFile(id) { return request.get(`/ppt/projects/${id}/download`, { responseType: 'blob', timeout: 300000 }) }

@@ -16,6 +16,7 @@
       <nav class="tool-nav">
         <small>更多工具</small>
         <button @click="router.push('/computer-generator')"><i>&lt;/&gt;</i>AI 工程生成</button>
+        <button @click="router.push('/ppt-generator')"><i>P</i>PPT生成</button>
         <button @click="router.push('/new-project')"><i>⚙</i>机械设计</button>
         <button v-if="isAdmin" @click="router.push('/points-admin')"><i>⚒</i>管理中心</button>
         <button v-if="isAdmin" @click="adminNoticeVisible=true"><i>i</i>系统公告</button>
