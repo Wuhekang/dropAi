@@ -20,5 +20,7 @@ class ReferenceSearchPlanServiceTest {
         assertFalse(((List<?>) plan.get("globalQueries")).isEmpty());
         assertFalse(((List<?>) plan.get("chapterQueries")).isEmpty());
         assertTrue(((List<?>) plan.get("siteQueries")).stream().anyMatch(value -> String.valueOf(value).contains("site:kns.cnki.net")));
+        assertTrue(((List<?>) plan.get("chineseQueries")).size() >= 10);
+        assertTrue(((List<?>) plan.get("englishQueries")).size() >= 10);
     }
 }

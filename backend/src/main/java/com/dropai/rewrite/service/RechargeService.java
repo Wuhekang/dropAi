@@ -30,9 +30,8 @@ import java.util.UUID;
 public class RechargeService {
     private static final Map<String, Plan> PLANS = Map.of(
             "PLAN_10", new Plan("PLAN_10", 10, 100, false),
-            "PLAN_30", new Plan("PLAN_30", 30, 350, true),
-            "PLAN_50", new Plan("PLAN_50", 50, 600, false),
-            "PLAN_100", new Plan("PLAN_100", 100, 1300, false)
+            "PLAN_20", new Plan("PLAN_20", 20, 200, true),
+            "PLAN_100", new Plan("PLAN_100", 100, 1000, false)
     );
 
     private final RechargeOrderMapper orderMapper;
@@ -228,11 +227,21 @@ public class RechargeService {
             Plan plan = PLANS.get(dto.getPlanId().trim().toUpperCase(Locale.ROOT));
             if (plan != null) return plan;
         }
-        int amount = dto.getAmount() == null ? 0 : dto.getAmount().intValue();
-        return PLANS.values().stream()
-                .filter(plan -> plan.amount() == amount)
-                .findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("不支持的充值套餐"));
+        BigDecimal amount = dto.getAmount();
+        if (amount == null || amount.stripTrailingZeros().scale() > 0
+                || amount.compareTo(BigDecimal.ONE) < 0 || amount.compareTo(BigDecimal.valueOf(100)) > 0) {
+            throw new IllegalArgumentException("自定义充值金额必须为1到100元的整数");
+        }
+        int yuan = amount.intValueExact();
+        return new Plan("CUSTOM_" + yuan, yuan, calculateRechargePoints(amount), false);
+    }
+
+    public int calculateRechargePoints(BigDecimal amount) {
+        if (amount == null || amount.stripTrailingZeros().scale() > 0
+                || amount.compareTo(BigDecimal.ONE) < 0 || amount.compareTo(BigDecimal.valueOf(100)) > 0) {
+            throw new IllegalArgumentException("自定义充值金额必须为1到100元的整数");
+        }
+        return amount.intValueExact() * 10;
     }
 
     private String normalizeLast4(String value) {

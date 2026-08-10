@@ -1,0 +1,21 @@
+<template>
+  <main class="generation-page">
+    <nav><button @click="router.push('/dashboard')">DropAI</button><WritingV2Steps :current="5"/><button @click="router.push('/writing-generator/outline')">返回配置</button></nav>
+    <section class="hero"><span>STEP 5 · AI WRITING</span><h1>AI 正文生成与图片拼接</h1><p>系统将按提纲逐节生成正文，使用已核验文献，并在对应段落附近插入图片、图注和表格。</p></section>
+    <section class="panel status"><div class="ring"><strong>{{ progress }}%</strong></div><div><small>{{ status }}</small><h2>{{ stage }}</h2><p>{{ displayMessage }}</p></div></section>
+    <section class="panel rules"><h2>本次生成规则</h2><div><span>✓ 文献数量严格满足目标后才可生成</span><span>✓ 图片按章节编号并在正文中引用</span><span>✓ 设计成果只使用用户上传图片</span><span>✓ 图文采用边写边插入方式</span></div></section>
+    <section class="panel actions"><el-button v-if="!running&&!completed" type="primary" size="large" :loading="starting" @click="start">开始生成完整 DOCX</el-button><el-button v-if="completed&&downloadUrl" type="primary" size="large" @click="download">下载完整 DOCX</el-button><el-alert v-if="failed" :title="displayMessage" type="error" :closable="false" show-icon/></section>
+  </main>
+</template>
+<script setup>
+import { computed,onUnmounted,ref } from 'vue';import { ElMessage } from 'element-plus';import { useRouter } from 'vue-router';import WritingV2Steps from '../../components/WritingV2Steps.vue';import { downloadArtifact,getWritingProgress,startWritingGeneration } from '../../api/rewrite'
+const router=useRouter();const id=sessionStorage.getItem('dropai_writing_project_id')||'';const starting=ref(false);const status=ref('等待开始');const stage=ref('配置已确认');const progress=ref(0);const message=ref('点击开始后，系统将自动生成正文并拼接图片。');const downloadUrl=ref('');let timer=null
+const running=computed(()=>status.value==='RUNNING');const completed=computed(()=>status.value==='SUCCESS');const failed=computed(()=>status.value==='FAILED')
+const displayMessage=computed(()=>/(一级标题|二级标题|标题样式|编号样式|质量检查未通过)/.test(message.value||'')?'系统已支持自动规范标题和编号，请重新生成文档。':message.value)
+async function start(){if(!id){ElMessage.warning('项目ID不存在');return router.push('/writing-generator')}starting.value=true;try{await startWritingGeneration(id);status.value='RUNNING';poll()}finally{starting.value=false}}
+async function poll(){clearInterval(timer);timer=setInterval(async()=>{const data=await getWritingProgress(id);status.value=data.status||'RUNNING';stage.value=data.current_stage||'正在生成';progress.value=Number(data.progress||0);message.value=data.error_message||'请保持页面开启，生成任务正在后台执行。';downloadUrl.value=data.files?.[0]?.download_url||'';if(['SUCCESS','FAILED'].includes(status.value))clearInterval(timer)},1800)}
+async function download(){const blob=await downloadArtifact(downloadUrl.value);const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='DropAI纯文字稿.docx';a.click();URL.revokeObjectURL(url)}onUnmounted(()=>clearInterval(timer))
+</script>
+<style scoped>
+.generation-page{min-height:100vh;padding:0 5vw 50px;background:#f4f7f6;color:#17211e}.generation-page nav{min-height:68px;display:grid;grid-template-columns:160px 1fr 160px;align-items:center;border-bottom:1px solid #dce4e1}.generation-page nav button{border:0;background:transparent;color:#176b57;cursor:pointer}.generation-page nav button:first-child{text-align:left;font-weight:800}.generation-page nav button:last-child{text-align:right}.hero{max-width:760px;margin:48px auto 30px;text-align:center}.hero span{color:#176b57;font-size:12px;letter-spacing:.14em}.hero h1{margin:10px;font-size:40px}.hero p{color:#687772;line-height:1.7}.panel{max-width:900px;margin:16px auto;padding:26px;border:1px solid #dce4e1;background:#fff}.status{display:flex;align-items:center;gap:24px}.ring{display:grid;place-items:center;width:100px;height:100px;border:8px solid #dcece7;border-top-color:#176b57;border-radius:50%}.status small{color:#176b57}.status h2{margin:7px 0}.status p{color:#687772}.rules div{display:grid;grid-template-columns:1fr 1fr;gap:12px;color:#52645e}.actions{text-align:center}@media(max-width:700px){.generation-page{padding:0 12px 30px}.generation-page nav{grid-template-columns:70px 1fr}.generation-page nav button:last-child{display:none}.rules div{grid-template-columns:1fr}.status{align-items:flex-start;flex-direction:column}}
+</style>

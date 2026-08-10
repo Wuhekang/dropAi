@@ -24,17 +24,21 @@ public class CitationManagerService {
         jdbcTemplate.update("UPDATE writing_reference SET final_number=NULL WHERE project_id=?", projectId);
         LinkedHashMap<String, Integer> order = new LinkedHashMap<>();
         for (Map<String, Object> chapter : WritingJdbc.list(jdbcTemplate, "SELECT * FROM writing_chapter WHERE project_id=? ORDER BY chapter_no", projectId)) {
-            String content = WritingJdbc.text(chapter.get("content"));
-            Matcher matcher = REF.matcher(content);
-            StringBuffer replaced = new StringBuffer();
-            while (matcher.find()) {
-                String referenceId = matcher.group(1);
-                int number = order.computeIfAbsent(referenceId, key -> order.size() + 1);
-                matcher.appendReplacement(replaced, "[" + number + "]");
-                insertCitation(projectId, WritingJdbc.text(chapter.get("id")), referenceId, number, order.size(), content);
+            String chapterId = WritingJdbc.text(chapter.get("id"));
+            List<Map<String, Object>> sections = WritingJdbc.list(jdbcTemplate,
+                    "SELECT * FROM writing_section WHERE chapter_id=? ORDER BY sort_order", chapterId);
+            if (sections.isEmpty()) {
+                String replaced = replaceMarkers(projectId, chapterId, WritingJdbc.text(chapter.get("content")), order);
+                jdbcTemplate.update("UPDATE writing_chapter SET content=?, updated_at=? WHERE id=?", replaced, LocalDateTime.now(), chapterId);
+                continue;
             }
-            matcher.appendTail(replaced);
-            jdbcTemplate.update("UPDATE writing_chapter SET content=?, updated_at=? WHERE id=?", replaced.toString(), LocalDateTime.now(), chapter.get("id"));
+            StringBuilder chapterContent = new StringBuilder();
+            for (Map<String, Object> section : sections) {
+                String replaced = replaceMarkers(projectId, chapterId, WritingJdbc.text(section.get("content")), order);
+                jdbcTemplate.update("UPDATE writing_section SET content=?,updated_at=? WHERE id=?", replaced, LocalDateTime.now(), section.get("id"));
+                chapterContent.append(replaced).append('\n');
+            }
+            jdbcTemplate.update("UPDATE writing_chapter SET content=?,updated_at=? WHERE id=?", chapterContent.toString().trim(), LocalDateTime.now(), chapterId);
         }
         for (Map.Entry<String, Integer> entry : order.entrySet()) {
             jdbcTemplate.update("UPDATE writing_reference SET final_number=? WHERE id=? AND project_id=?",
@@ -44,6 +48,22 @@ public class CitationManagerService {
             jdbcTemplate.update("UPDATE writing_reference SET formatted_text=?, updated_at=? WHERE id=? AND project_id=?",
                     renumberFormatted(formatted, entry.getValue()), LocalDateTime.now(), entry.getKey(), projectId);
         }
+    }
+
+    private String replaceMarkers(String projectId, String chapterId, String content, LinkedHashMap<String, Integer> order) {
+        Matcher matcher = REF.matcher(content == null ? "" : content);
+        StringBuffer replaced = new StringBuffer();
+        while (matcher.find()) {
+            String referenceId = matcher.group(1);
+            if (WritingJdbc.list(jdbcTemplate, "SELECT id FROM writing_reference WHERE id=? AND project_id=?", referenceId, projectId).isEmpty()) {
+                throw new IllegalStateException("正文引用了不存在的参考文献：" + referenceId);
+            }
+            int number = order.computeIfAbsent(referenceId, key -> order.size() + 1);
+            matcher.appendReplacement(replaced, "[" + number + "]");
+            insertCitation(projectId, chapterId, referenceId, number, number, content);
+        }
+        matcher.appendTail(replaced);
+        return replaced.toString();
     }
 
     private String renumberFormatted(String formatted, int number) {

@@ -5,6 +5,7 @@ import com.dropai.rewrite.service.PointsNotEnoughException;
 import com.dropai.rewrite.service.writing.ChineseReferenceImportService;
 import com.dropai.rewrite.service.writing.ReferenceSearchService;
 import com.dropai.rewrite.service.writing.WritingGenerationService;
+import com.dropai.rewrite.service.writing.WritingMaterialService;
 import com.dropai.rewrite.service.writing.WritingProjectService;
 import com.dropai.rewrite.vo.Result;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -18,6 +19,9 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 
 import java.util.List;
 import java.util.Map;
@@ -29,15 +33,18 @@ public class WritingGenerationController {
     private final ReferenceSearchService referenceSearchService;
     private final WritingGenerationService generationService;
     private final ChineseReferenceImportService importService;
+    private final WritingMaterialService materialService;
 
     public WritingGenerationController(WritingProjectService projectService,
                                        ReferenceSearchService referenceSearchService,
                                        WritingGenerationService generationService,
-                                       ChineseReferenceImportService importService) {
+                                       ChineseReferenceImportService importService,
+                                       WritingMaterialService materialService) {
         this.projectService = projectService;
         this.referenceSearchService = referenceSearchService;
         this.generationService = generationService;
         this.importService = importService;
+        this.materialService = materialService;
     }
 
     @PostMapping("/projects")
@@ -48,6 +55,11 @@ public class WritingGenerationController {
     @GetMapping("/projects/{id}")
     public Result<Map<String, Object>> get(@PathVariable String id) {
         return Result.success(projectService.detail(id));
+    }
+
+    @GetMapping("/projects/history")
+    public Result<List<Map<String, Object>>> history() {
+        return Result.success(projectService.history());
     }
 
     @PutMapping("/projects/{id}")
@@ -63,6 +75,11 @@ public class WritingGenerationController {
     @PutMapping("/projects/{id}/outline")
     public Result<Map<String, Object>> saveOutline(@PathVariable String id, @RequestBody Map<String, Object> request) {
         return Result.success(projectService.updateProject(id, request));
+    }
+
+    @PostMapping("/projects/{id}/outline/confirm")
+    public Result<Map<String, Object>> confirmOutline(@PathVariable String id) {
+        return Result.success(projectService.confirmOutline(id));
     }
 
     @GetMapping("/projects/{id}/chapters")
@@ -160,6 +177,22 @@ public class WritingGenerationController {
         return Result.success(referenceSearchService.searchAndSave(AuthContext.requireUserId(), id, null));
     }
 
+    @PostMapping("/projects/{id}/references/ai-search")
+    public Result<Map<String, Object>> aiSearchReferences(@PathVariable String id, @RequestBody Map<String, Object> request) {
+        return Result.success(referenceSearchService.aiSearch(AuthContext.requireUserId(), id, request == null ? Map.of() : request));
+    }
+
+    @PostMapping("/projects/{id}/references/library/save")
+    public Result<Map<String, Object>> saveReferenceLibrary(@PathVariable String id) {
+        return Result.success(projectService.markReferenceLibraryReady(id));
+    }
+
+    @PostMapping("/projects/{id}/references/manual")
+    public Result<Map<String, Object>> addManualReference(@PathVariable String id, @RequestBody Map<String, Object> request) {
+        return Result.success(referenceSearchService.addManualReference(AuthContext.requireUserId(), id,
+                request == null ? Map.of() : request));
+    }
+
     @GetMapping("/reference-search/providers")
     public Result<Object> referenceSearchProviders() {
         return Result.success(referenceSearchService.providers());
@@ -207,9 +240,8 @@ public class WritingGenerationController {
 
     @PostMapping("/projects/{id}/references/import")
     public Result<Map<String, Object>> importReferences(@PathVariable String id,
-                                                       @RequestParam("file") MultipartFile file,
-                                                       @RequestParam(value = "sourcePlatform", defaultValue = "IMPORTED_OTHER") String sourcePlatform) {
-        return Result.success(importService.importFile(AuthContext.requireUserId(), id, file, sourcePlatform));
+                                                       @RequestParam("files") List<MultipartFile> files) {
+        return Result.success(importService.importFiles(AuthContext.requireUserId(), id, files));
     }
 
     @GetMapping("/projects/{id}/references/search-logs")
@@ -271,6 +303,56 @@ public class WritingGenerationController {
     @GetMapping("/projects/{id}/files")
     public Result<Object> files(@PathVariable String id) {
         return Result.success(projectService.detail(id).get("files"));
+    }
+
+    @GetMapping("/projects/{id}/flow")
+    public Result<Map<String, Object>> flow(@PathVariable String id) {
+        return Result.success(materialService.flow(id));
+    }
+
+    @PostMapping(value = "/projects/{id}/materials", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public Result<List<Map<String, Object>>> uploadMaterials(@PathVariable String id, @RequestParam("files") List<MultipartFile> files) {
+        return Result.success(materialService.upload(id, files));
+    }
+
+    @GetMapping("/projects/{id}/materials")
+    public Result<List<Map<String, Object>>> materials(@PathVariable String id) {
+        return Result.success(materialService.materials(id));
+    }
+
+    @PutMapping("/projects/{id}/materials/{materialId}")
+    public Result<List<Map<String, Object>>> updateMaterial(@PathVariable String id, @PathVariable String materialId,
+                                                            @RequestBody Map<String, Object> request) {
+        return Result.success(materialService.updateMaterial(id, materialId, request));
+    }
+
+    @DeleteMapping("/projects/{id}/materials/{materialId}")
+    public Result<List<Map<String, Object>>> deleteMaterial(@PathVariable String id, @PathVariable String materialId) {
+        return Result.success(materialService.deleteMaterial(id, materialId));
+    }
+
+    @GetMapping("/projects/{id}/materials/{materialId}/content")
+    public ResponseEntity<byte[]> materialContent(@PathVariable String id, @PathVariable String materialId) {
+        WritingMaterialService.MaterialContent content = materialService.content(id, materialId);
+        MediaType type;
+        try { type = MediaType.parseMediaType(content.contentType()); } catch (Exception ignored) { type = MediaType.APPLICATION_OCTET_STREAM; }
+        return ResponseEntity.ok().contentType(type).header(HttpHeaders.CONTENT_DISPOSITION, "inline").body(content.bytes());
+    }
+
+    @PostMapping("/projects/{id}/v2-outline/generate")
+    public Result<Map<String, Object>> generateV2Outline(@PathVariable String id, @RequestBody Map<String, Object> request) {
+        return Result.success(materialService.generateOutline(id, request));
+    }
+
+    @PostMapping("/projects/{id}/materials/analyze")
+    public Result<Map<String, Object>> analyzeMaterials(@PathVariable String id) {
+        return Result.success(materialService.analyzeMaterials(id));
+    }
+
+    @PutMapping("/projects/{id}/sections/{sectionId}/media-config")
+    public Result<Map<String, Object>> updateSectionMediaConfig(@PathVariable String id, @PathVariable String sectionId,
+                                                                @RequestBody Map<String, Object> request) {
+        return Result.success(materialService.updateSectionConfig(id, sectionId, request));
     }
 
     @ExceptionHandler(PointsNotEnoughException.class)

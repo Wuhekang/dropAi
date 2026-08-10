@@ -77,8 +77,8 @@ public class DoubaoWebSearchProvider implements ReferenceSearchProvider {
         }
         try {
             ReferenceSearchQuery probe = new ReferenceSearchQuery("health",
-                    "搜索国家标准 GB/T 7714 的公开介绍页面，并返回来源链接", "reference standard",
-                    List.of("GB/T 7714", "公开介绍", "来源链接"), List.of(), 2020, 2026, 3, 3, 0);
+                    "搜索 GB/T 7714 国家标准的官方公开页面，仅返回一个带真实 URL 的 JSON 条目", "reference standard",
+                    List.of("GB/T 7714", "国家标准", "官方页面"), List.of(), 2020, 2026, 1, 1, 0);
             ResponsesResult response = executeResponsesRequest(probe);
             saveDiagnosticResponse(response.root(), response);
             DoubaoWebSearchSourceExtractor.ExtractionResult extraction = sourceExtractor.extract(response.root());
@@ -112,14 +112,38 @@ public class DoubaoWebSearchProvider implements ReferenceSearchProvider {
     @Override
     public List<ReferenceCandidate> search(ReferenceSearchQuery query) {
         if (!available()) return List.of();
-        ResponsesResult response = executeResponsesRequest(query);
-        JsonNode root = response.root();
-        saveDiagnosticResponse(root, response);
-        return parseCandidates(root, query).stream()
+        List<ReferenceCandidate> candidates = new ArrayList<>();
+        if (query.chineseTarget() > 0) {
+            ReferenceSearchQuery chineseQuery = withLanguageTargets(query, query.chineseTarget(), 0);
+            candidates.addAll(executeAndParse(chineseQuery));
+        }
+        if (query.englishTarget() > 0) {
+            ReferenceSearchQuery englishQuery = withLanguageTargets(query, 0, query.englishTarget());
+            candidates.addAll(executeAndParse(englishQuery));
+        }
+        return candidates.stream()
                 .filter(candidate -> isSafePublicUrl(candidate.url()))
                 .filter(ReferenceCandidate::basicallyVerified)
                 .limit(Math.max(1, properties.getWebSearchMaxResults()))
                 .toList();
+    }
+
+    private List<ReferenceCandidate> executeAndParse(ReferenceSearchQuery query) {
+        ResponsesResult response = executeResponsesRequest(query);
+        saveDiagnosticResponse(response.root(), response);
+        return parseCandidates(response.root(), query);
+    }
+
+    private ReferenceSearchQuery withLanguageTargets(ReferenceSearchQuery query, int chineseTarget, int englishTarget) {
+        String title = englishTarget > 0 && chineseTarget == 0
+                ? "Pathways to improve employability of vocational college students in the age of artificial intelligence"
+                : query.title();
+        String major = englishTarget > 0 && chineseTarget == 0
+                ? "vocational education and employability"
+                : query.major();
+        return new ReferenceSearchQuery(query.projectId(), title, major, query.keywords(),
+                query.chapterTitles(), query.yearStart(), query.yearEnd(), Math.max(1, chineseTarget + englishTarget),
+                chineseTarget, englishTarget);
     }
 
     private ResponsesResult executeResponsesRequest(ReferenceSearchQuery query) {
@@ -136,7 +160,8 @@ public class DoubaoWebSearchProvider implements ReferenceSearchProvider {
         Map<String, Object> request = new LinkedHashMap<>();
         request.put("model", properties.getWebSearchModel());
         request.put("stream", false);
-        request.put("max_output_tokens", Math.max(1024, properties.getMaxOutputTokens()));
+        request.put("max_output_tokens", Math.max(16384, properties.getMaxOutputTokens()));
+        request.put("reasoning", Map.of("effort", "low"));
         request.put("tools", List.of(Map.of("type", "web_search")));
         request.put("tool_choice", "auto");
         if (includeSources) {
@@ -180,13 +205,39 @@ public class DoubaoWebSearchProvider implements ReferenceSearchProvider {
                 Field: %s
                 Year range: %d-%d
                 Search keywords: %s
+                Execute multiple combined searches using these query groups (at least 10): %s
+                Required result mix: exactly %d Chinese-language references and exactly %d English-language references.
+                Language rule: %s
+                Finish immediately after collecting the requested
+                number of complete records. Do not narrate the search process; the final answer must be the JSON array only.
+                Every record must be a scholarly publication and must contain non-empty title, authors, year,
+                journalOrPublisher and a real public URL or DOI landing-page URL. Exclude news and press releases.
 
                 JSON item fields:
                 title, authors, year, journalOrPublisher, volume, issue, pages, doi, url,
                 documentType, language, abstractText, keywords, sourceTitle, sourceSnippet, sourceType.
                 sourceType must be one of CNKI_PUBLIC_PAGE, CNKI_JOURNAL_PORTAL, JOURNAL_OFFICIAL, UNIVERSITY,
                 PUBLISHER, DOI_PAGE, OTHER_PUBLIC.
-                """.formatted(query.title(), query.major(), query.yearStart(), query.yearEnd(), query.joinedChineseKeywords());
+                """.formatted(query.title(), query.major(), query.yearStart(), query.yearEnd(), query.joinedKeywords(), queryCombinations(query),
+                query.chineseTarget(), query.englishTarget(), languageRule(query));
+    }
+
+    private String queryCombinations(ReferenceSearchQuery query) {
+        String core = query.englishTarget() > 0 && query.chineseTarget() == 0 ? query.joinedKeywords() : query.joinedChineseKeywords();
+        List<String> suffixes = query.englishTarget() > 0 && query.chineseTarget() == 0
+                ? List.of("research", "empirical study", "current status", "review", "influencing factors", "pathways", "framework", "practice", "comparison", "case study")
+                : List.of("研究", "实证", "现状", "综述", "影响因素", "提升路径", "评价体系", "实践", "比较研究", "案例研究");
+        return suffixes.stream().map(suffix -> core + " " + suffix).toList().toString();
+    }
+
+    private String languageRule(ReferenceSearchQuery query) {
+        if (query.englishTarget() > 0 && query.chineseTarget() == 0) {
+            return "ENGLISH ONLY. Search English scholarly databases/pages; every title and language field must be English.";
+        }
+        if (query.chineseTarget() > 0 && query.englishTarget() == 0) {
+            return "CHINESE ONLY. Search Chinese scholarly publication pages; every record must be a Chinese publication.";
+        }
+        return "Return the exact Chinese/English mix requested.";
     }
 
     private List<ReferenceCandidate> parseCandidates(JsonNode root, ReferenceSearchQuery query) {
@@ -203,8 +254,8 @@ public class DoubaoWebSearchProvider implements ReferenceSearchProvider {
             String snippet = firstNonBlank(node.path("sourceSnippet").asText(""), node.path("snippet").asText(""),
                     node.path("summary").asText(""), node.path("content").asText(""));
             if (!title.isBlank() && isSafePublicUrl(url)) {
-                Integer year = node.path("year").canConvertToInt() ? node.path("year").asInt() : null;
-                if (year == null) year = node.path("publicationYear").canConvertToInt() ? node.path("publicationYear").asInt() : null;
+                Integer year = integer(node.path("year"));
+                if (year == null) year = integer(node.path("publicationYear"));
                 List<String> authors = authors(node.path("authors"));
                 String container = firstNonBlank(node.path("journalOrPublisher").asText(""), node.path("journal").asText(""),
                         node.path("source").asText(""), node.path("publisher").asText(""));
@@ -224,8 +275,16 @@ public class DoubaoWebSearchProvider implements ReferenceSearchProvider {
             node.forEach(item -> collectCandidates(item, query, result));
         } else if (node.isTextual()) {
             try {
-                String text = node.asText();
-                if (text.trim().startsWith("[") || text.trim().startsWith("{")) collectCandidates(objectMapper.readTree(text), query, result);
+                String text = node.asText().trim();
+                if (text.startsWith("[") || text.startsWith("{")) {
+                    collectCandidates(objectMapper.readTree(text), query, result);
+                } else {
+                    int firstArray = text.indexOf('[');
+                    int lastArray = text.lastIndexOf(']');
+                    if (firstArray >= 0 && lastArray > firstArray) {
+                        collectCandidates(objectMapper.readTree(text.substring(firstArray, lastArray + 1)), query, result);
+                    }
+                }
             } catch (Exception ignored) {
             }
         }
@@ -236,7 +295,9 @@ public class DoubaoWebSearchProvider implements ReferenceSearchProvider {
         if (node == null || node.isMissingNode() || node.isNull()) return result;
         if (node.isArray()) {
             node.forEach(item -> {
-                String value = item.asText("").trim();
+                String value = item.isObject()
+                        ? firstNonBlank(item.path("name").asText(""), item.path("author").asText(""))
+                        : item.asText("").trim();
                 if (!value.isBlank()) result.add(value);
             });
             return result;
@@ -246,6 +307,18 @@ public class DoubaoWebSearchProvider implements ReferenceSearchProvider {
             if (!value.isBlank()) result.add(value);
         }
         return result;
+    }
+
+    private Integer integer(JsonNode node) {
+        if (node == null || node.isMissingNode() || node.isNull()) return null;
+        if (node.canConvertToInt()) return node.asInt();
+        String value = node.asText("").trim();
+        if (!value.matches("\\d{4}")) return null;
+        try {
+            return Integer.valueOf(value);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
     }
 
     private ProviderHealthStatus status(boolean enabled, boolean configured, boolean available, String endpoint,

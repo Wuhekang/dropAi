@@ -26,6 +26,17 @@
       </button>
     </section>
 
+    <section class="custom-amount">
+      <div>
+        <strong>自定义充值金额</strong>
+        <p>支持 1—100 元整数，1 元 = 10 积分</p>
+      </div>
+      <el-input-number v-model="customAmount" :min="1" :max="100" :step="1" step-strictly @change="selectCustom" />
+      <el-button :type="selected?.custom ? 'primary' : 'default'" @click="selectCustom">
+        充值 {{ customPoints }} 积分
+      </el-button>
+    </section>
+
     <section class="pay-panel">
       <div class="section-head">
         <div>
@@ -61,7 +72,7 @@
 
 <script setup>
 import { ElMessage } from 'element-plus'
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   createRechargeOrder,
@@ -75,6 +86,8 @@ const router = useRouter()
 const plans = ref([])
 const orders = ref([])
 const selected = ref(null)
+const customAmount = ref(1)
+const customPoints = computed(() => Number(customAmount.value || 0) * 10)
 const payType = ref('alipay')
 const loading = ref(false)
 const creating = ref(false)
@@ -112,7 +125,7 @@ async function createAndRedirect() {
   creating.value = true
   try {
     const order = await createRechargeOrder({
-      planId: selected.value.planId,
+      planId: selected.value.custom ? null : selected.value.planId,
       amount: selected.value.amount,
       payMethod: payType.value
     })
@@ -124,6 +137,12 @@ async function createAndRedirect() {
   } finally {
     creating.value = false
   }
+}
+
+function selectCustom() {
+  const amount = Math.max(1, Math.min(100, Math.trunc(Number(customAmount.value) || 1)))
+  customAmount.value = amount
+  selected.value = { custom: true, amount, points: amount * 10 }
 }
 
 function statusText(status) {
@@ -217,6 +236,20 @@ onMounted(loadData)
   gap: 16px;
   margin-bottom: 24px;
 }
+
+.custom-amount {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-bottom: 24px;
+  padding: 18px 20px;
+  border: 1px solid var(--glass-border);
+  border-radius: 18px;
+  background: var(--glass-bg);
+}
+
+.custom-amount > div:first-child { margin-right: auto; }
+.custom-amount p { margin: 6px 0 0; color: var(--text-secondary); }
 
 .plan-card {
   position: relative;

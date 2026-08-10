@@ -8,7 +8,10 @@ import ResultIndex from '../views/Result/index.vue'
 import PointsAdmin from '../views/PointsAdmin.vue'
 import RechargeIndex from '../views/Recharge/index.vue'
 import ComputerGenerator from '../views/ComputerGenerator/index.vue'
-import WritingGenerator from '../views/WritingGenerator/index.vue'
+import ReferenceSearch from '../views/ReferenceSearch/index.vue'
+import WritingMaterials from '../views/WritingMaterials/index.vue'
+import WritingOutlineV2 from '../views/WritingOutlineV2/index.vue'
+import WritingGenerationV2 from '../views/WritingGenerationV2/index.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -51,8 +54,23 @@ const router = createRouter({
     },
     {
       path: '/writing-generator',
-      name: 'WritingGenerator',
-      component: WritingGenerator
+      name: 'ReferenceSearch',
+      component: ReferenceSearch
+    },
+    {
+      path: '/writing-generator/materials',
+      name: 'WritingMaterials',
+      component: WritingMaterials
+    },
+    {
+      path: '/writing-generator/outline',
+      name: 'WritingOutlineV2',
+      component: WritingOutlineV2
+    },
+    {
+      path: '/writing-generator/generate',
+      name: 'WritingGenerationV2',
+      component: WritingGenerationV2
     },
     {
       path: '/points-admin',

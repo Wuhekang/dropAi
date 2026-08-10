@@ -47,13 +47,28 @@ public class WritingGenerationSchemaInitializer implements ApplicationRunner {
                 "CREATE TABLE IF NOT EXISTS writing_reference_source_evidence (id VARCHAR(64) PRIMARY KEY,reference_id VARCHAR(64) NOT NULL,project_id VARCHAR(64) NOT NULL,provider VARCHAR(80) NOT NULL,source_type VARCHAR(80) NOT NULL,source_title VARCHAR(500),source_url VARCHAR(1000) NOT NULL,source_domain VARCHAR(255),source_snippet TEXT,query_text TEXT,retrieved_at DATETIME,created_at DATETIME NOT NULL,INDEX idx_wrse_reference (reference_id),INDEX idx_wrse_project_created (project_id, created_at),INDEX idx_wrse_domain (source_domain)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
                 "CREATE TABLE IF NOT EXISTS writing_reference_search_log (id VARCHAR(64) PRIMARY KEY,project_id VARCHAR(64) NOT NULL,chapter_id VARCHAR(64),provider VARCHAR(80) NOT NULL,language VARCHAR(20),query_text TEXT,request_api_type VARCHAR(80),request_method VARCHAR(20),request_url VARCHAR(700),model VARCHAR(120),web_search_enabled TINYINT(1) NOT NULL DEFAULT 0,http_status INT,result_count INT NOT NULL DEFAULT 0,accepted_count INT NOT NULL DEFAULT 0,rejected_count INT NOT NULL DEFAULT 0,duration_ms BIGINT NOT NULL DEFAULT 0,success TINYINT(1) NOT NULL DEFAULT 0,error_code VARCHAR(120),error_message TEXT,created_at DATETIME NOT NULL,INDEX idx_wrsl_project_created (project_id, created_at),INDEX idx_wrsl_provider_language (provider, language)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
                 "CREATE TABLE IF NOT EXISTS writing_reference_import_batch (id VARCHAR(64) PRIMARY KEY,project_id VARCHAR(64) NOT NULL,user_id BIGINT NOT NULL,source_platform VARCHAR(80) NOT NULL,original_filename VARCHAR(255),stored_filename VARCHAR(255),file_format VARCHAR(40),file_encoding VARCHAR(40),total_count INT NOT NULL DEFAULT 0,success_count INT NOT NULL DEFAULT 0,failed_count INT NOT NULL DEFAULT 0,duplicate_count INT NOT NULL DEFAULT 0,status VARCHAR(40) NOT NULL,error_message TEXT,created_at DATETIME NOT NULL,updated_at DATETIME NOT NULL,INDEX idx_wrib_project_created (project_id, created_at),INDEX idx_wrib_user_created (user_id, created_at)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+                "CREATE TABLE IF NOT EXISTS writing_image_material (id VARCHAR(64) PRIMARY KEY,project_id VARCHAR(64) NOT NULL,user_id BIGINT NOT NULL,file_path VARCHAR(700),url VARCHAR(1000),original_name VARCHAR(255) NOT NULL,display_name VARCHAR(255) NOT NULL,mime_type VARCHAR(120),file_size BIGINT NOT NULL DEFAULT 0,ai_category VARCHAR(80),ai_usage TEXT,ai_suggested_chapter VARCHAR(64),ai_suggested_section VARCHAR(64),user_confirmed_chapter VARCHAR(64),user_confirmed_section VARCHAR(64),source_type VARCHAR(40) NOT NULL DEFAULT 'upload',analysis_status VARCHAR(40) NOT NULL DEFAULT 'PENDING',created_at DATETIME NOT NULL,updated_at DATETIME NOT NULL,INDEX idx_wim_project_created (project_id, created_at),INDEX idx_wim_section (project_id, user_confirmed_section)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
                 "ALTER TABLE writing_project ADD COLUMN chinese_reference_count INT NOT NULL DEFAULT 14",
                 "ALTER TABLE writing_project ADD COLUMN english_reference_count INT NOT NULL DEFAULT 6",
+                "ALTER TABLE writing_project ADD COLUMN document_mode VARCHAR(40) NOT NULL DEFAULT 'general'",
+                "ALTER TABLE writing_project ADD COLUMN project_location VARCHAR(500)",
+                "ALTER TABLE writing_project ADD COLUMN reference_mode VARCHAR(20) NOT NULL DEFAULT 'AI'",
+                "ALTER TABLE writing_chapter ADD COLUMN chapter_type VARCHAR(40) NOT NULL DEFAULT 'content'",
+                "UPDATE writing_chapter SET chapter_type='reference' WHERE LOWER(title)='references' OR title LIKE '%参考文献%'",
+                "UPDATE writing_chapter SET chapter_type='acknowledgement' WHERE LOWER(title) IN ('acknowledgement','acknowledgments') OR title LIKE '%致谢%'",
+                "UPDATE writing_chapter SET chapter_type='conclusion' WHERE chapter_type='content' AND (title LIKE '%结论%' OR title LIKE '%展望%' OR title LIKE '%总结%')",
+                "ALTER TABLE writing_section ADD COLUMN content_type VARCHAR(40) NOT NULL DEFAULT 'general'",
+                "ALTER TABLE writing_section ADD COLUMN image_count INT NOT NULL DEFAULT 0",
+                "ALTER TABLE writing_section ADD COLUMN table_count INT NOT NULL DEFAULT 0",
+                "ALTER TABLE writing_section ADD COLUMN image_strategy VARCHAR(40) NOT NULL DEFAULT 'none'",
+                "ALTER TABLE writing_section ADD COLUMN image_requirements_json LONGTEXT",
                 "ALTER TABLE writing_reference ADD COLUMN journal VARCHAR(500)",
                 "ALTER TABLE writing_reference ADD COLUMN publisher VARCHAR(500)",
                 "ALTER TABLE writing_reference ADD COLUMN source_url VARCHAR(700)",
                 "ALTER TABLE writing_reference ADD COLUMN landing_page_url VARCHAR(700)",
                 "ALTER TABLE writing_reference ADD COLUMN language VARCHAR(20) NOT NULL DEFAULT 'UNKNOWN'",
+                "ALTER TABLE writing_reference ADD COLUMN source_type VARCHAR(40) NOT NULL DEFAULT 'AI_SEARCH'",
+                "UPDATE writing_reference SET source_type='AI_SEARCH' WHERE source_type IS NULL OR source_type=''",
                 "ALTER TABLE writing_reference ADD COLUMN provider VARCHAR(80)",
                 "ALTER TABLE writing_reference ADD COLUMN provider_record_id VARCHAR(255)",
                 "ALTER TABLE writing_reference ADD COLUMN verified_at DATETIME",
@@ -81,15 +96,19 @@ public class WritingGenerationSchemaInitializer implements ApplicationRunner {
 
     private List<String> h2Statements() {
         return mysqlStatements().stream()
-                .map(sql -> sql.replace("LONGTEXT", "CLOB")
+                .map(sql -> sql.replace("PRIMARY KEY", "PRIMARY__KEY")
+                        .replace("FOREIGN KEY", "FOREIGN__KEY")
+                        .replace("LONGTEXT", "CLOB")
                         .replace("TEXT", "CLOB")
                         .replace("DATETIME", "TIMESTAMP")
                         .replace("TINYINT(1)", "BOOLEAN")
                         .replaceAll("DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci", "")
-                        .replaceAll(",INDEX [^)]+\\)", ")")
-                        .replaceAll(",UNIQUE KEY [^)]+\\)", ")")
+                        .replaceAll(",INDEX [^)]+\\)", "")
+                        .replaceAll(",UNIQUE KEY [^)]+\\)", "")
                         .replace("UNIQUE KEY", "UNIQUE")
-                        .replace("KEY", ""))
+                        .replace("KEY", "")
+                        .replace("PRIMARY__", "PRIMARY KEY")
+                        .replace("FOREIGN__", "FOREIGN KEY"))
                 .toList();
     }
 

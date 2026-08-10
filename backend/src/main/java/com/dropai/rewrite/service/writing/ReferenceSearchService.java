@@ -1,6 +1,8 @@
 package com.dropai.rewrite.service.writing;
 
 import com.dropai.rewrite.config.WritingGenerationProperties;
+import com.dropai.rewrite.service.AiRewriteService;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -23,13 +25,15 @@ public class ReferenceSearchService {
     private final ObjectMapper objectMapper;
     private final ChineseReferenceSearchPlanService searchPlanService;
     private final GbT7714Formatter formatter;
+    private final AiRewriteService aiRewriteService;
 
     public ReferenceSearchService(JdbcTemplate jdbcTemplate,
                                   WritingGenerationProperties properties,
                                   List<ReferenceSearchProvider> providers,
                                   ObjectMapper objectMapper,
                                   ChineseReferenceSearchPlanService searchPlanService,
-                                  GbT7714Formatter formatter) {
+                                  GbT7714Formatter formatter,
+                                  AiRewriteService aiRewriteService) {
         this.jdbcTemplate = jdbcTemplate;
         this.properties = properties;
         providers.forEach(provider -> {
@@ -39,6 +43,7 @@ public class ReferenceSearchService {
         this.objectMapper = objectMapper;
         this.searchPlanService = searchPlanService;
         this.formatter = formatter;
+        this.aiRewriteService = aiRewriteService;
     }
 
     public Map<String, Object> status() {
@@ -77,6 +82,109 @@ public class ReferenceSearchService {
         return searchPlanService.buildPlan(query);
     }
 
+    public Map<String, Object> aiSearch(Long userId, String projectId, Map<String, Object> request) {
+        Map<String, Object> project = WritingJdbc.one(jdbcTemplate,
+                "SELECT * FROM writing_project WHERE id=? AND user_id=?", projectId, userId);
+        int currentYear = java.time.Year.now().getValue();
+        int yearFrom = Math.max(currentYear - 4, WritingJdbc.integer(request.get("yearFrom"), currentYear - 4));
+        int yearTo = Math.min(currentYear, WritingJdbc.integer(request.get("yearTo"), currentYear));
+        int chineseTarget = Math.max(0, WritingJdbc.integer(request.get("chineseReferenceCount"), 10));
+        int englishTarget = Math.max(0, WritingJdbc.integer(request.get("englishReferenceCount"), 10));
+        if (chineseTarget + englishTarget <= 0) {
+            throw new IllegalArgumentException("中文和英文参考文献数量不能同时为 0");
+        }
+        jdbcTemplate.update("""
+                UPDATE writing_project SET chinese_reference_count=?, english_reference_count=?, reference_count=?,
+                year_start=?, year_end=?, search_status=?, search_message=?, updated_at=? WHERE id=?
+                """, chineseTarget, englishTarget, chineseTarget + englishTarget, yearFrom, yearTo,
+                "RUNNING", "AI正在分析主题并生成检索词", LocalDateTime.now(), projectId);
+        Map<String, Object> plan = searchPlan(userId, projectId, Map.of(
+                "targetCount", chineseTarget,
+                "yearFrom", yearFrom,
+                "yearTo", yearTo));
+        List<Map<String, Object>> existing = references(userId, projectId);
+        int searchChinese = Math.max(0, chineseTarget - (int) countQuotaReferences(existing, "ZH"));
+        int searchEnglish = Math.max(0, englishTarget - (int) countQuotaReferences(existing, "EN"));
+        List<Map<String, Object>> found = existing;
+        if (searchChinese + searchEnglish > 0) {
+            jdbcTemplate.update("UPDATE writing_project SET chinese_reference_count=?,english_reference_count=?,reference_count=? WHERE id=?",
+                    searchChinese, searchEnglish, searchChinese + searchEnglish, projectId);
+            try {
+                found = searchAndSave(userId, projectId, null);
+            } finally {
+                jdbcTemplate.update("UPDATE writing_project SET chinese_reference_count=?,english_reference_count=?,reference_count=? WHERE id=?",
+                        chineseTarget, englishTarget, chineseTarget + englishTarget, projectId);
+            }
+        }
+        List<Map<String, Object>> verified = verifySavedReferences(userId, projectId);
+        long chineseCount = countQuotaReferences(verified, "ZH");
+        long englishCount = countQuotaReferences(verified, "EN");
+        long verifiedCount = verified.stream()
+                .filter(row -> WritingJdbc.text(row.get("verification_status")).toUpperCase(Locale.ROOT).startsWith("VERIFIED"))
+                .count();
+        int missingChinese = Math.max(0, chineseTarget - (int) chineseCount);
+        int missingEnglish = Math.max(0, englishTarget - (int) englishCount);
+        boolean quotaSatisfied = missingChinese == 0 && missingEnglish == 0;
+        if (!quotaSatisfied) {
+            jdbcTemplate.update("UPDATE writing_project SET search_status=?,search_message=?,updated_at=? WHERE id=?",
+                    "INSUFFICIENT", quotaMessage(chineseTarget, englishTarget, chineseCount, englishCount), LocalDateTime.now(), projectId);
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("projectId", projectId);
+        result.put("topic", WritingJdbc.text(project.get("title")));
+        result.put("researchDirection", WritingJdbc.text(project.get("major")));
+        result.put("yearFrom", yearFrom);
+        result.put("yearTo", yearTo);
+        result.put("searchPlan", plan);
+        result.put("references", verified);
+        result.put("totalCount", found.size());
+        result.put("chineseCount", chineseCount);
+        result.put("englishCount", englishCount);
+        result.put("verifiedCount", verifiedCount);
+        result.put("targetChineseCount", chineseTarget);
+        result.put("targetEnglishCount", englishTarget);
+        result.put("missingChineseCount", missingChinese);
+        result.put("missingEnglishCount", missingEnglish);
+        result.put("quotaSatisfied", quotaSatisfied);
+        result.put("searchExhausted", !quotaSatisfied);
+        result.put("searchMessage", quotaSatisfied ? "已达到中文和英文目标数量"
+                : "已尝试全部可用搜索源和组合关键词，当前无法继续补充");
+        return result;
+    }
+
+    public Map<String, Object> ensureQuota(Long userId, String projectId) {
+        Map<String, Object> project = WritingJdbc.one(jdbcTemplate, "SELECT * FROM writing_project WHERE id=? AND user_id=?", projectId, userId);
+        int targetChinese = WritingJdbc.integer(project.get("chinese_reference_count"), 0);
+        int targetEnglish = WritingJdbc.integer(project.get("english_reference_count"), 0);
+        Map<String, Object> counts = WritingJdbc.one(jdbcTemplate, """
+                SELECT SUM(CASE WHEN language='ZH' AND (verification_status LIKE 'VERIFIED%' OR verification_status='MANUAL') THEN 1 ELSE 0 END) AS zh,
+                SUM(CASE WHEN language='EN' AND (verification_status LIKE 'VERIFIED%' OR verification_status='MANUAL') THEN 1 ELSE 0 END) AS en
+                FROM writing_reference WHERE project_id=?
+                """, projectId);
+        int currentChinese = WritingJdbc.integer(counts.get("zh"), 0);
+        int currentEnglish = WritingJdbc.integer(counts.get("en"), 0);
+        String mode = WritingJdbc.text(project.get("reference_mode")).toUpperCase(Locale.ROOT);
+        if ("UPLOAD".equals(mode)) {
+            int uploaded = WritingJdbc.integer(WritingJdbc.one(jdbcTemplate,
+                    "SELECT COUNT(*) AS n FROM writing_reference WHERE project_id=? AND source_type IN ('UPLOAD','MANUAL')", projectId).get("n"), 0);
+            if (uploaded <= 0) throw new IllegalStateException("请至少上传或手动添加一篇参考文献");
+            return Map.of("targetChinese", 0, "targetEnglish", 0,
+                    "currentChinese", currentChinese, "currentEnglish", currentEnglish, "satisfied", true, "mode", "UPLOAD");
+        }
+        if (currentChinese < targetChinese || currentEnglish < targetEnglish) {
+            throw new IllegalStateException(quotaMessage(targetChinese, targetEnglish, currentChinese, currentEnglish));
+        }
+        return Map.of("targetChinese", targetChinese, "targetEnglish", targetEnglish,
+                "currentChinese", currentChinese, "currentEnglish", currentEnglish, "satisfied", true);
+    }
+
+    private String quotaMessage(int targetChinese, int targetEnglish, long currentChinese, long currentEnglish) {
+        return "参考文献数量不足。目标数量：中文" + targetChinese + "篇、英文" + targetEnglish
+                + "篇；当前数量：中文" + currentChinese + "篇、英文" + currentEnglish
+                + "篇；缺少数量：中文" + Math.max(0, targetChinese - currentChinese)
+                + "篇、英文" + Math.max(0, targetEnglish - currentEnglish) + "篇。";
+    }
+
     @Transactional
     public List<Map<String, Object>> searchAndSave(Long userId, String projectId, Integer chapterNo) {
         Map<String, Object> project = WritingJdbc.one(jdbcTemplate,
@@ -105,7 +213,7 @@ public class ReferenceSearchService {
         List<ReferenceCandidate> selected = new ArrayList<>();
         selected.addAll(deduped.stream().filter(candidate -> "ZH".equals(languageOf(candidate))).limit(query.chineseTarget()).toList());
         selected.addAll(deduped.stream().filter(candidate -> "EN".equals(languageOf(candidate))).limit(query.englishTarget()).toList());
-        jdbcTemplate.update("DELETE FROM writing_reference WHERE project_id=?", projectId);
+        jdbcTemplate.update("DELETE FROM writing_reference WHERE project_id=? AND COALESCE(source_type,'AI_SEARCH')='AI_SEARCH'", projectId);
         int index = 1;
         for (ReferenceCandidate candidate : selected) {
             insertReference(projectId, candidate, index++, chapterNo);
@@ -139,7 +247,8 @@ public class ReferenceSearchService {
                 .sorted(Comparator.comparingDouble(ReferenceCandidate::relevanceScore).reversed())
                 .limit(target)
                 .toList();
-        jdbcTemplate.update("DELETE FROM writing_reference WHERE project_id=? AND COALESCE(language,?)=?", projectId, language.toUpperCase(Locale.ROOT), language.toUpperCase(Locale.ROOT));
+        jdbcTemplate.update("DELETE FROM writing_reference WHERE project_id=? AND COALESCE(language,?)=? AND COALESCE(source_type,'AI_SEARCH')='AI_SEARCH'",
+                projectId, language.toUpperCase(Locale.ROOT), language.toUpperCase(Locale.ROOT));
         int next = WritingJdbc.integer(WritingJdbc.one(jdbcTemplate, "SELECT COALESCE(MAX(citation_number),0)+1 AS n FROM writing_reference WHERE project_id=?", projectId).get("n"), 1);
         for (ReferenceCandidate candidate : found) insertReference(projectId, candidate, next++, null);
         jdbcTemplate.update("UPDATE writing_project SET search_provider=?, search_status=?, search_message=?, updated_at=? WHERE id=?",
@@ -163,6 +272,7 @@ public class ReferenceSearchService {
         WritingJdbc.one(jdbcTemplate, "SELECT id FROM writing_project WHERE id=? AND user_id=?", projectId, userId);
         List<Map<String, Object>> rows = WritingJdbc.list(jdbcTemplate, "SELECT * FROM writing_reference WHERE project_id=?", projectId);
         for (Map<String, Object> row : rows) {
+            if (!"AI_SEARCH".equalsIgnoreCase(WritingJdbc.text(row.get("source_type")))) continue;
             String status = hasFormalFields(row) ? "VERIFIED_PRIMARY_PUBLIC" : "UNVERIFIED";
             String message = hasFormalFields(row) ? "Public URL and required bibliographic fields are present" : "Missing title, authors, year, source, or public URL";
             jdbcTemplate.update("UPDATE writing_reference SET verification_status=?, verification_message=?, updated_at=? WHERE id=?",
@@ -180,6 +290,118 @@ public class ReferenceSearchService {
                 ORDER BY final_number IS NULL, final_number,
                 citation_number IS NULL, citation_number, relevance_score DESC, created_at
                 """, projectId);
+    }
+
+    @Transactional
+    public Map<String, Object> addManualReference(Long userId, String projectId, Map<String, Object> request) {
+        Map<String, Object> project = WritingJdbc.one(jdbcTemplate,
+                "SELECT * FROM writing_project WHERE id=? AND user_id=?", projectId, userId);
+        Map<String, Object> fields = new LinkedHashMap<>(request == null ? Map.of() : request);
+        String rawText = WritingJdbc.text(fields.get("rawText"));
+        if (!rawText.isBlank()) fields.putAll(parseReferenceText(rawText));
+        String language = normalizeLanguage(WritingJdbc.text(fields.get("language")), rawText + WritingJdbc.text(fields.get("title")));
+        String title = WritingJdbc.text(fields.get("title"));
+        List<String> authors = authorsOf(fields.get("authors"));
+        int year = WritingJdbc.integer(fields.get("year"), 0);
+        String source = WritingJdbc.text(fields.get("source"));
+        String doi = WritingJdbc.text(fields.get("doi"));
+        String url = WritingJdbc.text(fields.get("url"));
+        if (title.isBlank() || authors.isEmpty() || year < 1900 || source.isBlank()) {
+            throw new IllegalArgumentException("请补全文献标题、作者、年份和来源");
+        }
+        if (!WritingJdbc.list(jdbcTemplate,
+                "SELECT id FROM writing_reference WHERE project_id=? AND (LOWER(title)=LOWER(?) OR (?<>'' AND LOWER(COALESCE(doi,''))=LOWER(?)))",
+                projectId, title, doi, doi).isEmpty()) {
+            throw new IllegalArgumentException("该文献已存在于当前文献库");
+        }
+        int next = WritingJdbc.integer(WritingJdbc.one(jdbcTemplate,
+                "SELECT COALESCE(MAX(citation_number),0)+1 AS n FROM writing_reference WHERE project_id=?", projectId).get("n"), 1);
+        LocalDateTime now = LocalDateTime.now();
+        String id = WritingJdbc.id("ref");
+        ReferenceCandidate candidate = new ReferenceCandidate(title, authors, year, source, "", "", "", doi, url,
+                "MANUAL", "", rawText, now, List.of(), 1.0, "MANUAL", "JOURNAL", language,
+                "MANUAL", source, rawText);
+        String formatted = formatter.format(next, candidate, "GBT_7714_2025");
+        jdbcTemplate.update("""
+                INSERT INTO writing_reference (id,project_id,reference_key,title,authors,publication_year,
+                journal_or_publisher,doi,url,source_platform,abstract_text,search_keywords,searched_at,
+                applicable_chapters,verification_status,relevance_score,formatted_text,final_number,created_at,updated_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """, id, projectId, "ref_" + String.format("%03d", next), title, String.join("; ", authors), year,
+                source, blankToNull(doi), blankToNull(url), "MANUAL", "", "", now, "", "MANUAL", 1.0,
+                formatted, next, now, now);
+        jdbcTemplate.update("""
+                UPDATE writing_reference SET language=?,source_type='MANUAL',provider='MANUAL',citation_number=?,
+                journal=?,publisher=?,verified_at=?,verification_message=?,document_type='JOURNAL' WHERE id=?
+                """, language, next, source, source, now, "用户手动添加", id);
+        renumber(projectId);
+        List<Map<String, Object>> all = references(userId, projectId);
+        int targetChinese = WritingJdbc.integer(project.get("chinese_reference_count"), 0);
+        int targetEnglish = WritingJdbc.integer(project.get("english_reference_count"), 0);
+        long currentChinese = countQuotaReferences(all, "ZH");
+        long currentEnglish = countQuotaReferences(all, "EN");
+        return Map.of(
+                "reference", WritingJdbc.one(jdbcTemplate, "SELECT * FROM writing_reference WHERE id=?", id),
+                "references", all,
+                "targetChineseCount", targetChinese,
+                "targetEnglishCount", targetEnglish,
+                "chineseCount", currentChinese,
+                "englishCount", currentEnglish,
+                "missingChineseCount", Math.max(0, targetChinese - (int) currentChinese),
+                "missingEnglishCount", Math.max(0, targetEnglish - (int) currentEnglish),
+                "quotaSatisfied", currentChinese >= targetChinese && currentEnglish >= targetEnglish
+        );
+    }
+
+    private Map<String, Object> parseReferenceText(String rawText) {
+        try {
+            String response = aiRewriteService.rewrite("""
+                    请解析下面的完整参考文献，只输出一个JSON对象，不要Markdown代码块。
+                    字段：language（ZH或EN）、title、authors（字符串数组）、year（整数）、source、doi、url。
+                    不得补造原文没有的信息，缺失字段使用空字符串或空数组。
+                    参考文献：%s
+                    """.formatted(rawText), "REFERENCE_PARSE").trim();
+            int start = response.indexOf('{');
+            int end = response.lastIndexOf('}');
+            if (start < 0 || end <= start) throw new IllegalArgumentException("AI未返回可解析的文献字段");
+            JsonNode node = objectMapper.readTree(response.substring(start, end + 1));
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("language", node.path("language").asText(""));
+            result.put("title", node.path("title").asText(""));
+            List<String> authors = new ArrayList<>();
+            node.path("authors").forEach(author -> authors.add(author.asText()));
+            result.put("authors", authors);
+            result.put("year", node.path("year").asInt(0));
+            result.put("source", node.path("source").asText(""));
+            result.put("doi", node.path("doi").asText(""));
+            result.put("url", node.path("url").asText(""));
+            return result;
+        } catch (IllegalArgumentException exception) {
+            throw exception;
+        } catch (Exception exception) {
+            throw new IllegalStateException("参考文献文本解析失败：" + exception.getMessage(), exception);
+        }
+    }
+
+    private List<String> authorsOf(Object value) {
+        if (value instanceof List<?> list) return list.stream().map(WritingJdbc::text).filter(text -> !text.isBlank()).toList();
+        String text = WritingJdbc.text(value);
+        if (text.isBlank()) return List.of();
+        return List.of(text.split("\\s*[;；,，、]\\s*"));
+    }
+
+    private String normalizeLanguage(String value, String sample) {
+        if ("ZH".equalsIgnoreCase(value) || "中文".equals(value)) return "ZH";
+        if ("EN".equalsIgnoreCase(value) || "英文".equals(value)) return "EN";
+        return sample != null && sample.matches(".*[\\p{IsHan}].*") ? "ZH" : "EN";
+    }
+
+    private long countQuotaReferences(List<Map<String, Object>> rows, String language) {
+        return rows.stream().filter(row -> language.equalsIgnoreCase(WritingJdbc.text(row.get("language"))))
+                .filter(row -> {
+                    String status = WritingJdbc.text(row.get("verification_status")).toUpperCase(Locale.ROOT);
+                    return status.startsWith("VERIFIED") || "MANUAL".equals(status);
+                }).count();
     }
 
     public void deleteReference(Long userId, String projectId, String referenceId) {
@@ -277,39 +499,80 @@ public class ReferenceSearchService {
     }
 
     private List<ReferenceCandidate> searchOnline(ReferenceSearchQuery query) {
-        return searchOnline(query, null);
+        List<ReferenceCandidate> result = new ArrayList<>();
+        result.addAll(searchOnline(query, "ZH"));
+        result.addAll(searchOnline(query, "EN"));
+        if (result.isEmpty()) throw new IllegalStateException("所有联网参考文献搜索源均已耗尽，未获得可用结果");
+        return result;
     }
 
     private List<ReferenceCandidate> searchOnline(ReferenceSearchQuery query, String language) {
-        List<ReferenceCandidate> result = new ArrayList<>();
+        int target = "ZH".equalsIgnoreCase(language) ? query.chineseTarget()
+                : "EN".equalsIgnoreCase(language) ? query.englishTarget() : query.maxResults();
+        if (target <= 0) return List.of();
+        Map<String, ReferenceCandidate> accepted = new LinkedHashMap<>();
         RuntimeException lastError = null;
-        for (String providerName : properties.getReferenceSearch().providerOrder()) {
-            ReferenceSearchProvider provider = providers.get(providerName);
-            if (provider == null || !provider.available() || !provider.supportsLanguage(language)) continue;
-            for (int attempt = 1; attempt <= Math.max(1, properties.getReferenceSearch().getRetryCount()); attempt++) {
-                long started = System.currentTimeMillis();
-                try {
-                    List<ReferenceCandidate> found = provider.search(query);
-                    insertSearchLog(query.projectId(), provider.providerCode(), language, query.joinedKeywords(), found.size(), found.size(), System.currentTimeMillis() - started, true, "", "");
-                    result.addAll(found);
-                    if (result.size() >= query.maxResults()) return result;
-                    break;
-                } catch (RuntimeException exception) {
-                    lastError = exception;
-                    insertSearchLog(query.projectId(), provider.providerCode(), language, query.joinedKeywords(), 0, 0, System.currentTimeMillis() - started, false,
-                            exception.getClass().getSimpleName(), String.valueOf(exception.getMessage()));
+        List<String> variants = searchVariants(query, language);
+        for (String variant : variants) {
+            for (String providerName : properties.getReferenceSearch().providerOrder()) {
+                ReferenceSearchProvider provider = providers.get(providerName);
+                if (provider == null || !provider.available() || !provider.supportsLanguage(language)) continue;
+                ReferenceSearchQuery roundQuery = queryForRound(query, language, variant, target - accepted.size());
+                for (int attempt = 1; attempt <= Math.max(1, properties.getReferenceSearch().getRetryCount()); attempt++) {
+                    long started = System.currentTimeMillis();
                     try {
-                        Thread.sleep(800L * attempt);
-                    } catch (InterruptedException interruptedException) {
-                        Thread.currentThread().interrupt();
-                        throw new IllegalStateException("参考文献搜索被中断", interruptedException);
+                        List<ReferenceCandidate> found = provider.search(roundQuery);
+                        int before = accepted.size();
+                        for (ReferenceCandidate candidate : found) {
+                            if (candidate == null || !candidate.basicallyVerified() || !language.equalsIgnoreCase(languageOf(candidate))) continue;
+                            String key = candidate.doi() != null && !candidate.doi().isBlank()
+                                    ? "doi:" + candidate.doi().toLowerCase(Locale.ROOT)
+                                    : "title:" + normalize(candidate.title()) + ":" + candidate.year();
+                            accepted.putIfAbsent(key, candidate);
+                        }
+                        insertSearchLog(query.projectId(), provider.providerCode(), language, variant, found.size(),
+                                accepted.size() - before, System.currentTimeMillis() - started, true, "", "");
+                        break;
+                    } catch (RuntimeException exception) {
+                        lastError = exception;
+                        insertSearchLog(query.projectId(), provider.providerCode(), language, variant, 0, 0,
+                                System.currentTimeMillis() - started, false, exception.getClass().getSimpleName(), String.valueOf(exception.getMessage()));
+                        if (attempt < Math.max(1, properties.getReferenceSearch().getRetryCount())) try {
+                            Thread.sleep(800L * attempt);
+                        } catch (InterruptedException interruptedException) {
+                            Thread.currentThread().interrupt();
+                            throw new IllegalStateException("参考文献搜索被中断", interruptedException);
+                        }
                     }
                 }
+                if (accepted.size() >= target) return new ArrayList<>(accepted.values()).subList(0, target);
             }
         }
-        if (result.isEmpty() && lastError != null) throw lastError;
-        if (result.isEmpty()) throw new IllegalStateException("没有可用的联网参考文献搜索Provider，或搜索结果为空");
-        return result;
+        if (accepted.isEmpty() && lastError != null) throw lastError;
+        return new ArrayList<>(accepted.values());
+    }
+
+    private ReferenceSearchQuery queryForRound(ReferenceSearchQuery query, String language, String variant, int remaining) {
+        List<String> keywords = new ArrayList<>(query.keywords() == null ? List.of() : query.keywords());
+        keywords.add(variant);
+        return new ReferenceSearchQuery(query.projectId(), query.title(), query.major(), keywords, query.chapterTitles(),
+                query.yearStart(), query.yearEnd(), Math.max(1, remaining),
+                "ZH".equalsIgnoreCase(language) ? Math.max(1, remaining) : 0,
+                "EN".equalsIgnoreCase(language) ? Math.max(1, remaining) : 0);
+    }
+
+    private List<String> searchVariants(ReferenceSearchQuery query, String language) {
+        String title = WritingJdbc.text(query.title());
+        if ("ZH".equalsIgnoreCase(language)) return List.of(
+                title + " 核心概念", title + " 理论基础", title + " 研究现状", title + " 影响因素", title + " 实证研究",
+                title + " 问题分析", title + " 对策路径", title + " 评价体系", title + " 应用研究", title + " 案例研究",
+                title + " 国内研究", title + " 比较研究", title + " 机制研究", title + " 模型构建", title + " 实践探索",
+                title + " 发展趋势", title + " 技术应用", title + " 教育改革", title + " 协同机制", title + " 高质量发展");
+        return List.of(
+                title + " core concepts English literature", title + " theoretical framework", title + " research status", title + " influencing factors", title + " empirical study",
+                title + " problem analysis", title + " improvement pathways", title + " evaluation framework", title + " applied research", title + " case study",
+                title + " international research", title + " comparative study", title + " mechanism study", title + " model construction", title + " practical exploration",
+                title + " development trends", title + " technology adoption", title + " educational reform", title + " collaborative mechanism", title + " high quality development");
     }
 
     public List<Map<String, Object>> searchLogs(Long userId, String projectId) {
@@ -416,7 +679,7 @@ public class ReferenceSearchService {
         try {
             jdbcTemplate.update("""
                     UPDATE writing_reference SET language=?, provider=?, citation_number=?, source_url=?, landing_page_url=?,
-                    journal=?, publisher=?, verified_at=?, final_number=?, document_type=?, source_database=?,
+                    journal=?, publisher=?, verified_at=?, final_number=?, document_type=?, source_database=?, source_type='AI_SEARCH',
                     source_query=?, retrieved_at=?, abstract_source_type=?, verification_message=?, format_incomplete=?,
                     missing_fields_json=?, metadata_conflicts_json=?, source_evidence_json=?, raw_metadata_json=? WHERE id=?
                     """,

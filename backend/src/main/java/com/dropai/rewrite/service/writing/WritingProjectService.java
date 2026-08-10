@@ -15,10 +15,15 @@ import java.util.Map;
 public class WritingProjectService {
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
+    private final ReferenceSearchService referenceSearchService;
+    private final OutlineNormalizeService outlineNormalizeService;
 
-    public WritingProjectService(JdbcTemplate jdbcTemplate, ObjectMapper objectMapper) {
+    public WritingProjectService(JdbcTemplate jdbcTemplate, ObjectMapper objectMapper, ReferenceSearchService referenceSearchService,
+                                 OutlineNormalizeService outlineNormalizeService) {
         this.jdbcTemplate = jdbcTemplate;
         this.objectMapper = objectMapper;
+        this.referenceSearchService = referenceSearchService;
+        this.outlineNormalizeService = outlineNormalizeService;
     }
 
     @Transactional
@@ -37,8 +42,8 @@ public class WritingProjectService {
                 abstract_word_count, keyword_count, chapter_count, reference_count, chinese_reference_count,
                 english_reference_count, year_start, year_end, citation_style, writing_tone, generate_english_abstract,
                 generate_toc, generate_figure_list, generate_table_list, skip_references, requirements, keywords_json,
-                status, current_stage, progress, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                reference_mode, status, current_stage, progress, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 projectId, userId, title, text(request.get("major")), text(request.get("documentType")),
                 target, abstractWords, keywordCount, 0,
@@ -48,7 +53,7 @@ public class WritingProjectService {
                 textOr(request.get("citationStyle"), "GB/T 7714"), textOr(request.get("writingTone"), "本科论文"),
                 bool(request.get("generateEnglishAbstract"), true), bool(request.get("generateToc"), true),
                 bool(request.get("generateFigureList"), true), bool(request.get("generateTableList"), true),
-                bool(request.get("skipReferences"), false), text(request.get("requirements")), json(keywords),
+                bool(request.get("skipReferences"), false), text(request.get("requirements")), json(keywords), referenceMode(request.get("referenceMode")),
                 "DRAFT", "项目已创建", 0, now, now);
         List<Map<String, Object>> chapters = readMapList(request.get("chapters"));
         if (chapters.isEmpty()) chapters = defaultChapters(title, target);
@@ -69,6 +74,41 @@ public class WritingProjectService {
         project.put("files", WritingJdbc.list(jdbcTemplate,
                 "SELECT * FROM writing_export_file WHERE project_id=? ORDER BY created_at DESC", projectId));
         return project;
+    }
+
+    public List<Map<String, Object>> history() {
+        Long userId = AuthContext.requireUserId();
+        List<Map<String, Object>> rows = WritingJdbc.list(jdbcTemplate, """
+                SELECT p.id,p.title AS projectName,COALESCE(NULLIF(p.document_mode,''),p.document_type) AS documentType,
+                       p.status,p.current_stage AS currentStage,p.progress,p.error_message AS errorMessage,
+                       p.created_at AS createdTime,p.updated_at AS updatedTime,
+                       (SELECT f.download_url FROM writing_export_file f WHERE f.project_id=p.id ORDER BY f.created_at DESC LIMIT 1) AS downloadUrl
+                FROM writing_project p WHERE p.user_id=? ORDER BY p.updated_at DESC LIMIT 100
+                """, userId);
+        for (Map<String, Object> row : rows) {
+            row.put("projectName", first(row, "projectName", "projectname", "title"));
+            row.put("documentType", first(row, "documentType", "documenttype", "document_type"));
+            row.put("currentStage", first(row, "currentStage", "currentstage", "current_stage"));
+            row.put("errorMessage", first(row, "errorMessage", "errormessage", "error_message"));
+            row.put("createdTime", first(row, "createdTime", "createdtime", "created_at"));
+            row.put("updatedTime", first(row, "updatedTime", "updatedtime", "updated_at"));
+            row.put("downloadUrl", first(row, "downloadUrl", "downloadurl", "download_url"));
+            String status = WritingJdbc.text(row.get("status"));
+            String viewStatus = switch (status) {
+                case "GENERATING", "QUEUED", "RUNNING" -> "GENERATING";
+                case "COMPLETED", "SUCCESS" -> "SUCCESS";
+                case "FAILED" -> "FAILED";
+                default -> "WAITING";
+            };
+            row.put("status", viewStatus);
+            row.put("downloadAvailable", "SUCCESS".equals(viewStatus) && !WritingJdbc.text(row.get("downloadUrl")).isBlank());
+        }
+        return rows;
+    }
+
+    private Object first(Map<String, Object> row, String... keys) {
+        for (String key : keys) if (row.containsKey(key) && row.get(key) != null) return row.get(key);
+        return null;
     }
 
     @Transactional
@@ -112,6 +152,26 @@ public class WritingProjectService {
     }
 
     @Transactional
+    public Map<String, Object> confirmOutline(String projectId) {
+        Long userId = AuthContext.requireUserId();
+        lockProjectForWrite(userId, projectId);
+        if (chapters(projectId).isEmpty()) throw new IllegalStateException("请先生成提纲");
+        jdbcTemplate.update("UPDATE writing_project SET status='OUTLINE_CONFIRMED',current_stage=?,progress=50,updated_at=? WHERE id=?",
+                "提纲与图片需求已由用户确认", LocalDateTime.now(), projectId);
+        return detail(projectId);
+    }
+
+    @Transactional
+    public Map<String, Object> markReferenceLibraryReady(String projectId) {
+        Long userId = AuthContext.requireUserId();
+        lockProjectForWrite(userId, projectId);
+        referenceSearchService.ensureQuota(userId, projectId);
+        jdbcTemplate.update("UPDATE writing_project SET status=?, current_stage=?, progress=?, updated_at=? WHERE id=?",
+                "REFERENCE_READY", "文献库已保存，可继续生成提纲", 25, LocalDateTime.now(), projectId);
+        return detail(projectId);
+    }
+
+    @Transactional
     public Map<String, Object> addChapter(String projectId, Map<String, Object> request) {
         Long userId = AuthContext.requireUserId();
         lockProjectForWrite(userId, projectId);
@@ -128,11 +188,13 @@ public class WritingProjectService {
         ownedChapter(userId, projectId, chapterId);
         int imageCount = WritingJdbc.integer(request.get("imageCount"), 1);
         int tableCount = WritingJdbc.integer(request.get("tableCount"), 1);
+        String title = outlineNormalizeService.chapterTitle(required(request.get("title"), "章节标题不能为空"));
+        String chapterType = chapterType(request.get("chapterType"), title);
         jdbcTemplate.update("""
-                UPDATE writing_chapter SET title=?, target_word_count=?, section_count=?, image_count=?, table_count=?,
+                UPDATE writing_chapter SET title=?, chapter_type=?, target_word_count=?, section_count=?, image_count=?, table_count=?,
                 use_references=?, default_chart_type=?, updated_at=? WHERE id=?
                 """,
-                required(request.get("title"), "章节标题不能为空"), WritingJdbc.integer(request.get("targetWordCount"), 1200),
+                title, chapterType, WritingJdbc.integer(request.get("targetWordCount"), 1200),
                 WritingJdbc.integer(request.get("sectionCount"), 3), imageCount, tableCount,
                 bool(request.get("useReferences"), true), textOr(request.get("defaultChartType"), "COMBO"),
                 LocalDateTime.now(), chapterId);
@@ -180,8 +242,9 @@ public class WritingProjectService {
         Long userId = AuthContext.requireUserId();
         lockProjectForWrite(userId, projectId);
         ownedProject(userId, projectId);
-        jdbcTemplate.update("UPDATE writing_section SET title=?, target_word_count=?, updated_at=? WHERE project_id=? AND id=?",
-                required(request.get("title"), "小节标题不能为空"), WritingJdbc.integer(request.get("targetWordCount"), 400),
+        jdbcTemplate.update("UPDATE writing_section SET title=?, target_word_count=?, image_requirements_json=?, updated_at=? WHERE project_id=? AND id=?",
+                outlineNormalizeService.sectionTitle(required(request.get("title"), "小节标题不能为空")),
+                WritingJdbc.integer(request.get("targetWordCount"), 400), json(readStringList(request.get("imageRequirements"))),
                 LocalDateTime.now(), projectId, sectionId);
         return detail(projectId);
     }
@@ -317,11 +380,14 @@ public class WritingProjectService {
         int imageCount = WritingJdbc.integer(request.get("imageCount"), 1);
         int tableCount = WritingJdbc.integer(request.get("tableCount"), 1);
         LocalDateTime now = LocalDateTime.now();
+        String title = textOr(request.get("title"), "新增章节");
+        title = outlineNormalizeService.chapterTitle(title);
+        String chapterType = chapterType(request.get("chapterType"), title);
         jdbcTemplate.update("""
-                INSERT INTO writing_chapter (id, project_id, chapter_no, title, target_word_count, section_count,
+                INSERT INTO writing_chapter (id, project_id, chapter_no, title, chapter_type, target_word_count, section_count,
                 image_count, table_count, use_references, default_chart_type, status, sort_order, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, id, projectId, next, textOr(request.get("title"), "新增章节"), WritingJdbc.integer(request.get("targetWordCount"), 1200),
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, id, projectId, next, title, chapterType, WritingJdbc.integer(request.get("targetWordCount"), 1200),
                 WritingJdbc.integer(request.get("sectionCount"), 3), imageCount, tableCount, bool(request.get("useReferences"), true),
                 textOr(request.get("defaultChartType"), "COMBO"), "DRAFT", next, now, now);
         ensureSectionCount(projectId, id, WritingJdbc.integer(request.get("sectionCount"), 3));
@@ -350,6 +416,7 @@ public class WritingProjectService {
     }
 
     private void insertSection(String projectId, String chapterId, int order, String title, int words) {
+        title = outlineNormalizeService.sectionTitle(title);
         LocalDateTime now = LocalDateTime.now();
         jdbcTemplate.update("""
                 INSERT INTO writing_section (id, project_id, chapter_id, section_no, title, target_word_count, sort_order, status, created_at, updated_at)
@@ -507,6 +574,16 @@ public class WritingProjectService {
         };
     }
 
+    private String chapterType(Object requested, String title) {
+        String explicit = WritingJdbc.text(requested).toLowerCase();
+        if (List.of("content", "conclusion", "reference", "acknowledgement").contains(explicit)) return explicit;
+        String normalized = WritingJdbc.text(title).toLowerCase();
+        if (normalized.contains("参考文献") || normalized.equals("references")) return "reference";
+        if (normalized.contains("致谢") || normalized.equals("acknowledgement") || normalized.equals("acknowledgments")) return "acknowledgement";
+        if (normalized.contains("结论") || normalized.contains("展望") || normalized.contains("总结")) return "conclusion";
+        return "content";
+    }
+
     private List<String> inferKeywords(String title, int count) {
         List<String> keywords = new ArrayList<>();
         for (String part : title.split("[\\s，,、：:]+")) if (part.length() >= 2) keywords.add(part);
@@ -553,6 +630,11 @@ public class WritingProjectService {
     private String textOr(Object value, String fallback) {
         String text = text(value);
         return text.isBlank() ? fallback : text;
+    }
+
+    private String referenceMode(Object value) {
+        String mode = textOr(value, "AI").toUpperCase();
+        return List.of("AI", "UPLOAD", "MIXED").contains(mode) ? mode : "AI";
     }
 
     private boolean bool(Object value, boolean fallback) {

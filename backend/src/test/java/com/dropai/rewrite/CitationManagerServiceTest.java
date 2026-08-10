@@ -15,6 +15,7 @@ class CitationManagerServiceTest {
         JdbcTemplate jdbcTemplate = new JdbcTemplate(new DriverManagerDataSource(
                 "jdbc:h2:mem:citation-manager;MODE=MySQL;DB_CLOSE_DELAY=-1", "sa", ""));
         jdbcTemplate.execute("CREATE TABLE writing_chapter (id VARCHAR(64), project_id VARCHAR(64), chapter_no INT, content CLOB, updated_at TIMESTAMP)");
+        jdbcTemplate.execute("CREATE TABLE writing_section (id VARCHAR(64), chapter_id VARCHAR(64), content CLOB, sort_order INT, updated_at TIMESTAMP)");
         jdbcTemplate.execute("CREATE TABLE writing_reference (id VARCHAR(64), project_id VARCHAR(64), final_number INT, formatted_text CLOB, updated_at TIMESTAMP)");
         jdbcTemplate.execute("CREATE TABLE writing_citation (id VARCHAR(64), project_id VARCHAR(64), chapter_id VARCHAR(64), reference_id VARCHAR(64), temporary_marker VARCHAR(120), final_number INT, first_occurrence_order INT, context_text CLOB, created_at TIMESTAMP, updated_at TIMESTAMP)");
         jdbcTemplate.update("INSERT INTO writing_chapter (id, project_id, chapter_no, content) VALUES ('ch1', 'p1', 1, 'first [[REF:refB]] then [[REF:refA]]')");

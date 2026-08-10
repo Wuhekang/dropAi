@@ -98,7 +98,7 @@ request.interceptors.response.use(
   },
   (error) => {
     logApiError(error)
-    if (error.response?.status === 401) {
+    if (error.response?.status === 401 && !error.config?.skipAuthRedirect) {
       sessionStorage.removeItem('dropai_token')
       sessionStorage.removeItem('dropai_username')
       sessionStorage.removeItem('dropai_role')
@@ -417,7 +417,7 @@ export function getWritingReferenceSearchStatus() {
 }
 
 export function getWritingReferenceProviders() {
-  return request.get('/writing/reference-search/providers')
+  return request.get('/writing/reference-search/providers', { skipAuthRedirect: true })
 }
 
 export function createWritingProject(data) {
@@ -434,6 +434,10 @@ export function updateWritingProject(id, data) {
 
 export function generateWritingOutline(id) {
   return request.post(`/writing/projects/${id}/outline/generate`, {}, { timeout: 120000 })
+}
+
+export function confirmWritingOutline(id) {
+  return request.post(`/writing/projects/${id}/outline/confirm`)
 }
 
 export function addWritingChapter(id, data) {
@@ -462,6 +466,14 @@ export function updateWritingSection(id, sectionId, data) {
 
 export function deleteWritingSection(id, sectionId) {
   return request.delete(`/writing/projects/${id}/sections/${sectionId}`)
+}
+
+export function reorderWritingSections(id, sectionIds) {
+  return request.put(`/writing/projects/${id}/sections/reorder`, sectionIds)
+}
+
+export function getWritingProjectHistory() {
+  return request.get('/writing/projects/history')
 }
 
 export function addWritingChart(id, chapterId, data) {
@@ -504,6 +516,67 @@ export function searchWritingReferences(id) {
   return request.post(`/writing/projects/${id}/references/search`, {}, { timeout: 180000 })
 }
 
+export function startAiReferenceSearch(id, data = {}) {
+  return request.post(`/writing/projects/${id}/references/ai-search`, data, { timeout: 900000 })
+}
+
+export function saveWritingReferenceLibrary(id) {
+  return request.post(`/writing/projects/${id}/references/library/save`)
+}
+
+export function addWritingManualReference(id, data) {
+  return request.post(`/writing/projects/${id}/references/manual`, data, { timeout: 120000 })
+}
+
+export function getWritingV2Flow(id) {
+  return request.get(`/writing/projects/${id}/flow`)
+}
+
+export function uploadWritingMaterials(id, files = []) {
+  const formData = new FormData()
+  files.forEach(file => formData.append('files', file.raw || file))
+  return request.post(`/writing/projects/${id}/materials`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 180000
+  })
+}
+
+export function updateWritingMaterial(id, materialId, data) {
+  return request.put(`/writing/projects/${id}/materials/${materialId}`, data)
+}
+
+export function deleteWritingMaterial(id, materialId) {
+  return request.delete(`/writing/projects/${id}/materials/${materialId}`)
+}
+
+export function getWritingMaterialContent(id, materialId) {
+  return request.get(`/writing/projects/${id}/materials/${materialId}/content`, { responseType: 'blob' })
+}
+
+export function generateWritingV2Outline(id, data) {
+  return request.post(`/writing/projects/${id}/v2-outline/generate`, data, { timeout: 180000 })
+}
+
+export function replaceWritingV2Outline(id, file) {
+  const formData = new FormData()
+  formData.append('file', file?.raw || file)
+  return request.post(`/writing/projects/${id}/v2-outline/replace`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }, timeout: 180000
+  })
+}
+
+export function analyzeWritingMaterials(id) {
+  return request.post(`/writing/projects/${id}/materials/analyze`, {}, { timeout: 180000 })
+}
+
+export function searchWritingWebImages(id) {
+  return request.post(`/writing/projects/${id}/materials/web-search`, {}, { timeout: 180000 })
+}
+
+export function updateWritingSectionMediaConfig(id, sectionId, data) {
+  return request.put(`/writing/projects/${id}/sections/${sectionId}/media-config`, data)
+}
+
 export function searchWritingChineseReferences(id, data = {}) {
   return request.post(`/writing/projects/${id}/references/search/chinese`, data, { timeout: 180000 })
 }
@@ -516,10 +589,9 @@ export function searchWritingEnglishReferences(id, data = {}) {
   return request.post(`/writing/projects/${id}/references/search/english`, data, { timeout: 180000 })
 }
 
-export function importWritingReferences(id, file, sourcePlatform = 'IMPORTED_OTHER') {
+export function importWritingReferences(id, files = []) {
   const formData = new FormData()
-  formData.append('file', file.raw || file)
-  formData.append('sourcePlatform', sourcePlatform)
+  files.forEach(file => formData.append('files', file.raw || file))
   return request.post(`/writing/projects/${id}/references/import`, formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
     timeout: 180000
