@@ -3,28 +3,32 @@
     <nav class="top-nav">
       <button class="brand" type="button" @click="router.push('/')">
         <span class="brand-mark">D</span>
-        <span>DropAI</span>
+        <span>Dokiai Academic</span>
       </button>
       <div class="nav-links">
-        <button type="button" @click="router.push('/dashboard')">控制台</button>
-        <button type="button" @click="router.push('/new-project')">机械设计</button>
-        <button type="button" @click="router.push('/computer-generator')">工程生成</button>
+        <button type="button" @click="router.push('/')">首页</button>
+        <button type="button" @click="router.push('/dashboard')">工作台</button>
+        <button type="button" @click="router.push('/writing-generator')">文档创作</button>
+        <button type="button" @click="router.push('/writing-generator')">文献中心</button>
+        <button class="active-nav" type="button">双降中心</button>
+        <button type="button" @click="router.push('/points')">积分中心</button>
+        <button type="button" @click="router.push('/account')">账户中心</button>
         <button class="ghost-button" type="button" @click="signOut">退出</button>
       </div>
     </nav>
 
     <section class="hero-strip">
-      <span class="eyebrow">AI 写作优化</span>
-      <h1>学术文本 AI 优化</h1>
-      <p>整篇论文上传为 DOCX 处理，短文本片段直接在下方快速优化，两条流程互不干扰。</p>
+      <span class="eyebrow">DUAL REDUCTION STUDIO</span>
+      <h1>双降中心</h1>
+      <p>降低重复率 · 降低AI生成痕迹</p>
     </section>
 
     <section class="document-panel panel">
       <div class="document-upload">
         <div class="section-title-row upload-head">
           <div>
-            <span class="mini-label">文档处理</span>
-            <h2>文档上传与处理</h2>
+            <span class="mini-label">DOCUMENT WORKSPACE</span>
+            <h2>上传论文文档</h2>
           </div>
           <div class="mode-tabs">
             <button
@@ -72,14 +76,18 @@
             <dt>预计消耗</dt>
             <dd>{{ documentCostText }}</dd>
           </div>
+          <div>
+            <dt>当前积分余额</dt>
+            <dd>{{ documentPrecheck.ready ? `${documentPrecheck.currentPoints} 积分` : '--' }}</dd>
+          </div>
         </dl>
       </div>
 
       <aside class="document-process">
         <div class="section-title-row">
           <div>
-            <span class="mini-label">处理信息</span>
-            <h2>处理状态</h2>
+            <span class="mini-label">TASK STATUS</span>
+            <h2>双降任务状态</h2>
           </div>
           <span class="model-badge"><i></i> 模型已连接</span>
         </div>
@@ -120,8 +128,8 @@
     <section ref="textSection" class="text-panel panel">
       <div class="section-title-row text-head">
         <div>
-          <span class="mini-label">文本优化</span>
-          <h2>输入内容 / 优化结果</h2>
+          <span class="mini-label">QUICK REDUCTION</span>
+          <h2>片段双降处理</h2>
         </div>
         <div class="text-actions">
           <div class="mode-tabs">
@@ -168,7 +176,10 @@
             <p><span class="model-badge"><i></i> 模型已连接</span></p>
             <p>处理状态：生成中...</p>
           </div>
-          <p v-else-if="!diffMode">{{ rewrittenText || '点击开始文本优化后，这里显示 AI 返回的最终结果。' }}</p>
+          <template v-else-if="!diffMode">
+            <div v-if="rewrittenText" class="result-metrics"><span><small>重复率变化</small><b>--</b></span><span><small>AI痕迹变化</small><b>--</b></span><span><small>处理字数</small><b>{{ formatNumber(inputCharCount) }}</b></span></div>
+            <p>{{ rewrittenText || '完成双降处理后，这里显示最终结果。' }}</p>
+          </template>
           <p v-else v-html="diffHtml"></p>
         </article>
       </div>
@@ -227,12 +238,12 @@ import {
 const router = useRouter()
 
 const modes = [
-  { value: 'rewrite', label: '标准优化', apiMode: 'rewrite', featureCode: 'DOCUMENT_REWRITE' },
-  { value: 'humanize', label: 'AI痕迹优化', apiMode: 'humanize', featureCode: 'DOCUMENT_HUMANIZE' },
-  { value: 'double', label: '深度优化', apiMode: 'double', featureCode: 'DOCUMENT_DOUBLE' }
+  { value: 'rewrite', label: '降重', apiMode: 'rewrite', featureCode: 'DOCUMENT_REWRITE' },
+  { value: 'humanize', label: '降AI', apiMode: 'humanize', featureCode: 'DOCUMENT_HUMANIZE' },
+  { value: 'double', label: '双降 · 推荐', apiMode: 'double', featureCode: 'DOCUMENT_DOUBLE' }
 ]
 
-const docMode = ref('humanize')
+const docMode = ref('double')
 const selectedDocument = ref(null)
 const fileInput = ref(null)
 const dragging = ref(false)
@@ -247,7 +258,7 @@ const documentJobs = ref([])
 const documentPrecheck = reactive({ ready: false, requestId: '', charCount: 0, costPoints: 0, currentPoints: 0, canProcess: false })
 const documentJob = reactive({ jobId: '', fileName: '', status: '', message: '', downloadUrl: '', modeName: '', charCount: 0, totalParagraphs: 0, processedParagraphs: 0 })
 
-const textMode = ref('humanize')
+const textMode = ref('double')
 const originalText = ref('')
 const originalSnapshot = ref('')
 const rewrittenText = ref('')
@@ -518,7 +529,7 @@ async function downloadDocumentJob(job) {
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
-  link.download = `${(job.fileName || 'DropAI文档').replace(/\.docx$/i, '')}-优化.docx`
+  link.download = `${(job.fileName || 'Dokiai文档').replace(/\.docx$/i, '')}_优化版.docx`
   link.click()
   URL.revokeObjectURL(url)
 }
@@ -544,7 +555,7 @@ async function loadHistory() {
     documentJobs.value = await getDocumentJobs() || []
   } catch (error) {
     documentJobs.value = []
-    console.warn('[DropAI Rewrite] load history failed', error)
+    console.warn('[Dokiai Academic Rewrite] load history failed', error)
   } finally {
     historyLoading.value = false
   }
@@ -584,7 +595,7 @@ function calculateTextCost(charCount, featureCode) {
 }
 
 function modeLabelFromMode(mode = '') {
-  return modes.find(item => item.apiMode === mode || item.value === mode)?.label || '标准优化'
+  return modes.find(item => item.apiMode === mode || item.value === mode)?.label || '降重'
 }
 
 function documentModeLabel(item = {}) {
@@ -666,7 +677,9 @@ onBeforeUnmount(stopDocumentPolling)
 
 <style scoped>
 .rewrite-product {
-  width: min(1280px, calc(100% - 48px));
+  width: min(1160px, calc(100% - 48px));
+  margin: 0 auto;
+  padding-bottom: 64px;
   --title-strong: var(--text);
   --label-clear: var(--muted);
   --copy-clear: var(--muted);
@@ -679,9 +692,29 @@ onBeforeUnmount(stopDocumentPolling)
   cursor: pointer;
 }
 
+.top-nav {
+  position: sticky;
+  top: 14px;
+  z-index: 20;
+  min-height: 68px;
+  margin: 14px 0 34px;
+  padding: 10px 14px;
+  border: 1px solid rgba(110, 79, 255, 0.1);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 16px 42px rgba(54, 45, 101, 0.08);
+  backdrop-filter: blur(20px);
+}
+
+.nav-links { gap: 2px; }
+.nav-links > button { padding: 8px 9px; border-radius: 9px; white-space: nowrap; }
+.nav-links .active-nav { color: #6e4fff; background: #f1edff; }
+
 .hero-strip {
   display: block;
-  margin-bottom: 20px;
+  margin-bottom: 28px;
+  padding: 26px 8px 10px;
+  text-align: center;
 }
 
 .hero-strip h1 {
@@ -694,7 +727,7 @@ onBeforeUnmount(stopDocumentPolling)
 
 .hero-strip p {
   max-width: 760px;
-  margin: 0;
+  margin: 0 auto;
   color: var(--copy-clear);
   font-size: 17px;
   line-height: 1.7;
@@ -738,20 +771,23 @@ onBeforeUnmount(stopDocumentPolling)
 }
 
 .mode-tabs {
-  display: inline-flex;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(88px, 1fr));
   flex: 0 0 auto;
   gap: 4px;
   padding: 4px;
   border: 1px solid rgba(108, 99, 255, 0.12);
-  border-radius: 12px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 20px 60px rgba(55, 47, 99, 0.08);
   background: rgba(255, 255, 255, 0.58);
 }
 
 .mode-tabs button {
-  min-height: 34px;
-  padding: 0 13px;
+  min-height: 52px;
+  padding: 0 14px;
   border: 1px solid transparent;
-  border-radius: 9px;
+  border-radius: 12px;
   color: var(--muted);
   background: transparent;
   cursor: pointer;
@@ -768,6 +804,10 @@ onBeforeUnmount(stopDocumentPolling)
   border-color: rgba(255, 255, 255, 0.82);
   background: var(--primary-gradient);
   box-shadow: 0 10px 28px rgba(108, 99, 255, 0.18);
+}
+
+.mode-tabs button:last-child.active {
+  background: linear-gradient(135deg, #6e4fff, #ff55b0);
 }
 
 .document-upload,
@@ -830,7 +870,7 @@ onBeforeUnmount(stopDocumentPolling)
 
 .file-summary {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 10px;
   margin: 14px 0 0;
 }
@@ -964,7 +1004,9 @@ onBeforeUnmount(stopDocumentPolling)
 .text-panel,
 .history-panel {
   padding: 22px;
-  border-radius: 16px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 20px 60px rgba(55, 47, 99, 0.07);
 }
 
 .text-panel {
@@ -1032,6 +1074,24 @@ onBeforeUnmount(stopDocumentPolling)
 .compare-card.optimized p {
   color: var(--title-strong);
 }
+
+.result-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 15px;
+}
+
+.result-metrics > span {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border-radius: 12px;
+  background: linear-gradient(145deg, #f5f1ff, #fff4fa);
+}
+
+.result-metrics small { color: var(--muted); font-size: 10px; }
+.result-metrics b { color: #6e4fff; font-size: 20px; }
 
 .compare-card :deep(mark) {
   padding: 1px 3px;
@@ -1149,6 +1209,9 @@ onBeforeUnmount(stopDocumentPolling)
   .file-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .top-nav { position: static; }
+  .nav-links { overflow-x: auto; }
 
   .document-card-flow {
     grid-template-columns: 1fr;
