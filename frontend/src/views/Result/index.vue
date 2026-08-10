@@ -3,7 +3,7 @@
     <nav class="top-nav">
       <button class="brand" type="button" @click="router.push('/')">
         <span class="brand-mark">D</span>
-        <span>DropAI</span>
+        <span>Dokiai Academic</span>
       </button>
       <div class="nav-links">
         <button type="button" @click="router.push('/new-project')">机械设计</button>
@@ -58,7 +58,7 @@ import { downloadArtifact, getMyDocuments } from '../../api/rewrite'
 const router = useRouter()
 const route = useRoute()
 const documents = ref([])
-const projectName = computed(() => route.query.name || documents.value[0]?.projectName || 'DropAI 工程项目')
+const projectName = computed(() => route.query.name || documents.value[0]?.projectName || 'Dokiai 工程项目')
 
 const cadFiles = computed(() => documents.value.filter(file => /\.(dxf|svg|png)$/i.test(file.fileName || '') || file.fileType === 'cad'))
 const paperFiles = computed(() => documents.value.filter(file => /\.(docx|pdf)$/i.test(file.fileName || '') || ['docx', 'pdf'].includes(file.fileType)))
@@ -77,7 +77,7 @@ async function download(file) {
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = file.fileName || 'dropai-成果包.zip'
+    link.download = file.fileName || 'Dokiai-成果包.zip'
     link.click()
     URL.revokeObjectURL(url)
   } catch (error) {

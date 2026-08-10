@@ -1,7 +1,7 @@
 <template>
   <main class="outline-page">
     <DocumentStudioChrome :current="2" :project-name="flow.project_name || 'AI 论文结构设计器'" :busy="generating || analyzing || searchingWebImages" :assistant-items="structureAssistantItems" description="我会检查章节层级、专业结构与图表任务，修改会实时保存。" />
-    <nav><button class="brand" @click="router.push('/dashboard')">D <span>DropAI</span></button><WritingV2Steps :current="2"/><button class="ghost" @click="router.push('/writing-generator')">返回文献处理</button></nav>
+    <nav><button class="brand" @click="router.push('/dashboard')">D <span>Dokiai Academic</span></button><WritingV2Steps :current="2"/><button class="ghost" @click="router.push('/writing-generator')">返回文献处理</button></nav>
     <header class="v21-header"><span>STEP 2 · DOCUMENT DESIGN CENTER</span><h1>AI论文结构设计器</h1><p>从章节结构到图片任务，构建完整文档生产方案。</p></header>
     <header><span>STEP 2 · DOCUMENT DESIGN CENTER</span><h1>文档设计中心</h1><p>统一确认大纲、图片、表格和联网素材。所有调整自动保存，确认后再进入正文生成。</p></header>
     <section class="structure-intro panel"><div><span>STRUCTURE DESIGNER</span><h2>AI 论文结构设计器</h2><p>用章节树组织论文逻辑，为每个二级标题确定内容类型、图片任务和表格需求。</p></div><div class="structure-metrics"><b>{{ flow.chapters?.length || 0 }}<small>一级标题</small></b><b>{{ allSections().length }}<small>二级标题</small></b><b>{{ pendingTaskCount }}<small>图片任务</small></b></div></section>

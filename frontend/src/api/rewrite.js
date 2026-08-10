@@ -58,7 +58,7 @@ function showApiError(message) {
 
 function logApiError(error) {
   const config = error.config || {}
-  console.error('[DropAI API Error]', {
+  console.error('[Dokiai Academic API Error]', {
     url: `${config.baseURL || ''}${config.url || ''}`,
     method: config.method,
     status: error.response?.status,
@@ -156,10 +156,6 @@ export function createRechargeOrder(data) {
 
 export function getRechargeOrders() {
   return request.get('/recharge/orders')
-}
-
-export function confirmRechargePayment(data) {
-  return request.post('/recharge/confirm', data)
 }
 
 export function getAdminUsers() {

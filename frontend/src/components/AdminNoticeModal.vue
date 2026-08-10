@@ -14,7 +14,7 @@
           v-model="form.content"
           type="textarea"
           :rows="18"
-          placeholder="# DropAI 系统公告"
+          placeholder="# Dokiai Academic 系统公告"
         />
       </section>
 
@@ -51,8 +51,8 @@ const form = ref(defaultForm())
 function defaultForm() {
   return {
     id: null,
-    title: 'DropAI 系统更新公告',
-    content: '# DropAI 系统更新公告\n\n- 积分充值功能已上线\n- 所有生成任务都会进行积分校验\n\n---\n\n请确保账户积分充足后再使用生成功能。',
+    title: 'Dokiai Academic 系统更新公告',
+    content: '# Dokiai Academic 系统更新公告\n\n- 积分充值功能已上线\n- 所有生成任务都会进行积分校验\n\n---\n\n请确保账户积分充足后再使用生成功能。',
     status: 'draft',
     isPopup: false
   }
@@ -146,7 +146,7 @@ async function loadLatest() {
       }
     }
   } catch (error) {
-    console.warn('[DropAI Notice Admin] load latest failed', error)
+    console.warn('[Dokiai Academic Notice Admin] load latest failed', error)
   }
 }
 

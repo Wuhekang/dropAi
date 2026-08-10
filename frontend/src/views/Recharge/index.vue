@@ -61,7 +61,7 @@ async function createAndRedirect(){const amount=finalAmount.value;if(amount<1||a
 function viewProject(item){const id=item.projectId||item.id;if(id)sessionStorage.setItem('dropai_writing_project_id',id);router.push(item.status==='SUCCESS'?'/writing-generator/export':'/writing-generator/generate')}
 async function downloadDocument(item){const url=item.downloadUrl||item.download_url;if(!url)return ElMessage.warning('文件尚未就绪');try{const blob=await downloadArtifact(url),objectUrl=URL.createObjectURL(blob),link=document.createElement('a');link.href=objectUrl;link.download=item.fileName||'dokiai-result.docx';link.click();URL.revokeObjectURL(objectUrl)}catch(error){ElMessage.error(error.message||'下载失败')}}
 function statusLabel(value){return({SUCCESS:'已完成',FAILED:'失败',RUNNING:'生成中',GENERATING:'生成中',PENDING:'排队中',WAITING:'待继续'})[value]||value||'进行中'}
-function statusText(value){return({pending:'待支付',waiting_review:'待审核',approved:'已到账',paid:'已到账',rejected:'已驳回'})[value]||value||'--'}
+function statusText(value){return({pending:'待支付',paid:'支付成功',failed:'支付失败',refunded:'已退款'})[value]||value||'--'}
 function formatTime(value){return value?String(value).replace('T',' ').slice(0,16):'--'}
 onMounted(load)
 </script>

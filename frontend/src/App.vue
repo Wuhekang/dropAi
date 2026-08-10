@@ -130,7 +130,7 @@ async function loadNotice() {
       noticeVisible.value = true
     }
   } catch (error) {
-    console.warn('[DropAI Notice] load failed', error)
+    console.warn('[Dokiai Academic Notice] load failed', error)
   } finally {
     noticeLoading.value = false
   }
@@ -141,7 +141,7 @@ async function ackNotice() {
     try {
       await markNoticeRead(notice.value.id)
     } catch (error) {
-      console.warn('[DropAI Notice] mark read failed', error)
+      console.warn('[Dokiai Academic Notice] mark read failed', error)
     }
   }
   noticeVisible.value = false

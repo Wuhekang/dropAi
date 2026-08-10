@@ -1,6 +1,6 @@
 <template>
   <main class="flow-page">
-    <nav><button class="brand" @click="router.push('/dashboard')">D <span>DropAI</span></button><WritingV2Steps :current="2"/><button class="ghost" @click="router.push('/writing-generator')">返回文献库</button></nav>
+    <nav><button class="brand" @click="router.push('/dashboard')">D <span>Dokiai Academic</span></button><WritingV2Steps :current="2"/><button class="ghost" @click="router.push('/writing-generator')">返回文献库</button></nav>
     <header><span>STEP 2 · PROJECT MATERIALS</span><h1>上传项目图片素材</h1><p>请一次性上传本项目后续文档需要的全部图片。支持预览、删除和修改名称，图片将保存在当前项目下。</p></header>
     <section class="panel upload-panel">
       <el-upload v-model:file-list="pendingFiles" drag multiple accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" :auto-upload="false" :show-file-list="true">

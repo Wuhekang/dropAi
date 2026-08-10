@@ -17,7 +17,7 @@
         <small>更多工具</small>
         <button @click="router.push('/computer-generator')"><i>&lt;/&gt;</i>AI 工程生成</button>
         <button @click="router.push('/new-project')"><i>⚙</i>Mechanical Studio</button>
-        <button v-if="isAdmin" @click="router.push('/points-admin')"><i>⚒</i>积分配置</button>
+        <button v-if="isAdmin" @click="router.push('/points-admin')"><i>⚒</i>Admin Center</button>
         <button v-if="isAdmin" @click="adminNoticeVisible=true"><i>i</i>系统公告</button>
       </nav>
       <div class="user-card"><span>{{ username.slice(0,1).toUpperCase() }}</span><div><strong>{{ username }}</strong><small>{{ isAdmin?'管理员账户':'研究者账户' }}</small></div><button title="退出登录" @click="signOut">↗</button></div>

@@ -3,7 +3,7 @@
     <DocumentStudioChrome :current="1" :project-name="result?.topic || form.title || '新建文档项目'" :busy="searching || saving" description="建立统一参考文献库，并检查中英文文献是否满足当前项目目标。" />
     <nav class="top-nav page-nav">
       <button class="brand brand-button" type="button" @click="router.push('/dashboard')">
-        <span class="brand-mark">D</span><span>DropAI</span>
+        <span class="brand-mark">D</span><span>Dokiai Academic</span>
       </button>
       <div class="step-track" aria-label="纯文字稿生成步骤">
         <span class="step active"><b>1</b> 文献处理</span>

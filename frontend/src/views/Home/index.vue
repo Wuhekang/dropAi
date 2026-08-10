@@ -3,7 +3,7 @@
     <nav class="nav">
       <button class="brand" @click="router.push('/')"><b>D</b><span><strong>Dokiai Academic</strong><small>Document Knowledge Intelligence AI</small></span></button>
       <div class="links">
-        <button class="active" @click="router.push('/')">首页</button><button @click="router.push('/dashboard')">工作台</button><button @click="router.push('/writing-generator')">文档创作</button><button @click="router.push('/rewrite')">学术优化</button><button @click="router.push('/recharge')">账户中心</button>
+        <button class="active" @click="router.push('/')">首页</button><button @click="router.push('/dashboard')">工作台</button><button @click="router.push('/projects')">我的项目</button><button @click="router.push('/writing-generator')">文档创作</button><button @click="router.push('/writing-generator')">文献中心</button><button @click="router.push('/rewrite')">学术优化</button><button @click="router.push('/points')">积分中心</button><button @click="router.push('/account')">账户中心</button>
         <details><summary>更多工具</summary><div><button @click="router.push('/new-project')">机械设计</button><button @click="router.push('/computer-generator')">工程生成</button></div></details>
       </div>
     </nav>
