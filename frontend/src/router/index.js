@@ -7,8 +7,14 @@ import NewProjectIndex from '../views/NewProject/index.vue'
 import ResultIndex from '../views/Result/index.vue'
 import PointsAdmin from '../views/PointsAdmin.vue'
 import RechargeIndex from '../views/Recharge/index.vue'
+import PointsCenter from '../views/PointsCenter/index.vue'
+import ProjectCenter from '../views/ProjectCenter/index.vue'
 import ComputerGenerator from '../views/ComputerGenerator/index.vue'
-import WritingGenerator from '../views/WritingGenerator/index.vue'
+import ReferenceSearch from '../views/ReferenceSearch/index.vue'
+import WritingOutlineV2 from '../views/WritingOutlineV2/index.vue'
+import WritingGenerationV2 from '../views/WritingGenerationV2/index.vue'
+import WritingExportV2 from '../views/WritingExportV2/index.vue'
+import WritingMaterialsV2 from '../views/WritingMaterialsV2/index.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -27,6 +33,11 @@ const router = createRouter({
       path: '/dashboard',
       name: 'Dashboard',
       component: DashboardIndex
+    },
+    {
+      path: '/projects',
+      name: 'ProjectCenter',
+      component: ProjectCenter
     },
     {
       path: '/rewrite',
@@ -51,8 +62,28 @@ const router = createRouter({
     },
     {
       path: '/writing-generator',
-      name: 'WritingGenerator',
-      component: WritingGenerator
+      name: 'ReferenceSearch',
+      component: ReferenceSearch
+    },
+    {
+      path: '/writing-generator/materials',
+      name: 'WritingMaterialsV2',
+      component: WritingMaterialsV2
+    },
+    {
+      path: '/writing-generator/outline',
+      name: 'WritingOutlineV2',
+      component: WritingOutlineV2
+    },
+    {
+      path: '/writing-generator/generate',
+      name: 'WritingGenerationV2',
+      component: WritingGenerationV2
+    },
+    {
+      path: '/writing-generator/export',
+      name: 'WritingExportV2',
+      component: WritingExportV2
     },
     {
       path: '/points-admin',
@@ -60,9 +91,15 @@ const router = createRouter({
       component: PointsAdmin
     },
     {
-      path: '/recharge',
-      name: 'Recharge',
+      path: '/account',
+      name: 'AccountCenter',
       component: RechargeIndex
+    },
+    {
+      path: '/points',
+      name: 'PointsCenter',
+      alias: '/recharge',
+      component: PointsCenter
     }
   ]
 })

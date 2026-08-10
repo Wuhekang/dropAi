@@ -1,18 +1,23 @@
 <template>
   <main class="computer-page">
+    <nav class="studio-nav">
+      <button class="studio-brand" type="button" @click="router.push('/')">
+        <b>D</b><span>Dokiai Academic<small>DOCUMENT KNOWLEDGE INTELLIGENCE AI</small></span>
+      </button>
+      <button class="back-link" type="button" @click="router.push('/dashboard')">返回工作台</button>
+    </nav>
     <header class="hero">
       <div>
-        <el-button text type="primary" @click="router.push('/dashboard')">返回工作台</el-button>
-        <span class="eyebrow">COMPUTER PROJECT PACKAGE</span>
-        <h1>计算机程序包生成</h1>
-        <p>上传任务书和开题报告后，系统自动识别项目方案、规划目录，再按文件队列生成完整成果包。</p>
+        <span class="eyebrow">AI ENGINEERING STUDIO</span>
+        <h1>AI 工程生成器</h1>
+        <p>从任务书与开题报告提取工程需求，自动规划技术架构、生成项目文件并交付 ZIP 成果包。</p>
       </div>
-      <el-tag size="large" type="success">豆包智能识别</el-tag>
+      <el-tag size="large">DOKIAI AI · READY</el-tag>
     </header>
 
     <section class="layout">
       <el-card class="panel upload-panel" shadow="never">
-        <template #header><strong>文件上传区</strong></template>
+        <template #header><div><span class="section-kicker">01 · INPUT</span><strong>上传项目资料</strong></div></template>
         <div class="upload-slots">
           <div v-for="slot in uploadSlots" :key="slot.key" class="upload-slot">
             <div>
@@ -51,7 +56,7 @@
       <el-card class="panel identify-panel" shadow="never">
         <template #header>
           <div class="panel-head">
-            <strong>智能识别结果</strong>
+            <div><span class="section-kicker">02 · AI ANALYSIS</span><strong>AI 分析工作区</strong></div>
             <el-button :disabled="!plan" @click="openTune">微调配置</el-button>
           </div>
         </template>
@@ -83,10 +88,20 @@
           </div>
         </div>
       </el-card>
+      <aside class="engineering-assistant">
+        <span class="section-kicker">DOKIAI COPILOT</span>
+        <h3>工程 AI 助手</h3>
+        <p>从资料中识别项目类型、技术栈与核心模块，并持续检查工程包完整性。</p>
+        <div class="assistant-state"><i :class="{ ready: uploadedFiles.length }" /><span>{{ uploadedFiles.length ? `已接收 ${uploadedFiles.length} 份资料` : '等待项目资料' }}</span></div>
+        <div class="assistant-metric"><span>项目类型</span><b>{{ plan?.projectType || '待识别' }}</b></div>
+        <div class="assistant-metric"><span>技术栈</span><b>{{ plan?.techStack || '由 AI 推荐' }}</b></div>
+        <div class="assistant-metric"><span>模块识别</span><b>{{ plan?.modules?.length || 0 }} 个</b></div>
+        <div class="assistant-tip">上传资料后，AI 会先生成可调整的工程蓝图，不会直接开始生成。</div>
+      </aside>
     </section>
 
     <el-card class="panel progress-panel" shadow="never">
-      <template #header><strong>生成进度区</strong></template>
+      <template #header><div><span class="section-kicker">03 · GENERATION</span><strong>工程生成进度</strong></div></template>
       <el-steps :active="activeStep" finish-status="success" align-center>
         <el-step v-for="(stage, index) in stages" :key="stage" :title="stage" :status="stepStatus(index)" />
       </el-steps>
@@ -102,7 +117,7 @@
       <el-card class="panel" shadow="never">
         <template #header>
           <div class="panel-head">
-            <strong>成果预览区</strong>
+            <div><span class="section-kicker">04 · DELIVERY</span><strong>成果下载</strong></div>
             <el-button type="success" :disabled="job?.status !== 'SUCCESS'" @click="downloadZip">下载成果包</el-button>
           </div>
         </template>
@@ -347,7 +362,7 @@ onBeforeUnmount(stopPolling)
 .computer-page{min-height:100vh;padding:30px 24px 70px;color:var(--text);background:radial-gradient(circle at 12% -8%,rgba(255,126,179,.22),transparent 32rem),radial-gradient(circle at 88% 2%,rgba(79,172,254,.2),transparent 30rem),linear-gradient(135deg,#fff,#fff5fa 48%,#f3f8ff)}
 .hero{max-width:1500px;margin:0 auto 24px;display:flex;align-items:flex-start;justify-content:space-between;gap:24px;animation:page-in .55s ease both}
 .hero h1{margin:10px 0 8px;font-size:clamp(34px,4vw,52px);line-height:1.08}.hero p{margin:0;color:var(--muted);line-height:1.7}
-.layout,.result-layout{max-width:1500px;margin:0 auto;display:grid;grid-template-columns:.8fr 1.2fr;gap:18px}.panel-head{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.layout,.result-layout{max-width:1500px;margin:0 auto;display:grid;grid-template-columns:.82fr 1.24fr .62fr;gap:18px}.panel-head{display:flex;align-items:center;justify-content:space-between;gap:16px}
 .upload-slots{display:grid;gap:14px}.upload-slot{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;padding:16px;border:1px solid rgba(108,99,255,.1);border-radius:8px;background:rgba(255,255,255,.58);backdrop-filter:blur(14px)}
 .upload-slot p{margin:5px 0 0;color:var(--muted);font-size:13px}.file-name{grid-column:1/-1;color:var(--primary);font-size:13px}.main-actions{display:flex;gap:12px;margin-top:18px;flex-wrap:wrap}.inline-alert{margin-top:16px}
 .result-list{display:grid;gap:10px}.result-row{display:grid;grid-template-columns:110px 1fr 60px;gap:12px;align-items:center;padding:12px;border:1px solid rgba(108,99,255,.1);border-radius:8px;background:rgba(255,255,255,.58)}
@@ -359,4 +374,8 @@ onBeforeUnmount(stopPolling)
 .preview-panel iframe{width:100%;height:560px;border:1px solid rgba(108,99,255,.1);border-radius:8px;background:white}.two-col{display:grid;grid-template-columns:1fr 1fr;gap:14px}.switches{display:flex;gap:18px;flex-wrap:wrap}
 @media(max-width:1050px){.layout,.result-layout{grid-template-columns:1fr}.hero{display:block}.preview-panel iframe{height:460px}}
 @media(max-width:720px){.upload-slot,.two-col,.file-grid{grid-template-columns:1fr}.computer-page{padding:20px 12px 50px}.hero h1{font-size:30px}.progress-panel :deep(.el-steps){display:none}.result-row{grid-template-columns:1fr}}
+.computer-page{padding:22px max(28px,calc((100% - 1500px)/2)) 70px!important;background:linear-gradient(45deg,#fbd7ea 0%,#f8edf5 38%,#eef1f8 65%,#dcebff 100%)!important}.hero{padding:20px 4px 8px}.hero h1{color:#252936;font-size:clamp(40px,5vw,64px)!important}.hero .el-tag{border:0!important;border-radius:99px!important;background:#eee9ff!important;color:#6e4fff!important}.panel{overflow:hidden;border:1px solid rgba(110,79,255,.1)!important;border-radius:22px!important;background:#ffffffdf!important;box-shadow:0 18px 50px rgba(61,53,104,.08)!important}.panel :deep(.el-card__header){padding:20px 22px;border-bottom:1px solid #f0edf5}.section-kicker{display:block;margin-bottom:5px;color:#6e4fff;font-size:9px;font-weight:800;letter-spacing:.15em}.upload-slot{border:1px dashed #cfc6ee!important;border-radius:15px!important;background:#faf8ff!important}.main-actions :deep(.el-button--primary),.main-actions :deep(.el-button--success){border:0;background:linear-gradient(135deg,#6e4fff,#ff55b0)}.result-row,.tree-box,.queue-box{border-radius:12px!important}.progress-panel{padding-block:4px}.file-card{border-radius:15px!important;background:#f8f5ff!important}.preview-panel iframe{border-radius:14px}
+.studio-nav{max-width:1500px;height:54px;margin:auto;display:flex;align-items:center;justify-content:space-between}.studio-brand,.back-link{border:0;background:transparent;cursor:pointer}.studio-brand{display:flex;align-items:center;gap:10px;color:#29263a;text-align:left;font-weight:750}.studio-brand b{display:grid;place-items:center;width:36px;height:36px;border-radius:12px;color:#fff;background:linear-gradient(145deg,#4198ff,#7658ef 58%,#ff55b0);box-shadow:0 8px 20px rgba(110,79,255,.23)}.studio-brand span{display:grid}.studio-brand small{color:#9993aa;font-size:7px;letter-spacing:.1em}.back-link{color:#6e4fff;font-weight:650}.engineering-assistant{align-self:start;padding:22px;border:1px solid rgba(110,79,255,.1);border-radius:22px;background:rgba(255,255,255,.82);box-shadow:0 18px 50px rgba(61,53,104,.08);backdrop-filter:blur(18px)}.engineering-assistant h3{margin:8px 0;font-size:20px}.engineering-assistant>p{color:#777184;font-size:13px;line-height:1.65}.assistant-state{display:flex;align-items:center;gap:9px;margin:18px 0;padding:11px;border-radius:12px;background:#f5f1ff;color:#6e4fff;font-size:12px}.assistant-state i{width:8px;height:8px;border-radius:50%;background:#b9b4c5}.assistant-state i.ready{background:#42ad7d;box-shadow:0 0 0 5px rgba(66,173,125,.12)}.assistant-metric{display:grid;gap:5px;padding:12px 0;border-bottom:1px solid #eeeaf5}.assistant-metric span{color:#9993a6;font-size:11px}.assistant-metric b{font-size:13px;line-height:1.45}.assistant-tip{margin-top:16px;padding:13px;border-radius:13px;background:linear-gradient(135deg,#f2efff,#fff0f8);color:#696174;font-size:12px;line-height:1.6}
+.upload-slot :deep(.el-button--primary),.panel-head :deep(.el-button--success){border:0!important;background:linear-gradient(135deg,#6e4fff,#ff55b0)!important;color:#fff!important}.panel-head :deep(.el-button:not(:disabled)){border-color:#bbaef0;color:#6e4fff}
+@media(max-width:1250px){.layout{grid-template-columns:.8fr 1.2fr}.engineering-assistant{grid-column:1/-1}.assistant-metric{display:inline-grid;width:31%;margin-right:2%}}
 </style>

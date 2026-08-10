@@ -1,6 +1,8 @@
 package com.dropai.rewrite.mechanicalengine.controller;
 
 import com.dropai.rewrite.vo.Result;
+import com.dropai.rewrite.auth.AuthContext;
+import com.dropai.rewrite.service.PointService;
 import com.dropai.rewrite.mechanicalengine.domain.MechanicalProject;
 import com.dropai.rewrite.mechanicalengine.domain.MechanicalDesignSpec;
 import com.dropai.rewrite.mechanicalengine.plugin.EngineeringPluginManager;
@@ -28,15 +30,17 @@ public class MechanicalEngineController {
     private final EngineeringPluginManager pluginManager;
     private final DocumentParser documentParser;
     private final MechanicalJobService jobService;
+    private final PointService pointService;
 
     public MechanicalEngineController(MechanicalChiefEngineer chiefEngineer, MechanicalEngineService engineService,
                                       EngineeringPluginManager pluginManager, DocumentParser documentParser,
-                                      MechanicalJobService jobService) {
+                                      MechanicalJobService jobService, PointService pointService) {
         this.chiefEngineer = chiefEngineer;
         this.engineService = engineService;
         this.pluginManager = pluginManager;
         this.documentParser = documentParser;
         this.jobService = jobService;
+        this.pointService = pointService;
     }
 
     @PostMapping("/design")
@@ -56,7 +60,12 @@ public class MechanicalEngineController {
 
     @PostMapping("/{projectId}/generate")
     public Result<MechanicalJobSnapshot> generate(@PathVariable String projectId, @RequestBody MechanicalRequest request) {
-        return Result.success(jobService.start(request.requirement()));
+        Long userId = AuthContext.requireUserId();
+        pointService.checkPoints(PointService.MODEL_GENERATE);
+        MechanicalJobSnapshot job = jobService.start(request.requirement());
+        pointService.deductCustom(userId, job.jobId(), PointService.MODEL_GENERATE, "机械三维成果生成",
+                pointService.featureCostPoints(PointService.MODEL_GENERATE), "Mechanical Studio 生成任务");
+        return Result.success(job);
     }
 
     @GetMapping("/tools")

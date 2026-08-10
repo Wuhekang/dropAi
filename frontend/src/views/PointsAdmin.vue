@@ -1,285 +1,38 @@
 <template>
-  <main class="points-admin-page">
-    <header class="admin-header">
-      <div>
-        <span class="eyebrow">DROP AI POINTS CENTER</span>
-        <h1>积分管理</h1>
-        <p>管理生成能力的积分消耗，并审核用户通过个人码提交的充值订单。</p>
-      </div>
-      <el-button @click="router.push('/dashboard')">返回首页</el-button>
-    </header>
+  <main class="admin-page">
+    <aside class="admin-sidebar"><button class="brand" @click="router.push('/dashboard')"><i>D</i><span><b>Dokiai</b><small>ADMIN CENTER</small></span></button><div class="admin-label"><small>ADMIN WORKSPACE</small><strong>管理控制台</strong></div><nav><button v-for="item in navItems" :key="item.key" :class="{active:activeTab===item.key}" @click="activeTab=item.key"><i>{{ item.icon }}</i>{{ item.label }}<em v-if="item.key==='reviews'&&pendingOrders">{{ pendingOrders }}</em></button></nav><div class="admin-user"><i>{{ username.slice(0,1) }}</i><span><b>{{ username }}</b><small>超级管理员</small></span></div><button class="back" @click="router.push('/dashboard')">← 返回用户工作台</button></aside>
+    <section class="admin-content"><header class="page-head"><div><span>DOKIAI ADMIN CENTER</span><h1>{{ currentMeta.title }}</h1><p>{{ currentMeta.description }}</p></div><button class="outline" @click="refresh">↻ 刷新数据</button></header>
 
-    <el-card class="admin-card" shadow="never">
-      <template #header>
-        <div class="section-head">
-          <div>
-            <h2>充值审核</h2>
-            <p>审核通过后系统会增加用户积分，并写入积分流水。</p>
-          </div>
-          <el-button :loading="ordersLoading" @click="loadOrders">刷新</el-button>
-        </div>
-      </template>
+      <template v-if="activeTab==='overview'"><section class="overview-hero"><div><small>PLATFORM OVERVIEW</small><h2>Dokiai 运行概览</h2><p>聚合用户、积分与自动支付订单状态。</p></div><i>AI</i></section><div class="metrics"><article><span>注册用户</span><strong>{{ users.length }}</strong><small>当前账户总数</small></article><article><span>平台积分</span><strong>{{ totalPoints }}</strong><small>用户可用积分合计</small></article><article><span>支付订单</span><strong>{{ orders.length }}</strong><small>自动支付记录</small></article><article><span>启用功能</span><strong>{{ pricing.filter(x=>x.enabled).length }}</strong><small>当前计费项目</small></article></div><section class="panel overview-list"><header><small>RECENT USERS</small><h2>最近注册用户</h2></header><UserTable :items="users.slice(0,5)" @detail="openUser" @adjust="openAdjust" /></section></template>
 
-      <el-table :data="reviewOrders" empty-text="暂无充值订单">
-        <el-table-column prop="orderNo" label="订单号" min-width="190" />
-        <el-table-column prop="amount" label="金额" width="90" />
-        <el-table-column prop="points" label="积分" width="90" />
-        <el-table-column prop="payAccountLast4" label="后四位" width="100" />
-        <el-table-column label="状态" width="110">
-          <template #default="{ row }">
-            <el-tag :type="statusType(row.status)">{{ statusText(row.status) }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="凭证" min-width="180">
-          <template #default="{ row }">
-            <span class="proof">{{ row.proofImage || '未填写' }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="180" fixed="right">
-          <template #default="{ row }">
-            <el-button
-              size="small"
-              type="primary"
-              :disabled="row.status !== 'waiting_review'"
-              :loading="auditingOrder === `${row.orderNo}:approved`"
-              @click="audit(row, 'approved')"
-            >
-              通过
-            </el-button>
-            <el-button
-              size="small"
-              type="danger"
-              plain
-              :disabled="row.status !== 'waiting_review'"
-              :loading="auditingOrder === `${row.orderNo}:rejected`"
-              @click="audit(row, 'rejected')"
-            >
-              驳回
-            </el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-    </el-card>
+      <section v-else-if="activeTab==='users'" class="panel"><div class="section-head"><div><small>USER MANAGEMENT</small><h2>用户管理</h2><p>查看账户身份、积分余额与账户状态。</p></div><label class="search">⌕ <input v-model="userKeyword" placeholder="搜索手机号或用户 ID"></label></div><UserTable :items="filteredUsers" @detail="openUser" @adjust="openAdjust" /></section>
 
-    <el-card class="admin-card" shadow="never">
-      <template #header>
-        <div class="section-head">
-          <div>
-            <h2>功能价格管理</h2>
-            <p>修改后立即对后续生成请求生效。</p>
-          </div>
-          <el-button :loading="loading" @click="loadPricing">刷新</el-button>
-        </div>
-      </template>
+      <template v-else-if="activeTab==='points'"><div class="metrics"><article><span>平台积分余额</span><strong>{{ totalPoints }}</strong><small>全部用户合计</small></article><article><span>累计发放</span><strong>{{ totalGranted }}</strong><small>历史获得积分</small></article><article><span>累计消费</span><strong>{{ totalUsed }}</strong><small>历史服务消耗</small></article></div><div class="subtabs"><button :class="{active:pointsTab==='accounts'}" @click="pointsTab='accounts'">用户积分管理</button><button :class="{active:pointsTab==='packages'}" @click="pointsTab='packages'">充值套餐</button><button :class="{active:pointsTab==='orders'}" @click="pointsTab='orders'">订单查询</button></div><section v-if="pointsTab==='accounts'" class="panel"><div class="section-head"><div><small>POINTS MANAGEMENT</small><h2>账户积分管理</h2><p>查询用户、调整积分并查看完整流水。</p></div><label class="search">⌕ <input v-model="userKeyword" placeholder="搜索手机号或用户 ID"></label></div><UserTable :items="filteredUsers" @detail="openUser" @adjust="openAdjust" /></section><section v-else-if="pointsTab==='packages'" class="panel"><div class="section-head"><div><small>RECHARGE PACKAGES</small><h2>充值套餐配置</h2><p>系统采用固定比例：1 元 = 10 积分。</p></div><em class="ratio">1 : 10</em></div><div class="package-grid"><article v-for="plan in plans" :key="plan.planId"><small>{{ plan.planId }}</small><strong>¥{{ plan.amount }}</strong><span>{{ plan.points }} 积分</span><em>{{ plan.recommended?'推荐套餐':'标准套餐' }}</em></article></div></section><section v-else class="panel"><div class="section-head"><div><small>ORDER QUERY</small><h2>充值订单查询</h2><p>支付结果自动同步，页面仅用于查询。</p></div><label class="search">⌕ <input v-model="orderKeyword" placeholder="订单号、手机号"></label></div><div class="query-table"><header><span>订单号</span><span>用户</span><span>金额</span><span>积分</span><span>支付状态</span><span>时间</span></header><article v-for="row in filteredOrders" :key="row.orderNo"><code>{{ row.orderNo }}</code><span>{{ row.phone }}</span><span>¥{{ row.amount }}</span><strong>{{ row.points }}</strong><em :class="paymentState(row.status).className">{{ paymentState(row.status).label }}</em><time>{{ formatTime(row.paidAt||row.createdAt) }}</time></article><div v-if="!filteredOrders.length" class="empty">暂无符合条件的订单</div></div></section></template>
 
-      <div v-if="pricing.length" class="pricing-grid">
-        <article v-for="row in pricing" :key="row.featureCode" class="pricing-card">
-          <div>
-            <span>{{ row.featureCode }}</span>
-            <strong>{{ displayFeatureName(row) }}</strong>
-          </div>
-          <el-input-number v-model="row.costPoints" :min="0" :step="10" controls-position="right" />
-          <div class="pricing-actions">
-            <el-switch v-model="row.enabled" />
-            <el-button type="primary" :loading="savingCode === row.featureCode" @click="save(row)">保存</el-button>
-          </div>
-        </article>
-      </div>
-      <el-empty v-else description="暂无功能价格配置" />
-    </el-card>
+      <section v-else-if="activeTab==='pricing'" class="panel"><div class="section-head"><div><small>FEATURE PRICING</small><h2>功能价格配置</h2><p>修改后对后续生成请求生效。</p></div></div><div class="pricing-grid"><article v-for="row in pricing" :key="row.featureCode"><span>{{ row.featureCode }}</span><h3>{{ displayFeatureName(row) }}</h3><label>消耗积分<input v-model.number="row.costPoints" type="number" min="0" step="10"></label><footer><label class="switch"><input v-model="row.enabled" type="checkbox"><i></i>{{ row.enabled?'已启用':'已停用' }}</label><button @click="savePrice(row)">保存</button></footer></article></div><div v-if="!pricing.length" class="empty">暂无功能价格配置</div></section>
+
+      <section v-else class="panel settings"><small>SYSTEM SETTINGS</small><h2>系统设置</h2><article><div><b>管理员权限保护</b><span>所有 Admin API 均在服务端校验管理员角色。</span></div><em>已启用</em></article><article><div><b>积分流水记录</b><span>每次人工调整均记录数量、原因与备注。</span></div><em>已启用</em></article><article><div><b>用户端隔离</b><span>后台入口不进入普通用户导航。</span></div><em>已启用</em></article></section>
+    </section>
+
+    <div v-if="detailVisible" class="mask" @click="detailVisible=false"></div><aside v-if="detailVisible" class="user-drawer"><header><div><small>USER DETAILS</small><h2>用户详情</h2></div><button @click="detailVisible=false">×</button></header><div v-if="selectedUser" class="user-profile"><i>{{ selectedUser.phone?.slice(0,1) }}</i><span><b>{{ selectedUser.phone }}</b><small>ID {{ selectedUser.id }} · {{ selectedUser.role }}</small></span><button @click="openAdjust(selectedUser)">调整积分</button></div><div class="detail-metrics"><span><small>当前积分</small><b>{{ selectedUser?.points??'--' }}</b></span><span><small>累计消费</small><b>{{ selectedUser?.usedPoints??'--' }}</b></span></div><section><small>POINTS TRANSACTIONS</small><h3>积分流水</h3><div class="transaction-list"><article v-for="item in userTransactions" :key="item.id"><span><b>{{ item.featureName||'积分变动' }}</b><small>{{ formatTime(item.createdAt) }} · {{ item.remark||'--' }}</small></span><strong :class="item.pointsChange>=0?'plus':'minus'">{{ item.pointsChange>=0?'+':'' }}{{ item.pointsChange }}</strong></article><div v-if="!userTransactions.length" class="empty">暂无积分流水</div></div></section></aside>
+
+    <div v-if="adjustVisible" class="modal-mask"><section class="adjust-modal"><header><div><small>POINTS ADJUSTMENT</small><h2>调整用户积分</h2></div><button @click="adjustVisible=false">×</button></header><div class="target"><i>{{ adjustUser?.phone?.slice(0,1) }}</i><span><b>{{ adjustUser?.phone }}</b><small>当前积分 {{ adjustUser?.points }}</small></span></div><div class="type-tabs"><button :class="{active:adjustForm.type==='ADD'}" @click="adjustForm.type='ADD'">＋ 增加积分</button><button :class="{active:adjustForm.type==='DEDUCT'}" @click="adjustForm.type='DEDUCT'">− 扣除积分</button></div><label>积分数量 <input v-model.number="adjustForm.quantity" type="number" min="1" placeholder="请输入正整数"></label><label>调整原因 <input v-model="adjustForm.reason" maxlength="100" placeholder="必填，例如：活动奖励"></label><label>备注 <textarea v-model="adjustForm.remark" maxlength="300" placeholder="必填，记录本次调整的具体说明"></textarea></label><div class="preview"><span>调整后预计余额</span><strong>{{ adjustedPreview }}</strong></div><footer><button class="outline" @click="adjustVisible=false">取消</button><button class="primary" :disabled="adjusting" @click="submitAdjustment">{{ adjusting?'正在提交…':'确认调整' }}</button></footer></section></div>
   </main>
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
-import {
-  auditRechargeOrder,
-  getFeaturePricing,
-  getRechargeReviewOrders,
-  updateFeaturePricing
-} from '../api/rewrite'
-
-const router = useRouter()
-const pricing = ref([])
-const reviewOrders = ref([])
-const loading = ref(false)
-const ordersLoading = ref(false)
-const savingCode = ref('')
-const auditingOrder = ref('')
-
-async function loadPricing() {
-  loading.value = true
-  try {
-    pricing.value = await getFeaturePricing() || []
-  } finally {
-    loading.value = false
-  }
-}
-
-async function loadOrders() {
-  ordersLoading.value = true
-  try {
-    reviewOrders.value = await getRechargeReviewOrders() || []
-  } finally {
-    ordersLoading.value = false
-  }
-}
-
-async function save(row) {
-  savingCode.value = row.featureCode
-  try {
-    await updateFeaturePricing(row.featureCode, {
-      costPoints: row.costPoints,
-      enabled: row.enabled
-    })
-    ElMessage.success('功能价格已更新')
-    await loadPricing()
-  } finally {
-    savingCode.value = ''
-  }
-}
-
-async function audit(row, status) {
-  auditingOrder.value = `${row.orderNo}:${status}`
-  try {
-    await auditRechargeOrder({ orderNo: row.orderNo, status })
-    ElMessage.success(status === 'approved' ? '订单已通过，积分已到账' : '订单已驳回')
-    await loadOrders()
-  } finally {
-    auditingOrder.value = ''
-  }
-}
-
-function statusText(status) {
-  const map = {
-    pending: '待支付',
-    waiting_review: '待审核',
-    approved: '已通过',
-    paid: '已到账',
-    rejected: '已驳回'
-  }
-  return map[status] || status
-}
-
-function statusType(status) {
-  if (status === 'approved' || status === 'paid') return 'success'
-  if (status === 'rejected') return 'danger'
-  if (status === 'waiting_review') return 'warning'
-  return 'info'
-}
-
-function displayFeatureName(row) {
-  const map = {
-    DOCUMENT_REWRITE: '标准优化',
-    DOCUMENT_HUMANIZE: 'AI痕迹优化',
-    DOCUMENT_DOUBLE: '深度优化'
-  }
-  return map[row.featureCode] || row.featureName
-}
-
-onMounted(() => {
-  loadOrders()
-  loadPricing()
-})
+import { computed,defineComponent,h,onMounted,reactive,ref } from 'vue';import { useRouter } from 'vue-router';import { ElMessage } from 'element-plus';import { adjustAdminUserPoints,getAdminRechargeOrders,getAdminUserDetail,getAdminUsers,getFeaturePricing,getPointAccount,getRechargePlans,updateFeaturePricing } from '../api/rewrite'
+const router=useRouter(),username=sessionStorage.getItem('dropai_username')||'管理员',activeTab=ref('overview'),pointsTab=ref('accounts'),users=ref([]),pricing=ref([]),orders=ref([]),plans=ref([]),userKeyword=ref(''),orderKeyword=ref(''),detailVisible=ref(false),selectedUser=ref(null),userTransactions=ref([]),adjustVisible=ref(false),adjustUser=ref(null),adjusting=ref(false),adjustForm=reactive({type:'ADD',quantity:null,reason:'',remark:''})
+const navItems=[{key:'overview',label:'数据概览',icon:'⌂'},{key:'users',label:'用户管理',icon:'◎'},{key:'points',label:'积分管理',icon:'✦'},{key:'pricing',label:'价格配置',icon:'◇'},{key:'settings',label:'系统设置',icon:'⚙'}],meta={overview:['数据概览','查看平台用户与积分运行状态。'],users:['用户管理','查询账户信息与积分使用情况。'],points:['积分管理','管理用户积分、充值套餐与订单查询。'],pricing:['价格配置','管理各项智能服务的积分价格。'],settings:['系统设置','查看后台安全与数据策略。']}
+const currentMeta=computed(()=>({title:meta[activeTab.value][0],description:meta[activeTab.value][1]})),filteredUsers=computed(()=>users.value.filter(x=>`${x.id} ${x.phone}`.toLowerCase().includes(userKeyword.value.toLowerCase()))),filteredOrders=computed(()=>orders.value.filter(x=>`${x.orderNo} ${x.phone}`.toLowerCase().includes(orderKeyword.value.toLowerCase()))),totalPoints=computed(()=>users.value.reduce((s,x)=>s+Number(x.points||0),0)),totalGranted=computed(()=>users.value.reduce((s,x)=>s+Number(x.totalPoints||0),0)),totalUsed=computed(()=>users.value.reduce((s,x)=>s+Number(x.usedPoints||0),0)),adjustedPreview=computed(()=>Math.max(0,Number(adjustUser.value?.points||0)+(adjustForm.type==='ADD'?1:-1)*Number(adjustForm.quantity||0)))
+const UserTable=defineComponent({props:{items:{type:Array,default:()=>[]}},emits:['detail','adjust'],setup(props,{emit}){return()=>h('div',{class:'user-table'},[h('header',[h('span','用户 ID'),h('span','手机号'),h('span','注册时间'),h('span','当前积分'),h('span','状态'),h('span','操作')]),...props.items.map(u=>h('article',{key:u.id},[h('code',`#${u.id}`),h('span',u.phone),h('time',formatTime(u.createdAt)),h('strong',String(u.points??0)),h('em',{class:'active'},'正常'),h('div',[h('button',{onClick:()=>emit('detail',u)},'详情'),h('button',{class:'adjust',onClick:()=>emit('adjust',u)},'调整积分')])])),!props.items.length?h('div',{class:'empty'},'暂无用户数据'):null])}})
+function formatTime(v){return v?String(v).replace('T',' ').slice(0,16):'--'}function displayFeatureName(row){return({DOCUMENT_REWRITE:'标准优化',DOCUMENT_HUMANIZE:'AI痕迹优化',DOCUMENT_DOUBLE:'深度优化'})[row.featureCode]||row.featureName||row.featureCode}
+async function load(){const [u,p,o,packageList]=await Promise.all([getAdminUsers().catch(async()=>{const me=await getPointAccount();return[{id:'ME',phone:username,role:'ADMIN',status:'ACTIVE',...me}]}),getFeaturePricing(),getAdminRechargeOrders().catch(()=>[]),getRechargePlans()]);users.value=u||[];pricing.value=p||[];orders.value=o||[];plans.value=(packageList||[]).filter(x=>[10,20,100].includes(Number(x.amount)))}function refresh(){load()}async function openUser(user){selectedUser.value=user;detailVisible.value=true;try{const detail=await getAdminUserDetail(user.id);selectedUser.value=detail.account||user;userTransactions.value=detail.transactions||[]}catch{userTransactions.value=[]}}function openAdjust(user){adjustUser.value=user;adjustForm.type='ADD';adjustForm.quantity=null;adjustForm.reason='';adjustForm.remark='';adjustVisible.value=true}async function submitAdjustment(){if(!adjustForm.quantity||!adjustForm.reason.trim()||!adjustForm.remark.trim())return ElMessage.warning('请完整填写数量、原因和备注');adjusting.value=true;try{await adjustAdminUserPoints(adjustUser.value.id,{...adjustForm});ElMessage.success('用户积分已调整并记录流水');adjustVisible.value=false;await load()}finally{adjusting.value=false}}async function savePrice(row){await updateFeaturePricing(row.featureCode,{costPoints:row.costPoints,enabled:row.enabled});ElMessage.success('功能价格已更新')}function paymentState(status){const value=String(status||'').toLowerCase();if(['paid','approved'].includes(value))return{label:'支付成功',className:'success'};if(['refunded','refund'].includes(value))return{label:'退款',className:'refund'};return{label:'支付失败',className:'failed'}}
+onMounted(load)
 </script>
 
 <style scoped>
-.points-admin-page {
-  max-width: 1180px;
-  margin: 0 auto;
-  padding: 38px 24px 70px;
-  animation: page-in .55s ease both;
-}
-
-.admin-header,
-.section-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 20px;
-}
-
-.eyebrow {
-  color: var(--primary);
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: .15em;
-}
-
-h1 {
-  margin: 8px 0 6px;
-  font-size: 36px;
-}
-
-h2 {
-  margin: 0 0 6px;
-}
-
-.admin-header p,
-.section-head p {
-  margin: 0;
-  color: var(--muted);
-  line-height: 1.7;
-}
-
-.admin-card {
-  border-radius: 8px;
-  margin-top: 22px;
-}
-
-.pricing-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-}
-
-.pricing-card {
-  display: grid;
-  gap: 14px;
-  padding: 16px;
-  border: 1px solid rgba(108, 99, 255, 0.1);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.58);
-}
-
-.pricing-card span {
-  color: var(--primary);
-  font-size: 12px;
-  font-weight: 800;
-}
-
-.pricing-card strong {
-  display: block;
-  margin-top: 6px;
-  font-size: 20px;
-}
-
-.pricing-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.proof {
-  display: block;
-  max-width: 260px;
-  overflow: hidden;
-  color: #64748b;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-@media (max-width: 860px) {
-  .admin-header,
-  .section-head {
-    display: block;
-  }
-
-  .pricing-grid {
-    grid-template-columns: 1fr;
-  }
-}
+.admin-page{min-height:100vh;padding-left:260px;background:linear-gradient(45deg,#fbd7ea,#f8edf5 38%,#eef1f8 65%,#dcebff);color:#252936}.admin-sidebar{position:fixed;inset:18px auto 18px 18px;z-index:5;display:flex;flex-direction:column;width:205px;padding:17px;border:1px solid #e9e5f2;border-radius:22px;background:#ffffffeb;box-shadow:0 20px 60px #30395812}.brand{display:flex;align-items:center;gap:10px;border:0;background:none;text-align:left}.brand i{display:grid;place-items:center;width:40px;height:40px;border-radius:12px;background:linear-gradient(145deg,#4198ff,#7658ef 60%,#df66b7);color:#fff;font-style:normal;font-weight:900}.brand span,.admin-user span{display:grid}.brand small,.admin-user small{color:#979ead;font-size:8px}.admin-label{display:grid;gap:5px;padding:25px 8px 13px;border-bottom:1px solid #efedf5}.admin-label small,.page-head span,.panel small,.overview-hero small,.adjust-modal small,.user-drawer small{color:#6e4fff;font-size:8px;font-weight:800;letter-spacing:.14em}.admin-sidebar nav{display:grid;gap:4px;padding:13px 0}.admin-sidebar nav button{display:flex;align-items:center;gap:10px;padding:10px;border:0;border-radius:10px;background:none;color:#697287;text-align:left}.admin-sidebar nav button.active{background:linear-gradient(110deg,#eee9ff,#fff0f7);color:#6e4fff}.admin-sidebar nav i{width:22px;font-style:normal}.admin-sidebar nav em{margin-left:auto;padding:3px 6px;border-radius:99px;background:#ff5b9e;color:#fff;font-size:8px;font-style:normal}.admin-user{display:flex;align-items:center;gap:9px;margin-top:auto;padding:11px;border-radius:12px;background:#f6f3fb}.admin-user>i{display:grid;place-items:center;width:34px;height:34px;border-radius:10px;background:#6e4fff;color:#fff;font-style:normal}.back{padding:15px 6px 0;border:0;background:none;color:#6e4fff;text-align:left}.admin-content{max-width:1500px;margin:auto;padding:35px 34px 70px 0}.page-head,.section-head{display:flex;align-items:end;justify-content:space-between}.page-head h1{margin:8px 0 4px;font-size:40px}.page-head p,.section-head p{margin:0;color:#777e90}.outline{padding:9px 13px;border:1px solid #b9aaf3;border-radius:9px;background:#fff;color:#6e4fff}.overview-hero,.panel,.metrics article{border:1px solid #e7e3f0;border-radius:20px;background:#ffffffdf;box-shadow:0 16px 45px #45376812}.overview-hero{display:flex;align-items:center;justify-content:space-between;margin-top:20px;padding:28px;background:linear-gradient(135deg,#fff,#f5f1ff 60%,#fff2f8)}.overview-hero h2{margin:7px 0;font-size:28px}.overview-hero p{color:#7c8393}.overview-hero>i{display:grid;place-items:center;width:95px;height:80px;border-radius:22px;background:linear-gradient(135deg,#6e4fff,#ff55b0);color:#fff;font-size:28px;font-style:normal}.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:14px 0}.metrics article{display:grid;gap:5px;padding:18px}.metrics span,.metrics small{color:#9298a7;font-size:9px}.metrics strong{font-size:28px}.panel{margin-top:18px;padding:22px}.panel h2{margin:5px 0}.search{padding:9px 12px;border:1px solid #e4e0ed;border-radius:10px;background:#fff}.search input{border:0;outline:0}.user-table{margin-top:18px}.user-table>header,.user-table>article{display:grid;grid-template-columns:.7fr 1fr 1fr .8fr .6fr 1fr;align-items:center;gap:12px;padding:12px}.user-table>header{color:#9298a7;font-size:9px}.user-table>article{border-top:1px solid #efedf4}.user-table code{color:#6e4fff}.user-table strong{font-size:16px}.user-table em{justify-self:start;padding:5px 8px;border-radius:99px;background:#e8f4ef;color:#145b4d;font-size:8px;font-style:normal}.user-table article>div{display:flex;gap:6px}.user-table button,.order-table button{padding:7px 10px;border:1px solid #ddd8e9;border-radius:8px;background:#fff;color:#6655cd}.user-table .adjust{border-color:#ab97f3;background:#f5f1ff}.order-table{margin-top:18px}.order-table>header,.order-table>article{display:grid;grid-template-columns:1.3fr 1fr 1fr .7fr 1fr;align-items:center;gap:12px;padding:12px}.order-table>header{color:#949aa9;font-size:9px}.order-table>article{border-top:1px solid #efedf4}.order-table code{color:#6e4fff}.order-table em{font-style:normal}.order-table .danger{color:#d44e71}.order-table button:disabled{opacity:.35}.pricing-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:18px}.pricing-grid article{padding:18px;border:1px solid #ebe7f2;border-radius:15px;background:#faf9fd}.pricing-grid article>span{color:#6e4fff;font-size:8px}.pricing-grid h3{margin:6px 0 18px}.pricing-grid article>label{display:grid;gap:6px;color:#8c93a3;font-size:9px}.pricing-grid input[type=number]{padding:10px;border:1px solid #e1dce9;border-radius:9px}.pricing-grid footer{display:flex;justify-content:space-between;align-items:center;margin-top:14px}.pricing-grid footer button{padding:8px 12px;border:0;border-radius:8px;background:#6e4fff;color:#fff}.switch{display:flex!important;align-items:center;gap:7px}.switch input{display:none}.switch i{width:28px;height:16px;border-radius:99px;background:#ccc}.switch input:checked+i{background:#6e4fff}.settings article{display:flex;align-items:center;justify-content:space-between;padding:17px 0;border-top:1px solid #efedf4}.settings article div{display:grid}.settings article span,.settings article em{color:#9298a7;font-size:9px;font-style:normal}.empty{display:grid;place-items:center;min-height:130px;color:#989eac}.mask,.modal-mask{position:fixed;inset:0;z-index:15;background:#29234240}.user-drawer{position:fixed;inset:0 0 0 auto;z-index:20;width:min(430px,90vw);overflow:auto;padding:25px;background:#fff;box-shadow:-20px 0 60px #32284b26}.user-drawer>header,.adjust-modal>header{display:flex;justify-content:space-between}.user-drawer>header h2,.adjust-modal h2{margin:6px 0}.user-drawer>header button,.adjust-modal>header button{border:0;background:none;font-size:25px}.user-profile,.target{display:flex;align-items:center;gap:10px;margin:20px 0;padding:14px;border-radius:13px;background:#f7f4fc}.user-profile>i,.target>i{display:grid;place-items:center;width:42px;height:42px;border-radius:12px;background:#6e4fff;color:#fff;font-style:normal}.user-profile span,.target span{display:grid}.user-profile small,.target small{color:#9298a7}.user-profile button{margin-left:auto;border:0;background:none;color:#6e4fff}.detail-metrics{display:grid;grid-template-columns:1fr 1fr;gap:9px}.detail-metrics span{display:grid;padding:13px;border-radius:11px;background:#faf9fd}.detail-metrics small{color:#9298a7;letter-spacing:0}.user-drawer section{margin-top:24px}.transaction-list article{display:flex;justify-content:space-between;padding:11px;border-bottom:1px solid #efedf4}.transaction-list span{display:grid}.transaction-list small{color:#9298a7;letter-spacing:0}.transaction-list .plus{color:#145b4d}.transaction-list .minus{color:#d44e71}.modal-mask{z-index:30;display:grid;place-items:center}.adjust-modal{width:min(480px,calc(100% - 30px));padding:25px;border-radius:22px;background:#fff;box-shadow:0 25px 80px #32284b3d}.type-tabs{display:grid;grid-template-columns:1fr 1fr;gap:8px}.type-tabs button{padding:11px;border:1px solid #e2ddea;border-radius:10px;background:#fff}.type-tabs button.active{border-color:#8d78ea;background:#f4f0ff;color:#6e4fff}.adjust-modal>label{display:grid;gap:6px;margin-top:13px;color:#777e8e;font-size:10px}.adjust-modal>label input,.adjust-modal textarea{padding:10px;border:1px solid #ded9e8;border-radius:9px}.adjust-modal textarea{min-height:75px;resize:vertical}.preview{display:flex;justify-content:space-between;margin-top:14px;padding:12px;border-radius:10px;background:#f6f2ff}.preview strong{color:#6e4fff;font-size:20px}.adjust-modal>footer{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}.primary{padding:10px 15px;border:0;border-radius:9px;background:linear-gradient(135deg,#6e4fff,#ff55b0);color:#fff;font-weight:700}@media(max-width:1000px){.metrics,.pricing-grid{grid-template-columns:1fr 1fr}}@media(max-width:720px){.admin-page{padding:12px}.admin-sidebar{position:static;width:auto}.admin-content{padding-right:0}.metrics,.pricing-grid{grid-template-columns:1fr}.user-table{overflow:auto}.user-table>header,.user-table>article{min-width:800px}}
+:deep(.user-table){margin-top:18px}:deep(.user-table>header),:deep(.user-table>article){display:grid;grid-template-columns:.7fr 1fr 1fr .8fr .6fr 1fr;align-items:center;gap:12px;padding:12px}:deep(.user-table>header){color:#9298a7;font-size:9px}:deep(.user-table>article){border-top:1px solid #efedf4}:deep(.user-table code){color:#6e4fff}:deep(.user-table strong){font-size:16px}:deep(.user-table em){justify-self:start;padding:5px 8px;border-radius:99px;background:#e8f4ef;color:#145b4d;font-size:8px;font-style:normal}:deep(.user-table article>div){display:flex;gap:6px}:deep(.user-table button){padding:7px 10px;border:1px solid #ddd8e9;border-radius:8px;background:#fff;color:#6655cd}:deep(.user-table .adjust){border-color:#ab97f3;background:#f5f1ff}:deep(.user-table .empty){display:grid;place-items:center;min-height:130px;color:#989eac}
+.subtabs{display:flex;gap:6px;margin:18px 0 0}.subtabs button{padding:9px 14px;border:1px solid #e0dbea;border-radius:10px;background:#ffffffa8;color:#777e8f}.subtabs button.active{border-color:#917bea;background:#f2edff;color:#6e4fff}.ratio{padding:8px 13px;border-radius:99px;background:#eee9ff;color:#6e4fff;font-style:normal;font-weight:800}.package-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:18px}.package-grid article{display:grid;gap:6px;padding:21px;border:1px solid #e8e3f0;border-radius:16px;background:linear-gradient(145deg,#fff,#f8f5ff)}.package-grid article small{letter-spacing:.08em}.package-grid article strong{font-size:30px}.package-grid article span{color:#6e4fff}.package-grid article em{justify-self:start;padding:5px 8px;border-radius:99px;background:#eee9ff;color:#6e4fff;font-size:8px;font-style:normal}.query-table{margin-top:18px}.query-table>header,.query-table>article{display:grid;grid-template-columns:1.25fr 1fr .6fr .6fr .7fr 1fr;align-items:center;gap:12px;padding:12px}.query-table>header{color:#9298a7;font-size:9px}.query-table>article{border-top:1px solid #efedf4}.query-table code{color:#6e4fff}.query-table em{justify-self:start;padding:5px 8px;border-radius:99px;font-size:8px;font-style:normal}.query-table em.success{background:#e7f4ef;color:#145b4d}.query-table em.failed{background:#fff0f3;color:#d34d70}.query-table em.refund{background:#fff4df;color:#a36c16}
 </style>

@@ -1,6 +1,5 @@
 package com.dropai.rewrite.controller;
 
-import com.dropai.rewrite.dto.RechargeAuditDTO;
 import com.dropai.rewrite.dto.RechargeConfirmDTO;
 import com.dropai.rewrite.dto.RechargeOrderCreateDTO;
 import com.dropai.rewrite.service.RechargeService;
@@ -47,11 +46,6 @@ public class RechargeController {
         return Result.success(rechargeService.confirmPayment(dto));
     }
 
-    @PostMapping("/audit")
-    public Result<RechargeOrderVO> audit(@RequestBody RechargeAuditDTO dto) {
-        return Result.success(rechargeService.audit(dto));
-    }
-
     @PostMapping("/notify")
     public String notify(@RequestParam Map<String, String> params) {
         return rechargeService.handleNotify(params);
@@ -65,11 +59,6 @@ public class RechargeController {
     @GetMapping("/orders")
     public Result<List<RechargeOrderVO>> orders() {
         return Result.success(rechargeService.myOrders());
-    }
-
-    @GetMapping("/admin/orders")
-    public Result<List<RechargeOrderVO>> adminOrders() {
-        return Result.success(rechargeService.reviewOrders());
     }
 
     @PostMapping("/orders/{orderNo}/mock-pay")

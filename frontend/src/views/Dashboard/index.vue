@@ -1,382 +1,73 @@
 <template>
-  <main class="dashboard-shell">
-    <aside class="sidebar panel">
-      <button class="brand" type="button" @click="router.push('/')">
-        <span class="brand-mark">D</span>
-        <span>DropAI</span>
-      </button>
-      <nav>
-        <button class="active" type="button">总览</button>
-        <button type="button" @click="router.push('/new-project')">机械设计</button>
-        <button type="button" @click="router.push('/computer-generator')">工程生成</button>
-        <button type="button" @click="router.push('/writing-generator')">纯文字稿生成</button>
-        <button type="button" @click="router.push('/rewrite')">论文优化</button>
-        <button type="button" @click="router.push('/recharge')">积分</button>
-        <button v-if="isAdmin" type="button" @click="router.push('/points-admin')">积分配置</button>
-        <button v-if="isAdmin" type="button" @click="adminNoticeVisible = true">公告</button>
+  <main class="workspace-shell">
+    <aside class="workspace-sidebar">
+      <button class="brand" type="button" @click="router.push('/')"><span>D</span><b>Dokiai Academic</b><small>Research Workspace</small></button>
+      <nav class="main-nav">
+        <small>工作空间</small>
+        <button class="active"><i>⌂</i>工作台</button>
+        <button @click="scrollToProjects"><i>□</i>我的项目</button>
+        <button @click="router.push('/projects')"><i>📁</i>历史项目</button>
+        <button @click="router.push('/writing-generator')"><i>✦</i>文档创作</button>
+        <button @click="router.push('/writing-generator')"><i>⌕</i>文献中心</button>
+        <button @click="router.push('/rewrite')"><i>Aa</i>学术优化</button>
+        <button class="nav-separated" @click="router.push('/points')"><i>✦</i>积分中心</button>
+        <button class="nav-separated" @click="router.push('/account')"><i>◌</i>账户中心</button>
       </nav>
-      <button class="ghost-button signout" type="button" @click="signOut">退出登录</button>
+      <nav class="tool-nav">
+        <small>更多工具</small>
+        <button @click="router.push('/computer-generator')"><i>&lt;/&gt;</i>AI 工程生成</button>
+        <button @click="router.push('/new-project')"><i>⚙</i>Mechanical Studio</button>
+        <button v-if="isAdmin" @click="router.push('/points-admin')"><i>⚒</i>积分配置</button>
+        <button v-if="isAdmin" @click="adminNoticeVisible=true"><i>i</i>系统公告</button>
+      </nav>
+      <div class="user-card"><span>{{ username.slice(0,1).toUpperCase() }}</span><div><strong>{{ username }}</strong><small>{{ isAdmin?'管理员账户':'研究者账户' }}</small></div><button title="退出登录" @click="signOut">↗</button></div>
     </aside>
 
-    <section class="dashboard-main">
-      <header class="dashboard-head">
-        <div>
-          <span class="eyebrow">控制台</span>
-          <h1>欢迎回来，{{ username }}</h1>
-          <p>最近项目、积分和下载记录，都收在一个清爽的工作区里。</p>
-        </div>
-        <div class="head-actions">
-          <button class="ghost-button" type="button" @click="router.push('/writing-generator')">打开纯文字稿页面</button>
-          <button class="ghost-button" type="button" @click="router.push('/computer-generator')">工程生成</button>
-          <button class="primary-button" type="button" @click="router.push('/new-project')">生成项目</button>
-        </div>
-      </header>
+    <section class="workspace-main">
+      <header class="topbar"><div><span>MY RESEARCH WORKSPACE</span><h1>欢迎回来，{{ username }}</h1><p>继续正在进行的研究，或从一个新想法开始。</p></div><button class="create-button" @click="router.push('/writing-generator')">＋ 创建新项目</button></header>
 
-      <section class="overview-grid">
-        <article class="product-card credit-card">
-          <span class="status-pill"><span class="status-dot"></span>我的积分</span>
-          <strong>{{ pointAccount.points ?? '--' }}</strong>
-          <p>累计 {{ pointAccount.totalPoints ?? '--' }} · 已用 {{ pointAccount.usedPoints ?? '--' }}</p>
-          <button class="ghost-button" type="button" :disabled="pointsLoading" @click="loadPoints">刷新</button>
-        </article>
-
-        <article class="product-card recent-card">
-          <div class="card-head">
-            <span class="status-pill">最近项目</span>
-            <button class="ghost-button" type="button" :disabled="loading" @click="refreshDocuments">刷新</button>
-          </div>
-          <div v-if="recentProjects.length" class="project-list">
-            <button v-for="project in recentProjects" :key="project.id || project.fileName" type="button" @click="openResult(project)">
-              <span>{{ project.projectName || project.fileName || '工程成果包' }}</span>
-              <small>{{ formatTime(project.createTime) }}</small>
-            </button>
-          </div>
-          <p v-else class="empty">暂无生成项目。</p>
-        </article>
+      <section class="focus-project">
+        <div v-if="currentProject" class="focus-copy"><span>当前进行项目</span><h2>{{ currentProject.projectName||currentProject.fileName||'未命名项目' }}</h2><p>{{ projectType(currentProject) }} · {{ currentStep(currentProject) }}</p><div class="focus-progress"><label><span>项目进度</span><strong>{{ projectProgress(currentProject) }}%</strong></label><i><b :style="{width:projectProgress(currentProject)+'%'}"></b></i></div><button @click="continueProject(currentProject)">继续工作　→</button></div>
+        <div v-else class="focus-copy"><span>开始第一个项目</span><h2>把研究主题变成完整成果</h2><p>从真实文献、大纲和素材开始创建专业文档。</p><button @click="router.push('/writing-generator')">开始创建　→</button></div>
+        <div class="focus-flow"><article><b>文</b><span>文献研究<small>检索与核验</small></span></article><i></i><article><b>纲</b><span>结构设计<small>大纲已保存</small></span></article><i></i><article><b>稿</b><span>成果生成<small>DOCX 交付</small></span></article></div>
       </section>
 
-      <section class="download-panel panel">
-        <div class="card-head">
-          <div>
-            <h2>下载记录</h2>
-            <p>只展示最近的交付物，避免工作区变得拥挤。</p>
-          </div>
-        </div>
-        <div class="download-list">
-          <div v-for="doc in documents.slice(0, 6)" :key="doc.id || doc.fileName" class="download-row">
-            <div>
-              <strong>{{ doc.fileName || '生成文件' }}</strong>
-              <span>{{ fileTypeName(doc) }} · {{ statusText(doc.status) }}</span>
-            </div>
-            <button class="ghost-button" type="button" :disabled="doc.status !== 'SUCCESS'" @click="downloadUrl(doc.downloadUrl, doc.fileName)">下载</button>
-          </div>
-          <p v-if="!documents.length" class="empty">生成后的下载文件会显示在这里。</p>
-        </div>
+      <section class="quick-section"><header><span>QUICK ACTIONS</span><h2>快捷操作</h2></header><div class="quick-grid">
+        <button @click="router.push('/writing-generator')"><b class="violet">✦</b><span><strong>创建文档</strong><small>启动智能创作流程</small></span><i>→</i></button>
+        <button @click="router.push('/writing-generator')"><b class="blue">⌕</b><span><strong>搜索文献</strong><small>建立真实参考文献库</small></span><i>→</i></button>
+        <button @click="router.push('/rewrite')"><b class="pink">Aa</b><span><strong>学术优化</strong><small>优化已有论文表达</small></span><i>→</i></button>
+        <button @click="scrollToProjects"><b class="green">□</b><span><strong>我的项目</strong><small>查看任务与生成进度</small></span><i>→</i></button>
+      </div></section>
+
+      <section id="my-projects" class="projects-section"><header><div><span>RECENT PROJECTS</span><h2>最近项目</h2></div><div><button :disabled="loading" @click="refreshDocuments">刷新</button><button @click="router.push('/projects')">全部项目 →</button></div></header>
+        <div v-if="recentProjects.length" class="project-grid"><article v-for="project in recentProjects" :key="project.id||project.fileName"><header><b>{{ projectType(project).slice(0,1) }}</b><span :class="statusClass(project.status)">{{ statusText(project.status) }}</span></header><h3>{{ project.projectName||project.fileName||'未命名项目' }}</h3><p>{{ projectType(project) }}</p><div><label><span>{{ currentStep(project) }}</span><strong>{{ projectProgress(project) }}%</strong></label><i><b :style="{width:projectProgress(project)+'%'}"></b></i></div><footer><small>{{ formatTime(project.createTime||project.createdAt) }}</small><button @click="continueProject(project)">继续 →</button></footer></article></div>
+        <div v-else class="empty-projects"><b>□</b><strong>暂无项目</strong><span>创建新文档后，项目会出现在这里。</span><button @click="router.push('/writing-generator')">创建项目</button></div>
       </section>
+
+      <section class="account-section"><header><span>ACCOUNT OVERVIEW</span><h2>账户状态</h2></header><div class="account-grid">
+        <article class="points-summary"><b>积分余额</b><strong>{{ pointAccount.points??'--' }}</strong><span>累计 {{ pointAccount.totalPoints??'--' }} · 已用 {{ pointAccount.usedPoints??'--' }}</span><button @click="router.push('/points')">充值积分 →</button></article>
+        <article><b>生成任务</b><strong>{{ documents.length }}</strong><span>当前账户的最近任务</span><button @click="scrollToProjects">查看项目</button></article>
+        <article><b>可下载文件</b><strong>{{ successfulDocuments }}</strong><span>已完成并可导出的成果</span><button @click="scrollToExports">查看导出</button></article>
+      </div></section>
+
+      <section id="recent-exports" class="export-section"><header><div><span>RECENT EXPORTS</span><h2>最近导出文件</h2><p>最近完成的文档与成果包。</p></div></header><div class="export-list"><article v-for="doc in documents.slice(0,6)" :key="doc.id||doc.fileName"><b>{{ fileTypeName(doc).slice(0,4) }}</b><span><strong>{{ doc.fileName||'生成文件' }}</strong><small>{{ fileTypeName(doc) }} · {{ statusText(doc.status) }} · {{ formatTime(doc.createTime||doc.createdAt) }}</small></span><button :disabled="doc.status!=='SUCCESS'" @click="downloadUrl(doc.downloadUrl,doc.fileName)">下载</button></article><p v-if="!documents.length">生成后的下载文件会显示在这里。</p></div></section>
     </section>
-
     <admin-notice-modal v-model="adminNoticeVisible" />
   </main>
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
-import AdminNoticeModal from '../../components/AdminNoticeModal.vue'
-import { downloadArtifact, getMyDocuments, getPointAccount, logout } from '../../api/rewrite'
-
-const router = useRouter()
-const username = sessionStorage.getItem('dropai_username') || '当前用户'
-const role = sessionStorage.getItem('dropai_role') || 'USER'
-const documents = ref([])
-const loading = ref(false)
-const pointsLoading = ref(false)
-const adminNoticeVisible = ref(false)
-const pointAccount = ref({ points: null, totalPoints: null, usedPoints: null })
-
-const isAdmin = computed(() => String(role).toLowerCase() === 'admin')
-const recentProjects = computed(() => documents.value.slice(0, 4))
-
-async function loadDocuments() {
-  loading.value = true
-  try {
-    const result = await getMyDocuments({ pageNum: 1, pageSize: 8 })
-    documents.value = result?.list || []
-  } finally {
-    loading.value = false
-  }
-}
-
-function refreshDocuments() {
-  loadDocuments()
-}
-
-async function loadPoints() {
-  pointsLoading.value = true
-  try {
-    pointAccount.value = await getPointAccount() || pointAccount.value
-  } finally {
-    pointsLoading.value = false
-  }
-}
-
-function openResult(project) {
-  router.push({ path: '/result', query: { name: project.projectName || project.fileName || 'DropAI 项目' } })
-}
-
-async function downloadUrl(downloadUrl, fileName) {
-  if (!downloadUrl) return
-  const blob = await downloadArtifact(downloadUrl)
-  const objectUrl = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = objectUrl
-  link.download = fileName || 'dropai-成果文件'
-  link.click()
-  URL.revokeObjectURL(objectUrl)
-}
-
-async function signOut() {
-  try {
-    await logout()
-  } finally {
-    sessionStorage.removeItem('dropai_token')
-    sessionStorage.removeItem('dropai_username')
-    sessionStorage.removeItem('dropai_role')
-    router.replace('/login')
-  }
-}
-
-function statusText(status) {
-  return ({ SUCCESS: '已完成', FAILED: '失败', RUNNING: '处理中', PENDING: '排队中' })[status] || status || '已完成'
-}
-
-function formatTime(value) {
-  return value ? String(value).replace('T', ' ').slice(0, 16) : '--'
-}
-
-function fileTypeName(row) {
-  if (row.packageUrl || row.fileType === 'zip') return 'ZIP 成果包'
-  if (row.fileType === 'pdf') return 'PDF'
-  if (row.fileType === 'docx') return '文档'
-  return row.fileType || '文件'
-}
-
-onMounted(() => {
-  loadDocuments()
-  loadPoints()
-})
+import { computed,onMounted,ref } from 'vue';import { useRouter } from 'vue-router';import AdminNoticeModal from '../../components/AdminNoticeModal.vue';import { downloadArtifact,getMyDocuments,getPointAccount,logout } from '../../api/rewrite'
+const router=useRouter(),username=sessionStorage.getItem('dropai_username')||'当前用户',role=sessionStorage.getItem('dropai_role')||'USER',documents=ref([]),loading=ref(false),pointsLoading=ref(false),adminNoticeVisible=ref(false),pointAccount=ref({points:null,totalPoints:null,usedPoints:null})
+const isAdmin=computed(()=>String(role).toLowerCase()==='admin'),recentProjects=computed(()=>documents.value.slice(0,3)),currentProject=computed(()=>documents.value.find(x=>!['SUCCESS','FAILED'].includes(x.status))||documents.value[0]||null),successfulDocuments=computed(()=>documents.value.filter(x=>x.status==='SUCCESS').length)
+async function loadDocuments(){loading.value=true;try{documents.value=(await getMyDocuments({pageNum:1,pageSize:8}))?.list||[]}finally{loading.value=false}}function refreshDocuments(){loadDocuments()}async function loadPoints(){pointsLoading.value=true;try{pointAccount.value=await getPointAccount()||pointAccount.value}finally{pointsLoading.value=false}}
+function continueProject(project){const name=project.projectName||project.fileName||'Dokiai 项目';router.push({path:'/result',query:{name}})}function openResult(project){continueProject(project)}
+async function downloadUrl(url,name){if(!url)return;const blob=await downloadArtifact(url),objectUrl=URL.createObjectURL(blob),link=document.createElement('a');link.href=objectUrl;link.download=name||'dokiai-result';link.click();URL.revokeObjectURL(objectUrl)}async function signOut(){try{await logout()}finally{sessionStorage.removeItem('dropai_token');sessionStorage.removeItem('dropai_username');sessionStorage.removeItem('dropai_role');router.replace('/login')}}
+function statusText(s){return({SUCCESS:'已完成',FAILED:'失败',RUNNING:'生成中',GENERATING:'生成中',PENDING:'排队中',WAITING:'待继续'})[s]||s||'进行中'}function statusClass(s){return String(s||'').toLowerCase()}function formatTime(v){return v?String(v).replace('T',' ').slice(0,16):'--'}function fileTypeName(r){if(r.packageUrl||r.fileType==='zip')return'ZIP 成果包';if(r.fileType==='pdf')return'PDF';if(r.fileType==='docx')return'DOCX 文档';return r.fileType||'文件'}function projectType(p){return p.documentType||p.projectType||fileTypeName(p)||'智能文档'}function projectProgress(p){const value=Number(p.progress);if(Number.isFinite(value)&&value>0)return Math.min(100,value);return p.status==='SUCCESS'?100:p.status==='FAILED'?0:p.status==='RUNNING'||p.status==='GENERATING'?65:20}function currentStep(p){if(p.currentStep)return p.currentStep;if(p.status==='SUCCESS')return'成果已完成';if(p.status==='RUNNING'||p.status==='GENERATING')return'正文生成';if(p.status==='FAILED')return'需要处理';return'项目准备'}function scrollToProjects(){document.getElementById('my-projects')?.scrollIntoView({behavior:'smooth'})}function scrollToExports(){document.getElementById('recent-exports')?.scrollIntoView({behavior:'smooth'})}
+onMounted(()=>{loadDocuments();loadPoints()})
 </script>
 
 <style scoped>
-.dashboard-shell {
-  display: grid;
-  grid-template-columns: 240px minmax(0, 1fr);
-  gap: 22px;
-  width: min(1220px, calc(100% - 40px));
-  margin: 0 auto;
-  padding: 22px 0 44px;
-  animation: page-in 0.5s ease both;
-}
-
-.brand {
-  border: 0;
-  background: transparent;
-  cursor: pointer;
-}
-
-.sidebar {
-  position: sticky;
-  top: 22px;
-  display: grid;
-  align-content: start;
-  gap: 24px;
-  height: calc(100vh - 44px);
-  padding: 18px;
-}
-
-.sidebar nav {
-  display: grid;
-  gap: 6px;
-}
-
-.sidebar nav button {
-  width: 100%;
-  padding: 11px 12px;
-  border: 1px solid transparent;
-  border-radius: var(--radius);
-  color: var(--muted);
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
-  transition: var(--ease);
-}
-
-.sidebar nav button:hover,
-.sidebar nav .active {
-  color: var(--text);
-  border-color: rgba(108, 99, 255, 0.16);
-  background: rgba(255, 255, 255, 0.62);
-}
-
-.signout {
-  align-self: end;
-}
-
-.dashboard-main {
-  min-width: 0;
-}
-
-.dashboard-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 20px;
-  margin: 22px 0 22px;
-}
-
-.head-actions {
-  display: flex;
-  flex: 0 0 auto;
-  gap: 10px;
-  align-items: center;
-}
-
-.dashboard-head h1 {
-  max-width: 760px;
-  margin-bottom: 10px;
-  overflow-wrap: anywhere;
-  font-size: clamp(30px, 4vw, 46px);
-  line-height: 1.12;
-}
-
-.dashboard-head p,
-.download-panel p {
-  margin: 0;
-  color: var(--muted);
-  line-height: 1.65;
-}
-
-.overview-grid {
-  display: grid;
-  grid-template-columns: minmax(260px, 0.62fr) minmax(0, 1.38fr);
-  gap: 16px;
-}
-
-.credit-card,
-.recent-card,
-.download-panel {
-  padding: 18px;
-}
-
-.credit-card {
-  display: grid;
-  gap: 14px;
-}
-
-.credit-card strong {
-  max-width: 100%;
-  overflow: hidden;
-  font-size: clamp(42px, 6vw, 58px);
-  line-height: 1;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.credit-card p {
-  margin: 0;
-  color: var(--muted);
-}
-
-.card-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 14px;
-  margin-bottom: 16px;
-}
-
-.project-list {
-  display: grid;
-  gap: 10px;
-}
-
-.project-list button {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 15px;
-  border: 1px solid rgba(108, 99, 255, 0.1);
-  border-radius: var(--radius);
-  color: var(--text);
-  background: rgba(255, 255, 255, 0.56);
-  cursor: pointer;
-  transition: var(--ease);
-}
-
-.project-list button:hover {
-  transform: translateY(-2px);
-  background: rgba(255, 255, 255, 0.78);
-}
-
-.project-list button span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.project-list button small {
-  flex: 0 0 auto;
-}
-
-.project-list small,
-.download-row span,
-.empty {
-  color: var(--muted);
-}
-
-.download-panel {
-  margin-top: 16px;
-}
-
-.download-panel h2 {
-  margin: 0 0 8px;
-  font-size: 28px;
-}
-
-.download-row strong,
-.download-row span {
-  display: block;
-}
-
-.download-row strong {
-  overflow-wrap: anywhere;
-}
-
-.download-row span {
-  margin-top: 5px;
-  font-size: 13px;
-}
-
-@media (max-width: 920px) {
-  .dashboard-shell,
-  .overview-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .sidebar {
-    position: static;
-    height: auto;
-  }
-
-  .dashboard-head {
-    flex-direction: column;
-  }
-
-  .head-actions {
-    width: 100%;
-    flex-wrap: wrap;
-  }
-}
+.workspace-shell{--ink:#1b2437;--muted:#758096;display:grid;grid-template-columns:245px minmax(0,1fr);gap:30px;width:min(1450px,calc(100% - 38px));margin:auto;padding:20px 0 55px;color:var(--ink)}button{font:inherit}.workspace-sidebar{position:sticky;top:20px;display:flex;flex-direction:column;height:calc(100vh - 40px);padding:18px 14px;border:1px solid #e8e6f1;border-radius:20px;background:#ffffffd9;box-shadow:0 20px 60px #30395812;backdrop-filter:blur(20px)}.brand{display:grid;grid-template-columns:40px 1fr;gap:0 10px;align-items:center;padding:0 5px 20px;border:0;background:none;text-align:left}.brand>span{grid-row:1/3;display:grid;place-items:center;width:40px;height:40px;border-radius:12px;color:#fff;background:linear-gradient(145deg,#4198ff,#7658ef 60%,#df66b7);font-size:20px;font-weight:900}.brand b{font-size:15px}.brand small{color:#9aa2b3;font-size:9px}.workspace-sidebar nav{display:grid;gap:4px;padding:13px 0;border-top:1px solid #efedf5}.workspace-sidebar nav>small{padding:0 10px 8px;color:#a1a8b7;font-size:9px;font-weight:800;letter-spacing:.14em;text-transform:uppercase}.workspace-sidebar nav button{display:flex;align-items:center;gap:11px;padding:10px;border:0;border-radius:10px;color:#667188;background:transparent;text-align:left}.workspace-sidebar nav button:hover,.workspace-sidebar nav .active{color:#5648ce;background:#f0edff}.workspace-sidebar nav i{display:grid;place-items:center;width:24px;font-style:normal;font-size:12px}.tool-nav{margin-top:4px}.user-card{display:grid;grid-template-columns:34px 1fr auto;gap:9px;align-items:center;margin-top:auto;padding:11px;border-radius:13px;background:#f6f4fb}.user-card>span{display:grid;place-items:center;width:34px;height:34px;border-radius:10px;color:#fff;background:#7764e5}.user-card div{display:grid}.user-card small{color:#9099aa;font-size:10px}.user-card button{border:0;color:#81899a;background:none}.workspace-main{min-width:0}.topbar{display:flex;align-items:flex-end;justify-content:space-between;gap:25px;padding:25px 5px 22px}.topbar>div>span,.quick-section>header>span,.projects-section>header span,.account-section>header>span,.export-section>header span{color:#6a59df;font-size:10px;font-weight:800;letter-spacing:.15em}.topbar h1{margin:9px 0 5px;font-size:38px}.topbar p,.export-section header p{margin:0;color:var(--muted)}.create-button,.focus-copy button{padding:12px 18px;border:0;border-radius:11px;color:#fff;background:linear-gradient(115deg,#6259eb,#a15ddb);box-shadow:0 13px 28px #604ed62b}.focus-project{display:grid;grid-template-columns:1fr 1.05fr;gap:35px;align-items:center;padding:32px;border:1px solid #ddd9f0;border-radius:24px;background:linear-gradient(135deg,#fff,#f7f4ff 58%,#fff7fb);box-shadow:0 23px 65px #443d8a17}.focus-copy>span{color:#6b59dd;font-size:11px;font-weight:800}.focus-copy h2{margin:12px 0 7px;font-size:30px}.focus-copy p{color:var(--muted)}.focus-progress{margin:24px 0}.focus-progress label,.project-grid article>div label{display:flex;justify-content:space-between}.focus-progress i,.project-grid article>div>i{display:block;height:7px;margin-top:8px;border-radius:99px;background:#e8e5f3}.focus-progress i b,.project-grid article>div>i b{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#5d83ee,#a75fd9)}.focus-flow{display:flex;align-items:center;gap:10px}.focus-flow article{display:flex;align-items:center;gap:9px;padding:13px;border:1px solid #e7e4f0;border-radius:13px;background:#ffffffad}.focus-flow article>b{display:grid;place-items:center;width:35px;height:35px;border-radius:10px;color:#6553d7;background:#ebe8ff}.focus-flow article span{display:grid;font-size:12px}.focus-flow article small{color:#929aab;font-size:9px}.focus-flow>i{flex:1;height:1px;background:#d7d2ed}.quick-section,.projects-section,.account-section,.export-section{padding-top:38px}.quick-section h2,.projects-section h2,.account-section h2,.export-section h2{margin:8px 0 16px;font-size:27px}.quick-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.quick-grid button{display:grid;grid-template-columns:43px 1fr auto;gap:11px;align-items:center;padding:16px;border:1px solid #e5e3ed;border-radius:15px;background:#ffffffc4;text-align:left}.quick-grid button>b{display:grid;place-items:center;width:43px;height:43px;border-radius:12px}.quick-grid .violet{color:#684fd9;background:#eee9ff}.quick-grid .blue{color:#2d78ce;background:#e6f2ff}.quick-grid .pink{color:#c34e8b;background:#ffe8f3}.quick-grid .green{color:#278b70;background:#e3f7f0}.quick-grid button span{display:grid}.quick-grid button small{color:#929aab;font-size:10px}.quick-grid button>i{color:#9fa6b4;font-style:normal}.projects-section>header{display:flex;align-items:end;justify-content:space-between}.projects-section>header button,.account-grid button{border:0;color:#6655d6;background:none}.project-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:13px}.project-grid>article{padding:19px;border:1px solid #e6e4ed;border-radius:17px;background:#ffffffc4}.project-grid article>header{display:flex;align-items:center;justify-content:space-between}.project-grid article>header>b{display:grid;place-items:center;width:37px;height:37px;border-radius:11px;color:#fff;background:linear-gradient(145deg,#5f8deb,#845fdc)}.project-grid article>header>span{padding:5px 8px;border-radius:99px;color:#7567ca;background:#f0edff;font-size:9px}.project-grid h3{min-height:44px;margin:16px 0 6px;font-size:17px}.project-grid p{color:var(--muted);font-size:12px}.project-grid article>div{margin:20px 0}.project-grid article>div label{color:#838da1;font-size:11px}.project-grid footer{display:flex;align-items:center;justify-content:space-between}.project-grid footer small{color:#a0a7b6}.project-grid footer button{border:0;color:#6253ce;background:none}.empty-projects{display:grid;place-items:center;gap:8px;min-height:210px;border:1px dashed #dcd8ea;border-radius:18px;color:var(--muted);background:#ffffff78}.empty-projects>b{font-size:28px}.empty-projects button{padding:9px 14px;border:1px solid #d8d3eb;border-radius:9px;color:#5f50cb;background:#fff}.account-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:13px}.account-grid article{display:grid;gap:8px;padding:20px;border:1px solid #e6e4ed;border-radius:16px;background:#ffffffbd}.account-grid article>b{color:#768095;font-size:12px}.account-grid article>strong{font-size:35px}.account-grid article>span{color:#929aab;font-size:11px}.account-grid article>button{justify-self:start;padding:6px 0}.export-section{margin-top:8px}.export-list{display:grid;gap:9px;padding:13px;border:1px solid #e6e3ee;border-radius:18px;background:#ffffffa8}.export-list article{display:grid;grid-template-columns:58px 1fr auto;gap:13px;align-items:center;padding:12px;border-radius:12px}.export-list article:hover{background:#f7f5fb}.export-list article>b{display:grid;place-items:center;width:50px;height:42px;border-radius:9px;color:#6454ce;background:#eeebff;font-size:10px}.export-list article>span{display:grid}.export-list article small{color:#939bac}.export-list article>button{padding:7px 12px;border:1px solid #dad6e9;border-radius:8px;color:#5f51c8;background:#fff}.export-list article>button:disabled{opacity:.4}.export-list>p{padding:20px;text-align:center;color:var(--muted)}@media(max-width:1100px){.workspace-shell{grid-template-columns:1fr}.workspace-sidebar{position:static;height:auto}.workspace-sidebar nav{grid-template-columns:repeat(3,1fr)}.workspace-sidebar nav>small{grid-column:1/-1}.user-card{margin-top:10px}.focus-project{grid-template-columns:1fr}.quick-grid,.project-grid{grid-template-columns:repeat(2,1fr)}}@media(max-width:700px){.workspace-shell{width:min(100% - 24px,1450px)}.topbar{align-items:flex-start;flex-direction:column}.workspace-sidebar nav,.quick-grid,.project-grid,.account-grid{grid-template-columns:1fr}.focus-flow{align-items:stretch;flex-direction:column}.focus-flow>i{width:1px;height:10px}.focus-project{padding:22px}.export-list article{grid-template-columns:auto 1fr}.export-list article>button{grid-column:1/3}}
+.workspace-sidebar nav .nav-separated{margin-top:7px;border-top:1px solid #ebe8f3;border-radius:0;padding-top:14px}.points-summary{background:linear-gradient(135deg,#fff,#f4f0ff 60%,#fff1f8)!important}.points-summary strong{color:#6e4fff}
 </style>

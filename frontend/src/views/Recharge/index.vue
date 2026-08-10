@@ -1,296 +1,72 @@
 <template>
-  <div class="recharge-page">
-    <header class="page-header">
-      <div>
-        <h1>积分充值</h1>
-        <p>选择套餐后跳转易支付收银台，支付成功后积分自动到账。</p>
-      </div>
-      <div class="balance">
-        <span>当前积分</span>
-        <strong>{{ account?.points ?? '--' }}</strong>
-      </div>
-    </header>
+  <main class="account-page">
+    <div class="account-shell">
+      <aside class="account-sidebar">
+        <button class="brand" type="button" @click="router.push('/')"><span>D</span><b>Dokiai</b><small>ACADEMIC</small></button>
+        <div class="identity"><span>{{ username.slice(0,1).toUpperCase() }}</span><div><strong>{{ username }}</strong><small>{{ isAdmin ? '管理员账户' : '研究者账户' }}</small></div></div>
+        <nav aria-label="账户导航">
+          <button v-for="item in navItems" :key="item.key" :class="{active:activeTab===item.key}" type="button" @click="item.route ? router.push(item.route) : activeTab=item.key"><i>{{ item.icon }}</i><span>{{ item.label }}</span></button>
+        </nav>
+        <button class="back" type="button" @click="router.push('/dashboard')">← 返回工作台</button>
+      </aside>
 
-    <section class="plans">
-      <button
-        v-for="plan in plans"
-        :key="plan.planId || plan.amount"
-        class="plan-card"
-        :class="{ active: selected?.planId === plan.planId }"
-        type="button"
-        @click="selected = plan"
-      >
-        <span v-if="plan.recommended" class="badge">推荐</span>
-        <strong>{{ plan.amount }} 元</strong>
-        <span>{{ plan.points }} 积分</span>
-      </button>
-    </section>
+      <section class="account-content">
+        <header class="page-header"><div><span>DOKIAI ACCOUNT CENTER</span><h1>{{ currentTitle }}</h1><p>{{ currentDescription }}</p></div><button v-if="activeTab!=='overview'" class="text-button" type="button" @click="activeTab='overview'">账户首页</button></header>
 
-    <section class="pay-panel">
-      <div class="section-head">
-        <div>
-          <h2>在线支付</h2>
-          <p>订单创建后将进入易支付页面，可使用支付宝或微信完成付款。</p>
-        </div>
-        <el-select v-model="payType" class="pay-type">
-          <el-option label="支付宝" value="alipay" />
-          <el-option label="微信支付" value="wxpay" />
-          <el-option label="QQ钱包" value="qqpay" />
-        </el-select>
-      </div>
+        <template v-if="activeTab==='overview'">
+          <section class="welcome-card panel"><div><small>WELCOME BACK</small><h2>{{ username }}，欢迎回来</h2><p>在一个空间里管理项目、积分与最终交付文件。</p></div><div class="balance-orb"><span>当前积分</span><strong>{{ account?.points ?? '--' }}</strong><small>POINTS</small></div></section>
+          <section class="metric-grid"><article><span>累计获得</span><strong>{{ account?.totalPoints ?? '--' }}</strong><small>账户历史积分</small></article><article><span>累计消费</span><strong>{{ account?.usedPoints ?? '--' }}</strong><small>生成与服务消耗</small></article><article><span>我的项目</span><strong>{{ documents.length }}</strong><small>当前账户任务</small></article><article><span>可下载成果</span><strong>{{ downloads.length }}</strong><small>已完成文件</small></article></section>
+          <section class="quick-card panel"><header><small>QUICK ACCESS</small><h2>快捷入口</h2></header><div><button type="button" @click="router.push('/points')"><i>✦</i><span><b>积分中心</b><small>充值与积分流水</small></span><em>→</em></button><button type="button" @click="activeTab='projects'"><i>◇</i><span><b>我的项目</b><small>继续研究与创作</small></span><em>→</em></button><button type="button" @click="activeTab='downloads'"><i>↓</i><span><b>下载记录</b><small>获取最终成果文件</small></span><em>→</em></button></div></section>
+          <section class="recent-card panel"><header><div><small>RECENT PROJECTS</small><h2>最近项目</h2></div><button class="text-button" type="button" @click="activeTab='projects'">查看全部 →</button></header><ProjectList :items="documents.slice(0,3)" @view="viewProject" @download="downloadDocument" /></section>
+        </template>
 
-      <el-button type="primary" size="large" :loading="creating" :disabled="!selected" @click="createAndRedirect">
-        立即充值 {{ selected?.points || 0 }} 积分
-      </el-button>
-      <p class="hint">支付回调会自动校验签名和订单金额，重复回调不会重复加积分。</p>
-    </section>
+        <section v-else-if="activeTab==='profile'" class="profile-card panel"><div class="profile-avatar">{{ username.slice(0,1).toUpperCase() }}</div><div><small>PERSONAL PROFILE</small><h2>{{ username }}</h2><p>手机号账户 · {{ isAdmin ? '管理员权限' : '普通用户权限' }}</p><dl><div><dt>登录账号</dt><dd>{{ username }}</dd></div><div><dt>账户类型</dt><dd>{{ isAdmin ? '管理员账户' : '研究者账户' }}</dd></div><div><dt>当前积分</dt><dd>{{ account?.points ?? '--' }}</dd></div></dl></div></section>
 
-    <section class="orders" v-if="orders.length">
-      <div class="section-head compact">
-        <h2>最近订单</h2>
-        <el-button :loading="loading" @click="loadData">刷新</el-button>
-      </div>
-      <div v-for="order in orders" :key="order.orderNo" class="order-row">
-        <span>{{ order.orderNo }}</span>
-        <span>{{ order.amount }} 元 / {{ order.points }} 积分</span>
-        <el-tag :type="statusType(order.status)">{{ statusText(order.status) }}</el-tag>
-      </div>
-    </section>
-  </div>
+        <template v-else-if="activeTab==='points'">
+          <section class="points-hero panel"><div><small>POINTS BALANCE</small><h2>{{ account?.points ?? '--' }} <em>积分</em></h2><p>1 元 = 10 积分，积分可用于 Dokiai 智能服务。</p></div><div><span>累计获得 <b>{{ account?.totalPoints ?? '--' }}</b></span><span>累计消费 <b>{{ account?.usedPoints ?? '--' }}</b></span></div></section>
+          <section class="recharge-card panel"><header><small>RECHARGE</small><h2>选择充值金额</h2><p>快捷选择或输入 1–100 元自定义金额。</p></header><div class="amount-grid"><button v-for="amount in quickAmounts" :key="amount" :class="{selected:selectedAmount===amount&&!customSelected}" type="button" @click="selectAmount(amount)"><b>¥{{ amount }}</b><span>{{ amount*10 }} 积分</span></button><label :class="{selected:customSelected}"><span>自定义金额</span><div><em>¥</em><input v-model.number="customAmount" type="number" min="1" max="100" @focus="selectCustom"><small>{{ customPoints }} 积分</small></div></label></div><div class="payment-row"><div><span>支付方式</span><label><input v-model="payType" type="radio" value="alipay">支付宝</label><label><input v-model="payType" type="radio" value="wechat">微信支付</label></div><button class="primary-action" type="button" :disabled="creating" @click="createAndRedirect">{{ creating?'正在创建订单…':`立即充值 ¥${finalAmount}` }}</button></div></section>
+          <section class="transaction-card panel"><header><small>POINTS HISTORY</small><h2>积分记录</h2></header><div v-if="transactions.length" class="simple-list"><article v-for="(item,index) in transactions.slice(0,8)" :key="item.id||index"><span><b>{{ item.description||item.remark||'积分变动' }}</b><small>{{ formatTime(item.createdAt||item.created_at) }}</small></span><strong :class="Number(item.points||item.amount)>=0?'plus':'minus'">{{ Number(item.points||item.amount)>=0?'+':'' }}{{ item.points??item.amount }}</strong></article></div><div v-else class="empty">暂无积分记录</div></section>
+        </template>
+
+        <section v-else-if="activeTab==='projects'" class="list-panel panel"><ProjectList :items="documents" @view="viewProject" @download="downloadDocument" /></section>
+
+        <section v-else-if="activeTab==='downloads'" class="list-panel panel"><div v-if="downloads.length" class="download-list"><article v-for="doc in downloads" :key="doc.id||doc.fileName"><i>W</i><span><b>{{ doc.fileName||'Dokiai 学术成果.docx' }}</b><small>{{ formatTime(doc.updateTime||doc.createTime||doc.createdAt) }} · DOCX</small></span><button class="outline-action" type="button" @click="downloadDocument(doc)">下载</button></article></div><div v-else class="empty-state"><b>↓</b><strong>暂无下载记录</strong><span>项目完成后的 DOCX 文件会出现在这里。</span></div></section>
+
+        <section v-else-if="activeTab==='orders'" class="list-panel panel"><div v-if="orders.length" class="order-list"><header><span>订单号</span><span>金额 / 积分</span><span>创建时间</span><span>状态</span></header><article v-for="order in orders" :key="order.orderNo"><code>{{ order.orderNo }}</code><span>¥{{ order.amount }} / {{ order.points }} 积分</span><time>{{ formatTime(order.createdAt||order.created_at) }}</time><em :class="order.status">{{ statusText(order.status) }}</em></article></div><div v-else class="empty-state"><b>◇</b><strong>暂无订单记录</strong><span>充值订单创建后会显示在这里。</span></div></section>
+
+        <section v-else class="settings-card panel"><small>ACCOUNT SETTINGS</small><h2>账户设置</h2><article><div><strong>账户安全</strong><span>当前使用手机号与密码登录。</span></div><em>已启用</em></article><article><div><strong>项目数据</strong><span>项目与文件按当前账号独立保存。</span></div><em>已启用</em></article><article><div><strong>管理员工具</strong><span>管理员积分配置保留独立入口，不显示在普通用户导航。</span></div><button v-if="isAdmin" class="outline-action" type="button" @click="router.push('/points-admin')">进入管理页</button><em v-else>无权限</em></article></section>
+      </section>
+    </div>
+  </main>
 </template>
 
 <script setup>
+import { computed, defineComponent, h, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import {
-  createRechargeOrder,
-  getPointAccount,
-  getRechargeOrders,
-  getRechargePlans
-} from '../../api/rewrite'
+import { createRechargeOrder, downloadArtifact, getMyDocuments, getPointAccount, getPointTransactions, getRechargeOrders, getRechargePlans } from '../../api/rewrite'
 
-const account = ref(null)
-const router = useRouter()
-const plans = ref([])
-const orders = ref([])
-const selected = ref(null)
-const payType = ref('alipay')
-const loading = ref(false)
-const creating = ref(false)
+const router=useRouter(),username=sessionStorage.getItem('dropai_username')||'当前用户',role=sessionStorage.getItem('dropai_role')||'USER',isAdmin=String(role).toLowerCase()==='admin'
+const activeTab=ref('overview'),account=ref({}),documents=ref([]),orders=ref([]),plans=ref([]),transactions=ref([]),selectedAmount=ref(10),customAmount=ref(1),customSelected=ref(false),payType=ref('alipay'),creating=ref(false)
+const quickAmounts=[10,20,100]
+const navItems=[{key:'profile',label:'个人资料',icon:'○'},{key:'projects',label:'我的项目',icon:'◇'},{key:'history',label:'历史项目',icon:'📁',route:'/projects'},{key:'downloads',label:'下载记录',icon:'↓'},{key:'orders',label:'订单记录',icon:'▤'},{key:'settings',label:'安全设置',icon:'⚙'}]
+const pageMeta={overview:['账户首页','管理项目、积分和成果交付。'],profile:['个人资料','查看当前账户身份与权限。'],points:['积分中心','充值积分并查看账户流水。'],projects:['我的项目','继续项目或获取已经完成的成果。'],downloads:['下载记录','集中管理已完成的 DOCX 文件。'],orders:['订单记录','查看充值金额、积分和支付状态。'],settings:['账户设置','查看账户安全与数据状态。']}
+const currentTitle=computed(()=>pageMeta[activeTab.value]?.[0]||'账户中心'),currentDescription=computed(()=>pageMeta[activeTab.value]?.[1]||''),downloads=computed(()=>documents.value.filter(item=>item.status==='SUCCESS'&&(item.downloadUrl||item.download_url))),customPoints=computed(()=>Math.max(1,Math.min(100,Number(customAmount.value)||1))*10),finalAmount=computed(()=>customSelected.value?Math.max(1,Math.min(100,Number(customAmount.value)||1)):selectedAmount.value)
 
-async function loadData() {
-  loading.value = true
-  try {
-    const [accountData, planData, orderData] = await Promise.all([
-      getPointAccount(),
-      getRechargePlans(),
-      getRechargeOrders()
-    ])
-    account.value = accountData
-    plans.value = planData || []
-    orders.value = orderData || []
-    selected.value = selected.value || plans.value.find(item => item.recommended) || plans.value[0] || null
-    resumeAfterPaid(orderData || [])
-  } finally {
-    loading.value = false
-  }
-}
+const ProjectList=defineComponent({props:{items:{type:Array,default:()=>[]}},emits:['view','download'],setup(props,{emit}){return()=>props.items.length?h('div',{class:'project-list'},props.items.map(item=>h('article',{key:item.id||item.fileName},[h('i',(item.documentType||'文').slice(0,1)),h('span',[h('b',item.projectName||item.fileName||'未命名项目'),h('small',`${item.documentType||item.projectType||'智能文档'} · ${statusLabel(item.status)} · ${formatTime(item.updateTime||item.createTime||item.createdAt)}`)]),h('div',[h('button',{class:'text-button',onClick:()=>emit('view',item)},'查看'),h('button',{class:'outline-action',disabled:item.status!=='SUCCESS',onClick:()=>emit('download',item)},'下载')])]))):h('div',{class:'empty-state'},[h('b','◇'),h('strong','暂无项目'),h('span','创建文档后，项目会显示在这里。')])}})
 
-function resumeAfterPaid(orderData) {
-  const resumePath = sessionStorage.getItem('dropai_pay_resume_path')
-  if (!resumePath || resumePath === '/recharge') return
-  const hasPaidOrder = orderData.some(order => order.status === 'paid' || order.status === 'approved')
-  if (!hasPaidOrder) return
-  sessionStorage.removeItem('dropai_pay_resume_path')
-  ElMessage.success('支付已完成，正在返回任务页面')
-  setTimeout(() => router.replace(resumePath), 700)
-}
-
-async function createAndRedirect() {
-  if (!selected.value) return
-  creating.value = true
-  try {
-    const order = await createRechargeOrder({
-      planId: selected.value.planId,
-      amount: selected.value.amount,
-      payMethod: payType.value
-    })
-    if (!order?.paymentUrl) {
-      ElMessage.error('支付链接生成失败，请稍后重试')
-      return
-    }
-    window.location.href = order.paymentUrl
-  } finally {
-    creating.value = false
-  }
-}
-
-function statusText(status) {
-  const map = {
-    pending: '待支付',
-    waiting_review: '待审核',
-    approved: '已到账',
-    paid: '已到账',
-    rejected: '已驳回'
-  }
-  return map[status] || status
-}
-
-function statusType(status) {
-  if (status === 'approved' || status === 'paid') return 'success'
-  if (status === 'rejected') return 'danger'
-  if (status === 'waiting_review') return 'warning'
-  return 'info'
-}
-
-onMounted(loadData)
+async function load(){try{const [a,d,o,p,t]=await Promise.all([getPointAccount(),getMyDocuments({pageNum:1,pageSize:50}),getRechargeOrders(),getRechargePlans(),getPointTransactions().catch(()=>[])]);account.value=a||{};documents.value=d?.list||[];orders.value=o||[];plans.value=p||[];transactions.value=t?.list||t||[]}catch(error){ElMessage.warning(error?.responseData?.message||error.message||'账户信息暂时无法读取')}}
+function selectAmount(amount){selectedAmount.value=amount;customSelected.value=false}function selectCustom(){customSelected.value=true}
+async function createAndRedirect(){const amount=finalAmount.value;if(amount<1||amount>100)return ElMessage.warning('充值金额必须为 1–100 元');creating.value=true;try{const plan=plans.value.find(item=>Number(item.amount)===amount),order=await createRechargeOrder({planId:plan?.planId||null,amount,payMethod:payType.value});if(!order?.paymentUrl)return ElMessage.error('支付链接生成失败，请稍后重试');window.location.href=order.paymentUrl}finally{creating.value=false}}
+function viewProject(item){const id=item.projectId||item.id;if(id)sessionStorage.setItem('dropai_writing_project_id',id);router.push(item.status==='SUCCESS'?'/writing-generator/export':'/writing-generator/generate')}
+async function downloadDocument(item){const url=item.downloadUrl||item.download_url;if(!url)return ElMessage.warning('文件尚未就绪');try{const blob=await downloadArtifact(url),objectUrl=URL.createObjectURL(blob),link=document.createElement('a');link.href=objectUrl;link.download=item.fileName||'dokiai-result.docx';link.click();URL.revokeObjectURL(objectUrl)}catch(error){ElMessage.error(error.message||'下载失败')}}
+function statusLabel(value){return({SUCCESS:'已完成',FAILED:'失败',RUNNING:'生成中',GENERATING:'生成中',PENDING:'排队中',WAITING:'待继续'})[value]||value||'进行中'}
+function statusText(value){return({pending:'待支付',waiting_review:'待审核',approved:'已到账',paid:'已到账',rejected:'已驳回'})[value]||value||'--'}
+function formatTime(value){return value?String(value).replace('T',' ').slice(0,16):'--'}
+onMounted(load)
 </script>
 
 <style scoped>
-.recharge-page {
-  min-height: 100vh;
-  padding: 32px;
-  color: var(--text);
-  background:
-    radial-gradient(circle at 12% -8%, rgba(255, 126, 179, 0.22), transparent 32rem),
-    radial-gradient(circle at 88% 2%, rgba(79, 172, 254, 0.2), transparent 30rem),
-    linear-gradient(135deg, #fff, #fff5fa 48%, #f3f8ff);
-  animation: page-in .55s ease both;
-}
-
-.page-header,
-.section-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.page-header {
-  margin-bottom: 24px;
-}
-
-.page-header h1,
-.pay-panel h2,
-.orders h2 {
-  margin: 0;
-}
-
-.page-header p,
-.section-head p,
-.hint {
-  margin: 8px 0 0;
-  color: var(--muted);
-}
-
-.balance,
-.pay-panel,
-.orders {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.65);
-  box-shadow: var(--blur-shadow);
-  backdrop-filter: blur(20px);
-}
-
-.balance {
-  display: grid;
-  gap: 4px;
-  min-width: 140px;
-  padding: 16px;
-}
-
-.balance span {
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.balance strong {
-  color: var(--primary);
-  font-size: 28px;
-}
-
-.plans {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 16px;
-  margin-bottom: 24px;
-}
-
-.plan-card {
-  position: relative;
-  display: grid;
-  gap: 10px;
-  min-height: 128px;
-  padding: 20px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.65);
-  color: var(--text);
-  box-shadow: var(--blur-shadow);
-  backdrop-filter: blur(20px);
-  text-align: left;
-  cursor: pointer;
-}
-
-.plan-card.active {
-  border-color: rgba(255, 126, 179, 0.46);
-  box-shadow: 0 0 0 4px rgba(255, 126, 179, 0.12), var(--blur-shadow);
-}
-
-.plan-card strong {
-  font-size: 26px;
-}
-
-.badge {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  padding: 3px 8px;
-  border-radius: 999px;
-  background: rgba(255, 126, 179, 0.14);
-  color: var(--primary);
-  font-size: 12px;
-}
-
-.pay-panel,
-.orders {
-  display: grid;
-  gap: 16px;
-  padding: 20px;
-  margin-bottom: 24px;
-}
-
-.pay-type {
-  width: 140px;
-}
-
-.compact {
-  align-items: center;
-}
-
-.order-row {
-  display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(160px, auto) auto;
-  gap: 12px;
-  align-items: center;
-  padding: 12px 0;
-  border-top: 1px solid rgba(108, 99, 255, 0.1);
-}
-
-@media (max-width: 760px) {
-  .recharge-page {
-    padding: 20px;
-  }
-
-  .page-header,
-  .section-head {
-    display: grid;
-  }
-
-  .order-row {
-    grid-template-columns: 1fr;
-  }
-}
+.account-page{min-height:100vh;background:linear-gradient(45deg,#fbd7ea 0%,#f8eaf0 38%,#edf1f8 64%,#dcebff 100%);color:#252936}.account-shell{display:grid;grid-template-columns:240px minmax(0,1fr);gap:26px;width:min(1500px,calc(100% - 40px));margin:auto;padding:20px 0 50px}.account-sidebar{position:sticky;top:20px;display:flex;flex-direction:column;height:calc(100vh - 40px);padding:17px 13px;border:1px solid #ebe7f4;border-radius:20px;background:#ffffffd9;box-shadow:0 20px 60px #30395812;backdrop-filter:blur(20px)}button{font:inherit;cursor:pointer}.brand{display:grid;grid-template-columns:40px 1fr;align-items:center;gap:0 10px;padding:3px 5px 18px;border:0;background:none;text-align:left}.brand>span{grid-row:1/3;display:grid;place-items:center;width:40px;height:40px;border-radius:12px;background:linear-gradient(145deg,#4198ff,#7658ef 60%,#df66b7);color:#fff;font-size:20px;font-weight:900}.brand b{font-size:15px}.brand small{color:#9aa2b3;font-size:8px}.identity{display:grid;grid-template-columns:38px 1fr;gap:10px;align-items:center;padding:14px 9px;border-block:1px solid #efedf5}.identity>span{display:grid;place-items:center;width:38px;height:38px;border-radius:12px;background:#eee9ff;color:#6e4fff;font-weight:800}.identity div{display:grid}.identity small{color:#969dac;font-size:9px}.account-sidebar nav{display:grid;gap:4px;padding-top:14px}.account-sidebar nav button{display:flex;align-items:center;gap:11px;padding:11px;border:0;border-radius:10px;background:transparent;color:#697287;text-align:left}.account-sidebar nav button:hover,.account-sidebar nav button.active{background:linear-gradient(110deg,#eee9ff,#fff0f7);color:#6e4fff}.account-sidebar nav i{width:23px;text-align:center;font-style:normal}.back{margin-top:auto;padding:10px;border:0;background:none;color:#7164bf;text-align:left}.account-content{min-width:0}.page-header{display:flex;align-items:end;justify-content:space-between;padding:23px 4px 20px}.page-header span,.panel>small,.panel header small,.welcome-card small{color:#6e4fff;font-size:9px;font-weight:800;letter-spacing:.15em}.page-header h1{margin:7px 0 4px;font-size:38px}.page-header p,.panel p{margin:0;color:#747b8d}.panel,.metric-grid article{border:1px solid rgba(110,79,255,.1);border-radius:19px;background:#ffffffdf;box-shadow:0 15px 45px rgba(61,53,104,.07)}.welcome-card{display:flex;align-items:center;justify-content:space-between;padding:28px 32px;background:linear-gradient(135deg,#fff,#f7f3ff 58%,#fff5fa)}.welcome-card h2{margin:7px 0;font-size:28px}.balance-orb{display:grid;place-items:center;width:145px;height:115px;border-radius:22px;background:linear-gradient(140deg,#6e4fff,#ff55b0);color:#fff}.balance-orb span,.balance-orb small{font-size:9px}.balance-orb strong{font-size:34px}.metric-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:14px 0}.metric-grid article{display:grid;gap:5px;padding:18px}.metric-grid span,.metric-grid small{color:#8e95a5;font-size:10px}.metric-grid strong{font-size:27px}.quick-card,.recent-card,.profile-card,.points-hero,.recharge-card,.transaction-card,.list-panel,.settings-card{margin-top:14px;padding:23px}.quick-card h2,.recent-card h2,.profile-card h2,.points-hero h2,.recharge-card h2,.transaction-card h2,.settings-card h2{margin:5px 0}.quick-card>div{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:16px}.quick-card>div button{display:grid;grid-template-columns:38px 1fr auto;align-items:center;gap:10px;padding:14px;border:1px solid #e9e5f2;border-radius:13px;background:#fff;text-align:left}.quick-card i{display:grid;place-items:center;width:38px;height:38px;border-radius:11px;background:#eee9ff;color:#6e4fff;font-style:normal}.quick-card button span{display:grid}.quick-card small{color:#9298a7}.quick-card em{color:#aaa4bf;font-style:normal}.recent-card>header,.recharge-card>header,.transaction-card>header{display:flex;align-items:end;justify-content:space-between}.text-button{border:0;background:none;color:#6e4fff}.project-list{display:grid;gap:8px;margin-top:15px}.project-list article{display:grid;grid-template-columns:42px 1fr auto;align-items:center;gap:12px;padding:12px;border-radius:12px}.project-list article:hover{background:#f8f6fc}.project-list article>i,.download-list article>i{display:grid;place-items:center;width:42px;height:42px;border-radius:11px;background:#eee9ff;color:#6e4fff;font-style:normal;font-weight:800}.project-list span,.download-list span{display:grid}.project-list small,.download-list small{color:#9298a7;font-size:9px}.project-list article>div{display:flex;gap:7px}.outline-action{padding:8px 12px;border:1px solid #b8a8f3;border-radius:9px;background:#fff;color:#6e4fff}.outline-action:disabled{cursor:not-allowed;opacity:.4}.profile-card{display:grid;grid-template-columns:100px 1fr;gap:22px}.profile-avatar{display:grid;place-items:center;width:92px;height:92px;border-radius:25px;background:linear-gradient(145deg,#6e4fff,#ff55b0);color:#fff;font-size:34px;font-weight:800}.profile-card dl{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}.profile-card dl div{padding:13px;border-radius:11px;background:#faf9ff}.profile-card dt{color:#9399a8;font-size:9px}.profile-card dd{margin:5px 0 0;font-weight:700}.points-hero{display:flex;justify-content:space-between;align-items:center}.points-hero h2{font-size:38px}.points-hero h2 em{font-size:12px;font-style:normal}.points-hero>div:last-child{display:flex;gap:12px}.points-hero>div:last-child span{display:grid;min-width:110px;padding:13px;border-radius:11px;background:#f7f4ff;color:#8b91a0;font-size:9px}.points-hero b{color:#5c4cc2;font-size:18px}.amount-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:18px 0}.amount-grid>button,.amount-grid>label{display:grid;gap:7px;padding:17px;border:1px solid #e5e1ef;border-radius:14px;background:#fff}.amount-grid>button b{font-size:22px}.amount-grid>button span,.amount-grid>label>span{color:#9097a6;font-size:9px}.amount-grid .selected{border-color:#8d76ea;background:#f7f3ff;box-shadow:0 0 0 2px #e8e0ff}.amount-grid label div{display:flex;align-items:center;gap:5px}.amount-grid input{min-width:0;width:60px;border:0;outline:0;font-size:20px;font-weight:800}.amount-grid label small{margin-left:auto;color:#6e4fff}.payment-row{display:flex;align-items:center;justify-content:space-between;padding-top:16px;border-top:1px solid #efecf5}.payment-row>div{display:flex;gap:14px;color:#71788a;font-size:11px}.primary-action{padding:12px 20px;border:0;border-radius:10px;background:linear-gradient(135deg,#6e4fff,#ff55b0);color:#fff;font-weight:700}.simple-list article,.download-list article{display:grid;grid-template-columns:1fr auto;align-items:center;padding:11px;border-bottom:1px solid #f0edf6}.simple-list span{display:grid}.simple-list small{color:#959caa}.simple-list .plus{color:#145b4d}.simple-list .minus{color:#d44d74}.download-list article{grid-template-columns:45px 1fr auto;gap:10px}.order-list{display:grid}.order-list header,.order-list article{display:grid;grid-template-columns:1.4fr 1fr 1fr .6fr;gap:15px;padding:12px}.order-list header{color:#9298a7;font-size:9px}.order-list article{border-top:1px solid #efedf4}.order-list code{color:#6e4fff}.order-list em{justify-self:start;padding:5px 8px;border-radius:99px;background:#f0edff;color:#6e4fff;font-size:9px;font-style:normal}.order-list em.paid,.order-list em.approved{background:#e8f4ef;color:#145b4d}.settings-card article{display:flex;align-items:center;justify-content:space-between;padding:17px 0;border-top:1px solid #efedf5}.settings-card article div{display:grid;gap:4px}.settings-card article span,.settings-card article em{color:#9298a7;font-size:10px;font-style:normal}.empty-state,.empty{display:grid;place-items:center;gap:7px;min-height:230px;color:#9198a8;text-align:center}.empty-state b{color:#6e4fff;font-size:30px}@media(max-width:1000px){.account-shell{grid-template-columns:1fr}.account-sidebar{position:static;height:auto}.account-sidebar nav{grid-template-columns:repeat(3,1fr)}.back{margin-top:10px}.metric-grid,.amount-grid{grid-template-columns:repeat(2,1fr)}}@media(max-width:680px){.account-shell{width:calc(100% - 24px)}.account-sidebar nav,.metric-grid,.quick-card>div,.amount-grid,.profile-card dl{grid-template-columns:1fr}.welcome-card,.points-hero,.payment-row,.page-header{align-items:flex-start;flex-direction:column;gap:18px}.order-list header{display:none}.order-list article{grid-template-columns:1fr}.project-list article{grid-template-columns:42px 1fr}.project-list article>div{grid-column:2}}
+.balance-orb strong{max-width:132px;overflow-wrap:anywhere;font-size:clamp(20px,2vw,30px);line-height:1;text-align:center}
 </style>
