@@ -9,15 +9,15 @@
         <button @click="router.push('/projects')"><i>📁</i>历史项目</button>
         <button @click="router.push('/writing-generator')"><i>✦</i>文档创作</button>
         <button @click="router.push('/writing-generator')"><i>⌕</i>文献中心</button>
-        <button @click="router.push('/rewrite')"><i>Aa</i>学术优化</button>
+        <button @click="router.push('/rewrite')"><i>Aa</i>双降中心</button>
         <button class="nav-separated" @click="router.push('/points')"><i>✦</i>积分中心</button>
         <button class="nav-separated" @click="router.push('/account')"><i>◌</i>账户中心</button>
       </nav>
       <nav class="tool-nav">
         <small>更多工具</small>
         <button @click="router.push('/computer-generator')"><i>&lt;/&gt;</i>AI 工程生成</button>
-        <button @click="router.push('/new-project')"><i>⚙</i>Mechanical Studio</button>
-        <button v-if="isAdmin" @click="router.push('/points-admin')"><i>⚒</i>Admin Center</button>
+        <button @click="router.push('/new-project')"><i>⚙</i>机械设计</button>
+        <button v-if="isAdmin" @click="router.push('/points-admin')"><i>⚒</i>管理中心</button>
         <button v-if="isAdmin" @click="adminNoticeVisible=true"><i>i</i>系统公告</button>
       </nav>
       <div class="user-card"><span>{{ username.slice(0,1).toUpperCase() }}</span><div><strong>{{ username }}</strong><small>{{ isAdmin?'管理员账户':'研究者账户' }}</small></div><button title="退出登录" @click="signOut">↗</button></div>
