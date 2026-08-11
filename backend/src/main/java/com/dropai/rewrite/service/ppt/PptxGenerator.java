@@ -155,10 +155,10 @@ public class PptxGenerator {
 
     private void cover(XMLSlideShow deck,DeckSpec spec){
         XSLFSlide s=base(deck);accent(s);
-        text(s,spec.topic(),70,125,820,125,42,true,ink());
-        text(s,spec.englishTopic(),73,255,810,50,19,false,muted());
-        text(s,"汇报人 "+safe(spec.presenter())+"    专业 "+safe(spec.major()),73,360,760,35,17,false,muted());
-        text(s,"Dokiai Academic · PRESENTATION STUDIO",73,55,650,28,12,true,primary());page(s,1);
+        centeredText(s,spec.topic(),150,125,660,125,42,true,ink());
+        centeredText(s,spec.englishTopic(),180,255,600,50,19,false,muted());
+        centeredText(s,"汇报人 "+safe(spec.presenter())+"    专业 "+safe(spec.major()),180,360,600,35,17,false,muted());
+        centeredText(s,"Dokiai Academic · PRESENTATION STUDIO",230,55,500,28,12,true,primary());page(s,1);
     }
 
     private void directory(XMLSlideShow deck,List<SectionSpec> sections){
@@ -168,11 +168,11 @@ public class PptxGenerator {
 
     private void divider(XMLSlideShow deck,String sectionTitle,int no){
         XSLFSlide s=base(deck);shape(s,0,0,W,H,pale());shape(s,650,0,310,260,soft(primary(),0.16));
-        text(s,"SECTION",76,150,250,30,13,true,primary());text(s,validator.compact(sectionTitle,24),76,200,700,80,38,true,ink());text(s,"围绕来源文档展开",78,300,420,35,18,false,muted());page(s,no);
+        centeredText(s,"SECTION "+String.format("%02d",no),260,145,440,30,13,true,primary());centeredText(s,validator.compact(sectionTitle,24),160,195,640,80,38,true,ink());centeredText(s,"DOCUMENT SECTION",280,292,400,35,16,false,muted());page(s,no);
     }
 
     private void content(XMLSlideShow deck,SlideSpec spec,int no)throws Exception{
-        XSLFSlide s=base(deck);title(s,spec.title(),no);List<String> boxes=spec.bodyBoxes();boolean picture=spec.assetPath()!=null&&Files.isRegularFile(spec.assetPath());boolean design="design".equals(activeTemplate.get().layoutVariant());double textW=picture?(design?350:390):800;int count=Math.max(1,boxes.size());double each=Math.min(92,280.0/count);
+        XSLFSlide s=base(deck);title(s,spec.title(),no);List<String> boxes=spec.bodyBoxes();boolean picture=spec.assetPath()!=null&&Files.isRegularFile(spec.assetPath());boolean design=List.of("environment","visual").contains(activeTemplate.get().layoutVariant());double textW=picture?(design?350:390):800;int count=Math.max(1,boxes.size());double each=Math.min(92,280.0/count);
         for(int i=0;i<boxes.size();i++){double y=135+i*(each+15);shape(s,70,y,textW,each,pale());text(s,boxes.get(i),90,y+20,textW-40,each-24,20,i==0,ink());}
         if(picture)addPicture(s,spec.assetPath(),design?455:500,design?110:125,design?440:390,design?340:300);
         if("business".equals(activeTemplate.get().layoutVariant()))shape(s,50,135,5,300,secondary());
@@ -185,20 +185,23 @@ public class PptxGenerator {
     }
 
     private void thanks(XMLSlideShow deck,DeckSpec spec,int no){
-        XSLFSlide s=base(deck);accent(s);text(s,"谢谢大家",80,120,760,80,48,true,ink());text(s,"THANK YOU",82,210,500,45,22,true,primary());text(s,"汇报人："+safe(spec.presenter()),82,320,310,30,17,false,muted());text(s,"专业："+safe(spec.major()),480,320,310,30,17,false,muted());text(s,"指导老师："+safe(spec.advisor()),82,370,310,30,17,false,muted());text(s,"学号："+safe(spec.studentNumber()),480,370,310,30,17,false,muted());page(s,no);
+        XSLFSlide s=base(deck);accent(s);centeredText(s,"谢谢大家",180,120,600,80,48,true,ink());centeredText(s,"THANK YOU",230,210,500,45,22,true,primary());centeredText(s,"汇报人："+safe(spec.presenter())+"    专业："+safe(spec.major()),180,320,600,30,17,false,muted());centeredText(s,"指导老师："+safe(spec.advisor())+"    学号："+safe(spec.studentNumber()),180,370,600,30,17,false,muted());page(s,no);
     }
 
-    private XSLFSlide base(XMLSlideShow deck){XSLFSlide s=deck.createSlide();s.getBackground().setFillColor(Color.WHITE);return s;}
+    private XSLFSlide base(XMLSlideShow deck){XSLFSlide s=deck.createSlide();s.getBackground().setFillColor(pale());return s;}
     private void title(XSLFSlide s,String value,int no){text(s,validator.compact(value,24),68,42,760,55,32,true,ink());shape(s,68,108,70,4,primary());page(s,no);}
     private void accent(XSLFSlide s){
         String variant=activeTemplate.get().layoutVariant();
         if("tech".equals(variant)){shape(s,690,0,270,540,soft(primary(),0.18));shape(s,760,330,200,210,soft(secondary(),0.25));}
-        else if("design".equals(variant)){shape(s,710,0,250,540,pale());shape(s,790,350,170,190,soft(secondary(),0.30));}
+        else if("environment".equals(variant)){shape(s,710,0,250,540,soft(primary(),0.13));shape(s,790,350,170,190,soft(secondary(),0.28));}
+        else if("visual".equals(variant)){shape(s,720,0,240,540,soft(secondary(),0.20));shape(s,0,410,230,130,soft(primary(),0.14));}
+        else if("minimal".equals(variant)){shape(s,760,0,200,540,soft(secondary(),0.10));shape(s,70,104,90,3,primary());}
         else{shape(s,690,0,270,260,soft(primary(),0.16));shape(s,790,330,170,210,soft(secondary(),0.18));}
     }
     private void page(XSLFSlide s,int no){text(s,String.format("%02d",no),875,492,40,18,10,true,new Color(165,165,178));}
     private XSLFAutoShape shape(XSLFSlide s,double x,double y,double w,double h,Color color){XSLFAutoShape a=s.createAutoShape();a.setAnchor(new Rectangle2D.Double(x,y,w,h));a.setFillColor(color);a.setLineColor(color);return a;}
     private XSLFTextBox text(XSLFSlide s,String value,double x,double y,double w,double h,double size,boolean bold,Color color){XSLFTextBox b=s.createTextBox();b.setAnchor(new Rectangle2D.Double(x,y,w,h));b.setText(value==null?"":value);b.setVerticalAlignment(org.apache.poi.sl.usermodel.VerticalAlignment.MIDDLE);b.setWordWrap(true);for(XSLFTextParagraph p:b.getTextParagraphs()){p.setTextAlign(TextParagraph.TextAlign.LEFT);p.setSpaceAfter(0d);for(XSLFTextRun r:p.getTextRuns()){r.setFontFamily(activeTemplate.get().fontFamily());r.setFontSize(size);r.setBold(bold);r.setFontColor(color);}}return b;}
+    private XSLFTextBox centeredText(XSLFSlide s,String value,double x,double y,double w,double h,double size,boolean bold,Color color){XSLFTextBox box=text(s,value,x,y,w,h,size,bold,color);for(XSLFTextParagraph paragraph:box.getTextParagraphs())paragraph.setTextAlign(TextParagraph.TextAlign.CENTER);return box;}
 
     private void addPicture(XSLFSlide s,Path path,double x,double y,double w,double h)throws Exception{
         byte[] bytes=Files.readAllBytes(path);XSLFPictureData data=s.getSlideShow().addPicture(bytes,pictureType(path));XSLFPictureShape pic=s.createPicture(data);double iw=w,ih=h;

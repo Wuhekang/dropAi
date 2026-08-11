@@ -188,9 +188,9 @@
           ><button
             class="primary"
             :disabled="outline.length < 4 || busy"
-            @click="saveAndPlan"
+            @click="saveAndChooseTemplate"
           >
-            确认目录并规划幻灯片 →
+            确认目录并选择模板 →
           </button>
         </footer>
       </article>
@@ -206,33 +206,47 @@
     </section>
 
     <section v-else-if="stage === 4" class="workspace">
+      <article class="panel template-stage">
+        <header class="template-stage-header">
+          <div>
+            <small>STEP 04 · TEMPLATE SELECTION</small>
+            <h2>选择 PPT 模板</h2>
+            <p>只预览模板封面。系统固定使用封面、目录与致谢页，正文仅从内容页池匹配。</p>
+          </div>
+          <label class="template-upload">
+            <input type="file" accept=".zip" @change="uploadTemplate" />
+            <span>{{ templateUploading ? "正在解析模板…" : "上传模板 ZIP" }}</span>
+          </label>
+        </header>
+        <div class="template-recommend"><b>AI 推荐</b><span>{{ templateReason || "未手动选择时，将根据专业和文档类型使用系统模板。" }}</span></div>
+        <div class="template-source-tabs"><button :class="{ active: templateTab === 'system' }" @click="templateTab = 'system'">系统模板 · 6</button><button :class="{ active: templateTab === 'custom' }" @click="templateTab = 'custom'">我的模板 · {{ customTemplates.length }}</button></div>
+        <div v-if="templateTab === 'system'" class="template-cover-grid">
+          <button v-for="item in builtInTemplates" :key="item.id" class="template-cover-card" :class="[{ selected: templateStyle === item.style && !templateId }, `theme-${String(item.style).toLowerCase()}`]" @click="applyTemplate(item.style)">
+            <span class="cover-preview"><small>DOKIAI ACADEMIC</small><strong>{{ item.templateName }}</strong><i></i><em>Presentation</em></span>
+            <span class="cover-meta"><b>{{ item.templateName }}</b><small>{{ item.description }}</small><em>{{ item.suitableMajor || "通用专业" }}</em></span>
+          </button>
+        </div>
+        <div v-else class="template-cover-grid">
+          <button v-for="item in customTemplates" :key="item.id" class="template-cover-card custom-cover" :class="{ selected: templateId === item.id }" :style="templateCoverStyle(item)" @click="applyTemplate('CUSTOM', item.id)">
+            <span class="cover-preview"><small>USER TEMPLATE</small><strong>{{ item.templateName }}</strong><i></i><em>Custom Presentation</em></span>
+            <span class="cover-meta"><b>{{ item.templateName }}</b><small>{{ item.style || "自定义模板" }}</small><em>{{ item.suitableMajor || "自定义专业" }}</em></span>
+          </button>
+        </div>
+        <footer class="template-stage-actions">
+          <button class="secondary" @click="stage = 3">返回目录</button>
+          <span>正文页不会调用封面、目录或致谢页。</span>
+          <button class="primary" :disabled="busy" @click="confirmTemplateAndPlan">确认模板并规划幻灯片 →</button>
+        </footer>
+      </article>
+    </section>
+
+    <section v-else-if="stage === 5" class="workspace">
       <article class="panel slide-plan">
         <header>
           <small>STEP 04</small>
           <h2>幻灯片规划</h2>
           <p>每页只表达一个核心观点，可逐页调整。</p>
         </header>
-        <section class="template-picker">
-          <div class="template-title">
-            <div>
-              <small>TEMPLATE ENGINE</small>
-              <h3>PPT风格</h3>
-              <p>{{ templateReason || "AI根据专业、文档类型、图片比例和内容类型推荐模板。" }}</p>
-            </div>
-            <label class="template-upload">
-              <input type="file" accept=".zip" @change="uploadTemplate" />
-              <span>{{ templateUploading ? "正在解析模板…" : "上传模板ZIP" }}</span>
-            </label>
-          </div>
-          <div class="template-options">
-            <button v-for="item in builtInTemplates" :key="item.id" :class="{ selected: templateStyle === item.style && !templateId }" @click="applyTemplate(item.style)">
-              <b>{{ item.templateName }}</b><small>{{ item.description }}</small>
-            </button>
-            <button v-for="item in customTemplates" :key="item.id" :class="{ selected: templateId === item.id }" @click="applyTemplate('CUSTOM', item.id)">
-              <b>{{ item.templateName }}</b><small>{{ item.suitableMajor || "自定义模板" }}</small>
-            </button>
-          </div>
-        </section>
         <div class="plan-grid">
           <article
             v-for="(slide, i) in slides"
@@ -262,12 +276,12 @@
       </article>
     </section>
 
-    <section v-else-if="stage === 5" class="workspace">
+    <section v-else-if="stage === 6" class="workspace">
       <article class="panel generating">
         <div class="progress-ring">
           <b>{{ project.progress || 65 }}%</b>
         </div>
-        <small>STEP 05 · PPT GENERATION</small>
+        <small>STEP 06 · PPT GENERATION</small>
         <h2>{{ project.current_stage || "正在生成可编辑PPTX" }}</h2>
         <p>正在检查标题、20字限制、素材比例与固定结尾页。</p>
         <div class="check-flow">
@@ -383,6 +397,7 @@ const stageLabels = [
   "上传文档",
   "AI内容解析",
   "目录确认",
+  "模板选择",
   "幻灯片规划",
   "PPT生成",
   "预览下载",
@@ -409,9 +424,10 @@ const templates = ref([]),
   templateStyle = ref("AI_RECOMMEND"),
   templateId = ref(""),
   templateReason = ref(""),
-  templateUploading = ref(false);
+  templateUploading = ref(false),
+  templateTab = ref("system");
 const builtInTemplates = computed(() =>
-    templates.value.filter((x) => x.builtIn),
+    templates.value.filter((x) => x.builtIn && x.style !== "AI_RECOMMEND"),
   ),
   customTemplates = computed(() => templates.value.filter((x) => !x.builtIn));
 function selectFile(e) {
@@ -467,7 +483,7 @@ async function makeOutline() {
     busy.value = false;
   }
 }
-async function saveAndPlan() {
+async function saveAndChooseTemplate() {
   busy.value = true;
   try {
     await savePptOutline(
@@ -479,11 +495,22 @@ async function saveAndPlan() {
         sectionOrder: i + 1,
       })),
     );
+    await loadTemplates();
+    stage.value = 4;
+  } catch (e) {
+    ElMessage.error(e?.responseData?.message || "目录保存失败");
+  } finally {
+    busy.value = false;
+  }
+}
+async function confirmTemplateAndPlan() {
+  busy.value = true;
+  try {
     const data = await planPptSlides(project.value.id);
     project.value = data;
     outline.value = data.outline || [];
     slides.value = data.slides || [];
-    stage.value = 4;
+    stage.value = 5;
   } catch (e) {
     ElMessage.error(e?.responseData?.message || "规划失败");
   } finally {
@@ -515,7 +542,7 @@ async function regenerate(s) {
 }
 async function startGenerate() {
   busy.value = true;
-  stage.value = 5;
+  stage.value = 6;
   try {
     project.value = {
       ...project.value,
@@ -524,14 +551,22 @@ async function startGenerate() {
     };
     await generatePptFile(project.value.id);
     project.value = await getPptProgress(project.value.id);
-    stage.value = 6;
+    stage.value = 7;
     ElMessage.success("PPTX生成完成");
   } catch (e) {
-    stage.value = 4;
+    stage.value = 5;
     ElMessage.error(e?.responseData?.message || e.message || "生成失败");
   } finally {
     busy.value = false;
   }
+}
+function templateCoverStyle(item) {
+  const colors = item?.metadata?.colors || [];
+  return {
+    "--cover-primary": colors[0] || "#6E4FFF",
+    "--cover-secondary": colors[1] || "#FF55B0",
+    "--cover-bg": colors[3] || "#F7F5FF",
+  };
 }
 async function loadTemplates() {
   try {
@@ -565,7 +600,7 @@ async function uploadTemplate(e) {
   try {
     const created = await uploadPptTemplateZip(zip);
     await loadTemplates();
-    if (created?.[0]) await applyTemplate("CUSTOM", created[0].id);
+    if (created?.[0]) { templateTab.value = "custom"; await applyTemplate("CUSTOM", created[0].id); }
     ElMessage.success(`已解析${created?.length || 0}个模板`);
   } catch (err) {
     ElMessage.error(err?.responseData?.message || "模板上传失败");
@@ -604,9 +639,9 @@ async function resume() {
     templateId.value = data.template_id || "";
     stage.value =
       data.status === "SUCCESS"
-        ? 6
+        ? 7
         : data.status === "PLANNED"
-          ? 4
+          ? 5
           : data.status === "OUTLINE_READY"
             ? 3
             : data.status === "ANALYZED"
@@ -736,7 +771,7 @@ select {
 }
 .steps {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(7, 1fr);
   width: min(1400px, calc(100% - 20px));
   margin: 0 auto 18px;
   padding: 10px;
@@ -1279,4 +1314,6 @@ select {
     flex-direction: column;
   }
 }
+.template-stage{padding:28px}.template-stage-header{display:flex;align-items:flex-start;justify-content:space-between;gap:24px}.template-stage-header h2{margin:7px 0;font-size:30px}.template-stage-header p{margin:0;color:#7b8193}.template-recommend{display:flex;align-items:center;gap:12px;margin:20px 0;padding:13px 16px;border:1px solid #e8e1fa;border-radius:13px;background:linear-gradient(110deg,#f2eeff,#fff2f8);color:#676e82}.template-recommend b{color:#6e4fff}.template-cover-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}.template-cover-card{overflow:hidden;padding:0;border:1px solid #e3dfec;border-radius:18px;background:#fff;color:#24283a;text-align:left;transition:.2s}.template-cover-card:hover{transform:translateY(-3px);box-shadow:0 18px 38px #392f7118}.template-cover-card.selected{border-color:#7459ed;box-shadow:0 0 0 3px #e9e2ff,0 18px 38px #6e4fff1f}.cover-preview{position:relative;display:flex;flex-direction:column;justify-content:center;min-height:176px;padding:26px;background:linear-gradient(135deg,var(--cover-bg,#f7f5ff),#fff);isolation:isolate}.cover-preview:before,.cover-preview:after{content:"";position:absolute;z-index:-1;border-radius:999px;background:linear-gradient(135deg,var(--cover-primary,#6e4fff),var(--cover-secondary,#ff55b0));opacity:.22}.cover-preview:before{width:150px;height:150px;right:-48px;top:-52px}.cover-preview:after{width:78px;height:78px;left:-24px;bottom:-30px}.cover-preview small{color:var(--cover-primary,#6e4fff);font-size:9px;font-weight:900;letter-spacing:.15em}.cover-preview strong{max-width:80%;margin:13px 0 8px;font-size:25px;line-height:1.15}.cover-preview i{width:48px;height:3px;border-radius:3px;background:linear-gradient(90deg,var(--cover-primary,#6e4fff),var(--cover-secondary,#ff55b0))}.cover-preview em{margin-top:8px;color:#83899a;font-size:10px;font-style:normal}.cover-meta{display:grid;gap:6px;padding:15px}.cover-meta>b{font-size:16px}.cover-meta small{min-height:32px;color:#858b9b;line-height:1.45}.cover-meta em{justify-self:start;padding:4px 8px;border-radius:99px;background:#f1edff;color:#6e4fff;font-size:9px;font-style:normal}.theme-tech_defense{--cover-primary:#2563eb;--cover-secondary:#22d3ee;--cover-bg:#eff6ff}.theme-simple_academic{--cover-primary:#6e4fff;--cover-secondary:#a78bfa;--cover-bg:#f8f7fc}.theme-environment_design{--cover-primary:#397c62;--cover-secondary:#b4d58c;--cover-bg:#f1f7f2}.theme-visual_communication{--cover-primary:#7c3aed;--cover-secondary:#ff4da6;--cover-bg:#fff0f8}.theme-business{--cover-primary:#1e3a5f;--cover-secondary:#d9a441;--cover-bg:#f3f6fa}.theme-minimal_premium{--cover-primary:#22242a;--cover-secondary:#b9a27b;--cover-bg:#f6f3ee}.theme-ai_recommend{--cover-primary:#6e4fff;--cover-secondary:#ff55b0;--cover-bg:#f5f1ff}.template-stage-actions{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:18px;margin-top:24px}.template-stage-actions>span{color:#858b9b;text-align:center}@media(max-width:1000px){.template-cover-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.template-stage-header{flex-direction:column}.template-stage-actions{grid-template-columns:1fr}.template-stage-actions>span{text-align:left}}@media(max-width:680px){.template-cover-grid{grid-template-columns:1fr}}
+.template-source-tabs{display:flex;gap:8px;margin:0 0 16px}.template-source-tabs button{padding:9px 14px;border:1px solid #e3deef;border-radius:99px;background:#fff;color:#777e90}.template-source-tabs button.active{border-color:#8168ef;background:#eee9ff;color:#6e4fff;font-weight:800}
 </style>
