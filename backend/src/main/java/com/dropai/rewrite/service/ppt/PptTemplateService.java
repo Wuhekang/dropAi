@@ -112,9 +112,9 @@ public class PptTemplateService {
                     if(shape instanceof XSLFGraphicFrame){charts++;graphicFrames++;if(shape instanceof XSLFTable)hasTable=true;addRegion(regions,shape,shape instanceof XSLFTable?"table":"chart",deck);}
                     if(shape instanceof XSLFSimpleShape simple){Color c=paintColor(simple.getFillStyle()==null?null:simple.getFillStyle().getPaint());if(c!=null){colorFrequency.merge(hex(c),1,Integer::sum);slideColors.merge(hex(c),1,Integer::sum);}}
                 }
-                String pageType=pageType(index,deck.getSlides().size(),visibleText.toString(),textShapes,pictureShapes,graphicFrames,hasTable);types.add(pageType);String layout=slideLayout(regions,pictureShapes,graphicFrames,hasTable);
+                LayoutAnalysis analysis=analyzeLayout(regions,textShapes,graphicFrames,hasTable);String pageType=pageType(index,deck.getSlides().size(),visibleText.toString(),textShapes,analysis.hasImageSlot()?1:0,graphicFrames,hasTable);types.add(pageType);String layout=analysis.layoutStyle();
                 List<String> palette=slideColors.entrySet().stream().sorted(Map.Entry.<String,Integer>comparingByValue().reversed()).map(Map.Entry::getKey).limit(6).toList();
-                slides.add(new TemplateSlideMetadata(index+1,"slide_"+(index+1),pageType,palette,layout,regions,textShapes,pictureShapes,graphicFrames,hasTable));
+                slides.add(new TemplateSlideMetadata(index+1,"slide_"+(index+1),pageType,palette,layout,regions,textShapes,pictureShapes,graphicFrames,hasTable,analysis.hasImageSlot(),analysis.hasLeftDecoration(),analysis.hasRightDecoration(),analysis.safeArea(),analysis.visualCenterX(),analysis.titleAlign(),analysis.contentAlign()));
             }
             List<String> palette=colorFrequency.entrySet().stream().filter(e->!List.of("#FFFFFF","#000000").contains(e.getKey())).sorted(Map.Entry.<String,Integer>comparingByValue().reversed()).map(Map.Entry::getKey).limit(8).toList();if(palette.isEmpty())palette=List.of("#6E4FFF","#FF55B0","#202438","#F7F5FF");
             String templateName=stripExtension(pptx.getFileName().toString());if("template".equalsIgnoreCase(templateName)&&pptx.getParent()!=null)templateName=pptx.getParent().getFileName().toString();String style=classifyStyle(templateName,palette,pictures,deck.getSlides().size());String major=suitableMajor(style,templateName);
@@ -128,9 +128,18 @@ public class PptTemplateService {
         if(normalized.matches("(?s).*(时间轴|发展历程|实施流程|timeline|milestone).*$"))return "timeline";
         if(pictures>0)return "image";if(textShapes<=3)return "section";return "content";
     }
-    private String slideLayout(List<UsableRegion> regions,int pictures,int frames,boolean table){
-        if(table)return "table";if(frames>0)return "chart";if(pictures>0){UsableRegion image=regions.stream().filter(r->"image".equals(r.usage())).findFirst().orElse(null);if(image==null)return "image";if(image.width()>55)return "full_image";return image.x()<45?"image_left":"image_right";}long text=regions.stream().filter(r->"text".equals(r.usage())).count();return text>=4?"multi_text":text>=2?"two_column":"text";
+    private LayoutAnalysis analyzeLayout(List<UsableRegion> regions,int textShapes,int frames,boolean table){
+        List<UsableRegion> images=regions.stream().filter(r->"image".equals(r.usage())).toList();boolean left=images.stream().anyMatch(r->isEdgeDecoration(r,true)),right=images.stream().anyMatch(r->isEdgeDecoration(r,false));
+        List<UsableRegion> slots=images.stream().filter(this::isContentImageSlot).toList();boolean hasImage=!slots.isEmpty(),centeredText=!hasImage&&frames==0&&!table;double leftWeight=decorationWeight(images,true),rightWeight=decorationWeight(images,false);SafeArea safe=computeSafeArea(left,right,leftWeight,rightWeight);double center=computeVisualCenter(safe,leftWeight,rightWeight);String titleAlign=resolveTitleAlignment(hasImage,centeredText),contentAlign=centeredText?"center":"left";
+        String style;if(table)style="chart-table";else if(frames>0)style="chart";else if(hasImage){UsableRegion slot=slots.get(0);style=slot.x()+slot.width()/2<50?"image-left":"image-right";}else if(textShapes<=9)style="title-only-centered";else style="text-centered-safe";
+        return new LayoutAnalysis(style,hasImage,left,right,safe,center,titleAlign,contentAlign);
     }
+    private boolean isEdgeDecoration(UsableRegion r,boolean left){double center=r.x()+r.width()/2;return r.height()>=25&&r.width()<=32&&(left?center<=20:center>=80);}
+    private boolean isContentImageSlot(UsableRegion r){double area=r.width()*r.height();double center=r.x()+r.width()/2;return area>=550&&r.width()>=22&&r.height()>=18&&center>22&&center<78&&r.x()>12&&r.x()+r.width()<94;}
+    private double decorationWeight(List<UsableRegion> images,boolean left){return images.stream().filter(r->isEdgeDecoration(r,left)).mapToDouble(r->r.width()*r.height()).sum();}
+    private SafeArea computeSafeArea(boolean left,boolean right,double leftWeight,double rightWeight){double l=left?0.18:0.12,r=right?0.82:0.88;if(leftWeight>rightWeight*1.35){l=Math.min(0.22,l+0.03);r=Math.min(0.86,r+0.02);}else if(rightWeight>leftWeight*1.35){l=Math.max(0.14,l-0.02);r=Math.max(0.78,r-0.03);}return new SafeArea(round(l),round(r),0.14,0.86);}
+    private double computeVisualCenter(SafeArea safe,double leftWeight,double rightWeight){double center=(safe.left()+safe.right())/2;if(leftWeight>rightWeight*1.35)center+=0.025;else if(rightWeight>leftWeight*1.35)center-=0.025;return round(Math.max(safe.left()+0.1,Math.min(safe.right()-0.1,center)));}
+    private String resolveTitleAlignment(boolean hasImage,boolean centeredText){return !hasImage&&centeredText?"center":"left";}
     private void addRegion(List<UsableRegion> regions,XSLFShape shape,String usage,XMLSlideShow deck){Rectangle2D a=shape.getAnchor();if(a==null||a.getWidth()<20||a.getHeight()<12)return;double w=deck.getPageSize().getWidth(),h=deck.getPageSize().getHeight();regions.add(new UsableRegion(round(a.getX()*100/w),round(a.getY()*100/h),round(a.getWidth()*100/w),round(a.getHeight()*100/h),usage));}
     private double round(double value){return Math.round(value*100.0)/100.0;}
     private List<XSLFShape> allShapes(List<XSLFShape> source){List<XSLFShape> out=new ArrayList<>();for(XSLFShape shape:source)collect(shape,out);return out;}
@@ -167,7 +176,9 @@ public class PptTemplateService {
     private String string(Object value){return value==null?"":String.valueOf(value);}
     private int integer(Object value,int fallback){try{return value instanceof Number n?n.intValue():Integer.parseInt(string(value));}catch(Exception e){return fallback;}}
 
+    private record LayoutAnalysis(String layoutStyle,boolean hasImageSlot,boolean hasLeftDecoration,boolean hasRightDecoration,SafeArea safeArea,double visualCenterX,String titleAlign,String contentAlign){}
+    public record SafeArea(double left,double right,double top,double bottom){}
     public record UsableRegion(double x,double y,double width,double height,String usage){}
-    public record TemplateSlideMetadata(int pageNumber,String slideId,String pageType,List<String> colors,String layout,List<UsableRegion> usableRegions,int textShapeCount,int pictureCount,int chartCount,boolean hasTable){}
+    public record TemplateSlideMetadata(int pageNumber,String slideId,String pageType,List<String> colors,String layout,List<UsableRegion> usableRegions,int textShapeCount,int pictureCount,int chartCount,boolean hasTable,boolean hasImageSlot,boolean hasLeftDecoration,boolean hasRightDecoration,SafeArea safeArea,double visualCenterX,String titleAlign,String contentAlign){}
     public record TemplateMetadata(String templateName,String style,List<String> colors,List<String> fonts,String suitableMajor,List<String> slideTypes,int pageWidth,int pageHeight,int slideCount,int pictureCount,int chartCount,String layoutVariant,List<TemplateSlideMetadata> slides){}
 }

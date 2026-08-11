@@ -54,7 +54,7 @@ class PptTemplateEngineTest {
 
     @Test void websiteTemplateMapsFixedPagesAndMixesBodySlides()throws Exception{
         Path source=Path.of("../qa/website-custom-template-17-final.pptx");assumeTrue(Files.isRegularFile(source));Path dir=Path.of("target","ppt-template-mapping-qa");Files.createDirectories(dir);
-        ObjectMapper mapper=new ObjectMapper();PptTemplateService.TemplateMetadata metadata=new PptTemplateService(null,mapper).analyze(source);mapper.writerWithDefaultPrettyPrinter().writeValue(dir.resolve("template_metadata.json").toFile(),metadata);assertEquals(metadata.slideCount(),metadata.slides().size());
+        ObjectMapper mapper=new ObjectMapper();PptTemplateService.TemplateMetadata metadata=new PptTemplateService(null,mapper).analyze(source);mapper.writerWithDefaultPrettyPrinter().writeValue(dir.resolve("template_metadata.json").toFile(),metadata);assertEquals(metadata.slideCount(),metadata.slides().size());PptTemplateService.TemplateSlideMetadata titlePage=metadata.slides().get(2);assertTrue(titlePage.hasLeftDecoration());assertTrue(titlePage.hasRightDecoration());assertFalse(titlePage.hasImageSlot());assertEquals("center",titlePage.titleAlign());assertTrue(titlePage.safeArea().left()>=.18);assertTrue(titlePage.safeArea().right()<=.82);
         PptxGenerator generator=new PptxGenerator(new PptTextValidator());
         var body=List.of(
                 new PptxGenerator.SlideSpec("系统架构",List.of("前后端分层设计","数据服务统一管理"),"架构说明",null,"TIMELINE"),
