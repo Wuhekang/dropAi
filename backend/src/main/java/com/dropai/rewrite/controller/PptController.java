@@ -2,6 +2,7 @@ package com.dropai.rewrite.controller;
 
 import com.dropai.rewrite.service.PointsNotEnoughException;
 import com.dropai.rewrite.service.ppt.PptProjectService;
+import com.dropai.rewrite.service.ppt.PptTemplateService;
 import com.dropai.rewrite.vo.Result;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.http.ContentDisposition;
@@ -26,7 +27,13 @@ import java.util.Map;
 @RequestMapping("/api/ppt")
 public class PptController {
     private final PptProjectService service;
-    public PptController(PptProjectService service){this.service=service;}
+    private final PptTemplateService templates;
+    public PptController(PptProjectService service,PptTemplateService templates){this.service=service;this.templates=templates;}
+
+    @GetMapping("/templates") public Result<List<Map<String,Object>>> templates(){return Result.success(templates.list());}
+    @PostMapping("/templates/upload") public Result<List<Map<String,Object>>> uploadTemplates(@RequestParam("file") MultipartFile file)throws Exception{return Result.success(templates.uploadZip(file));}
+    @GetMapping("/projects/{id}/template/recommend") public Result<Map<String,Object>> recommendTemplate(@PathVariable String id){return Result.success(templates.recommend(id));}
+    @PutMapping("/projects/{id}/template") public Result<Map<String,Object>> selectTemplate(@PathVariable String id,@RequestBody Map<String,Object> input){return Result.success(templates.select(id,input));}
 
     @GetMapping("/projects") public Result<List<Map<String,Object>>> list(){return Result.success(service.list());}
     @PostMapping("/projects") public Result<Map<String,Object>> create(@RequestBody Map<String,Object> input){return Result.success(service.create(input));}

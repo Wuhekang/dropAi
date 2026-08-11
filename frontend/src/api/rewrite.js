@@ -647,3 +647,7 @@ export function regeneratePptSlide(id, slideId) { return request.post(`/ppt/proj
 export function generatePptFile(id) { return request.post(`/ppt/projects/${id}/generate`, {}, { timeout: 600000 }) }
 export function getPptProgress(id) { return request.get(`/ppt/projects/${id}/progress`) }
 export function downloadPptFile(id) { return request.get(`/ppt/projects/${id}/download`, { responseType: 'blob', timeout: 300000 }) }
+export function listPptTemplates() { return request.get('/ppt/templates') }
+export function uploadPptTemplateZip(file) { const form = new FormData(); form.append('file', file?.raw || file); return request.post('/ppt/templates/upload', form, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 600000 }) }
+export function recommendPptTemplate(id) { return request.get(`/ppt/projects/${id}/template/recommend`) }
+export function selectPptTemplate(id, data) { return request.put(`/ppt/projects/${id}/template`, data) }

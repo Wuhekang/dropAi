@@ -23,6 +23,14 @@ public class PptSchemaInitializer implements ApplicationRunner {
             String m = String.valueOf(e.getMostSpecificCause()).toLowerCase();
             if (!m.contains("already exists") && !m.contains("duplicate")) throw e;
         }
+        ensureColumn("ppt_project","template_style","ALTER TABLE ppt_project ADD COLUMN template_style VARCHAR(40) NOT NULL DEFAULT 'AI_RECOMMEND'");
+        ensureColumn("ppt_project","template_id","ALTER TABLE ppt_project ADD COLUMN template_id VARCHAR(64)");
+        ensureColumn("ppt_project","template_metadata_json","ALTER TABLE ppt_project ADD COLUMN template_metadata_json "+(h2?"CLOB":"LONGTEXT"));
+    }
+
+    private void ensureColumn(String table,String column,String ddl) throws Exception {
+        try(Connection c=dataSource.getConnection();var rs=c.getMetaData().getColumns(c.getCatalog(),null,table,column)){if(rs.next())return;}
+        jdbc.execute(ddl);
     }
 
     private List<String> statements(boolean h2) {
@@ -35,6 +43,7 @@ public class PptSchemaInitializer implements ApplicationRunner {
             "CREATE TABLE IF NOT EXISTS ppt_slide (id VARCHAR(64) PRIMARY KEY,project_id VARCHAR(64) NOT NULL,section_id VARCHAR(64),slide_order INT NOT NULL,slide_type VARCHAR(40) NOT NULL,title VARCHAR(255) NOT NULL,body_boxes_json "+text+",asset_ids_json "+text+",speaker_notes "+text+",layout_type VARCHAR(60),validation_status VARCHAR(40) NOT NULL DEFAULT 'PENDING')"+suffix,
             "CREATE TABLE IF NOT EXISTS ppt_asset (id VARCHAR(64) PRIMARY KEY,project_id VARCHAR(64) NOT NULL,source_type VARCHAR(40) NOT NULL,source_page INT,source_position VARCHAR(120),file_path VARCHAR(700) NOT NULL,caption VARCHAR(500),width INT,height INT,created_at "+time+" NOT NULL)"+suffix,
             "CREATE TABLE IF NOT EXISTS ppt_generation_task (id VARCHAR(64) PRIMARY KEY,project_id VARCHAR(64) NOT NULL,user_id BIGINT NOT NULL,status VARCHAR(40) NOT NULL,progress INT NOT NULL DEFAULT 0,current_stage VARCHAR(120),error_message "+text+",created_at "+time+" NOT NULL,updated_at "+time+" NOT NULL)"+suffix,
+            "CREATE TABLE IF NOT EXISTS ppt_template (id VARCHAR(64) PRIMARY KEY,user_id BIGINT NOT NULL,template_name VARCHAR(255) NOT NULL,style VARCHAR(40) NOT NULL,suitable_major VARCHAR(255),slide_types_json "+text+",metadata_json "+text+",file_path VARCHAR(700) NOT NULL,status VARCHAR(40) NOT NULL DEFAULT 'READY',created_at "+time+" NOT NULL,updated_at "+time+" NOT NULL)"+suffix,
             "INSERT INTO feature_pricing (feature_code,feature_name,cost_points,enabled) SELECT 'PPT_GENERATE','PPT智能生成',100,1 WHERE NOT EXISTS (SELECT 1 FROM feature_pricing WHERE feature_code='PPT_GENERATE')"
         );
     }

@@ -16,8 +16,8 @@ spring:
     password: ${SPRING_DATASOURCE_PASSWORD:123456}
   servlet:
     multipart:
-      max-file-size: 50MB
-      max-request-size: 60MB
+      max-file-size: 500MB
+      max-request-size: 500MB
 
 mybatis-plus:
   configuration:
