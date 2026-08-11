@@ -6,6 +6,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.poi.sl.usermodel.PaintStyle;
 import org.apache.poi.xslf.usermodel.XMLSlideShow;
 import org.apache.poi.xslf.usermodel.XSLFShape;
+import org.apache.poi.xslf.usermodel.XSLFGroupShape;
+import org.apache.poi.xslf.usermodel.XSLFPictureShape;
+import org.apache.poi.xslf.usermodel.XSLFGraphicFrame;
+import org.apache.poi.xslf.usermodel.XSLFTable;
 import org.apache.poi.xslf.usermodel.XSLFSimpleShape;
 import org.apache.poi.xslf.usermodel.XSLFTextShape;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -14,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.awt.Color;
+import java.awt.geom.Rectangle2D;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -73,7 +78,7 @@ public class PptTemplateService {
         Files.deleteIfExists(archive);
         if(pptxFiles.isEmpty())throw new IllegalArgumentException("ZIP中未找到PPTX模板");
         List<Map<String,Object>> created=new ArrayList<>();
-        for(Path pptx:pptxFiles){TemplateMetadata meta=analyze(pptx);String id=UUID.randomUUID().toString();Path dir=inside(root.resolve(userId.toString()).resolve(id));Files.createDirectories(dir);Path stored=inside(dir.resolve("template.pptx"));Files.move(pptx,stored,StandardCopyOption.REPLACE_EXISTING);
+        for(Path pptx:pptxFiles){TemplateMetadata meta=analyze(pptx);String id=UUID.randomUUID().toString();Path dir=inside(root.resolve(userId.toString()).resolve(id));Files.createDirectories(dir);Path stored=inside(dir.resolve("template.pptx"));Files.move(pptx,stored,StandardCopyOption.REPLACE_EXISTING);Files.writeString(inside(dir.resolve("template_metadata.json")),mapper.writerWithDefaultPrettyPrinter().writeValueAsString(meta));
             jdbc.update("INSERT INTO ppt_template(id,user_id,template_name,style,suitable_major,slide_types_json,metadata_json,file_path,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?, 'READY',?,?)",id,userId,meta.templateName(),meta.style(),meta.suitableMajor(),json(meta.slideTypes()),json(meta),stored.toString(),LocalDateTime.now(),LocalDateTime.now());
             Map<String,Object> row=new LinkedHashMap<>();row.put("id",id);row.put("templateName",meta.templateName());row.put("style",meta.style());row.put("suitableMajor",meta.suitableMajor());row.put("slideTypes",meta.slideTypes());row.put("metadata",meta);created.add(row);
         }
@@ -98,23 +103,38 @@ public class PptTemplateService {
 
     public TemplateMetadata analyze(Path pptx)throws Exception{
         try(InputStream in=Files.newInputStream(pptx);XMLSlideShow deck=new XMLSlideShow(in)){
-            Map<String,Integer> colorFrequency=new LinkedHashMap<>();Set<String> fonts=new LinkedHashSet<>(),types=new LinkedHashSet<>();int pictures=0,charts=0;
+            Map<String,Integer> colorFrequency=new LinkedHashMap<>();Set<String> fonts=new LinkedHashSet<>(),types=new LinkedHashSet<>();List<TemplateSlideMetadata> slides=new ArrayList<>();int pictures=0,charts=0;
             for(int index=0;index<deck.getSlides().size();index++){
-                var slide=deck.getSlides().get(index);int textShapes=0,pictureShapes=0;
-                for(XSLFShape shape:slide.getShapes()){
-                    if(shape instanceof XSLFTextShape text){textShapes++;text.getTextParagraphs().forEach(p->p.getTextRuns().forEach(r->{if(r.getFontFamily()!=null&&!r.getFontFamily().isBlank())fonts.add(r.getFontFamily());Color c=paintColor(r.getFontColor());if(c!=null)colorFrequency.merge(hex(c),1,Integer::sum);}));}
-                    if(shape instanceof org.apache.poi.xslf.usermodel.XSLFPictureShape){pictures++;pictureShapes++;}
-                    if(shape instanceof org.apache.poi.xslf.usermodel.XSLFGraphicFrame)charts++;
-                    if(shape instanceof XSLFSimpleShape simple){Color c=paintColor(simple.getFillStyle()==null?null:simple.getFillStyle().getPaint());if(c!=null)colorFrequency.merge(hex(c),1,Integer::sum);}
+                var slide=deck.getSlides().get(index);int textShapes=0,pictureShapes=0,graphicFrames=0;boolean hasTable=false;Map<String,Integer> slideColors=new LinkedHashMap<>();List<UsableRegion> regions=new ArrayList<>();StringBuilder visibleText=new StringBuilder();
+                for(XSLFShape shape:allShapes(slide.getShapes())){
+                    if(shape instanceof XSLFTextShape text){textShapes++;if(!text.getText().isBlank())visibleText.append(text.getText()).append('\n');text.getTextParagraphs().forEach(p->p.getTextRuns().forEach(r->{if(r.getFontFamily()!=null&&!r.getFontFamily().isBlank())fonts.add(r.getFontFamily());Color c=paintColor(r.getFontColor());if(c!=null){colorFrequency.merge(hex(c),1,Integer::sum);slideColors.merge(hex(c),1,Integer::sum);}}));addRegion(regions,shape,"text",deck);}
+                    if(shape instanceof XSLFPictureShape){pictures++;pictureShapes++;addRegion(regions,shape,"image",deck);}
+                    if(shape instanceof XSLFGraphicFrame){charts++;graphicFrames++;if(shape instanceof XSLFTable)hasTable=true;addRegion(regions,shape,shape instanceof XSLFTable?"table":"chart",deck);}
+                    if(shape instanceof XSLFSimpleShape simple){Color c=paintColor(simple.getFillStyle()==null?null:simple.getFillStyle().getPaint());if(c!=null){colorFrequency.merge(hex(c),1,Integer::sum);slideColors.merge(hex(c),1,Integer::sum);}}
                 }
-                if(index==0)types.add("cover");else if(index==deck.getSlides().size()-1)types.add("thanks");else if(pictureShapes>0)types.add("image");else if(textShapes<=2)types.add("section");else types.add("content");
+                String pageType=pageType(index,deck.getSlides().size(),visibleText.toString(),textShapes,pictureShapes,graphicFrames,hasTable);types.add(pageType);String layout=slideLayout(regions,pictureShapes,graphicFrames,hasTable);
+                List<String> palette=slideColors.entrySet().stream().sorted(Map.Entry.<String,Integer>comparingByValue().reversed()).map(Map.Entry::getKey).limit(6).toList();
+                slides.add(new TemplateSlideMetadata(index+1,"slide_"+(index+1),pageType,palette,layout,regions,textShapes,pictureShapes,graphicFrames,hasTable));
             }
-            types.add("catalog");if(charts>0)types.add("chart");
             List<String> palette=colorFrequency.entrySet().stream().filter(e->!List.of("#FFFFFF","#000000").contains(e.getKey())).sorted(Map.Entry.<String,Integer>comparingByValue().reversed()).map(Map.Entry::getKey).limit(8).toList();if(palette.isEmpty())palette=List.of("#6E4FFF","#FF55B0","#202438","#F7F5FF");
             String templateName=stripExtension(pptx.getFileName().toString());if("template".equalsIgnoreCase(templateName)&&pptx.getParent()!=null)templateName=pptx.getParent().getFileName().toString();String style=classifyStyle(templateName,palette,pictures,deck.getSlides().size());String major=suitableMajor(style,templateName);
-            return new TemplateMetadata(templateName,style,palette,fonts.stream().limit(6).toList(),major,new ArrayList<>(types),deck.getPageSize().width,deck.getPageSize().height,deck.getSlides().size(),pictures,charts,layoutVariant(style));
+            return new TemplateMetadata(templateName,style,palette,fonts.stream().limit(6).toList(),major,new ArrayList<>(types),deck.getPageSize().width,deck.getPageSize().height,deck.getSlides().size(),pictures,charts,layoutVariant(style),slides);
         }
     }
+
+    private String pageType(int index,int total,String text,int textShapes,int pictures,int frames,boolean table){
+        String normalized=text.toLowerCase(Locale.ROOT);if(index==0)return "cover";if(index==1)return "catalog";if(index==total-1||normalized.matches("(?s).*(谢谢|thank|致谢).*$"))return "thanks";
+        if(table||normalized.matches("(?s).*(测试结果|数据表|统计表|table).*$"))return "chart";
+        if(normalized.matches("(?s).*(时间轴|发展历程|实施流程|timeline|milestone).*$"))return "timeline";
+        if(pictures>0)return "image";if(textShapes<=3)return "section";return "content";
+    }
+    private String slideLayout(List<UsableRegion> regions,int pictures,int frames,boolean table){
+        if(table)return "table";if(frames>0)return "chart";if(pictures>0){UsableRegion image=regions.stream().filter(r->"image".equals(r.usage())).findFirst().orElse(null);if(image==null)return "image";if(image.width()>55)return "full_image";return image.x()<45?"image_left":"image_right";}long text=regions.stream().filter(r->"text".equals(r.usage())).count();return text>=4?"multi_text":text>=2?"two_column":"text";
+    }
+    private void addRegion(List<UsableRegion> regions,XSLFShape shape,String usage,XMLSlideShow deck){Rectangle2D a=shape.getAnchor();if(a==null||a.getWidth()<20||a.getHeight()<12)return;double w=deck.getPageSize().getWidth(),h=deck.getPageSize().getHeight();regions.add(new UsableRegion(round(a.getX()*100/w),round(a.getY()*100/h),round(a.getWidth()*100/w),round(a.getHeight()*100/h),usage));}
+    private double round(double value){return Math.round(value*100.0)/100.0;}
+    private List<XSLFShape> allShapes(List<XSLFShape> source){List<XSLFShape> out=new ArrayList<>();for(XSLFShape shape:source)collect(shape,out);return out;}
+    private void collect(XSLFShape shape,List<XSLFShape> out){out.add(shape);if(shape instanceof XSLFGroupShape group)for(XSLFShape child:group.getShapes())collect(child,out);}
 
     private PptxGenerator.TemplateProfile profile(String style,String templateId){
         if(templateId!=null&&!templateId.isBlank()){
@@ -147,5 +167,7 @@ public class PptTemplateService {
     private String string(Object value){return value==null?"":String.valueOf(value);}
     private int integer(Object value,int fallback){try{return value instanceof Number n?n.intValue():Integer.parseInt(string(value));}catch(Exception e){return fallback;}}
 
-    public record TemplateMetadata(String templateName,String style,List<String> colors,List<String> fonts,String suitableMajor,List<String> slideTypes,int pageWidth,int pageHeight,int slideCount,int pictureCount,int chartCount,String layoutVariant){}
+    public record UsableRegion(double x,double y,double width,double height,String usage){}
+    public record TemplateSlideMetadata(int pageNumber,String slideId,String pageType,List<String> colors,String layout,List<UsableRegion> usableRegions,int textShapeCount,int pictureCount,int chartCount,boolean hasTable){}
+    public record TemplateMetadata(String templateName,String style,List<String> colors,List<String> fonts,String suitableMajor,List<String> slideTypes,int pageWidth,int pageHeight,int slideCount,int pictureCount,int chartCount,String layoutVariant,List<TemplateSlideMetadata> slides){}
 }

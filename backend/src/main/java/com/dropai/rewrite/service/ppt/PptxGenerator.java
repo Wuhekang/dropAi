@@ -1,5 +1,6 @@
 package com.dropai.rewrite.service.ppt;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.poi.sl.usermodel.PictureData;
 import org.apache.poi.sl.usermodel.TextParagraph;
 import org.apache.poi.xslf.usermodel.*;
@@ -13,9 +14,14 @@ import java.awt.image.BufferedImage;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
+import java.util.Set;
 
 @Service
 public class PptxGenerator {
@@ -55,38 +61,73 @@ public class PptxGenerator {
     }
 
     private GenerationResult generateFromTemplate(DeckSpec spec,Path output,Path source)throws Exception{
-        Files.createDirectories(output.getParent());List<String> fixes=new ArrayList<>();
+        Files.createDirectories(output.getParent());List<String> fixes=new ArrayList<>();List<TemplateUsageLog> usageLog=new ArrayList<>();
         try(XMLSlideShow template=new XMLSlideShow(Files.newInputStream(source));XMLSlideShow deck=new XMLSlideShow()){
-            deck.setPageSize(template.getPageSize());Map<String,List<XSLFSlide>> roles=classifyTemplateSlides(template);
-            int no=1;XSLFSlide slide=copyTemplateSlide(deck,pick(roles,"cover",0));fillTemplateSlide(slide,List.of(spec.topic(),spec.englishTopic(),"汇报人 "+safe(spec.presenter()),"专业 "+safe(spec.major())),null,no++,"cover");
+            deck.setPageSize(template.getPageSize());List<XSLFSlide> sourceSlides=new ArrayList<>(template.getSlides());PptTemplateService.TemplateMetadata metadata=new PptTemplateService(null,new ObjectMapper()).analyze(source);TemplateMatcher matcher=new TemplateMatcher(metadata,spec.topic());
+            int no=1;XSLFSlide slide=copyMappedSlide(deck,sourceSlides,matcher.fixed("cover"),no,"cover",usageLog);fillTemplateSlide(slide,List.of(spec.topic(),spec.englishTopic(),"汇报人 "+safe(spec.presenter()),"专业 "+safe(spec.major())),null,no++,"cover");
             List<String> directoryItems=new ArrayList<>();directoryItems.add("目录");for(SectionSpec section:spec.sections())directoryItems.add(section.title());
-            slide=copyTemplateSlide(deck,pick(roles,"catalog",1));fillTemplateSlide(slide,directoryItems,null,no++,"catalog");
+            slide=copyMappedSlide(deck,sourceSlides,matcher.fixed("catalog"),no,"catalog",usageLog);fillTemplateSlide(slide,directoryItems,null,no++,"catalog");
             for(SectionSpec section:spec.sections()){
-                slide=copyTemplateSlide(deck,pick(roles,"section",2));fillTemplateSlide(slide,List.of("SECTION",section.title(),"围绕来源文档展开"),null,no++,"section");
+                int sourcePage=matcher.match("section");slide=copyMappedSlide(deck,sourceSlides,sourcePage,no,"section",usageLog);fillTemplateSlide(slide,List.of("SECTION",section.title(),"围绕来源文档展开"),null,no++,"section");
                 for(SlideSpec raw:section.slides()){
                     PptTextValidator.ValidationResult checked=validator.validateSlideTextLimits(raw.title(),raw.bodyBoxes());fixes.addAll(checked.issues());
-                    List<String> copy=new ArrayList<>();copy.add(checked.title());copy.addAll(checked.bodyBoxes());String role=raw.assetPath()!=null&&Files.isRegularFile(raw.assetPath())?"image":"content";
-                    slide=copyTemplateSlide(deck,pick(roles,role,3));fillTemplateSlide(slide,copy,raw.assetPath(),no++,role);addSpeakerNotes(slide,raw.notes());
+                    List<String> copy=new ArrayList<>();copy.add(checked.title());copy.addAll(checked.bodyBoxes());String contentType=slideContentType(raw);String role="image_text".equals(contentType)?"image":"content";sourcePage=matcher.match(contentType);
+                    slide=copyMappedSlide(deck,sourceSlides,sourcePage,no,contentType,usageLog);fillTemplateSlide(slide,copy,raw.assetPath(),no++,role);addSpeakerNotes(slide,raw.notes());
                 }
             }
             List<String> futureCopy=new ArrayList<>();futureCopy.add("未来展望");futureCopy.addAll(spec.futureItems()==null?List.of():spec.futureItems());
-            slide=copyTemplateSlide(deck,pick(roles,"content",Math.max(0,template.getSlides().size()-2)));fillTemplateSlide(slide,futureCopy,null,no++,"future");
-            slide=copyTemplateSlide(deck,pick(roles,"thanks",template.getSlides().size()-1));fillTemplateSlide(slide,List.of("谢谢大家","THANK YOU","汇报人："+safe(spec.presenter()),"专业："+safe(spec.major()),"指导老师："+safe(spec.advisor()),"学号："+safe(spec.studentNumber())),null,no,"thanks");
+            int sourcePage=matcher.match("text");slide=copyMappedSlide(deck,sourceSlides,sourcePage,no,"future",usageLog);fillTemplateSlide(slide,futureCopy,null,no++,"future");
+            sourcePage=matcher.fixed("thanks");slide=copyMappedSlide(deck,sourceSlides,sourcePage,no,"thanks",usageLog);fillTemplateSlide(slide,List.of("谢谢大家","THANK YOU","汇报人："+safe(spec.presenter()),"专业："+safe(spec.major()),"指导老师："+safe(spec.advisor()),"学号："+safe(spec.studentNumber())),null,no,"thanks");
+            validateTemplateUsage(usageLog,metadata);writeTemplateUsageLog(output,source,metadata,usageLog);
             try(var out=Files.newOutputStream(output)){deck.write(out);}
         }
         verify(output,spec.sections().size());
         return new GenerationResult(output,Files.size(output),fixes.isEmpty()?"PASSED":"AUTO_FIXED",fixes);
     }
 
-    private Map<String,List<XSLFSlide>> classifyTemplateSlides(XMLSlideShow template){
-        Map<String,List<XSLFSlide>> roles=new LinkedHashMap<>();for(String role:List.of("cover","catalog","section","content","image","thanks"))roles.put(role,new ArrayList<>());
-        List<XSLFSlide> slides=template.getSlides();for(int i=0;i<slides.size();i++){XSLFSlide slide=slides.get(i);String text=slideText(slide);List<XSLFShape> shapes=allShapes(slide);long pictures=shapes.stream().filter(XSLFPictureShape.class::isInstance).count();long textShapes=shapes.stream().filter(XSLFTextShape.class::isInstance).count();
-            if(i==0)roles.get("cover").add(slide);if(i==slides.size()-1||text.matches("(?s).*(谢谢|THANK|致谢).*$"))roles.get("thanks").add(slide);if(text.matches("(?s).*(目录|CONTENTS|CONTENT).*$"))roles.get("catalog").add(slide);if(textShapes<=3)roles.get("section").add(slide);if(pictures>0)roles.get("image").add(slide);else if(i>0&&i<slides.size()-1)roles.get("content").add(slide);
-        }return roles;
+    private XSLFSlide copyMappedSlide(XMLSlideShow deck,List<XSLFSlide> sourceSlides,int sourcePage,int outputPage,String contentType,List<TemplateUsageLog> log){
+        if(sourcePage<1||sourcePage>sourceSlides.size())throw new IllegalArgumentException("模板页不存在: "+sourcePage);
+        log.add(new TemplateUsageLog(outputPage,sourcePage,contentType));return copyTemplateVisuals(deck,sourceSlides.get(sourcePage-1));
     }
+    private XSLFSlide copyTemplateVisuals(XMLSlideShow deck,XSLFSlide source){
+        XSLFSlide target=deck.createSlide();Color background=source.getBackground()==null?null:source.getBackground().getFillColor();if(background!=null)target.getBackground().setFillColor(background);
+        for(XSLFShape shape:source.getShapes())copyVisualShape(deck,target,shape);return target;
+    }
+    private void copyVisualShape(XMLSlideShow deck,XSLFSlide target,XSLFShape shape){
+        if(shape instanceof XSLFTextShape)return;
+        if(shape instanceof XSLFPictureShape picture){try{XSLFPictureData data=deck.addPicture(picture.getPictureData().getData(),picture.getPictureData().getType());XSLFPictureShape copy=target.createPicture(data);copy.setAnchor((Rectangle2D)picture.getAnchor().clone());copy.setRotation(picture.getRotation());}catch(Exception ignored){}return;}
+        if(shape instanceof XSLFAutoShape auto){try{XSLFAutoShape copy=target.createAutoShape();copy.setShapeType(auto.getShapeType());copy.setAnchor((Rectangle2D)auto.getAnchor().clone());copy.setRotation(auto.getRotation());Color fill=auto.getFillColor();if(fill!=null)copy.setFillColor(fill);Color line=auto.getLineColor();if(line!=null)copy.setLineColor(line);}catch(Exception ignored){}return;}
+        if(shape instanceof XSLFFreeformShape free){try{XSLFFreeformShape copy=target.createFreeform();copy.setAnchor((Rectangle2D)free.getAnchor().clone());Color fill=free.getFillColor();if(fill!=null)copy.setFillColor(fill);Color line=free.getLineColor();if(line!=null)copy.setLineColor(line);}catch(Exception ignored){}}
+    }
+    private String slideContentType(SlideSpec raw){String layout=safeLower(raw.layout()),title=safeLower(raw.title());if(raw.assetPath()!=null&&Files.isRegularFile(raw.assetPath()))return "image_text";if(layout.contains("chart")||title.matches(".*(图表|趋势|统计).*"))return "chart";if(layout.contains("table")||title.matches(".*(测试|结果|数据表).*"))return "table";if(layout.contains("timeline")||title.matches(".*(流程|历程|时间轴|架构).*"))return "timeline";return "text";}
+    private String safeLower(String value){return value==null?"":value.toLowerCase();}
+    private void validateTemplateUsage(List<TemplateUsageLog> log,PptTemplateService.TemplateMetadata metadata){
+        if(log.size()<3)throw new IllegalStateException("模板映射页数不足");
+        if(log.get(0).sourcePage()!=1||!"cover".equals(log.get(0).contentType()))throw new IllegalStateException("模板映射错误：第一页必须使用封面页");
+        if(log.get(1).sourcePage()!=2||!"catalog".equals(log.get(1).contentType()))throw new IllegalStateException("模板映射错误：第二页必须使用目录页");
+        TemplateUsageLog last=log.get(log.size()-1);if(!"thanks".equals(last.contentType()))throw new IllegalStateException("模板映射错误：最后一页必须使用致谢页");
+        Set<Integer> fixed=new HashSet<>(List.of(1,2,last.sourcePage()));Map<Integer,String> types=new LinkedHashMap<>();for(var slide:metadata.slides())types.put(slide.pageNumber(),slide.pageType());
+        for(int i=2;i<log.size()-1;i++){TemplateUsageLog item=log.get(i);if(fixed.contains(item.sourcePage()))throw new IllegalStateException("模板映射错误：正文调用了固定页 "+item.sourcePage());if(List.of("cover","catalog","thanks").contains(types.get(item.sourcePage())))throw new IllegalStateException("模板映射错误：正文调用了 "+types.get(item.sourcePage()));}
+    }
+    private void writeTemplateUsageLog(Path output,Path source,PptTemplateService.TemplateMetadata metadata,List<TemplateUsageLog> log)throws Exception{
+        Map<String,Object> payload=new LinkedHashMap<>();payload.put("template",source.toAbsolutePath().toString());payload.put("templateName",metadata.templateName());payload.put("validated",true);payload.put("mappings",log);
+        Path path=output.resolveSibling(stripExtension(output.getFileName().toString())+"-template-mapping.json");Files.writeString(path,new ObjectMapper().writerWithDefaultPrettyPrinter().writeValueAsString(payload));
+    }
+    private String stripExtension(String value){int dot=value.lastIndexOf('.');return dot>0?value.substring(0,dot):value;}
 
-    private XSLFSlide pick(Map<String,List<XSLFSlide>> roles,String role,int fallback){List<XSLFSlide> candidates=roles.get(role);if(candidates!=null&&!candidates.isEmpty())return candidates.get(0);return roles.values().stream().flatMap(List::stream).findFirst().orElseThrow(()->new IllegalArgumentException("模板中没有可用页面"));}
-    private XSLFSlide copyTemplateSlide(XMLSlideShow deck,XSLFSlide source){XSLFSlide target=deck.createSlide();target.importContent(source);return target;}
+    private static final class TemplateMatcher{
+        private final Map<String,List<Integer>> pools=new LinkedHashMap<>();private final Set<Integer> usedBodyPages=new HashSet<>();private final int slideCount;private final int thanksPage;
+        TemplateMatcher(PptTemplateService.TemplateMetadata metadata,String seed){
+            slideCount=metadata.slideCount();for(String type:List.of("section","content","image","chart","timeline"))pools.put(type,new ArrayList<>());int thanks=slideCount;
+            for(var slide:metadata.slides()){if("thanks".equals(slide.pageType()))thanks=slide.pageNumber();if(slide.pageNumber()>2&&!"thanks".equals(slide.pageType()))pools.computeIfAbsent(slide.pageType(),k->new ArrayList<>()).add(slide.pageNumber());}
+            thanksPage=thanks;Random random=new Random((seed==null?0:seed.hashCode())*31L+metadata.templateName().hashCode());for(List<Integer> pool:pools.values())Collections.shuffle(pool,random);
+        }
+        int fixed(String role){return switch(role){case "cover"->1;case "catalog"->Math.min(2,slideCount);case "thanks"->thanksPage;default->throw new IllegalArgumentException("未知固定页类型: "+role);};}
+        int match(String contentType){String preferred=switch(contentType){case "image_text"->"image";case "chart","table"->"chart";case "timeline"->"timeline";case "section"->"section";default->"content";};List<Integer> candidates=new ArrayList<>(pool(preferred));if(candidates.isEmpty()&&"timeline".equals(preferred))candidates=new ArrayList<>(pool("section"));if(candidates.isEmpty())candidates=new ArrayList<>(contentPool());if(candidates.isEmpty())throw new IllegalArgumentException("模板没有可用于正文的中间页面");Integer selected=candidates.stream().filter(i->!usedBodyPages.contains(i)).findFirst().orElse(null);if(selected==null)selected=contentPool().stream().filter(i->!usedBodyPages.contains(i)).findFirst().orElse(null);if(selected==null){usedBodyPages.clear();selected=candidates.get(0);}usedBodyPages.add(selected);return selected;}
+        private List<Integer> pool(String type){return pools.getOrDefault(type,List.of());}
+        private List<Integer> contentPool(){return pools.values().stream().flatMap(List::stream).filter(i->i>2&&i!=thanksPage).distinct().sorted(Comparator.naturalOrder()).toList();}
+    }
+    public record TemplateUsageLog(int outputPage,int sourcePage,String contentType){}
 
     private void fillTemplateSlide(XSLFSlide slide,List<String> values,Path image,int pageNo,String role)throws Exception{
         for(XSLFShape shape:allShapes(slide))if(shape instanceof XSLFTextShape text)text.clearText();
