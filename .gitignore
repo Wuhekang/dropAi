@@ -1,4 +1,5 @@
 backend/target/
+generator-engine/target/
 frontend/node_modules/
 frontend/dist/
 frontend/.npm-cache/
