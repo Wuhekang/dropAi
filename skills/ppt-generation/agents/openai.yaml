@@ -1,0 +1,4 @@
+interface:
+  display_name: "Dokiai PPT Generation"
+  short_description: "统一论文与毕业设计说明书答辩PPT生成和质量验证工作流"
+  default_prompt: "Use $ppt-generation to convert an uploaded thesis or design report into a verified defense PPTX."

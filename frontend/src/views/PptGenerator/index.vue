@@ -1,0 +1,1374 @@
+<template>
+  <main class="presentation-page">
+    <nav class="top-nav">
+      <button class="brand" @click="router.push('/dashboard')">
+        <b>D</b><span>Dokiai Academic<small>PRESENTATION STUDIO</small></span>
+      </button>
+      <div>
+        <button @click="router.push('/dashboard')">工作台</button
+        ><button @click="router.push('/projects')">我的项目</button
+        ><button class="active">PPT生成</button
+        ><button @click="router.push('/points')">积分中心</button>
+      </div>
+    </nav>
+    <section class="hero">
+      <div>
+        <small>DOKIAI PRESENTATION STUDIO</small>
+        <h1>PPT智能生成</h1>
+        <p>上传论文、开题报告或项目文档，生成可编辑的学术答辩PPT。</p>
+      </div>
+      <aside>
+        <b>{{ project?.progress || 0 }}%</b
+        ><span>{{ stageLabels[stage - 1] }}</span>
+      </aside>
+    </section>
+    <ol class="steps">
+      <li
+        v-for="(label, i) in stageLabels"
+        :key="label"
+        :class="{ active: stage === i + 1, done: stage > i + 1 }"
+      >
+        <b>{{ i + 1 }}</b
+        ><span>{{ label }}</span>
+      </li>
+    </ol>
+
+    <section v-if="stage === 1" class="workspace two-col">
+      <article class="panel upload-panel">
+        <header>
+          <small>STEP 01</small>
+          <h2>上传源文档</h2>
+          <p>先在本地解析内容、图片和表格，再交给AI设计目录。</p>
+        </header>
+        <label class="drop-zone"
+          ><input
+            type="file"
+            accept=".doc,.docx,.pdf,.pptx,.txt,.md,.markdown"
+            @change="selectFile"
+          /><b>＋</b><strong>{{ file?.name || "选择文档文件" }}</strong
+          ><span>DOCX · PDF · PPTX · TXT · Markdown</span
+          ><em v-if="file">{{ formatBytes(file.size) }}</em></label
+        >
+      </article>
+      <article class="panel form-panel">
+        <header>
+          <small>PROJECT PROFILE</small>
+          <h2>答辩信息</h2>
+        </header>
+        <div class="form-grid">
+          <label class="wide"
+            >PPT题目<input
+              v-model="form.topic"
+              placeholder="未填写时从文档提取" /></label
+          ><label class="wide"
+            >英文题名<input
+              v-model="form.englishTopic"
+              placeholder="可选，由AI生成" /></label
+          ><label>汇报人<input v-model="form.presenter" /></label
+          ><label>专业<input v-model="form.major" /></label
+          ><label>指导老师<input v-model="form.advisor" /></label
+          ><label>学号<input v-model="form.studentNumber" /></label
+          ><label
+            >目标页数<input
+              v-model.number="form.targetSlideCount"
+              type="number"
+              min="8"
+              max="40"
+          /></label>
+        </div>
+        <button
+          class="primary"
+          :disabled="!file || busy"
+          @click="createAndUpload"
+        >
+          {{ busy ? "正在上传…" : "上传并开始解析 →" }}
+        </button>
+      </article>
+    </section>
+
+    <section v-else-if="stage === 2" class="workspace">
+      <article class="panel analysis">
+        <header>
+          <small>STEP 02</small>
+          <h2>AI内容解析</h2>
+          <p>完整保留原始顺序、图表关系与来源位置。</p>
+        </header>
+        <div class="source-file">
+          <i>P</i
+          ><span
+            ><b>{{ project.source_file_name }}</b
+            ><small>{{ formatBytes(project.source_file_size) }}</small></span
+          ><em>解析完成</em>
+        </div>
+        <div class="metrics">
+          <article>
+            <b>{{ analysis.headings?.length || 0 }}</b
+            ><span>识别标题</span>
+          </article>
+          <article>
+            <b>{{ analysis.imageCount || 0 }}</b
+            ><span>图片素材</span>
+          </article>
+          <article>
+            <b>{{ analysis.tableCount || 0 }}</b
+            ><span>表格</span>
+          </article>
+          <article>
+            <b>{{ analysis.characterCount || 0 }}</b
+            ><span>内容字符</span>
+          </article>
+        </div>
+        <div class="detected">
+          <h3>识别到的结构</h3>
+          <span
+            v-for="item in (analysis.headings || []).slice(0, 10)"
+            :key="item"
+            >{{ item }}</span
+          >
+        </div>
+        <footer>
+          <button class="secondary" @click="stage = 1">返回</button
+          ><button class="primary" :disabled="busy" @click="makeOutline">
+            {{ busy ? "AI正在设计目录…" : "生成PPT目录 →" }}
+          </button>
+        </footer>
+      </article>
+    </section>
+
+    <section v-else-if="stage === 3" class="workspace split-aside">
+      <article class="panel outline-editor">
+        <header>
+          <small>STEP 03</small>
+          <h2>确认目录</h2>
+          <p>目录至少4项，可修改名称、页数和顺序。</p>
+        </header>
+        <div class="outline-list">
+          <article v-for="(item, i) in outline" :key="item.id || i">
+            <b>{{ String(i + 1).padStart(2, "0") }}</b>
+            <div>
+              <input v-model="item.title" maxlength="20" /><textarea
+                v-model="item.description"
+                maxlength="80"
+              ></textarea>
+            </div>
+            <label
+              >内容页<input
+                v-model.number="item.target_slides"
+                type="number"
+                min="1"
+                max="8"
+            /></label>
+            <div class="row-actions">
+              <button :disabled="i === 0" @click="move(outline, i, -1)">
+                ↑</button
+              ><button
+                :disabled="i === outline.length - 1"
+                @click="move(outline, i, 1)"
+              >
+                ↓</button
+              ><button
+                :disabled="outline.length <= 4"
+                @click="outline.splice(i, 1)"
+              >
+                ×
+              </button>
+            </div>
+          </article>
+        </div>
+        <button
+          class="add"
+          @click="
+            outline.push({ title: '新目录', description: '', target_slides: 2 })
+          "
+        >
+          ＋ 新增目录
+        </button>
+        <footer>
+          <span>AI状态：{{ providerStatus }}</span
+          ><button
+            class="primary"
+            :disabled="outline.length < 4 || busy"
+            @click="saveAndChooseTemplate"
+          >
+            确认目录并选择模板 →
+          </button>
+        </footer>
+      </article>
+      <aside class="panel rules">
+        <small>QUALITY RULES</small>
+        <h3>生成前质量规则</h3>
+        <p>✓ 每页顶部必须有标题</p>
+        <p>✓ 正文框最多4个</p>
+        <p>✓ 每个正文框最多20字</p>
+        <p>✓ 目录至少4项</p>
+        <p>✓ 保留图片原始比例</p>
+      </aside>
+    </section>
+
+    <section v-else-if="stage === 4" class="workspace">
+      <article class="panel template-stage">
+        <header class="template-stage-header">
+          <div>
+            <small>STEP 04 · TEMPLATE SELECTION</small>
+            <h2>选择 PPT 模板</h2>
+            <p>只预览模板封面。系统固定使用封面、目录与致谢页，正文仅从内容页池匹配。</p>
+          </div>
+          <label class="template-upload">
+            <input type="file" accept=".zip" @change="uploadTemplate" />
+            <span>{{ templateUploading ? "正在解析模板…" : "上传模板 ZIP" }}</span>
+          </label>
+        </header>
+        <div class="template-recommend"><b>AI 推荐</b><span>{{ templateReason || "未手动选择时，将根据专业和文档类型使用系统模板。" }}</span></div>
+        <div class="template-source-tabs"><button :class="{ active: templateTab === 'system' }" @click="templateTab = 'system'">系统模板 · 6</button><button :class="{ active: templateTab === 'custom' }" @click="templateTab = 'custom'">我的模板 · {{ customTemplates.length }}</button></div>
+        <div v-if="templateTab === 'system'" class="template-cover-grid">
+          <button v-for="item in builtInTemplates" :key="item.id" class="template-cover-card" :class="[{ selected: templateStyle === item.style && !templateId }, `theme-${String(item.style).toLowerCase()}`]" @click="applyTemplate(item.style)">
+            <span class="cover-preview"><small>DOKIAI ACADEMIC</small><strong>{{ item.templateName }}</strong><i></i><em>Presentation</em></span>
+            <span class="cover-meta"><b>{{ item.templateName }}</b><small>{{ item.description }}</small><em>{{ item.suitableMajor || "通用专业" }}</em></span>
+          </button>
+        </div>
+        <div v-else class="template-cover-grid">
+          <button v-for="item in customTemplates" :key="item.id" class="template-cover-card custom-cover" :class="{ selected: templateId === item.id, preferred: item.priorityTemplate }" :style="templateCoverStyle(item)" @click="applyTemplate('CUSTOM', item.id)">
+            <span class="cover-preview"><small>{{ item.priorityTemplate ? "小熊熊系列 · 优先" : "USER TEMPLATE" }}</small><strong>{{ item.templateName }}</strong><i></i><em>Custom Presentation</em></span>
+            <span class="cover-meta"><b>{{ item.templateName }}</b><small>{{ item.style || "自定义模板" }}</small><em>{{ item.suitableMajor || "自定义专业" }}</em></span>
+          </button>
+        </div>
+        <footer class="template-stage-actions">
+          <button class="secondary" @click="stage = 3">返回目录</button>
+          <span>正文页不会调用封面、目录或致谢页。</span>
+          <button class="primary" :disabled="busy" @click="confirmTemplateAndPlan">确认模板并规划幻灯片 →</button>
+        </footer>
+      </article>
+    </section>
+
+    <section v-else-if="stage === 5" class="workspace">
+      <article class="panel slide-plan">
+        <header>
+          <small>STEP 05 · PPT DESIGN PLAN</small>
+          <h2>PPT 设计规划中心</h2>
+          <p>先确认每一页的标题、章节、页面类型与图片绑定，确认后再逐页渲染。</p>
+        </header>
+        <div class="plan-summary">
+          <span><b>{{ expectedPages }}</b>预计总页数</span>
+          <span><b>{{ outline.length }}</b>目录章节</span>
+          <span><b>{{ slides.filter(s => parseBoxes(s.asset_ids_json).length).length }}</b>图片页</span>
+          <span><b>{{ slides.length }}</b>正文规划</span>
+        </div>
+        <div class="plan-grid">
+          <article
+            v-for="(slide, i) in slides"
+            :key="slide.id"
+            @click="editSlide(slide)"
+          >
+            <span>{{ String(i + 3).padStart(2, "0") }}</span
+            ><small>{{ slide.template_type || (parseBoxes(slide.asset_ids_json).length ? 'image' : 'content') }}</small>
+            <em class="chapter-label">{{ slide.chapter_title || '未绑定章节' }}</em>
+            <h3>{{ slide.title }}</h3>
+            <p v-for="box in parseBoxes(slide.body_boxes_json)" :key="box">
+              {{ box }}
+            </p>
+            <footer>
+              <em :class="slide.validation_status.toLowerCase()">{{
+                slide.validation_status
+              }}</em
+              ><button @click.stop="movePlanPage(i, -1)" :disabled="i === 0">上移</button>
+              <button @click.stop="movePlanPage(i, 1)" :disabled="i === slides.length - 1">下移</button>
+              <button @click.stop="removePlanPage(i)">删除</button>
+              <button @click.stop="editSlide(slide)">编辑</button>
+            </footer>
+          </article>
+        </div>
+        <footer>
+          <span>固定第1页封面、第2页目录，末页为“谢谢大家”。</span
+          ><button class="primary" :disabled="busy" @click="confirmPlanAndGenerate">
+            {{ busy ? '正在确认方案…' : '确认方案并生成 PPTX →' }}
+          </button>
+        </footer>
+      </article>
+    </section>
+
+    <section v-else-if="stage === 6" class="workspace">
+      <article class="panel generating">
+        <div class="progress-ring">
+          <b>{{ project.progress || 65 }}%</b>
+        </div>
+        <small>STEP 06 · PPT GENERATION</small>
+        <h2>{{ project.current_stage || "正在生成可编辑PPTX" }}</h2>
+        <p>正在检查标题、20字限制、素材比例与固定结尾页。</p>
+        <div class="check-flow">
+          <span>✓ 文档解析</span><span>✓ 目录确认</span><span>✓ 幻灯片规划</span
+          ><span class="running">● PPTX生成与校验</span>
+        </div>
+      </article>
+    </section>
+
+    <section v-else class="workspace result-layout">
+      <article class="panel result">
+        <header>
+          <small>STEP 06</small>
+          <h2>预览与下载</h2>
+          <p>已生成可编辑的 Dokiai Academic 学术答辩PPT。</p>
+        </header>
+        <div class="file-result">
+          <i>P</i
+          ><span
+            ><b>{{ cleanTopic }}.pptx</b
+            ><small
+              >{{ slides.length + outline.length + 4 }} 页 · 16:9 ·
+              可编辑PPTX</small
+            ></span
+          ><em>质量检查通过</em>
+        </div>
+        <div class="quality">
+          <span>✓ 每页均有标题</span><span>✓ 正文框不超过20字</span
+          ><span>✓ 图片保持原始比例</span><span>✓ 未来展望为倒数第二页</span
+          ><span>✓ 谢谢大家为最后一页</span>
+        </div>
+        <button class="primary download" @click="download">下载PPTX</button>
+        <h3>幻灯片缩略图</h3>
+        <div class="thumbs">
+          <article>
+            <b>{{ form.topic || project.topic }}</b
+            ><small>封面</small>
+          </article>
+          <article><b>目录</b><small>目录页</small></article>
+          <article v-for="slide in slides" :key="slide.id">
+            <b>{{ slide.title }}</b
+            ><small>{{ slide.layout_type }}</small>
+          </article>
+          <article><b>未来展望</b><small>结尾</small></article>
+          <article><b>谢谢大家</b><small>THANK YOU</small></article>
+        </div>
+      </article>
+    </section>
+
+    <div v-if="editing" class="dialog-mask" @click.self="editing = null">
+      <section class="dialog">
+        <header>
+          <h3>编辑当前页</h3>
+          <button @click="editing = null">×</button>
+        </header>
+        <label>标题<input v-model="editing.title" maxlength="24" /></label
+        ><label v-for="(_, i) in editing.boxes" :key="i"
+          >正文框 {{ i + 1 }}（最多20字）<input
+            v-model="editing.boxes[i]"
+            maxlength="20"
+          /><small>{{ visibleLength(editing.boxes[i]) }}/20</small></label
+        ><label
+          >布局<select v-model="editing.layout">
+            <option>KEYWORDS</option>
+            <option>IMAGE_TEXT</option>
+            <option>TEXT_IMAGE</option>
+            <option>BIG_IMAGE</option>
+          </select></label
+        >
+        <footer>
+          <button class="secondary" @click="editing = null">取消</button
+          ><button class="primary" @click="saveSlide">保存当前页</button>
+        </footer>
+      </section>
+    </div>
+  </main>
+</template>
+
+<script setup>
+import { computed, onMounted, ref } from "vue";
+import { useRoute, useRouter } from "vue-router";
+import { ElMessage } from "element-plus";
+import {
+  createPptProject,
+  getPptProject,
+  uploadPptSource,
+  analyzePptProject,
+  generatePptOutline,
+  savePptOutline,
+  planPptSlides,
+  savePptPlan,
+  updatePptSlide,
+  regeneratePptSlide,
+  generatePptFile,
+  getPptProgress,
+  downloadPptFile,
+  listPptTemplates,
+  uploadPptTemplateZip,
+  recommendPptTemplate,
+  selectPptTemplate,
+} from "../../api/rewrite";
+const router = useRouter(),
+  route = useRoute(),
+  stage = ref(1),
+  busy = ref(false),
+  file = ref(null),
+  project = ref({ progress: 0 }),
+  analysis = ref({}),
+  outline = ref([]),
+  slides = ref([]),
+  editing = ref(null),
+  providerStatus = ref("--");
+const stageLabels = [
+  "上传文档",
+  "AI内容解析",
+  "目录确认",
+  "模板选择",
+  "幻灯片规划",
+  "PPT生成",
+  "预览下载",
+];
+const form = ref({
+  topic: "",
+  englishTopic: "",
+  presenter: "",
+  major: "",
+  advisor: "",
+  studentNumber: "",
+  targetSlideCount: 16,
+});
+const cleanTopic = computed(() =>
+  String(project.value.topic || form.value.topic || "未命名学术答辩").replace(
+    /[\\/:*?"<>|]/g,
+    "_",
+  ),
+);
+const expectedPages = computed(
+  () => 2 + outline.value.length + slides.value.length + 2,
+);
+const templates = ref([]),
+  templateStyle = ref("AI_RECOMMEND"),
+  templateId = ref(""),
+  templateReason = ref(""),
+  templateUploading = ref(false),
+  templateTab = ref("system");
+const builtInTemplates = computed(() =>
+    templates.value.filter((x) => x.builtIn && x.style !== "AI_RECOMMEND"),
+  ),
+  customTemplates = computed(() => templates.value.filter((x) => !x.builtIn).sort((a, b) => Number(Boolean(b.priorityTemplate)) - Number(Boolean(a.priorityTemplate))));
+function selectFile(e) {
+  file.value = e.target.files?.[0] || null;
+}
+function formatBytes(v) {
+  const n = Number(v || 0);
+  return n > 1048576
+    ? (n / 1048576).toFixed(1) + " MB"
+    : (n / 1024).toFixed(1) + " KB";
+}
+function parseBoxes(v) {
+  try {
+    return Array.isArray(v) ? v : JSON.parse(v || "[]");
+  } catch {
+    return [];
+  }
+}
+function visibleLength(v) {
+  return String(v || "").replace(/\s/g, "").length;
+}
+function move(items, i, d) {
+  const next = i + d;
+  if (next < 0 || next >= items.length) return;
+  [items[i], items[next]] = [items[next], items[i]];
+}
+async function createAndUpload() {
+  busy.value = true;
+  try {
+    project.value = await createPptProject(form.value);
+    project.value = await uploadPptSource(project.value.id, file.value);
+    project.value = await analyzePptProject(project.value.id);
+    analysis.value = JSON.parse(project.value.analysis_json || "{}");
+    stage.value = 2;
+    ElMessage.success("文档解析完成");
+  } catch (e) {
+    ElMessage.error(e?.responseData?.message || e.message || "解析失败");
+  } finally {
+    busy.value = false;
+  }
+}
+async function makeOutline() {
+  busy.value = true;
+  try {
+    const data = await generatePptOutline(project.value.id);
+    project.value = data;
+    outline.value = data.outline || [];
+    providerStatus.value = data.providerStatus || "--";
+    stage.value = 3;
+  } catch (e) {
+    ElMessage.error(e?.responseData?.message || "目录生成失败");
+  } finally {
+    busy.value = false;
+  }
+}
+async function saveAndChooseTemplate() {
+  busy.value = true;
+  try {
+    await savePptOutline(
+      project.value.id,
+      outline.value.map((x, i) => ({
+        title: x.title,
+        description: x.description,
+        targetSlides: x.target_slides,
+        sectionOrder: i + 1,
+      })),
+    );
+    await loadTemplates();
+    stage.value = 4;
+  } catch (e) {
+    ElMessage.error(e?.responseData?.message || "目录保存失败");
+  } finally {
+    busy.value = false;
+  }
+}
+async function confirmTemplateAndPlan() {
+  busy.value = true;
+  try {
+    const data = await planPptSlides(project.value.id);
+    project.value = data;
+    outline.value = data.outline || [];
+    slides.value = data.slides || [];
+    stage.value = 5;
+  } catch (e) {
+    ElMessage.error(e?.responseData?.message || "规划失败");
+  } finally {
+    busy.value = false;
+  }
+}
+async function confirmPlanAndGenerate() {
+  busy.value = true;
+  try {
+    const data = await savePptPlan(
+      project.value.id,
+      slides.value.map((slide, index) => ({
+        id: slide.id,
+        title: slide.title,
+        bodyBoxes: parseBoxes(slide.body_boxes_json),
+        assetIds: parseBoxes(slide.asset_ids_json),
+        layoutType: slide.layout_type,
+        chapterTitle: slide.chapter_title || "",
+        contentSummary: slide.content_summary || "",
+        templateType: slide.template_type || (parseBoxes(slide.asset_ids_json).length ? "image" : "content"),
+        pageNumber: index + 3,
+      })),
+    );
+    slides.value = data.slides || slides.value;
+    await startGenerate();
+  } catch (e) {
+    ElMessage.error(e?.responseData?.message || e.message || "PPT方案确认失败");
+  } finally {
+    busy.value = false;
+  }
+}
+function removePlanPage(index) {
+  if (slides.value.length <= 4) return ElMessage.warning("正文方案至少保留4页");
+  slides.value.splice(index, 1);
+}
+function movePlanPage(index, direction) {
+  move(slides.value, index, direction);
+}
+function editSlide(s) {
+  editing.value = {
+    id: s.id,
+    title: s.title,
+    boxes: [...parseBoxes(s.body_boxes_json)],
+    layout: s.layout_type,
+  };
+}
+async function saveSlide() {
+  const data = await updatePptSlide(project.value.id, editing.value.id, {
+    title: editing.value.title,
+    bodyBoxes: editing.value.boxes,
+    layoutType: editing.value.layout,
+  });
+  slides.value = data.slides || [];
+  editing.value = null;
+  ElMessage.success("当前页已保存");
+}
+async function regenerate(s) {
+  const data = await regeneratePptSlide(project.value.id, s.id);
+  slides.value = data.slides || [];
+  ElMessage.success("当前页已重新生成");
+}
+async function startGenerate() {
+  busy.value = true;
+  stage.value = 6;
+  try {
+    project.value = {
+      ...project.value,
+      progress: 65,
+      current_stage: "正在生成可编辑PPTX",
+    };
+    await generatePptFile(project.value.id);
+    project.value = await getPptProgress(project.value.id);
+    stage.value = 7;
+    ElMessage.success("PPTX生成完成");
+  } catch (e) {
+    stage.value = 5;
+    ElMessage.error(e?.responseData?.message || e.message || "生成失败");
+  } finally {
+    busy.value = false;
+  }
+}
+function templateCoverStyle(item) {
+  const colors = item?.metadata?.colors || [];
+  return {
+    "--cover-primary": colors[0] || "#6E4FFF",
+    "--cover-secondary": colors[1] || "#FF55B0",
+    "--cover-bg": colors[3] || "#F7F5FF",
+  };
+}
+async function loadTemplates() {
+  try {
+    templates.value = await listPptTemplates();
+    if (project.value.id) {
+      const rec = await recommendPptTemplate(project.value.id);
+      templateReason.value = rec.reason || "";
+      if (rec.style === "CUSTOM" && rec.templateId && !templateId.value) {
+        templateStyle.value = "CUSTOM";
+        templateId.value = rec.templateId;
+        templateTab.value = "custom";
+        await selectPptTemplate(project.value.id, { style: "CUSTOM", templateId: rec.templateId });
+      }
+    }
+  } catch (e) {
+    ElMessage.warning(e?.responseData?.message || "模板列表暂时无法读取");
+  }
+}
+async function applyTemplate(style, id = "") {
+  templateStyle.value = style;
+  templateId.value = id;
+  try {
+    const result = await selectPptTemplate(project.value.id, {
+      style,
+      templateId: id,
+    });
+    templateReason.value = result.reason || "";
+    ElMessage.success(`已选择${result.profile?.displayName || "PPT模板"}`);
+  } catch (e) {
+    ElMessage.error(e?.responseData?.message || "模板选择失败");
+  }
+}
+async function uploadTemplate(e) {
+  const zip = e.target.files?.[0];
+  if (!zip) return;
+  templateUploading.value = true;
+  try {
+    const created = await uploadPptTemplateZip(zip);
+    await loadTemplates();
+    if (created?.[0]) { templateTab.value = "custom"; await applyTemplate("CUSTOM", created[0].id); }
+    ElMessage.success(`已解析${created?.length || 0}个模板`);
+  } catch (err) {
+    ElMessage.error(err?.responseData?.message || "模板上传失败");
+  } finally {
+    templateUploading.value = false;
+    e.target.value = "";
+  }
+}
+async function download() {
+  const blob = await downloadPptFile(project.value.id),
+    url = URL.createObjectURL(blob),
+    a = document.createElement("a");
+  a.href = url;
+  a.download = cleanTopic.value + ".pptx";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+async function resume() {
+  if (!route.query.projectId) return;
+  try {
+    const data = await getPptProject(route.query.projectId);
+    project.value = data;
+    outline.value = data.outline || [];
+    slides.value = data.slides || [];
+    analysis.value = JSON.parse(data.analysis_json || "{}");
+    Object.assign(form.value, {
+      topic: data.topic || "",
+      englishTopic: data.english_topic || "",
+      presenter: data.presenter || "",
+      major: data.major || "",
+      advisor: data.advisor || "",
+      studentNumber: data.student_number || "",
+      targetSlideCount: data.target_slide_count || 16,
+    });
+    templateStyle.value = data.template_style || "AI_RECOMMEND";
+    templateId.value = data.template_id || "";
+    stage.value =
+      data.status === "SUCCESS"
+        ? 7
+        : data.status === "PLANNED"
+          ? 5
+          : data.status === "OUTLINE_READY"
+            ? 3
+            : data.status === "ANALYZED"
+              ? 2
+              : 1;
+  } catch (e) {
+    ElMessage.warning(e?.responseData?.message || "项目暂时无法恢复");
+  }
+}
+onMounted(async () => {
+  await resume();
+  await loadTemplates();
+});
+</script>
+
+<style scoped>
+.presentation-page {
+  --ink: #202438;
+  --muted: #767c91;
+  min-height: 100vh;
+  padding: 18px 28px 60px;
+  color: var(--ink);
+  background: linear-gradient(
+    45deg,
+    #fbd7ea 0,
+    #f9e8f2 34%,
+    #eef1fa 67%,
+    #dcebff 100%
+  );
+}
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+.top-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: min(1500px, 100%);
+  margin: auto;
+  padding: 10px 14px;
+  border: 1px solid #ffffffb5;
+  border-radius: 18px;
+  background: #ffffffc9;
+  box-shadow: 0 16px 50px #473c7712;
+  backdrop-filter: blur(18px);
+}
+.brand {
+  display: grid;
+  grid-template-columns: 42px 1fr;
+  align-items: center;
+  gap: 0 10px;
+  border: 0;
+  background: none;
+  text-align: left;
+}
+.brand > b {
+  grid-row: 1/3;
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 13px;
+  color: #fff;
+  background: linear-gradient(145deg, #4198ff, #6e4fff 55%, #ff55b0);
+  font-size: 21px;
+}
+.brand span {
+  display: grid;
+  font-weight: 800;
+}
+.brand small {
+  color: #9a9fb0;
+  font-size: 8px;
+  letter-spacing: 0.12em;
+}
+.top-nav > div {
+  display: flex;
+  gap: 4px;
+}
+.top-nav > div button {
+  padding: 9px 13px;
+  border: 0;
+  border-radius: 9px;
+  color: #666d82;
+  background: transparent;
+}
+.top-nav .active {
+  color: #6e4fff;
+  background: #f0edff;
+}
+.hero {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  width: min(1400px, calc(100% - 20px));
+  margin: 35px auto 20px;
+}
+.hero small,
+.panel header small,
+.panel > small {
+  color: #6e4fff;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+}
+.hero h1 {
+  margin: 9px 0 4px;
+  font-size: 42px;
+}
+.hero p,
+.panel header p {
+  margin: 0;
+  color: var(--muted);
+}
+.hero aside {
+  display: grid;
+  place-items: end;
+}
+.hero aside b {
+  font-size: 34px;
+}
+.hero aside span {
+  color: var(--muted);
+}
+.steps {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  width: min(1400px, calc(100% - 20px));
+  margin: 0 auto 18px;
+  padding: 10px;
+  border: 1px solid #ebe7f5;
+  border-radius: 17px;
+  background: #ffffffb9;
+  list-style: none;
+}
+.steps li {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px;
+  color: #9ba0af;
+}
+.steps b {
+  display: grid;
+  place-items: center;
+  width: 27px;
+  height: 27px;
+  border-radius: 50%;
+  background: #eeecf4;
+}
+.steps .active {
+  color: #6e4fff;
+  font-weight: 800;
+}
+.steps .active b {
+  color: #fff;
+  background: linear-gradient(135deg, #6e4fff, #ff55b0);
+}
+.steps .done {
+  color: #6554cd;
+}
+.steps .done b {
+  color: #6e4fff;
+  background: #ece8ff;
+}
+.workspace {
+  width: min(1400px, calc(100% - 20px));
+  margin: auto;
+}
+.two-col {
+  display: grid;
+  grid-template-columns: 0.9fr 1.1fr;
+  gap: 18px;
+}
+.panel {
+  border: 1px solid #ffffffc7;
+  border-radius: 24px;
+  background: #ffffffe5;
+  box-shadow: 0 24px 70px #4a3d7e12;
+}
+.panel > header {
+  padding: 27px 30px 20px;
+}
+.panel h2 {
+  margin: 6px 0;
+  font-size: 29px;
+}
+.upload-panel,
+.form-panel {
+  padding-bottom: 26px;
+}
+.drop-zone {
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  margin: 8px 28px;
+  padding: 60px 25px;
+  border: 1.5px dashed #bfb3ea;
+  border-radius: 20px;
+  background: linear-gradient(145deg, #fbf9ff, #fff7fb);
+  cursor: pointer;
+}
+.drop-zone input {
+  display: none;
+}
+.drop-zone > b {
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  border-radius: 17px;
+  color: #fff;
+  background: linear-gradient(135deg, #6e4fff, #ff55b0);
+  font-size: 27px;
+}
+.drop-zone span,
+.drop-zone em {
+  color: #9298aa;
+  font-size: 11px;
+  font-style: normal;
+}
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 13px;
+  padding: 0 30px;
+}
+.form-grid label,
+.dialog label {
+  display: grid;
+  gap: 6px;
+  color: #73798c;
+  font-size: 11px;
+}
+.form-grid .wide {
+  grid-column: 1/-1;
+}
+.form-grid input,
+.dialog input,
+.dialog select,
+.outline-list input,
+.outline-list textarea {
+  padding: 11px 12px;
+  border: 1px solid #e3dfed;
+  border-radius: 10px;
+  background: #fff;
+  outline: none;
+}
+.primary,
+.secondary,
+.add {
+  padding: 12px 18px;
+  border-radius: 11px;
+}
+.primary {
+  border: 0;
+  color: #fff;
+  background: linear-gradient(120deg, #6e4fff, #ff55b0);
+  box-shadow: 0 12px 28px #8e56d42e;
+}
+.primary:disabled {
+  opacity: 0.45;
+}
+.secondary,
+.add {
+  border: 1px solid #bcaef1;
+  color: #6855d2;
+  background: #fff;
+}
+.form-panel > .primary {
+  float: right;
+  margin: 22px 30px 0;
+}
+.analysis {
+  padding: 0 30px 28px;
+}
+.source-file {
+  display: grid;
+  grid-template-columns: 52px 1fr auto;
+  gap: 13px;
+  align-items: center;
+  padding: 17px;
+  border-radius: 16px;
+  background: #f8f6fd;
+}
+.source-file > i,
+.file-result > i {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  color: #fff;
+  background: linear-gradient(145deg, #6e4fff, #ff55b0);
+  font-size: 22px;
+  font-style: normal;
+  font-weight: 900;
+}
+.source-file span,
+.file-result span {
+  display: grid;
+}
+.source-file small,
+.file-result small {
+  color: #9298a8;
+}
+.source-file em,
+.file-result em {
+  color: #145b4d;
+  font-style: normal;
+}
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin: 18px 0;
+}
+.metrics article {
+  display: grid;
+  gap: 3px;
+  padding: 20px;
+  border: 1px solid #ebe7f3;
+  border-radius: 15px;
+}
+.metrics b {
+  font-size: 28px;
+}
+.metrics span {
+  color: #8d93a4;
+  font-size: 11px;
+}
+.detected {
+  padding: 20px;
+  border: 1px solid #ebe7f3;
+  border-radius: 16px;
+}
+.detected span {
+  display: inline-block;
+  margin: 5px;
+  padding: 7px 10px;
+  border-radius: 9px;
+  color: #6654cd;
+  background: #f0edff;
+  font-size: 11px;
+}
+.analysis > footer,
+.outline-editor > footer,
+.slide-plan > footer,
+.dialog footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 20px;
+}
+.split-aside {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 270px;
+  gap: 18px;
+}
+.outline-editor {
+  padding: 0 28px 28px;
+}
+.outline-list {
+  display: grid;
+  gap: 10px;
+}
+.outline-list > article {
+  display: grid;
+  grid-template-columns: 45px 1fr 70px auto;
+  gap: 12px;
+  align-items: center;
+  padding: 13px;
+  border: 1px solid #ebe7f3;
+  border-radius: 15px;
+}
+.outline-list > article > b {
+  color: #6e4fff;
+  font-size: 20px;
+}
+.outline-list > article > div {
+  display: grid;
+  gap: 6px;
+}
+.outline-list textarea {
+  min-height: 43px;
+  resize: vertical;
+}
+.outline-list label {
+  display: grid;
+  gap: 5px;
+  color: #9096a6;
+  font-size: 9px;
+}
+.row-actions {
+  display: flex !important;
+}
+.row-actions button {
+  border: 0;
+  color: #6e4fff;
+  background: none;
+}
+.add {
+  margin-top: 12px;
+}
+.rules {
+  align-self: start;
+  padding: 25px;
+}
+.rules h3 {
+  margin: 8px 0 20px;
+}
+.rules p {
+  color: #666d80;
+  font-size: 12px;
+}
+.slide-plan {
+  padding: 0 28px 28px;
+}
+.template-picker { margin: 0 0 20px; padding: 20px; border: 1px solid #e6e0f4; border-radius: 18px; background: linear-gradient(145deg,#fbf9ff,#fff8fc); }
+.template-title { display:flex; align-items:center; justify-content:space-between; gap:18px; margin-bottom:14px; }
+.template-title h3 { margin:4px 0; font-size:20px; }
+.template-title p { margin:0; color:#7b8193; font-size:12px; }
+.template-title small { color:#6e4fff; font-size:9px; font-weight:900; letter-spacing:.14em; }
+.template-upload input { display:none; }
+.template-upload span { display:inline-flex; padding:10px 14px; border:1px solid #ab9ce9; border-radius:10px; color:#6754ce; background:#fff; cursor:pointer; }
+.template-options { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:10px; }
+.template-options button { display:grid; gap:5px; min-height:72px; padding:12px; border:1px solid #e4deef; border-radius:13px; color:#282d40; background:#fff; text-align:left; }
+.template-options button small { color:#8a90a1; line-height:1.45; }
+.template-options button.selected { border-color:#7c61ef; background:linear-gradient(145deg,#f0ecff,#fff0f8); box-shadow:0 10px 24px #6e4fff18; }
+.plan-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 13px;
+}
+.plan-summary { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin:0 0 18px; }
+.plan-summary span { display:grid; gap:3px; padding:14px 16px; border:1px solid #e7e1f4; border-radius:14px; color:#85899a; background:#fbfaff; font-size:11px; }
+.plan-summary b { color:#282d40; font-size:24px; }
+.chapter-label { display:block; margin-top:14px; color:#765cf0; font-size:10px; font-style:normal; font-weight:800; }
+.plan-grid > article {
+  position: relative;
+  min-height: 185px;
+  padding: 18px;
+  border: 1px solid #e5e1ee;
+  border-radius: 16px;
+  background: linear-gradient(145deg, #fff, #faf8ff);
+  cursor: pointer;
+  transition: 0.2s;
+}
+.plan-grid > article:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 17px 35px #4b3e7b18;
+}
+.plan-grid > article > span {
+  color: #6e4fff;
+  font-weight: 900;
+}
+.plan-grid > article > small {
+  float: right;
+  color: #9ba0af;
+}
+.plan-grid h3 {
+  margin: 18px 0 9px;
+}
+.plan-grid p {
+  margin: 5px 0;
+  color: #73798b;
+  font-size: 11px;
+}
+.plan-grid footer {
+  position: absolute;
+  right: 14px;
+  bottom: 13px;
+  left: 14px;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.plan-grid footer > em { margin-right:auto; }
+.plan-grid footer em {
+  color: #145b4d;
+  font-size: 9px;
+  font-style: normal;
+}
+.plan-grid footer button {
+  border: 0;
+  color: #6e4fff;
+  background: none;
+  font-size: 10px;
+}
+.generating {
+  display: grid;
+  place-items: center;
+  min-height: 450px;
+  text-align: center;
+}
+.progress-ring {
+  display: grid;
+  place-items: center;
+  width: 135px;
+  height: 135px;
+  margin-bottom: 25px;
+  border-radius: 50%;
+  background: conic-gradient(#6e4fff 0 65%, #ebe8f3 65%);
+}
+.progress-ring:before {
+  content: "";
+  position: absolute;
+  width: 106px;
+  height: 106px;
+  border-radius: 50%;
+  background: #fff;
+}
+.progress-ring b {
+  z-index: 1;
+  font-size: 27px;
+}
+.generating h2 {
+  font-size: 30px;
+}
+.generating p {
+  color: var(--muted);
+}
+.check-flow {
+  display: flex;
+  gap: 9px;
+  margin-top: 25px;
+}
+.check-flow span {
+  padding: 9px 12px;
+  border-radius: 10px;
+  color: #145b4d;
+  background: #edf7f3;
+  font-size: 11px;
+}
+.check-flow .running {
+  color: #6e4fff;
+  background: #f0edff;
+}
+.result {
+  padding: 0 30px 30px;
+}
+.file-result {
+  display: grid;
+  grid-template-columns: 52px 1fr auto;
+  gap: 14px;
+  align-items: center;
+  padding: 20px;
+  border-radius: 17px;
+  background: #f8f6fd;
+}
+.quality {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin: 18px 0;
+}
+.quality span {
+  padding: 12px;
+  border-radius: 11px;
+  color: #145b4d;
+  background: #edf7f3;
+  font-size: 11px;
+}
+.download {
+  font-size: 16px;
+}
+.result > h3 {
+  margin-top: 30px;
+}
+.thumbs {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 11px;
+}
+.thumbs article {
+  display: grid;
+  align-content: end;
+  min-height: 120px;
+  padding: 13px;
+  border: 1px solid #e8e4ef;
+  border-radius: 12px;
+  background: linear-gradient(145deg, #fff, #f5f1ff);
+}
+.thumbs b {
+  font-size: 12px;
+}
+.thumbs small {
+  color: #9a9fad;
+}
+.dialog-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  background: #28213f55;
+  backdrop-filter: blur(5px);
+}
+.dialog {
+  display: grid;
+  gap: 13px;
+  width: min(520px, calc(100% - 30px));
+  padding: 24px;
+  border-radius: 22px;
+  background: #fff;
+  box-shadow: 0 30px 90px #221a4455;
+}
+.dialog header {
+  display: flex;
+  justify-content: space-between;
+}
+.dialog header h3 {
+  margin: 0;
+}
+.dialog header button {
+  border: 0;
+  background: none;
+  font-size: 22px;
+}
+.dialog label {
+  position: relative;
+}
+.dialog label small {
+  position: absolute;
+  right: 10px;
+  bottom: 12px;
+}
+.dialog footer {
+  margin-top: 5px;
+}
+@media (max-width: 1000px) {
+  .two-col,
+  .split-aside {
+    grid-template-columns: 1fr;
+  }
+  .plan-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .steps {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .top-nav > div {
+    display: none;
+  }
+  .thumbs {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+@media (max-width: 650px) {
+  .presentation-page {
+    padding: 12px;
+  }
+  .hero {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .steps,
+  .form-grid,
+  .metrics,
+  .plan-grid,
+  .quality,
+  .thumbs {
+    grid-template-columns: 1fr;
+  }
+  .outline-list > article {
+    grid-template-columns: 35px 1fr;
+  }
+  .outline-list label,
+  .row-actions {
+    grid-column: 2;
+  }
+  .check-flow {
+    flex-direction: column;
+  }
+}
+.template-stage{padding:28px}.template-stage-header{display:flex;align-items:flex-start;justify-content:space-between;gap:24px}.template-stage-header h2{margin:7px 0;font-size:30px}.template-stage-header p{margin:0;color:#7b8193}.template-recommend{display:flex;align-items:center;gap:12px;margin:20px 0;padding:13px 16px;border:1px solid #e8e1fa;border-radius:13px;background:linear-gradient(110deg,#f2eeff,#fff2f8);color:#676e82}.template-recommend b{color:#6e4fff}.template-cover-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}.template-cover-card{overflow:hidden;padding:0;border:1px solid #e3dfec;border-radius:18px;background:#fff;color:#24283a;text-align:left;transition:.2s}.template-cover-card:hover{transform:translateY(-3px);box-shadow:0 18px 38px #392f7118}.template-cover-card.selected{border-color:#7459ed;box-shadow:0 0 0 3px #e9e2ff,0 18px 38px #6e4fff1f}.cover-preview{position:relative;display:flex;flex-direction:column;justify-content:center;min-height:176px;padding:26px;background:linear-gradient(135deg,var(--cover-bg,#f7f5ff),#fff);isolation:isolate}.cover-preview:before,.cover-preview:after{content:"";position:absolute;z-index:-1;border-radius:999px;background:linear-gradient(135deg,var(--cover-primary,#6e4fff),var(--cover-secondary,#ff55b0));opacity:.22}.cover-preview:before{width:150px;height:150px;right:-48px;top:-52px}.cover-preview:after{width:78px;height:78px;left:-24px;bottom:-30px}.cover-preview small{color:var(--cover-primary,#6e4fff);font-size:9px;font-weight:900;letter-spacing:.15em}.cover-preview strong{max-width:80%;margin:13px 0 8px;font-size:25px;line-height:1.15}.cover-preview i{width:48px;height:3px;border-radius:3px;background:linear-gradient(90deg,var(--cover-primary,#6e4fff),var(--cover-secondary,#ff55b0))}.cover-preview em{margin-top:8px;color:#83899a;font-size:10px;font-style:normal}.cover-meta{display:grid;gap:6px;padding:15px}.cover-meta>b{font-size:16px}.cover-meta small{min-height:32px;color:#858b9b;line-height:1.45}.cover-meta em{justify-self:start;padding:4px 8px;border-radius:99px;background:#f1edff;color:#6e4fff;font-size:9px;font-style:normal}.theme-tech_defense{--cover-primary:#2563eb;--cover-secondary:#22d3ee;--cover-bg:#eff6ff}.theme-simple_academic{--cover-primary:#6e4fff;--cover-secondary:#a78bfa;--cover-bg:#f8f7fc}.theme-environment_design{--cover-primary:#397c62;--cover-secondary:#b4d58c;--cover-bg:#f1f7f2}.theme-visual_communication{--cover-primary:#7c3aed;--cover-secondary:#ff4da6;--cover-bg:#fff0f8}.theme-business{--cover-primary:#1e3a5f;--cover-secondary:#d9a441;--cover-bg:#f3f6fa}.theme-minimal_premium{--cover-primary:#22242a;--cover-secondary:#b9a27b;--cover-bg:#f6f3ee}.theme-ai_recommend{--cover-primary:#6e4fff;--cover-secondary:#ff55b0;--cover-bg:#f5f1ff}.template-stage-actions{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:18px;margin-top:24px}.template-stage-actions>span{color:#858b9b;text-align:center}@media(max-width:1000px){.template-cover-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.template-stage-header{flex-direction:column}.template-stage-actions{grid-template-columns:1fr}.template-stage-actions>span{text-align:left}}@media(max-width:680px){.template-cover-grid{grid-template-columns:1fr}}
+.template-source-tabs{display:flex;gap:8px;margin:0 0 16px}.template-source-tabs button{padding:9px 14px;border:1px solid #e3deef;border-radius:99px;background:#fff;color:#777e90}.template-source-tabs button.active{border-color:#8168ef;background:#eee9ff;color:#6e4fff;font-weight:800}
+</style>

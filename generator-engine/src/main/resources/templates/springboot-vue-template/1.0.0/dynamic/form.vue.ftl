@@ -1,0 +1,1 @@
+<script setup lang="ts">import{reactive}from'vue';const model=reactive<Record<string,any>>({});defineExpose({model});</script><template><el-form :model="model"><#list entity.fields as field><#if field.formVisible><el-form-item label="${field.title}"><el-input v-model="model.${field.name}"/></el-form-item></#if></#list></el-form></template>
