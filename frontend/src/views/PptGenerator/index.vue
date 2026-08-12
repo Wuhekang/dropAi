@@ -227,8 +227,8 @@
           </button>
         </div>
         <div v-else class="template-cover-grid">
-          <button v-for="item in customTemplates" :key="item.id" class="template-cover-card custom-cover" :class="{ selected: templateId === item.id }" :style="templateCoverStyle(item)" @click="applyTemplate('CUSTOM', item.id)">
-            <span class="cover-preview"><small>USER TEMPLATE</small><strong>{{ item.templateName }}</strong><i></i><em>Custom Presentation</em></span>
+          <button v-for="item in customTemplates" :key="item.id" class="template-cover-card custom-cover" :class="{ selected: templateId === item.id, preferred: item.priorityTemplate }" :style="templateCoverStyle(item)" @click="applyTemplate('CUSTOM', item.id)">
+            <span class="cover-preview"><small>{{ item.priorityTemplate ? "小熊熊系列 · 优先" : "USER TEMPLATE" }}</small><strong>{{ item.templateName }}</strong><i></i><em>Custom Presentation</em></span>
             <span class="cover-meta"><b>{{ item.templateName }}</b><small>{{ item.style || "自定义模板" }}</small><em>{{ item.suitableMajor || "自定义专业" }}</em></span>
           </button>
         </div>
@@ -429,7 +429,7 @@ const templates = ref([]),
 const builtInTemplates = computed(() =>
     templates.value.filter((x) => x.builtIn && x.style !== "AI_RECOMMEND"),
   ),
-  customTemplates = computed(() => templates.value.filter((x) => !x.builtIn));
+  customTemplates = computed(() => templates.value.filter((x) => !x.builtIn).sort((a, b) => Number(Boolean(b.priorityTemplate)) - Number(Boolean(a.priorityTemplate))));
 function selectFile(e) {
   file.value = e.target.files?.[0] || null;
 }
@@ -574,6 +574,12 @@ async function loadTemplates() {
     if (project.value.id) {
       const rec = await recommendPptTemplate(project.value.id);
       templateReason.value = rec.reason || "";
+      if (rec.style === "CUSTOM" && rec.templateId && !templateId.value) {
+        templateStyle.value = "CUSTOM";
+        templateId.value = rec.templateId;
+        templateTab.value = "custom";
+        await selectPptTemplate(project.value.id, { style: "CUSTOM", templateId: rec.templateId });
+      }
     }
   } catch (e) {
     ElMessage.warning(e?.responseData?.message || "模板列表暂时无法读取");
