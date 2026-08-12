@@ -1,0 +1,1 @@
+<script setup lang="ts">defineProps<{data:Record<string,unknown>}>()</script><template><el-descriptions border><#list entity.fields as field><#if field.listVisible && field.name != "deleted"><el-descriptions-item label="${field.title}">{{data.${field.name}}}</el-descriptions-item></#if></#list></el-descriptions></template>

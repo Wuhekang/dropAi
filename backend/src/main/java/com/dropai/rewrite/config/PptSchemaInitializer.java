@@ -26,6 +26,9 @@ public class PptSchemaInitializer implements ApplicationRunner {
         ensureColumn("ppt_project","template_style","ALTER TABLE ppt_project ADD COLUMN template_style VARCHAR(40) NOT NULL DEFAULT 'AI_RECOMMEND'");
         ensureColumn("ppt_project","template_id","ALTER TABLE ppt_project ADD COLUMN template_id VARCHAR(64)");
         ensureColumn("ppt_project","template_metadata_json","ALTER TABLE ppt_project ADD COLUMN template_metadata_json "+(h2?"CLOB":"LONGTEXT"));
+        ensureColumn("ppt_slide","chapter_title","ALTER TABLE ppt_slide ADD COLUMN chapter_title VARCHAR(255)");
+        ensureColumn("ppt_slide","content_summary","ALTER TABLE ppt_slide ADD COLUMN content_summary "+(h2?"CLOB":"LONGTEXT"));
+        ensureColumn("ppt_slide","template_type","ALTER TABLE ppt_slide ADD COLUMN template_type VARCHAR(60)");
     }
 
     private void ensureColumn(String table,String column,String ddl) throws Exception {

@@ -243,18 +243,25 @@
     <section v-else-if="stage === 5" class="workspace">
       <article class="panel slide-plan">
         <header>
-          <small>STEP 04</small>
-          <h2>幻灯片规划</h2>
-          <p>每页只表达一个核心观点，可逐页调整。</p>
+          <small>STEP 05 · PPT DESIGN PLAN</small>
+          <h2>PPT 设计规划中心</h2>
+          <p>先确认每一页的标题、章节、页面类型与图片绑定，确认后再逐页渲染。</p>
         </header>
+        <div class="plan-summary">
+          <span><b>{{ expectedPages }}</b>预计总页数</span>
+          <span><b>{{ outline.length }}</b>目录章节</span>
+          <span><b>{{ slides.filter(s => parseBoxes(s.asset_ids_json).length).length }}</b>图片页</span>
+          <span><b>{{ slides.length }}</b>正文规划</span>
+        </div>
         <div class="plan-grid">
           <article
             v-for="(slide, i) in slides"
             :key="slide.id"
             @click="editSlide(slide)"
           >
-            <span>{{ String(i + 1).padStart(2, "0") }}</span
-            ><small>{{ slide.layout_type }}</small>
+            <span>{{ String(i + 3).padStart(2, "0") }}</span
+            ><small>{{ slide.template_type || (parseBoxes(slide.asset_ids_json).length ? 'image' : 'content') }}</small>
+            <em class="chapter-label">{{ slide.chapter_title || '未绑定章节' }}</em>
             <h3>{{ slide.title }}</h3>
             <p v-for="box in parseBoxes(slide.body_boxes_json)" :key="box">
               {{ box }}
@@ -263,14 +270,17 @@
               <em :class="slide.validation_status.toLowerCase()">{{
                 slide.validation_status
               }}</em
-              ><button @click.stop="regenerate(slide)">重新生成</button>
+              ><button @click.stop="movePlanPage(i, -1)" :disabled="i === 0">上移</button>
+              <button @click.stop="movePlanPage(i, 1)" :disabled="i === slides.length - 1">下移</button>
+              <button @click.stop="removePlanPage(i)">删除</button>
+              <button @click.stop="editSlide(slide)">编辑</button>
             </footer>
           </article>
         </div>
         <footer>
-          <span>预计完整PPT {{ expectedPages }} 页</span
-          ><button class="primary" :disabled="busy" @click="startGenerate">
-            开始生成PPTX →
+          <span>固定第1页封面、第2页目录，末页为“谢谢大家”。</span
+          ><button class="primary" :disabled="busy" @click="confirmPlanAndGenerate">
+            {{ busy ? '正在确认方案…' : '确认方案并生成 PPTX →' }}
           </button>
         </footer>
       </article>
@@ -372,6 +382,7 @@ import {
   generatePptOutline,
   savePptOutline,
   planPptSlides,
+  savePptPlan,
   updatePptSlide,
   regeneratePptSlide,
   generatePptFile,
@@ -516,6 +527,38 @@ async function confirmTemplateAndPlan() {
   } finally {
     busy.value = false;
   }
+}
+async function confirmPlanAndGenerate() {
+  busy.value = true;
+  try {
+    const data = await savePptPlan(
+      project.value.id,
+      slides.value.map((slide, index) => ({
+        id: slide.id,
+        title: slide.title,
+        bodyBoxes: parseBoxes(slide.body_boxes_json),
+        assetIds: parseBoxes(slide.asset_ids_json),
+        layoutType: slide.layout_type,
+        chapterTitle: slide.chapter_title || "",
+        contentSummary: slide.content_summary || "",
+        templateType: slide.template_type || (parseBoxes(slide.asset_ids_json).length ? "image" : "content"),
+        pageNumber: index + 3,
+      })),
+    );
+    slides.value = data.slides || slides.value;
+    await startGenerate();
+  } catch (e) {
+    ElMessage.error(e?.responseData?.message || e.message || "PPT方案确认失败");
+  } finally {
+    busy.value = false;
+  }
+}
+function removePlanPage(index) {
+  if (slides.value.length <= 4) return ElMessage.warning("正文方案至少保留4页");
+  slides.value.splice(index, 1);
+}
+function movePlanPage(index, direction) {
+  move(slides.value, index, direction);
 }
 function editSlide(s) {
   editing.value = {
@@ -1085,6 +1128,10 @@ select {
   grid-template-columns: repeat(4, 1fr);
   gap: 13px;
 }
+.plan-summary { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin:0 0 18px; }
+.plan-summary span { display:grid; gap:3px; padding:14px 16px; border:1px solid #e7e1f4; border-radius:14px; color:#85899a; background:#fbfaff; font-size:11px; }
+.plan-summary b { color:#282d40; font-size:24px; }
+.chapter-label { display:block; margin-top:14px; color:#765cf0; font-size:10px; font-style:normal; font-weight:800; }
 .plan-grid > article {
   position: relative;
   min-height: 185px;
@@ -1121,8 +1168,10 @@ select {
   bottom: 13px;
   left: 14px;
   display: flex;
-  justify-content: space-between;
+  gap: 6px;
+  align-items: center;
 }
+.plan-grid footer > em { margin-right:auto; }
 .plan-grid footer em {
   color: #145b4d;
   font-size: 9px;

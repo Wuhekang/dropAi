@@ -642,6 +642,7 @@ export function analyzePptProject(id) { return request.post(`/ppt/projects/${id}
 export function generatePptOutline(id) { return request.post(`/ppt/projects/${id}/outline`, {}, { timeout: 300000 }) }
 export function savePptOutline(id, items) { return request.put(`/ppt/projects/${id}/outline`, items) }
 export function planPptSlides(id) { return request.post(`/ppt/projects/${id}/plan`, {}, { timeout: 300000 }) }
+export function savePptPlan(id, pages) { return request.put(`/ppt/projects/${id}/plan`, pages) }
 export function updatePptSlide(id, slideId, data) { return request.put(`/ppt/projects/${id}/slides/${slideId}`, data) }
 export function regeneratePptSlide(id, slideId) { return request.post(`/ppt/projects/${id}/slides/${slideId}/regenerate`, {}, { timeout: 180000 }) }
 export function generatePptFile(id) { return request.post(`/ppt/projects/${id}/generate`, {}, { timeout: 600000 }) }
