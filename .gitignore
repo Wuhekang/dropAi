@@ -13,6 +13,7 @@ work/
 frontend/.idea/
 backend/.idea/
 /template-import/
+/dropai-demo/
 
 *.log
 .DS_Store
