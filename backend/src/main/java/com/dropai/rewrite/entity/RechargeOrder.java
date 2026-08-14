@@ -18,6 +18,7 @@ public class RechargeOrder {
     private String status;
     private String payMethod;
     private BigDecimal payAmount;
+    private BigDecimal refundAmount;
     private String payAccountLast4;
     private String proofImage;
     private LocalDateTime createdAt;
@@ -41,6 +42,8 @@ public class RechargeOrder {
     public void setPayMethod(String payMethod) { this.payMethod = payMethod; }
     public BigDecimal getPayAmount() { return payAmount; }
     public void setPayAmount(BigDecimal payAmount) { this.payAmount = payAmount; }
+    public BigDecimal getRefundAmount() { return refundAmount; }
+    public void setRefundAmount(BigDecimal refundAmount) { this.refundAmount = refundAmount; }
     public String getPayAccountLast4() { return payAccountLast4; }
     public void setPayAccountLast4(String payAccountLast4) { this.payAccountLast4 = payAccountLast4; }
     public String getProofImage() { return proofImage; }
