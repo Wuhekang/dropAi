@@ -44,7 +44,7 @@ public class EpayService {
         validateConfiguration();
         String notifyUrl = endpoint("/api/recharge/notify", properties.getNotifyUrl());
         String returnUrl = UriComponentsBuilder.fromUriString(endpoint("/recharge", properties.getReturnUrl()))
-                .queryParam("order_no", order.getOrderNo()).build().toUriString();
+                .queryParam("out_trade_no", order.getOrderNo()).build().toUriString();
         Map<String, String> params = new LinkedHashMap<>();
         params.put("pid", properties.getPid());
         params.put("type", normalizeType(order.getPayMethod()));
@@ -112,11 +112,18 @@ public class EpayService {
         if (!("1".equals(status) || "TRADE_SUCCESS".equalsIgnoreCase(status))) {
             throw new IllegalStateException("支付平台订单尚未支付成功");
         }
-        return new PaymentQuery(orderNo, String.valueOf(body.get("trade_no")),
+        String merchantOrderNo = string(body.get("out_trade_no"));
+        if (!blank(merchantOrderNo) && !orderNo.equals(merchantOrderNo))
+            throw new IllegalStateException("支付平台返回的商户订单号不一致");
+        return new PaymentQuery(orderNo, string(body.get("trade_no")),
+                first(body, "api_trade_no", "provider_trade_no", "transaction_id"),
                 new java.math.BigDecimal(String.valueOf(body.get("money"))), status);
     }
 
-    public record PaymentQuery(String orderNo, String tradeNo, java.math.BigDecimal money, String status) {}
+    private String first(Map<String,Object> body, String... keys) { for(String key:keys){String value=string(body.get(key));if(!blank(value)&&!"null".equalsIgnoreCase(value))return value;}return null; }
+    private String string(Object value) { return value == null ? null : String.valueOf(value); }
+
+    public record PaymentQuery(String orderNo, String gatewayOrderNo, String providerTradeNo, java.math.BigDecimal money, String status) {}
 
     private void validateConfiguration() {
         if (blank(properties.getGateway()) || blank(properties.getPid()) || blank(properties.getKey())) {

@@ -56,6 +56,8 @@ public class CommercialFeatureSchemaInitializer implements ApplicationRunner {
                   paid_at TIMESTAMP,
                   audited_at TIMESTAMP,
                   third_party_trade_no VARCHAR(128),
+                  gateway_order_no VARCHAR(128),
+                  provider_trade_no VARCHAR(128),
                   credited_at TIMESTAMP
                 )
                 """ : """
@@ -76,6 +78,8 @@ public class CommercialFeatureSchemaInitializer implements ApplicationRunner {
                   paid_at DATETIME NULL,
                   audited_at DATETIME NULL,
                   third_party_trade_no VARCHAR(128) NULL,
+                  gateway_order_no VARCHAR(128) NULL,
+                  provider_trade_no VARCHAR(128) NULL,
                   credited_at DATETIME NULL,
                   INDEX idx_recharge_user_created (user_id, created_at),
                   INDEX idx_recharge_status (status)
@@ -168,6 +172,8 @@ public class CommercialFeatureSchemaInitializer implements ApplicationRunner {
         ensureColumn(connection, "recharge_order", "refund_amount", "DECIMAL(10,2) DEFAULT 0 NOT NULL");
         ensureColumn(connection, "recharge_order", "school_id", "BIGINT DEFAULT 0 NOT NULL");
         ensureColumn(connection, "recharge_order", "third_party_trade_no", "VARCHAR(128)");
+        ensureColumn(connection, "recharge_order", "gateway_order_no", "VARCHAR(128)");
+        ensureColumn(connection, "recharge_order", "provider_trade_no", "VARCHAR(128)");
         ensureColumn(connection, "recharge_order", "credited_at", h2 ? "TIMESTAMP" : "DATETIME NULL");
     }
 

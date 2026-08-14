@@ -27,6 +27,8 @@ public class RechargeOrder {
     private LocalDateTime paidAt;
     private LocalDateTime auditedAt;
     private String thirdPartyTradeNo;
+    private String gatewayOrderNo;
+    private String providerTradeNo;
     private LocalDateTime creditedAt;
 
     public Long getId() { return id; }
@@ -63,6 +65,10 @@ public class RechargeOrder {
     public void setAuditedAt(LocalDateTime auditedAt) { this.auditedAt = auditedAt; }
     public String getThirdPartyTradeNo() { return thirdPartyTradeNo; }
     public void setThirdPartyTradeNo(String thirdPartyTradeNo) { this.thirdPartyTradeNo = thirdPartyTradeNo; }
+    public String getGatewayOrderNo() { return gatewayOrderNo; }
+    public void setGatewayOrderNo(String gatewayOrderNo) { this.gatewayOrderNo = gatewayOrderNo; }
+    public String getProviderTradeNo() { return providerTradeNo; }
+    public void setProviderTradeNo(String providerTradeNo) { this.providerTradeNo = providerTradeNo; }
     public LocalDateTime getCreditedAt() { return creditedAt; }
     public void setCreditedAt(LocalDateTime creditedAt) { this.creditedAt = creditedAt; }
 }
