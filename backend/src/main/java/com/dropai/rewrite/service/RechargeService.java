@@ -30,9 +30,8 @@ import java.util.UUID;
 public class RechargeService {
     private static final Map<String, Plan> PLANS = Map.of(
             "PLAN_10", new Plan("PLAN_10", 10, 100, false),
-            "PLAN_30", new Plan("PLAN_30", 30, 350, true),
-            "PLAN_50", new Plan("PLAN_50", 50, 600, false),
-            "PLAN_100", new Plan("PLAN_100", 100, 1300, false)
+            "PLAN_20", new Plan("PLAN_20", 20, 200, true),
+            "PLAN_100", new Plan("PLAN_100", 100, 1000, false)
     );
 
     private final RechargeOrderMapper orderMapper;
@@ -66,12 +65,16 @@ public class RechargeService {
         if (dto.getUserId() != null && !dto.getUserId().equals(userId)) {
             throw new IllegalArgumentException("不能为其他用户创建充值订单");
         }
-        Plan plan = resolvePlan(dto);
+        BigDecimal amount = validateAmount(dto.getAmount());
+        int points = amount.intValueExact() * 10;
+        UserAccount user = userMapper.selectById(userId);
+        if (user == null) throw new IllegalArgumentException("用户不存在");
         RechargeOrder order = new RechargeOrder();
         order.setUserId(userId);
+        order.setSchoolId(user.getSchoolId() == null ? 0L : user.getSchoolId());
         order.setOrderNo("R" + System.currentTimeMillis() + UUID.randomUUID().toString().replace("-", "").substring(0, 4).toUpperCase());
-        order.setAmount(BigDecimal.valueOf(plan.amount()));
-        order.setPoints(plan.points());
+        order.setAmount(amount);
+        order.setPoints(points);
         order.setStatus("pending");
         order.setPayMethod(normalizePayMethod(dto.getPayMethod()));
         order.setCreatedAt(LocalDateTime.now());
@@ -165,10 +168,14 @@ public class RechargeService {
         if (money == null || parseAmount(money).compareTo(order.getAmount()) != 0) {
             return "fail";
         }
+        if (order.getPoints() == null || order.getPoints() != order.getAmount().intValueExact() * 10) return "fail";
+        if (orderMapper.claimPending(order.getId()) != 1) return "success";
         creditPoints(order);
         order.setStatus("paid");
         order.setPayAmount(order.getAmount());
+        order.setThirdPartyTradeNo(trim(params.get("trade_no")));
         order.setPaidAt(LocalDateTime.now());
+        order.setCreditedAt(LocalDateTime.now());
         order.setUpdatedAt(LocalDateTime.now());
         orderMapper.updateById(order);
         return "success";
@@ -176,6 +183,7 @@ public class RechargeService {
 
     @Transactional
     public RechargeOrderVO mockPay(String orderNo) {
+        if (!epayService.isMockEnabled()) throw new IllegalStateException("模拟支付在当前环境已禁用");
         Long userId = AuthContext.requireUserId();
         RechargeOrder order = orderMapper.selectOne(new LambdaQueryWrapper<RechargeOrder>()
                 .eq(RechargeOrder::getOrderNo, orderNo)
@@ -223,16 +231,13 @@ public class RechargeService {
         transactionMapper.insert(transaction);
     }
 
-    private Plan resolvePlan(RechargeOrderCreateDTO dto) {
-        if (dto.getPlanId() != null && !dto.getPlanId().isBlank()) {
-            Plan plan = PLANS.get(dto.getPlanId().trim().toUpperCase(Locale.ROOT));
-            if (plan != null) return plan;
-        }
-        int amount = dto.getAmount() == null ? 0 : dto.getAmount().intValue();
-        return PLANS.values().stream()
-                .filter(plan -> plan.amount() == amount)
-                .findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("不支持的充值套餐"));
+    public BigDecimal validateAmount(BigDecimal amount) {
+        if (amount == null) throw new IllegalArgumentException("充值金额不能为空");
+        BigDecimal normalized = amount.stripTrailingZeros();
+        if (normalized.scale() > 0) throw new IllegalArgumentException("充值金额必须为整数");
+        if (normalized.compareTo(BigDecimal.ONE) < 0) throw new IllegalArgumentException("充值金额不能少于1元");
+        if (normalized.compareTo(BigDecimal.valueOf(100)) > 0) throw new IllegalArgumentException("充值金额不能超过100元");
+        return normalized.setScale(2);
     }
 
     private String normalizeLast4(String value) {
