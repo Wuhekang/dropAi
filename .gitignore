@@ -12,6 +12,7 @@ work/
 .env
 frontend/.idea/
 backend/.idea/
+/template-import/
 
 *.log
 .DS_Store
