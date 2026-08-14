@@ -12,6 +12,8 @@ public class UserAccount {
     private String phone;
     private String passwordHash;
     private String role;
+    private Long schoolId;
+    private Boolean accountEnabled;
     private Integer points;
     private Integer totalPoints;
     private Integer usedPoints;
@@ -28,6 +30,10 @@ public class UserAccount {
     public void setPasswordHash(String passwordHash) { this.passwordHash = passwordHash; }
     public String getRole() { return role; }
     public void setRole(String role) { this.role = role; }
+    public Long getSchoolId() { return schoolId; }
+    public void setSchoolId(Long schoolId) { this.schoolId = schoolId; }
+    public Boolean getAccountEnabled() { return accountEnabled; }
+    public void setAccountEnabled(Boolean accountEnabled) { this.accountEnabled = accountEnabled; }
     public Integer getPoints() { return points; }
     public void setPoints(Integer points) { this.points = points; }
     public Integer getTotalPoints() { return totalPoints; }

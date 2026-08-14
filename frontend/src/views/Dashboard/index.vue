@@ -18,14 +18,15 @@
         <button @click="router.push('/computer-generator')"><i>&lt;/&gt;</i>AI 工程生成</button>
         <button @click="router.push('/ppt-generator')"><i>P</i>PPT生成</button>
         <button @click="router.push('/new-project')"><i>⚙</i>机械设计</button>
-        <button v-if="isAdmin" @click="router.push('/points-admin')"><i>⚒</i>管理中心</button>
+        <button v-if="isAdmin" @click="router.push('/points-admin')"><i>⚒</i>用户管理</button>
+        <button v-if="isAdmin" @click="router.push('/school-admin')"><i>▣</i>学校管理</button>
         <button v-if="isAdmin" @click="adminNoticeVisible=true"><i>i</i>系统公告</button>
       </nav>
       <div class="user-card"><span>{{ username.slice(0,1).toUpperCase() }}</span><div><strong>{{ username }}</strong><small>{{ isAdmin?'管理员账户':'研究者账户' }}</small></div><button title="退出登录" @click="signOut">↗</button></div>
     </aside>
 
     <section class="workspace-main">
-      <header class="topbar"><div><span>MY RESEARCH WORKSPACE</span><h1>欢迎回来，{{ username }}</h1><p>继续正在进行的研究，或从一个新想法开始。</p></div><button class="create-button" @click="router.push('/writing-generator')">＋ 创建新项目</button></header>
+      <header class="topbar"><div><span>MY RESEARCH WORKSPACE</span><h1>欢迎回来，{{ username }}</h1><strong v-if="schoolName" class="school-name">{{ schoolName }}</strong><p>继续正在进行的研究，或从一个新想法开始。</p></div><button class="create-button" @click="router.push('/writing-generator')">＋ 创建新项目</button></header>
 
       <section class="focus-project">
         <div v-if="currentProject" class="focus-copy"><span>当前进行项目</span><h2>{{ currentProject.projectName||currentProject.fileName||'未命名项目' }}</h2><p>{{ projectType(currentProject) }} · {{ currentStep(currentProject) }}</p><div class="focus-progress"><label><span>项目进度</span><strong>{{ projectProgress(currentProject) }}%</strong></label><i><b :style="{width:projectProgress(currentProject)+'%'}"></b></i></div><button @click="continueProject(currentProject)">继续工作　→</button></div>
@@ -59,7 +60,7 @@
 
 <script setup>
 import { computed,onMounted,ref } from 'vue';import { useRouter } from 'vue-router';import AdminNoticeModal from '../../components/AdminNoticeModal.vue';import { downloadArtifact,getMyDocuments,getPointAccount,logout } from '../../api/rewrite'
-const router=useRouter(),username=sessionStorage.getItem('dropai_username')||'当前用户',role=sessionStorage.getItem('dropai_role')||'USER',documents=ref([]),loading=ref(false),pointsLoading=ref(false),adminNoticeVisible=ref(false),pointAccount=ref({points:null,totalPoints:null,usedPoints:null})
+const router=useRouter(),username=sessionStorage.getItem('dropai_username')||'当前用户',role=sessionStorage.getItem('dropai_role')||'USER',schoolName=sessionStorage.getItem('dropai_school_name')||'',documents=ref([]),loading=ref(false),pointsLoading=ref(false),adminNoticeVisible=ref(false),pointAccount=ref({points:null,totalPoints:null,usedPoints:null})
 const isAdmin=computed(()=>String(role).toLowerCase()==='admin'),recentProjects=computed(()=>documents.value.slice(0,3)),currentProject=computed(()=>documents.value.find(x=>!['SUCCESS','FAILED'].includes(x.status))||documents.value[0]||null),successfulDocuments=computed(()=>documents.value.filter(x=>x.status==='SUCCESS').length)
 async function loadDocuments(){loading.value=true;try{documents.value=(await getMyDocuments({pageNum:1,pageSize:8}))?.list||[]}finally{loading.value=false}}function refreshDocuments(){loadDocuments()}async function loadPoints(){pointsLoading.value=true;try{pointAccount.value=await getPointAccount()||pointAccount.value}finally{pointsLoading.value=false}}
 function continueProject(project){const name=project.projectName||project.fileName||'Dokiai 项目';router.push({path:'/result',query:{name}})}function openResult(project){continueProject(project)}

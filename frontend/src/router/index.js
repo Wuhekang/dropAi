@@ -16,10 +16,18 @@ import WritingGenerationV2 from '../views/WritingGenerationV2/index.vue'
 import WritingExportV2 from '../views/WritingExportV2/index.vue'
 import WritingMaterialsV2 from '../views/WritingMaterialsV2/index.vue'
 import PptGenerator from '../views/PptGenerator/index.vue'
+import SchoolStatistics from '../views/SchoolStatistics/index.vue'
+import SchoolAdmin from '../views/SchoolAdmin/index.vue'
 
 const router = createRouter({
   history: createWebHistory(),
   routes: [
+    {
+      path: '/school-admin', name: 'SchoolAdmin', component: SchoolAdmin
+    },
+    {
+      path: '/school-statistics', name: 'SchoolStatistics', component: SchoolStatistics
+    },
     {
       path: '/',
       name: 'Home',
@@ -114,9 +122,13 @@ router.beforeEach((to) => {
   const loggedIn = Boolean(sessionStorage.getItem('dropai_token'))
   if (!['/', '/login'].includes(to.path) && !loggedIn) return '/login'
   if (to.path === '/login' && loggedIn) return '/dashboard'
+  const role = sessionStorage.getItem('dropai_role')?.toUpperCase()
+  if (role === 'SCHOOL_VIEWER' && to.path !== '/school-statistics') return '/school-statistics'
+  if (to.path === '/school-statistics' && role !== 'SCHOOL_VIEWER') return '/dashboard'
   if (to.path === '/points-admin' && sessionStorage.getItem('dropai_role')?.toLowerCase() !== 'admin') {
     return '/dashboard'
   }
+  if (to.path === '/school-admin' && role !== 'ADMIN') return '/dashboard'
 })
 
 export default router

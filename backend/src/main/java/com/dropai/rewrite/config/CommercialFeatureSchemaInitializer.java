@@ -144,6 +144,7 @@ public class CommercialFeatureSchemaInitializer implements ApplicationRunner {
         ensureColumn(connection, "recharge_order", "updated_at",
                 h2 ? "TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL" : "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP");
         ensureColumn(connection, "recharge_order", "audited_at", h2 ? "TIMESTAMP" : "DATETIME NULL");
+        ensureColumn(connection, "recharge_order", "refund_amount", "DECIMAL(10,2) DEFAULT 0 NOT NULL");
     }
 
     private void seedDefaultNotice() {
@@ -210,3 +211,4 @@ public class CommercialFeatureSchemaInitializer implements ApplicationRunner {
         }
     }
 }
+

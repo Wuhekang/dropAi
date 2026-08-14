@@ -5,9 +5,11 @@ import com.dropai.rewrite.auth.AuthContext;
 import com.dropai.rewrite.entity.PointTransaction;
 import com.dropai.rewrite.entity.RechargeOrder;
 import com.dropai.rewrite.entity.UserAccount;
+import com.dropai.rewrite.entity.School;
 import com.dropai.rewrite.mapper.PointTransactionMapper;
 import com.dropai.rewrite.mapper.RechargeOrderMapper;
 import com.dropai.rewrite.mapper.UserAccountMapper;
+import com.dropai.rewrite.mapper.SchoolMapper;
 import com.dropai.rewrite.vo.Result;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
@@ -23,12 +25,14 @@ public class AdminUserController {
     private final UserAccountMapper userMapper;
     private final PointTransactionMapper transactionMapper;
     private final RechargeOrderMapper orderMapper;
+    private final SchoolMapper schoolMapper;
 
     public AdminUserController(UserAccountMapper userMapper, PointTransactionMapper transactionMapper,
-                               RechargeOrderMapper orderMapper) {
+                               RechargeOrderMapper orderMapper, SchoolMapper schoolMapper) {
         this.userMapper = userMapper;
         this.transactionMapper = transactionMapper;
         this.orderMapper = orderMapper;
+        this.schoolMapper = schoolMapper;
     }
 
     @GetMapping("/orders")
@@ -52,10 +56,16 @@ public class AdminUserController {
     }
 
     @GetMapping
-    public Result<List<Map<String, Object>>> users() {
+    public Result<List<Map<String, Object>>> users(@RequestParam(required = false) String school,
+                                                   @RequestParam(required = false) String keyword) {
         requireAdmin();
         return Result.success(userMapper.selectList(new LambdaQueryWrapper<UserAccount>().orderByDesc(UserAccount::getCreatedAt))
-                .stream().map(this::userView).toList());
+                .stream().map(this::userView)
+                .filter(v -> school == null || school.isBlank() || "all".equalsIgnoreCase(school)
+                        || ("unbound".equalsIgnoreCase(school) && ((Number)v.get("schoolId")).longValue() == 0)
+                        || String.valueOf(v.get("schoolId")).equals(school))
+                .filter(v -> keyword == null || keyword.isBlank() || (String.valueOf(v.get("phone"))+" "+v.get("schoolName")+" "+v.get("schoolCode")).toLowerCase().contains(keyword.toLowerCase()))
+                .toList());
     }
 
     @GetMapping("/{id}")
@@ -116,6 +126,12 @@ public class AdminUserController {
         view.put("id", user.getId());
         view.put("phone", user.getPhone());
         view.put("role", user.getRole());
+        long schoolId = user.getSchoolId() == null ? 0L : user.getSchoolId();
+        School school = schoolId == 0 ? null : schoolMapper.selectById(schoolId);
+        view.put("schoolId", schoolId);
+        view.put("schoolName", school == null ? null : school.getSchoolName());
+        view.put("schoolCode", school == null ? null : school.getSchoolCode());
+        view.put("ownershipType", school == null ? "普通用户/未绑定学校" : "学校用户");
         view.put("points", user.getPoints());
         view.put("totalPoints", user.getTotalPoints());
         view.put("usedPoints", user.getUsedPoints());
