@@ -6,7 +6,6 @@ import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import java.math.RoundingMode;
@@ -32,15 +31,16 @@ public class EpayService {
     public void logConfig() {
         log.info("========== EPAY CONFIG ==========");
         log.info("Gateway: {}", properties.getGateway());
-        log.info("PID: {}", properties.getPid());
+        log.info("Merchant configured: {}", !blank(properties.getPid()) && !blank(properties.getKey()));
         log.info("Notify URL: {}", endpoint("/api/recharge/notify", properties.getNotifyUrl()));
-        log.info("Return URL: {}", endpoint("/recharge/result", properties.getReturnUrl()));
+        log.info("Return URL: {}", endpoint("/recharge", properties.getReturnUrl()));
         log.info("=================================");
     }
 
     public String createPayUrl(RechargeOrder order) {
+        validateConfiguration();
         String notifyUrl = endpoint("/api/recharge/notify", properties.getNotifyUrl());
-        String returnUrl = endpoint("/recharge/result", properties.getReturnUrl());
+        String returnUrl = endpoint("/recharge", properties.getReturnUrl());
         Map<String, String> params = new LinkedHashMap<>();
         params.put("pid", properties.getPid());
         params.put("type", normalizeType(order.getPayMethod()));
@@ -53,14 +53,18 @@ public class EpayService {
         params.put("sign", sign(params));
         params.put("sign_type", "MD5");
         String payUrl = properties.getGateway() + "?" + toQuery(params);
-        log.info("EPAY order created. orderNo={}, amount={}, type={}, payUrl={}, notifyUrl={}, returnUrl={}",
-                order.getOrderNo(), params.get("money"), params.get("type"), payUrl, notifyUrl, returnUrl);
+        log.info("EPAY order created. orderNo={}, amount={}, type={}, notifyUrl={}, returnUrl={}",
+                order.getOrderNo(), params.get("money"), params.get("type"), notifyUrl, returnUrl);
         return payUrl;
     }
 
     public boolean verifyNotify(Map<String, String> params) {
+        if (blank(properties.getPid()) || blank(properties.getKey()) ||
+                !properties.getPid().equals(params.get("pid"))) return false;
         String received = params.get("sign");
-        return received != null && received.equalsIgnoreCase(sign(params));
+        if (received == null) return false;
+        return MessageDigest.isEqual(received.toLowerCase().getBytes(StandardCharsets.US_ASCII),
+                sign(params).getBytes(StandardCharsets.US_ASCII));
     }
 
     private String sign(Map<String, String> params) {
@@ -82,16 +86,21 @@ public class EpayService {
                     .build()
                     .toUriString();
         }
-        try {
-            return ServletUriComponentsBuilder.fromCurrentContextPath()
-                    .replacePath(path)
-                    .replaceQuery(null)
-                    .build()
-                    .toUriString();
-        } catch (IllegalStateException exception) {
-            return path;
+        throw new IllegalStateException("支付回调地址未配置");
+    }
+
+    public boolean isMockEnabled() { return properties.isMockEnabled(); }
+
+    private void validateConfiguration() {
+        if (blank(properties.getGateway()) || blank(properties.getPid()) || blank(properties.getKey())) {
+            throw new IllegalStateException("支付服务配置不完整，请联系管理员");
+        }
+        if (!properties.getGateway().startsWith("https://")) {
+            throw new IllegalStateException("支付网关必须使用 HTTPS");
         }
     }
+
+    private boolean blank(String value) { return value == null || value.isBlank(); }
 
     private String normalizeType(String payMethod) {
         if (payMethod == null || payMethod.isBlank() || "epay".equalsIgnoreCase(payMethod)) {

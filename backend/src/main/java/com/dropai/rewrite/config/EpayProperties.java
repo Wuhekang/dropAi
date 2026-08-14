@@ -7,13 +7,14 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "app.epay")
 public class EpayProperties {
     private String gateway = "https://pay.dropai-demo.com/submit.php";
-    private String pid = "1000";
-    private String key = "T451e2G86pJlG2tcePGe41jpzMprQ14b";
-    private String notifyUrl = "https://dro.k8818.cn/api/recharge/notify";
-    private String returnUrl = "https://dro.k8818.cn/recharge";
-    private String baseUrl = "https://dro.k8818.cn";
+    private String pid = "";
+    private String key = "";
+    private String notifyUrl = "";
+    private String returnUrl = "";
+    private String baseUrl = "https://dropai-demo.com";
     private String siteName = "DropAI";
     private String defaultType = "alipay";
+    private boolean mockEnabled = false;
 
     public String getGateway() { return gateway; }
     public void setGateway(String gateway) { this.gateway = gateway; }
@@ -31,4 +32,6 @@ public class EpayProperties {
     public void setSiteName(String siteName) { this.siteName = siteName; }
     public String getDefaultType() { return defaultType; }
     public void setDefaultType(String defaultType) { this.defaultType = defaultType; }
+    public boolean isMockEnabled() { return mockEnabled; }
+    public void setMockEnabled(boolean mockEnabled) { this.mockEnabled = mockEnabled; }
 }

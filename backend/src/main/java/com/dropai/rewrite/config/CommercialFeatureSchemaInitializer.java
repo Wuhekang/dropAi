@@ -42,6 +42,7 @@ public class CommercialFeatureSchemaInitializer implements ApplicationRunner {
                 CREATE TABLE IF NOT EXISTS recharge_order (
                   id BIGINT AUTO_INCREMENT PRIMARY KEY,
                   user_id BIGINT NOT NULL,
+                  school_id BIGINT DEFAULT 0 NOT NULL,
                   order_no VARCHAR(64) NOT NULL UNIQUE,
                   amount DECIMAL(10,2) NOT NULL,
                   points INT NOT NULL,
@@ -53,12 +54,15 @@ public class CommercialFeatureSchemaInitializer implements ApplicationRunner {
                   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
                   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
                   paid_at TIMESTAMP,
-                  audited_at TIMESTAMP
+                  audited_at TIMESTAMP,
+                  third_party_trade_no VARCHAR(128),
+                  credited_at TIMESTAMP
                 )
                 """ : """
                 CREATE TABLE IF NOT EXISTS recharge_order (
                   id BIGINT PRIMARY KEY AUTO_INCREMENT,
                   user_id BIGINT NOT NULL,
+                  school_id BIGINT NOT NULL DEFAULT 0,
                   order_no VARCHAR(64) NOT NULL UNIQUE,
                   amount DECIMAL(10,2) NOT NULL,
                   points INT NOT NULL,
@@ -71,6 +75,8 @@ public class CommercialFeatureSchemaInitializer implements ApplicationRunner {
                   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                   paid_at DATETIME NULL,
                   audited_at DATETIME NULL,
+                  third_party_trade_no VARCHAR(128) NULL,
+                  credited_at DATETIME NULL,
                   INDEX idx_recharge_user_created (user_id, created_at),
                   INDEX idx_recharge_status (status)
                 ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
@@ -145,6 +151,9 @@ public class CommercialFeatureSchemaInitializer implements ApplicationRunner {
                 h2 ? "TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL" : "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP");
         ensureColumn(connection, "recharge_order", "audited_at", h2 ? "TIMESTAMP" : "DATETIME NULL");
         ensureColumn(connection, "recharge_order", "refund_amount", "DECIMAL(10,2) DEFAULT 0 NOT NULL");
+        ensureColumn(connection, "recharge_order", "school_id", "BIGINT DEFAULT 0 NOT NULL");
+        ensureColumn(connection, "recharge_order", "third_party_trade_no", "VARCHAR(128)");
+        ensureColumn(connection, "recharge_order", "credited_at", h2 ? "TIMESTAMP" : "DATETIME NULL");
     }
 
     private void seedDefaultNotice() {

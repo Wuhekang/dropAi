@@ -12,6 +12,7 @@ public class RechargeOrder {
     @TableId(type = IdType.AUTO)
     private Long id;
     private Long userId;
+    private Long schoolId;
     private String orderNo;
     private BigDecimal amount;
     private Integer points;
@@ -25,11 +26,15 @@ public class RechargeOrder {
     private LocalDateTime updatedAt;
     private LocalDateTime paidAt;
     private LocalDateTime auditedAt;
+    private String thirdPartyTradeNo;
+    private LocalDateTime creditedAt;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
     public Long getUserId() { return userId; }
     public void setUserId(Long userId) { this.userId = userId; }
+    public Long getSchoolId() { return schoolId; }
+    public void setSchoolId(Long schoolId) { this.schoolId = schoolId; }
     public String getOrderNo() { return orderNo; }
     public void setOrderNo(String orderNo) { this.orderNo = orderNo; }
     public BigDecimal getAmount() { return amount; }
@@ -56,4 +61,8 @@ public class RechargeOrder {
     public void setPaidAt(LocalDateTime paidAt) { this.paidAt = paidAt; }
     public LocalDateTime getAuditedAt() { return auditedAt; }
     public void setAuditedAt(LocalDateTime auditedAt) { this.auditedAt = auditedAt; }
+    public String getThirdPartyTradeNo() { return thirdPartyTradeNo; }
+    public void setThirdPartyTradeNo(String thirdPartyTradeNo) { this.thirdPartyTradeNo = thirdPartyTradeNo; }
+    public LocalDateTime getCreditedAt() { return creditedAt; }
+    public void setCreditedAt(LocalDateTime creditedAt) { this.creditedAt = creditedAt; }
 }
