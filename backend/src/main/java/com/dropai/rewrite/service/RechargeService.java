@@ -236,7 +236,7 @@ public class RechargeService {
         BigDecimal normalized = amount.stripTrailingZeros();
         if (normalized.scale() > 0) throw new IllegalArgumentException("充值金额必须为整数");
         if (normalized.compareTo(BigDecimal.ONE) < 0) throw new IllegalArgumentException("充值金额不能少于1元");
-        if (normalized.compareTo(BigDecimal.valueOf(100)) > 0) throw new IllegalArgumentException("充值金额不能超过100元");
+        if (normalized.compareTo(BigDecimal.valueOf(1000)) > 0) throw new IllegalArgumentException("充值金额不能超过1000元");
         return normalized.setScale(2);
     }
 

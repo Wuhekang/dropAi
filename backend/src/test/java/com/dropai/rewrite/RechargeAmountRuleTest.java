@@ -15,11 +15,11 @@ class RechargeAmountRuleTest {
                 mock(com.dropai.rewrite.service.EpayService.class));
     }
     @Test void acceptsIntegerAmountsFromOneToOneHundred() {
-        for (int value : new int[]{1,10,20,100})
+        for (int value : new int[]{1,10,20,100,999,1000})
             assertEquals(new BigDecimal(value + ".00"), service().validateAmount(BigDecimal.valueOf(value)));
     }
     @Test void rejectsInvalidAmounts() {
-        for (String value : new String[]{"0","-1","1.5","101"})
+        for (String value : new String[]{"0","-1","1.5","1001"})
             assertThrows(IllegalArgumentException.class, () -> service().validateAmount(new BigDecimal(value)));
         assertThrows(IllegalArgumentException.class, () -> service().validateAmount(null));
     }
