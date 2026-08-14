@@ -7,3 +7,14 @@ CREATE INDEX idx_recharge_school_paid ON recharge_order (school_id, status, paid
 UPDATE recharge_order o JOIN user_account u ON u.id=o.user_id
 SET o.school_id=COALESCE(u.school_id,0)
 WHERE o.school_id=0 AND o.status IN ('paid','approved','refunded');
+
+CREATE TABLE IF NOT EXISTS recharge_reconciliation (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  order_no VARCHAR(64) NOT NULL,
+  operator_user_id BIGINT NOT NULL,
+  reason VARCHAR(255) NOT NULL,
+  result VARCHAR(30) NOT NULL,
+  detail VARCHAR(500) NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_reconcile_order_created (order_no, created_at)
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -17,6 +17,8 @@ import com.dropai.rewrite.vo.RechargeOrderVO;
 import com.dropai.rewrite.vo.RechargePlanVO;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -28,6 +30,7 @@ import java.util.UUID;
 
 @Service
 public class RechargeService {
+    private static final Logger log = LoggerFactory.getLogger(RechargeService.class);
     private static final Map<String, Plan> PLANS = Map.of(
             "PLAN_10", new Plan("PLAN_10", 10, 100, false),
             "PLAN_20", new Plan("PLAN_20", 20, 200, true),
@@ -39,17 +42,19 @@ public class RechargeService {
     private final UserPointsLogMapper pointsLogMapper;
     private final PointTransactionMapper transactionMapper;
     private final EpayService epayService;
+    private final RechargeReconciliationAuditService reconciliationAudit;
 
     public RechargeService(RechargeOrderMapper orderMapper,
                            UserAccountMapper userMapper,
                            UserPointsLogMapper pointsLogMapper,
                            PointTransactionMapper transactionMapper,
-                           EpayService epayService) {
+                           EpayService epayService, RechargeReconciliationAuditService reconciliationAudit) {
         this.orderMapper = orderMapper;
         this.userMapper = userMapper;
         this.pointsLogMapper = pointsLogMapper;
         this.transactionMapper = transactionMapper;
         this.epayService = epayService;
+        this.reconciliationAudit = reconciliationAudit;
     }
 
     public List<RechargePlanVO> plans() {
@@ -90,6 +95,14 @@ public class RechargeService {
                         .orderByDesc(RechargeOrder::getCreatedAt)
                         .last("LIMIT 30"))
                 .stream().map(RechargeOrderVO::of).toList();
+    }
+
+    public RechargeOrderVO myOrder(String orderNo) {
+        RechargeOrder order = orderMapper.selectOne(new LambdaQueryWrapper<RechargeOrder>()
+                .eq(RechargeOrder::getOrderNo, trim(orderNo))
+                .eq(RechargeOrder::getUserId, AuthContext.requireUserId()));
+        if (order == null) throw new IllegalArgumentException("充值订单不存在");
+        return RechargeOrderVO.of(order);
     }
 
     public List<RechargeOrderVO> reviewOrders() {
@@ -146,39 +159,66 @@ public class RechargeService {
     }
 
     @Transactional
-    public String handleNotify(Map<String, String> params) {
-        if (!epayService.verifyNotify(params)) {
-            return "fail";
-        }
+    public String handleNotify(Map<String, String> params, String source) {
         String orderNo = trim(params.get("out_trade_no"));
-        String tradeStatus = trim(params.get("trade_status"));
-        if (!"TRADE_SUCCESS".equalsIgnoreCase(tradeStatus)) {
-            return "success";
-        }
-        RechargeOrder order = orderMapper.selectOne(new LambdaQueryWrapper<RechargeOrder>()
-                .eq(RechargeOrder::getOrderNo, orderNo));
-        if (order == null) {
-            return "fail";
-        }
-        if ("paid".equalsIgnoreCase(order.getStatus()) || "approved".equalsIgnoreCase(order.getStatus())) {
-            return "success";
-        }
+        String tradeNo = trim(params.get("trade_no"));
+        boolean signatureValid = epayService.verifyNotify(params);
+        log.info("EPAY notify arrived orderNo={}, tradeNo={}, source={}, signatureValid={}", orderNo, tradeNo, source, signatureValid);
+        if (!signatureValid) return "fail";
+        if (!"TRADE_SUCCESS".equalsIgnoreCase(trim(params.get("trade_status")))) return "success";
+        RechargeOrder order = orderMapper.selectOne(new LambdaQueryWrapper<RechargeOrder>().eq(RechargeOrder::getOrderNo, orderNo));
+        if (order == null) return "fail";
+        String originalStatus = order.getStatus();
+        if ("paid".equalsIgnoreCase(originalStatus) || "approved".equalsIgnoreCase(originalStatus)) return "success";
         String money = trim(params.get("money"));
         if (money == null) money = trim(params.get("total_fee"));
-        if (money == null || parseAmount(money).compareTo(order.getAmount()) != 0) {
+        boolean amountMatches = money != null && parseAmount(money).compareTo(order.getAmount()) == 0;
+        if (!amountMatches || order.getPoints() == null || order.getPoints() != order.getAmount().intValueExact() * 10) {
+            log.warn("EPAY notify rejected orderNo={}, amountMatches={}, originalStatus={}", orderNo, amountMatches, originalStatus);
             return "fail";
         }
-        if (order.getPoints() == null || order.getPoints() != order.getAmount().intValueExact() * 10) return "fail";
         if (orderMapper.claimPending(order.getId()) != 1) return "success";
-        creditPoints(order);
-        order.setStatus("paid");
-        order.setPayAmount(order.getAmount());
-        order.setThirdPartyTradeNo(trim(params.get("trade_no")));
-        order.setPaidAt(LocalDateTime.now());
-        order.setCreditedAt(LocalDateTime.now());
-        order.setUpdatedAt(LocalDateTime.now());
+        Long transactionId = creditPoints(order);
+        order.setStatus("paid"); order.setPayAmount(order.getAmount()); order.setThirdPartyTradeNo(tradeNo);
+        order.setPaidAt(LocalDateTime.now()); order.setCreditedAt(LocalDateTime.now()); order.setUpdatedAt(LocalDateTime.now());
         orderMapper.updateById(order);
+        log.info("EPAY notify completed orderNo={}, tradeNo={}, originalStatus={}, result=credited, pointsTransactionId={}, response=success",
+                orderNo, tradeNo, originalStatus, transactionId);
         return "success";
+    }
+
+    public String handleNotify(Map<String, String> params) { return handleNotify(params, "unknown"); }
+
+    @Transactional
+    public RechargeOrderVO reconcile(String orderNo, String reason) {
+        UserAccount admin = requireAdminAccount();
+        String cleanReason = trim(reason);
+        if (cleanReason == null || cleanReason.length() < 3 || cleanReason.length() > 255)
+            throw new IllegalArgumentException("补单原因长度必须为3-255个字符");
+        RechargeOrder order = orderMapper.selectOne(new LambdaQueryWrapper<RechargeOrder>().eq(RechargeOrder::getOrderNo, trim(orderNo)));
+        if (order == null) throw new IllegalArgumentException("充值订单不存在");
+        try {
+            EpayService.PaymentQuery payment = epayService.queryPaidOrder(order.getOrderNo());
+            if (payment.money().compareTo(order.getAmount()) != 0) throw new IllegalStateException("支付平台金额与本地订单不一致");
+            if (!"paid".equalsIgnoreCase(order.getStatus()) && !"approved".equalsIgnoreCase(order.getStatus())) {
+                if (order.getPoints() == null || order.getPoints() != order.getAmount().intValueExact() * 10)
+                    throw new IllegalStateException("本地订单积分计算不一致");
+                if (orderMapper.claimPending(order.getId()) != 1) throw new IllegalStateException("订单正在处理或状态不可补单");
+                Long transactionId = creditPoints(order);
+                order.setStatus("paid"); order.setPayAmount(order.getAmount()); order.setThirdPartyTradeNo(payment.tradeNo());
+                order.setPaidAt(LocalDateTime.now()); order.setCreditedAt(LocalDateTime.now()); order.setUpdatedAt(LocalDateTime.now());
+                orderMapper.updateById(order);
+                writeReconcile(orderNo, admin.getId(), cleanReason, "credited", "transactionId=" + transactionId);
+            } else writeReconcile(orderNo, admin.getId(), cleanReason, "already_paid", "idempotent");
+            return RechargeOrderVO.of(order);
+        } catch (RuntimeException ex) {
+            writeReconcile(orderNo, admin.getId(), cleanReason, "rejected", ex.getMessage());
+            throw ex;
+        }
+    }
+
+    private void writeReconcile(String orderNo, Long adminId, String reason, String result, String detail) {
+        reconciliationAudit.record(orderNo, adminId, reason, result, detail);
     }
 
     @Transactional
@@ -202,7 +242,7 @@ public class RechargeService {
         return RechargeOrderVO.of(order);
     }
 
-    private void creditPoints(RechargeOrder order) {
+    private Long creditPoints(RechargeOrder order) {
         Long userId = order.getUserId();
         UserAccount before = userMapper.selectById(userId);
         int beforePoints = before.getPoints() == null ? 0 : before.getPoints();
@@ -229,6 +269,7 @@ public class RechargeService {
         transaction.setRemark("充值 " + order.getAmount() + " 元，获得 " + order.getPoints() + " 积分");
         transaction.setCreatedAt(LocalDateTime.now());
         transactionMapper.insert(transaction);
+        return transaction.getId();
     }
 
     public BigDecimal validateAmount(BigDecimal amount) {
@@ -258,12 +299,15 @@ public class RechargeService {
         return status;
     }
 
-    private void requireAdmin() {
+    private UserAccount requireAdminAccount() {
         UserAccount account = userMapper.selectById(AuthContext.requireUserId());
         if (account == null || account.getRole() == null || !"admin".equalsIgnoreCase(account.getRole())) {
             throw new IllegalStateException("仅管理员可操作");
         }
+        return account;
     }
+
+    private void requireAdmin() { requireAdminAccount(); }
 
     private String normalizePayMethod(String value) {
         if (value == null || value.isBlank()) return "alipay_personal";

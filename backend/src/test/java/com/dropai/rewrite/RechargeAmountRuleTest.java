@@ -12,7 +12,7 @@ class RechargeAmountRuleTest {
                 mock(com.dropai.rewrite.mapper.UserAccountMapper.class),
                 mock(com.dropai.rewrite.mapper.UserPointsLogMapper.class),
                 mock(com.dropai.rewrite.mapper.PointTransactionMapper.class),
-                mock(com.dropai.rewrite.service.EpayService.class));
+                mock(com.dropai.rewrite.service.EpayService.class), mock(com.dropai.rewrite.service.RechargeReconciliationAuditService.class));
     }
     @Test void acceptsIntegerAmountsFromOneToOneHundred() {
         for (int value : new int[]{1,10,20,100,999,1000})

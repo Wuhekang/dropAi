@@ -158,6 +158,14 @@ export function getRechargeOrders() {
   return request.get('/recharge/orders')
 }
 
+export function getRechargeOrder(orderNo) {
+  return request.get(`/recharge/orders/${encodeURIComponent(orderNo)}`)
+}
+
+export function reconcileRechargeOrder(orderNo, reason) {
+  return request.post(`/recharge/admin/orders/${encodeURIComponent(orderNo)}/reconcile`, { reason })
+}
+
 export function getAdminUsers(params) {
   return request.get('/admin/users', { params })
 }

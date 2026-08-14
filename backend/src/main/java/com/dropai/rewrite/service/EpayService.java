@@ -6,6 +6,7 @@ import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestClient;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import java.math.RoundingMode;
@@ -22,9 +23,11 @@ public class EpayService {
     private static final Logger log = LoggerFactory.getLogger(EpayService.class);
 
     private final EpayProperties properties;
+    private final RestClient restClient;
 
-    public EpayService(EpayProperties properties) {
+    public EpayService(EpayProperties properties, RestClient.Builder builder) {
         this.properties = properties;
+        this.restClient = builder.build();
     }
 
     @PostConstruct
@@ -40,7 +43,8 @@ public class EpayService {
     public String createPayUrl(RechargeOrder order) {
         validateConfiguration();
         String notifyUrl = endpoint("/api/recharge/notify", properties.getNotifyUrl());
-        String returnUrl = endpoint("/recharge", properties.getReturnUrl());
+        String returnUrl = UriComponentsBuilder.fromUriString(endpoint("/recharge", properties.getReturnUrl()))
+                .queryParam("order_no", order.getOrderNo()).build().toUriString();
         Map<String, String> params = new LinkedHashMap<>();
         params.put("pid", properties.getPid());
         params.put("type", normalizeType(order.getPayMethod()));
@@ -90,6 +94,29 @@ public class EpayService {
     }
 
     public boolean isMockEnabled() { return properties.isMockEnabled(); }
+
+    @SuppressWarnings("unchecked")
+    public PaymentQuery queryPaidOrder(String orderNo) {
+        validateConfiguration();
+        if (blank(properties.getQueryUrl())) throw new IllegalStateException("支付订单查询地址未配置");
+        Map<String, Object> body = restClient.get().uri(builder -> builder
+                .scheme("https").host(UriComponentsBuilder.fromUriString(properties.getQueryUrl()).build().getHost())
+                .path(UriComponentsBuilder.fromUriString(properties.getQueryUrl()).build().getPath())
+                .queryParam("act", "order").queryParam("pid", properties.getPid())
+                .queryParam("key", properties.getKey()).queryParam("out_trade_no", orderNo).build())
+                .retrieve().body(Map.class);
+        if (body == null || !"1".equals(String.valueOf(body.get("code")))) {
+            throw new IllegalStateException("支付平台未确认该订单");
+        }
+        String status = String.valueOf(body.get("status"));
+        if (!("1".equals(status) || "TRADE_SUCCESS".equalsIgnoreCase(status))) {
+            throw new IllegalStateException("支付平台订单尚未支付成功");
+        }
+        return new PaymentQuery(orderNo, String.valueOf(body.get("trade_no")),
+                new java.math.BigDecimal(String.valueOf(body.get("money"))), status);
+    }
+
+    public record PaymentQuery(String orderNo, String tradeNo, java.math.BigDecimal money, String status) {}
 
     private void validateConfiguration() {
         if (blank(properties.getGateway()) || blank(properties.getPid()) || blank(properties.getKey())) {
