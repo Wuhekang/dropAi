@@ -162,6 +162,7 @@ public class RechargeService {
     public String handleNotify(Map<String, String> params, String source) {
         String orderNo = trim(params.get("out_trade_no"));
         String tradeNo = trim(params.get("trade_no"));
+        String providerTradeNo = first(params.get("api_trade_no"), params.get("provider_trade_no"), params.get("transaction_id"));
         boolean signatureValid = epayService.verifyNotify(params);
         log.info("EPAY notify arrived orderNo={}, tradeNo={}, source={}, signatureValid={}", orderNo, tradeNo, source, signatureValid);
         if (!signatureValid) return "fail";
@@ -177,9 +178,11 @@ public class RechargeService {
             log.warn("EPAY notify rejected orderNo={}, amountMatches={}, originalStatus={}", orderNo, amountMatches, originalStatus);
             return "fail";
         }
+        ensureTradeNumbersUnused(order.getId(), tradeNo, providerTradeNo);
         if (orderMapper.claimPending(order.getId()) != 1) return "success";
         Long transactionId = creditPoints(order);
         order.setStatus("paid"); order.setPayAmount(order.getAmount()); order.setThirdPartyTradeNo(tradeNo);
+        order.setGatewayOrderNo(tradeNo); order.setProviderTradeNo(providerTradeNo);
         order.setPaidAt(LocalDateTime.now()); order.setCreditedAt(LocalDateTime.now()); order.setUpdatedAt(LocalDateTime.now());
         orderMapper.updateById(order);
         log.info("EPAY notify completed orderNo={}, tradeNo={}, originalStatus={}, result=credited, pointsTransactionId={}, response=success",
@@ -205,7 +208,9 @@ public class RechargeService {
                     throw new IllegalStateException("本地订单积分计算不一致");
                 if (orderMapper.claimPending(order.getId()) != 1) throw new IllegalStateException("订单正在处理或状态不可补单");
                 Long transactionId = creditPoints(order);
-                order.setStatus("paid"); order.setPayAmount(order.getAmount()); order.setThirdPartyTradeNo(payment.tradeNo());
+                ensureTradeNumbersUnused(order.getId(), payment.gatewayOrderNo(), payment.providerTradeNo());
+                order.setStatus("paid"); order.setPayAmount(order.getAmount()); order.setThirdPartyTradeNo(payment.gatewayOrderNo());
+                order.setGatewayOrderNo(payment.gatewayOrderNo()); order.setProviderTradeNo(payment.providerTradeNo());
                 order.setPaidAt(LocalDateTime.now()); order.setCreditedAt(LocalDateTime.now()); order.setUpdatedAt(LocalDateTime.now());
                 orderMapper.updateById(order);
                 writeReconcile(orderNo, admin.getId(), cleanReason, "credited", "transactionId=" + transactionId);
@@ -220,6 +225,17 @@ public class RechargeService {
     private void writeReconcile(String orderNo, Long adminId, String reason, String result, String detail) {
         reconciliationAudit.record(orderNo, adminId, reason, result, detail);
     }
+
+    private void ensureTradeNumbersUnused(Long orderId, String gatewayOrderNo, String providerTradeNo) {
+        if (gatewayOrderNo != null && orderMapper.selectCount(new LambdaQueryWrapper<RechargeOrder>()
+                .eq(RechargeOrder::getGatewayOrderNo, gatewayOrderNo).ne(RechargeOrder::getId, orderId)) > 0)
+            throw new IllegalStateException("支付网关订单号已被其他订单使用");
+        if (providerTradeNo != null && orderMapper.selectCount(new LambdaQueryWrapper<RechargeOrder>()
+                .eq(RechargeOrder::getProviderTradeNo, providerTradeNo).ne(RechargeOrder::getId, orderId)) > 0)
+            throw new IllegalStateException("上游交易号已被其他订单使用");
+    }
+
+    private String first(String... values) { for (String value : values) if (value != null && !value.isBlank()) return value.trim(); return null; }
 
     @Transactional
     public RechargeOrderVO mockPay(String orderNo) {
