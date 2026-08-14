@@ -14,6 +14,7 @@ public class EpayProperties {
     private String baseUrl = "https://dropai-demo.com";
     private String siteName = "DropAI";
     private String defaultType = "alipay";
+    private String queryUrl = "https://pay.dropai-demo.com/api.php";
     private boolean mockEnabled = false;
 
     public String getGateway() { return gateway; }
@@ -32,6 +33,8 @@ public class EpayProperties {
     public void setSiteName(String siteName) { this.siteName = siteName; }
     public String getDefaultType() { return defaultType; }
     public void setDefaultType(String defaultType) { this.defaultType = defaultType; }
+    public String getQueryUrl() { return queryUrl; }
+    public void setQueryUrl(String queryUrl) { this.queryUrl = queryUrl; }
     public boolean isMockEnabled() { return mockEnabled; }
     public void setMockEnabled(boolean mockEnabled) { this.mockEnabled = mockEnabled; }
 }

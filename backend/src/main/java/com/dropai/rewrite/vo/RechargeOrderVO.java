@@ -9,6 +9,7 @@ public record RechargeOrderVO(Long id, String orderNo, BigDecimal amount, Intege
                               String status, String payMethod, BigDecimal payAmount, String payAccountLast4,
                               String proofImage, LocalDateTime createdAt, LocalDateTime updatedAt,
                               LocalDateTime paidAt, LocalDateTime auditedAt,
+                              String thirdPartyTradeNo, LocalDateTime creditedAt,
                               String payQrUrl, String paymentUrl) {
     public static RechargeOrderVO of(RechargeOrder order) {
         return of(order, "/api/recharge/orders/" + order.getOrderNo() + "/mock-pay");
@@ -18,6 +19,7 @@ public record RechargeOrderVO(Long id, String orderNo, BigDecimal amount, Intege
         return new RechargeOrderVO(order.getId(), order.getOrderNo(), order.getAmount(), order.getPoints(),
                 order.getStatus(), order.getPayMethod(), order.getPayAmount(), order.getPayAccountLast4(),
                 order.getProofImage(), order.getCreatedAt(), order.getUpdatedAt(), order.getPaidAt(), order.getAuditedAt(),
+                order.getThirdPartyTradeNo(), order.getCreditedAt(),
                 "/static/alipay-qrcode.png",
                 paymentUrl);
     }

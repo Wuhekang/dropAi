@@ -105,6 +105,21 @@ public class CommercialFeatureSchemaInitializer implements ApplicationRunner {
                 ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
                 """);
         jdbcTemplate.execute(h2 ? """
+                CREATE TABLE IF NOT EXISTS recharge_reconciliation (
+                  id BIGINT AUTO_INCREMENT PRIMARY KEY, order_no VARCHAR(64) NOT NULL,
+                  operator_user_id BIGINT NOT NULL, reason VARCHAR(255) NOT NULL,
+                  result VARCHAR(30) NOT NULL, detail VARCHAR(500), created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+                )
+                """ : """
+                CREATE TABLE IF NOT EXISTS recharge_reconciliation (
+                  id BIGINT PRIMARY KEY AUTO_INCREMENT, order_no VARCHAR(64) NOT NULL,
+                  operator_user_id BIGINT NOT NULL, reason VARCHAR(255) NOT NULL,
+                  result VARCHAR(30) NOT NULL, detail VARCHAR(500) NULL,
+                  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  INDEX idx_reconcile_order_created (order_no, created_at)
+                ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+                """);
+        jdbcTemplate.execute(h2 ? """
                 CREATE TABLE IF NOT EXISTS system_notice (
                   id BIGINT AUTO_INCREMENT PRIMARY KEY,
                   title VARCHAR(120) NOT NULL,

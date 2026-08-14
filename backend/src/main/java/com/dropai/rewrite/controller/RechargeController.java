@@ -2,6 +2,8 @@ package com.dropai.rewrite.controller;
 
 import com.dropai.rewrite.dto.RechargeConfirmDTO;
 import com.dropai.rewrite.dto.RechargeOrderCreateDTO;
+import com.dropai.rewrite.dto.RechargeReconcileDTO;
+import jakarta.servlet.http.HttpServletRequest;
 import com.dropai.rewrite.service.RechargeService;
 import com.dropai.rewrite.vo.RechargeOrderVO;
 import com.dropai.rewrite.vo.RechargePlanVO;
@@ -47,13 +49,13 @@ public class RechargeController {
     }
 
     @PostMapping("/notify")
-    public String notify(@RequestParam Map<String, String> params) {
-        return rechargeService.handleNotify(params);
+    public String notify(@RequestParam Map<String, String> params, HttpServletRequest request) {
+        return rechargeService.handleNotify(params, clientIp(request));
     }
 
     @GetMapping("/notify")
-    public String notifyByGet(@RequestParam Map<String, String> params) {
-        return rechargeService.handleNotify(params);
+    public String notifyByGet(@RequestParam Map<String, String> params, HttpServletRequest request) {
+        return rechargeService.handleNotify(params, clientIp(request));
     }
 
     @GetMapping("/orders")
@@ -61,8 +63,23 @@ public class RechargeController {
         return Result.success(rechargeService.myOrders());
     }
 
+    @GetMapping("/orders/{orderNo}")
+    public Result<RechargeOrderVO> order(@PathVariable String orderNo) {
+        return Result.success(rechargeService.myOrder(orderNo));
+    }
+
+    @PostMapping("/admin/orders/{orderNo}/reconcile")
+    public Result<RechargeOrderVO> reconcile(@PathVariable String orderNo, @RequestBody RechargeReconcileDTO dto) {
+        return Result.success("补单核验完成", rechargeService.reconcile(orderNo, dto.getReason()));
+    }
+
     @PostMapping("/orders/{orderNo}/mock-pay")
     public Result<RechargeOrderVO> mockPay(@PathVariable String orderNo) {
         return Result.success("\u652f\u4ed8\u6210\u529f\uff0c\u79ef\u5206\u5df2\u5230\u8d26", rechargeService.mockPay(orderNo));
+    }
+
+    private String clientIp(HttpServletRequest request) {
+        String forwarded = request.getHeader("X-Forwarded-For");
+        return forwarded == null || forwarded.isBlank() ? request.getRemoteAddr() : forwarded.split(",")[0].trim();
     }
 }

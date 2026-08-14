@@ -38,6 +38,7 @@ app:
     return-url: ${EPAY_RETURN_URL:}
     site-name: ${EPAY_SITE_NAME:DropAI}
     default-type: ${EPAY_DEFAULT_TYPE:alipay}
+    query-url: ${EPAY_QUERY_URL:https://pay.dropai-demo.com/api.php}
     mock-enabled: ${EPAY_MOCK_ENABLED:false}
 
 ai:
