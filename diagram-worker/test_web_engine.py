@@ -15,7 +15,7 @@ class WebEngineTest(unittest.TestCase):
    with self.subTest(kind=kind):
     dsl=HEADERS[kind]+"\n"+(ROOT/name).read_text(encoding="utf-8-sig")
     result=execute({"command":"render","dsl":dsl})
-    self.assertTrue(result.get("valid"),result.get("issues"));self.assertIn("<svg",result["svg"]);self.assertEqual(kind,result["diagramType"])
+    self.assertTrue(result.get("valid"),result.get("issues"));self.assertIn("<svg",result["svg"]);self.assertEqual(kind,result["diagramTypeKey"]);self.assertTrue(result["ok"])
  def test_missing_header(self): self.assertEqual("HEADER_MISSING",execute({"dsl":"标题：测试"})["issues"][0]["code"])
  def test_unreachable_code_normalized(self):
   dsl="@Flowchart\n标题：测试\n[节点]\nN1|start|开始\nN2|end|结束\nN3|process|孤立\n[连接]\nN1->N2"
@@ -23,7 +23,7 @@ class WebEngineTest(unittest.TestCase):
  def test_function_module_acceptance_and_wrapped_function(self):
   dsl="\ufeff@FunctionModule\r\n系统:个人健康管理系统\r\n\r\n模块：管理端\r\n功能：仪表盘统计，用户管理、健康知识管理；公告管理,健康数据查看;智能服务配置\r\n\r\n模块：用户端\r\n功能：首页健康概览，健康数据管理，运动记录，饮食记录，健康目\r\n标管理，智能健康评估，智能健康对话，个人中心"
   result=execute({"command":"render","dsl":dsl})
-  self.assertTrue(result["valid"],result["issues"]);self.assertEqual("function_module",result["diagramType"])
+  self.assertTrue(result["valid"],result["issues"]);self.assertEqual("function_module",result["diagramTypeKey"])
   self.assertEqual(2,len(result["structure"]["modules"]));self.assertEqual(14,sum(len(x["functions"]) for x in result["structure"]["modules"]))
  def test_comments_before_header_and_canonical_only(self):
   self.assertEqual("function_module",execute({"dsl":"# comment\n// comment\n@FunctionModule\n系统：系统\n模块：模块\n功能：功能"})["diagramType"])

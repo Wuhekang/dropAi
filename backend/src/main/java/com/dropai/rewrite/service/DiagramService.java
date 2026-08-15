@@ -8,6 +8,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
@@ -20,6 +22,7 @@ import java.util.Map;
 
 @Service
 public class DiagramService {
+    private static final Logger log=LoggerFactory.getLogger(DiagramService.class);
     private static final int MAX_DSL = 100_000;
     private final ObjectMapper objectMapper;
     private final MatrixDesignService matrix;
@@ -34,7 +37,19 @@ public class DiagramService {
     }
 
     public JsonNode validate(String dsl) { return run("validate", dsl, null); }
-    public JsonNode render(String dsl) { return run("render", dsl, null); }
+    public JsonNode render(String dsl) {
+        log.info("[diagram] request received");
+        log.info("[diagram] source normalized");
+        JsonNode result=run("render", dsl, null);
+        log.info("[diagram] header detected: {}",result.path("diagramType").asText());
+        log.info("[diagram] parser selected: {}",result.path("displayName").asText());
+        log.info("[diagram] parse, validation, layout and svg render completed in {}ms",result.path("durationMs").asLong());
+        log.info("[diagram] response sent"); return result;
+    }
+    public Map<String,Object> health() {
+        Path path=resolveWorkerPath();
+        return Map.of("ok",Files.isRegularFile(path),"engine","ThesisDiagram","version","1.6","supportedHeaders",List.of("@FunctionModule","@Flowchart","@ERDiagram","@ArchitectureDiagram","@UseCaseDiagram","@BlockDiagram","@SequenceDiagram"));
+    }
     public ExportFile export(String dsl, String format) {
         JsonNode result=run("export",dsl,format);
         if (!result.path("success").asBoolean()) throw new IllegalArgumentException(result.path("error").asText("导出失败"));

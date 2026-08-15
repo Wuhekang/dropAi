@@ -16,12 +16,13 @@ import java.util.Map;
 public class DiagramController {
     private final DiagramService service;
     public DiagramController(DiagramService service){this.service=service;}
+    @GetMapping("/health") public Result<Map<String,Object>> health(){return Result.success(service.health());}
     @PostMapping("/validate") public Result<JsonNode> validate(@RequestBody DslRequest r){return Result.success(service.validate(r.dsl()));}
-    @PostMapping("/render") public Result<JsonNode> render(@RequestBody DslRequest r){return Result.success(service.render(r.dsl()));}
+    @PostMapping("/render") public Result<JsonNode> render(@RequestBody DslRequest r){return Result.success(service.render(r.sourceText()));}
     @PostMapping("/ai/generate") public Result<JsonNode> generate(@RequestBody AiGenerateRequest r){return Result.success(service.aiGenerate(r.dsl(),r.description()));}
     @PostMapping("/ai/review") public Result<JsonNode> review(@RequestBody DslRequest r){return Result.success(service.aiReview(r.dsl()));}
     @PostMapping("/export") public ResponseEntity<byte[]> export(@RequestBody ExportRequest r){var f=service.export(r.dsl(),r.format());return ResponseEntity.ok().contentType(MediaType.APPLICATION_OCTET_STREAM).header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment().filename(f.name(), StandardCharsets.UTF_8).build().toString()).body(f.content());}
     @PostMapping("/projects") public Result<Long> save(@RequestBody SaveRequest r){return Result.success(service.save(r.id(),r.title(),r.dsl()));}
     @GetMapping("/projects") public Result<List<Map<String,Object>>> projects(){return Result.success(service.projects());}
-    public record DslRequest(String dsl){} public record ExportRequest(String dsl,String format){} public record AiGenerateRequest(String dsl,String description){} public record SaveRequest(Long id,String title,String dsl){}
+    public record DslRequest(String dsl,String source){public String sourceText(){return source!=null?source:dsl;}} public record ExportRequest(String dsl,String format){} public record AiGenerateRequest(String dsl,String description){} public record SaveRequest(Long id,String title,String dsl){}
 }

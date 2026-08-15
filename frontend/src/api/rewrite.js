@@ -666,6 +666,7 @@ export function downloadPptFile(id) { return request.get(`/ppt/projects/${id}/do
 export function listPptTemplates() { return request.get('/ppt/templates') }
 export function validateDiagram(dsl) { return request.post('/diagram/validate', { dsl }) }
 export function renderDiagram(dsl) { return request.post('/diagram/render', { dsl }) }
+export function getDiagramHealth() { return request.get('/diagram/health') }
 export function generateDiagramWithAi(data) { return request.post('/diagram/ai/generate', data, { timeout: 120000 }) }
 export function reviewDiagramWithAi(dsl) { return request.post('/diagram/ai/review', { dsl }, { timeout: 120000 }) }
 export function saveDiagramProject(data) { return request.post('/diagram/projects', data) }

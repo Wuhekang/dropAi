@@ -7,6 +7,7 @@ import dataclasses
 import html
 import json
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -97,6 +98,7 @@ def issue_dict(issue):
     return {"line":issue.line_number,"severity":severity,"code":code,"message":issue.message,"sourceLine":issue.source_line,"suggestion":issue.suggestion}
 
 def execute(payload):
+    started=time.perf_counter()
     dsl=payload.get("dsl","")
     if not isinstance(dsl,str) or not dsl.strip(): raise ValueError("DSL不能为空")
     if len(dsl)>MAX_DSL: raise ValueError("DSL长度不能超过100000字符")
@@ -107,7 +109,15 @@ def execute(payload):
     result={"valid":not any(i.severity=="错误" for i in issues),"diagramType":header.diagram_type.value,"displayName":DISPLAY[header.diagram_type],"header":CANONICAL[header.diagram_type],"title":plugin.title(document) if document else "","issues":[issue_dict(i) for i in issues]}
     if payload.get("command","validate") == "validate" or not result["valid"]: return result
     layout=plugin.layout(document); canvas=SvgCanvas(); plugin.draw_canvas(canvas,document,layout); svg,bounds=canvas.svg()
-    result.update({"success":True,"svg":svg,"bounds":bounds,"structure":serial(document),"layout":serial(layout),"dslVersion":"1.6"})
+    structure=serial(document)
+    if header.diagram_type.value=="function_module": node_count=1+len(structure.get("modules",[]))+sum(len(x.get("functions",[])) for x in structure.get("modules",[]))
+    elif header.diagram_type.value=="flowchart": node_count=len(structure.get("nodes",[]))
+    elif header.diagram_type.value=="er_diagram": node_count=len(structure.get("entities",[]))+len(structure.get("relationships",[]))
+    elif header.diagram_type.value=="architecture": node_count=len(structure.get("layers",[]))+sum(len(x.get("components",[])) for x in structure.get("layers",[]))
+    elif header.diagram_type.value=="use_case": node_count=len(structure.get("systems",[]))+len(structure.get("actors",[]))+len(structure.get("use_cases",[]))
+    elif header.diagram_type.value=="block_diagram": node_count=len(structure.get("nodes",[]))
+    else: node_count=len(structure.get("participants",[]))+len(structure.get("messages",[]))
+    result.update({"ok":True,"success":True,"diagramType":header.canonical_header,"diagramTypeKey":header.diagram_type.value,"svg":svg,"width":bounds["width"],"height":bounds["height"],"bounds":bounds,"nodeCount":node_count,"warnings":[issue_dict(i) for i in issues if i.severity!="错误"],"exports":{"svg":True,"png":False,"json":True,"vsdx":False},"durationMs":round((time.perf_counter()-started)*1000),"structure":structure,"layout":serial(layout),"dslVersion":"1.6"})
     if payload.get("command") == "export":
         kind=payload.get("format","svg").lower()
         if kind=="json": data=json.dumps({"dsl":dsl,"diagramType":result["diagramType"],"structure":result["structure"],"layout":result["layout"]},ensure_ascii=False,indent=2).encode()
