@@ -12,6 +12,8 @@ import com.dropai.rewrite.mapper.UserAccountMapper;
 import com.dropai.rewrite.mapper.SchoolMapper;
 import com.dropai.rewrite.vo.Result;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
@@ -112,7 +114,9 @@ public class AdminUserController {
 
     private void requireAdmin() {
         UserAccount current = requireUser(AuthContext.requireUserId());
-        if (!"ADMIN".equalsIgnoreCase(current.getRole())) throw new IllegalStateException("无管理员权限");
+        if (!"ADMIN".equalsIgnoreCase(current.getRole())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "无管理员权限");
+        }
     }
 
     private UserAccount requireUser(Long id) {

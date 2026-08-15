@@ -7,9 +7,11 @@ import com.dropai.rewrite.entity.UserAccount;
 import com.dropai.rewrite.mapper.SchoolMapper;
 import com.dropai.rewrite.mapper.UserAccountMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -20,7 +22,7 @@ public class SchoolService {
     private final SchoolMapper schools; private final UserAccountMapper users; private final JdbcTemplate jdbc;
     private final BCryptPasswordEncoder encoder=new BCryptPasswordEncoder();
     public SchoolService(SchoolMapper schools,UserAccountMapper users,JdbcTemplate jdbc){this.schools=schools;this.users=users;this.jdbc=jdbc;}
-    public UserAccount requireAdmin(){UserAccount u=users.selectById(AuthContext.requireUserId());if(u==null||!"ADMIN".equalsIgnoreCase(u.getRole()))throw new IllegalStateException("无平台总管理员权限");return u;}
+    public UserAccount requireAdmin(){UserAccount u=users.selectById(AuthContext.requireUserId());if(u==null||!"ADMIN".equalsIgnoreCase(u.getRole()))throw new ResponseStatusException(HttpStatus.FORBIDDEN,"无平台总管理员权限");return u;}
     public List<Map<String,Object>> list(){requireAdmin();return schools.selectList(new LambdaQueryWrapper<School>().orderByDesc(School::getCreatedAt)).stream().map(this::summary).toList();}
     @Transactional public Map<String,Object> save(Long id,SchoolInput in){requireAdmin();validate(in.schoolCode(),in.schoolName());School duplicate=schools.selectOne(new LambdaQueryWrapper<School>().eq(School::getSchoolCode,in.schoolCode().trim()).ne(id!=null,School::getId,id));if(duplicate!=null)throw new IllegalArgumentException("学校编号已存在");School s=id==null?new School():required(id);s.setSchoolCode(in.schoolCode().trim());s.setSchoolName(in.schoolName().trim());s.setEnabled(in.enabled()==null||in.enabled());s.setUpdatedAt(LocalDateTime.now());if(id==null){s.setCreatedAt(LocalDateTime.now());schools.insert(s);}else schools.updateById(s);return summary(s);}
     @Transactional public void enabled(Long id,boolean enabled){requireAdmin();School s=required(id);s.setEnabled(enabled);s.setUpdatedAt(LocalDateTime.now());schools.updateById(s);}

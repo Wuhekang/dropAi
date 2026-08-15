@@ -18,8 +18,7 @@
         <button @click="router.push('/computer-generator')"><i>&lt;/&gt;</i>AI 工程生成</button>
         <button @click="router.push('/ppt-generator')"><i>P</i>PPT生成</button>
         <button @click="router.push('/new-project')"><i>⚙</i>机械设计</button>
-        <button v-if="isAdmin" @click="router.push('/points-admin')"><i>⚒</i>用户管理</button>
-        <button v-if="isAdmin" @click="router.push('/school-admin')"><i>▣</i>学校管理</button>
+        <button v-if="isAdmin" @click="router.push('/points-admin')"><i>⚒</i>管理控制台</button>
         <button v-if="isAdmin" @click="adminNoticeVisible=true"><i>i</i>系统公告</button>
       </nav>
       <div class="user-card"><span>{{ username.slice(0,1).toUpperCase() }}</span><div><strong>{{ username }}</strong><small>{{ isAdmin?'管理员账户':'研究者账户' }}</small></div><button title="退出登录" @click="signOut">↗</button></div>
