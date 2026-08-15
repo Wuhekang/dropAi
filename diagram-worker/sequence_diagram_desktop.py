@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 from dataclasses import dataclass,field
 from pathlib import Path
 import queue,threading
-from __future__ import annotations
 from offline_diagram_common import *
 @dataclass
 class SequenceParticipant:participant_id:str;participant_type:str;name:str;source_line:int

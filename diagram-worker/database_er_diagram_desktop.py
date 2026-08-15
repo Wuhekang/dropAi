@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 from dataclasses import dataclass,field
 import math
 from pathlib import Path
-from __future__ import annotations
 from offline_diagram_common import *
 @dataclass
 class ERAttribute:name:str;is_primary_key:bool=False
