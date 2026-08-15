@@ -71,7 +71,10 @@ public class DiagramService {
         checkDsl(dsl);
         try {
             Path workerPath=resolveWorkerPath();
-            Process process=new ProcessBuilder(python, workerPath.toString()).redirectErrorStream(false).start();
+            ProcessBuilder builder=new ProcessBuilder(python, "-X", "utf8", workerPath.toString()).redirectErrorStream(false);
+            builder.environment().put("PYTHONUTF8", "1");
+            builder.environment().put("PYTHONIOENCODING", "utf-8");
+            Process process=builder.start();
             Map<String,Object> payload=format==null?Map.of("command",command,"dsl",dsl):Map.of("command",command,"dsl",dsl,"format",format);
             process.getOutputStream().write(objectMapper.writeValueAsBytes(payload)); process.getOutputStream().close();
             boolean done=process.waitFor(Duration.ofSeconds(60).toMillis(),java.util.concurrent.TimeUnit.MILLISECONDS);
