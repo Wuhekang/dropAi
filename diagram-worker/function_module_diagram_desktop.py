@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from dataclasses import dataclass
 from pathlib import Path
+from __future__ import annotations
 from offline_diagram_common import *
 @dataclass
 class FunctionModule:name:str;functions:list[str]

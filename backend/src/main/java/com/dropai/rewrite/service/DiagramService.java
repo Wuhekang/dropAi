@@ -117,6 +117,6 @@ public class DiagramService {
     private static String header(String type){return switch(type==null?"":type){case "function_module"->"@FunctionModule";case "er_diagram"->"@ERDiagram";case "architecture"->"@ArchitectureDiagram";case "use_case"->"@UseCaseDiagram";case "block_diagram"->"@BlockDiagram";case "sequence"->"@SequenceDiagram";default->"@Flowchart";};}
     private static void checkDsl(String dsl){if(dsl==null||dsl.isBlank())throw new IllegalArgumentException("DSL不能为空");if(dsl.length()>MAX_DSL)throw new IllegalArgumentException("DSL不能超过100000字符");}
     private static String cleanTitle(String s){String x=s==null?"未命名图形":s.trim();return x.isBlank()?"未命名图形":x.substring(0,Math.min(120,x.length()));}
-    private static String safe(String s){if(s==null)return "";String cleaned=s.replaceAll("(?i)(api[_-]?key|authorization)[^\\s]*","[REDACTED]");return cleaned.substring(0,Math.min(300,cleaned.length()));}
+    private static String safe(String s){if(s==null)return "";String cleaned=s.replaceAll("(?i)(api[_-]?key|authorization)[^\\s]*","[REDACTED]");return cleaned.substring(0,Math.min(2000,cleaned.length()));}
     public record ExportFile(String name,byte[] content){}
 }

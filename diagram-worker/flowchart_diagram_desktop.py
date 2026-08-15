@@ -2,6 +2,7 @@
 from dataclasses import dataclass,field
 from pathlib import Path
 from collections import deque
+from __future__ import annotations
 from offline_diagram_common import *
 @dataclass
 class FlowNode:id:str;type:str;text:str;source_line:int=0
