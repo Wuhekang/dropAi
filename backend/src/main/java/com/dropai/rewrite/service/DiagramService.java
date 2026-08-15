@@ -3,6 +3,7 @@ package com.dropai.rewrite.service;
 import com.dropai.rewrite.auth.AuthContext;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -40,17 +41,18 @@ public class DiagramService {
         return new ExportFile(result.path("fileName").asText("diagram."+format), Base64.getDecoder().decode(result.path("data").asText()));
     }
 
-    public JsonNode aiGenerate(String type, String description) {
+    public JsonNode aiGenerate(String sourceDsl, String description) {
         if (description == null || description.isBlank() || description.length()>6000) throw new IllegalArgumentException("绘图描述长度应为1-6000字符");
-        String header=header(type);
+        String header=requireHeader(sourceDsl);
         String response=matrix.generate(systemPrompt(header), "图形类型："+header+"\n用户需求："+description+"\n只返回JSON。");
-        return parseAi(response);
+        return validateAiResult(parseAi(response),header,"dsl");
     }
 
     public JsonNode aiReview(String dsl) {
         checkDsl(dsl); JsonNode local=validate(dsl);
-        String response=matrix.generate(systemPrompt(local.path("header").asText("")), "检查下面DSL并返回summary、suggestions、revised_dsl。\n本地检查："+local.path("issues")+"\nDSL：\n"+dsl);
-        return parseAi(response);
+        String header=requireHeader(dsl);
+        String response=matrix.generate(systemPrompt(header), "当前头标记："+header+"\n本地检查错误："+local.path("issues")+"\n用户原始代码：\n"+dsl+"\n返回summary、suggestions、revised_dsl。不得修改头标记。");
+        return validateAiResult(parseAi(response),header,"revised_dsl");
     }
 
     @Transactional
@@ -91,6 +93,20 @@ public class DiagramService {
         try { String s=response==null?"":response.trim().replaceFirst("^```(?:json)?","").replaceFirst("```$","").trim(); return objectMapper.readTree(s.substring(s.indexOf('{'),s.lastIndexOf('}')+1)); }
         catch(Exception e){throw new IllegalStateException("AI未返回有效JSON，请重试");}
     }
+    private String requireHeader(String dsl) {
+        JsonNode local=validate(dsl); String header=local.path("header").asText("");
+        if(header.isBlank()) throw new IllegalArgumentException("第一条有效语句必须是受支持的@图形头标记");
+        return header;
+    }
+    private JsonNode validateAiResult(JsonNode result,String expectedHeader,String field) {
+        String candidate=result.path(field).asText("").trim();
+        if(candidate.isBlank() && "revised_dsl".equals(field)) candidate=result.path("revisedDsl").asText("").trim();
+        candidate=candidate.replaceFirst("^```(?:[A-Za-z]+)?\\s*","").replaceFirst("\\s*```$","").trim();
+        if(candidate.contains("{") || candidate.matches("(?s).*(?:^|\\n)\\s*(?:System|Module|Function)\\b.*")) throw new IllegalArgumentException("AI_DSL_INVALID：AI返回内容不符合 ThesisDiagram DSL v1.6，已拒绝应用");
+        JsonNode validation=validate(candidate);
+        if(!expectedHeader.equals(validation.path("header").asText()) || !validation.path("valid").asBoolean()) throw new IllegalArgumentException("AI_DSL_INVALID：AI返回内容不符合 ThesisDiagram DSL v1.6，已拒绝应用");
+        ObjectNode output=result.deepCopy(); output.put(field,candidate); output.set("validation",validation); return output;
+    }
     private Path resolveWorkerPath() {
         Path configured=Path.of(worker);
         if(configured.isAbsolute()) {
@@ -108,7 +124,8 @@ public class DiagramService {
         throw new IllegalStateException("绘图引擎文件不存在，请设置 DIAGRAM_WORKER。已检查："+direct);
     }
     private String systemPrompt(String header){
-        String base="你是ThesisDiagram DSL v1.6代码生成与审查器。只生成或修正"+header+" DSL；禁止输出坐标、SVG、PNG、VSDX、HTML或绘图代码。第一条有效行必须是正确头标记。输出严格JSON，不使用Markdown围栏，不覆盖用户明确业务步骤。";
+        String whitelist="@FunctionModule".equals(header)?"允许的关键字白名单：@FunctionModule、系统：、模块：、功能：。正确示例：\\n@FunctionModule\\n系统：系统名称\\n\\n模块：模块名称\\n功能：功能1，功能2，功能3":"只允许当前图形规则包中定义的关键字。";
+        String base="你是 ThesisDiagram DSL v1.6 的代码助手。你只能使用提供给你的当前图形类型语法。第一行 "+header+" 决定图形类型，禁止修改或删除。禁止创造规范中不存在的语法。禁止输出 System、Module、Function、大括号、PlantUML、Mermaid、坐标、SVG、PNG、VSDX、HTML或绘图代码。DSL字段只能包含能被本地解析器直接解析的 ThesisDiagram DSL，不使用Markdown代码围栏。"+whitelist;
         try {
             Path rules=Path.of("knowledge","thesis-diagram","v1.6");
             String common=Files.readString(rules.resolve("common.md"),StandardCharsets.UTF_8);
@@ -117,7 +134,6 @@ public class DiagramService {
             return base+"\n"+common+"\n"+specific.substring(0,Math.min(5000,specific.length()));
         } catch(Exception ignored){return base;}
     }
-    private static String header(String type){return switch(type==null?"":type){case "function_module"->"@FunctionModule";case "er_diagram"->"@ERDiagram";case "architecture"->"@ArchitectureDiagram";case "use_case"->"@UseCaseDiagram";case "block_diagram"->"@BlockDiagram";case "sequence"->"@SequenceDiagram";default->"@Flowchart";};}
     private static void checkDsl(String dsl){if(dsl==null||dsl.isBlank())throw new IllegalArgumentException("DSL不能为空");if(dsl.length()>MAX_DSL)throw new IllegalArgumentException("DSL不能超过100000字符");}
     private static String cleanTitle(String s){String x=s==null?"未命名图形":s.trim();return x.isBlank()?"未命名图形":x.substring(0,Math.min(120,x.length()));}
     private static String safe(String s){if(s==null)return "";String cleaned=s.replaceAll("(?i)(api[_-]?key|authorization)[^\\s]*","[REDACTED]");return cleaned.substring(0,Math.min(2000,cleaned.length()));}

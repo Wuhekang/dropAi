@@ -2,11 +2,11 @@
   <main class="studio">
     <header class="toolbar">
       <button class="back" @click="router.push('/dashboard')">← 工作台</button><b>智能画图</b>
-      <span class="type">当前类型：{{ validation?.displayName || '等待识别' }}</span>
+      <span class="type">当前类型：{{ currentTypeName }}</span>
       <button @click="newFile">新建</button><label class="upload">上传TXT/MD<input type="file" accept=".txt,.md,text/plain,text/markdown" @change="upload" /></label>
       <select v-model="selectedTemplate" @change="insertTemplate"><option value="">插入模板</option><option v-for="item in templates" :key="item.type" :value="item.type">{{ item.name }}</option></select>
       <button @click="check">检查格式</button><button class="primary" :disabled="busy" @click="render">生成预览</button>
-      <button @click="aiGenerate">AI生成</button><button @click="aiReview">AI检查修复</button><button @click="save">保存项目</button>
+      <button :disabled="!detectedHeader.valid" @click="aiGenerate">AI生成</button><button :disabled="!detectedHeader.valid" @click="aiReview">AI检查修复</button><button @click="save">保存项目</button>
     </header>
     <section class="workspace">
       <aside class="left">
@@ -20,22 +20,25 @@
         <footer><button @click="fit">适应窗口</button><button @click="zoom=Math.min(3,zoom+.1)">＋</button><button @click="zoom=Math.max(.2,zoom-.1)">－</button><button @click="zoom=1">100%</button><span>{{ Math.round(zoom*100) }}%</span><button v-for="f in ['png','svg','json']" :key="f" :disabled="!svg" @click="download(f)">下载{{ f.toUpperCase() }}</button><button @click="vsdx">下载VSDX</button></footer>
       </section>
     </section>
-    <div v-if="dialog" class="modal"><div><h3>{{ dialog==='generate'?'AI生成DSL':'AI修订对比' }}</h3><template v-if="dialog==='generate'"><select v-model="aiType"><option v-for="t in templates" :value="t.type" :key="t.type">{{ t.name }}</option></select><textarea v-model="description" placeholder="请描述需要生成的图形内容" /></template><template v-else><div class="diff"><pre>{{ dsl }}</pre><pre>{{ revisedDsl }}</pre></div></template><footer><button @click="dialog=''">取消</button><button v-if="dialog==='generate'" class="primary" @click="confirmGenerate">生成</button><button v-else class="primary" @click="applyRevision">确认应用</button></footer></div></div>
+    <div v-if="dialog" class="modal"><div><h3>{{ dialog==='generate'?'AI生成DSL':'AI修订对比' }}</h3><template v-if="dialog==='generate'"><p>当前类型：{{ currentTypeName }}（由编辑器第一条有效行决定）</p><textarea v-model="description" placeholder="请描述需要生成的图形内容" /></template><template v-else><div class="diff"><pre>{{ dsl }}</pre><pre>{{ revisedDsl }}</pre></div></template><footer><button @click="dialog=''">取消</button><button v-if="dialog==='generate'" class="primary" @click="confirmGenerate">生成</button><button v-else class="primary" @click="applyRevision">确认应用</button></footer></div></div>
   </main>
 </template>
 
 <script setup>
 import { computed, ref } from 'vue'; import { useRouter } from 'vue-router'; import { ElMessage } from 'element-plus';
 import { validateDiagram,renderDiagram,generateDiagramWithAi,reviewDiagramWithAi,saveDiagramProject,exportDiagram } from '../../api/rewrite'
-const router=useRouter(), editor=ref(), dsl=ref(''), svg=ref(''), validation=ref(), aiResult=ref(), revisedDsl=ref(''), tab=ref('local'), busy=ref(false), dirty=ref(false), zoom=ref(1), pan=ref({x:0,y:0}), drag=ref(null), dialog=ref(''), description=ref(''), aiType=ref('flowchart'), selectedTemplate=ref(''), projectId=ref(null)
+const router=useRouter(), editor=ref(), dsl=ref(''), svg=ref(''), validation=ref(), aiResult=ref(), revisedDsl=ref(''), tab=ref('local'), busy=ref(false), dirty=ref(false), zoom=ref(1), pan=ref({x:0,y:0}), drag=ref(null), dialog=ref(''), description=ref(''), selectedTemplate=ref(''), projectId=ref(null)
 const templates=[{type:'function_module',name:'三级功能模块图',dsl:'@FunctionModule\n系统：论文管理系统\n模块：用户管理\n功能：注册、登录、权限管理'},{type:'flowchart',name:'标准程序流程图',dsl:'@Flowchart\n标题：业务流程\n[节点]\nN1|start|开始\nN2|process|处理业务\nN3|end|结束\n[连接]\nN1->N2\nN2->N3'},{type:'er_diagram',name:'Chen ER图',dsl:'@ERDiagram\n标题：用户订单ER图\n用户：用户ID(主键)，姓名\n订单：订单ID(主键)，金额\n---\n用户-订单：1*n，创建'},{type:'architecture',name:'系统架构图',dsl:'@ArchitectureDiagram\n标题：系统架构\n层：前端层\n组件：Web应用、移动端\n层：服务层\n组件：业务服务、认证服务'},{type:'use_case',name:'UML用例图',dsl:'@UseCaseDiagram\n标题：系统用例图\n[系统]\nS1|业务系统\n[参与者]\nA1|用户\n[用例]\nU1|S1|登录\n[关联]\nA1->U1\n[用例关系]'},{type:'block_diagram',name:'系统框图',dsl:'@BlockDiagram\n标题：系统框图\n[节点]\nI1|left|输入\nC1|center|处理器\nO1|right|输出\n[连接]\nI1->C1\nC1->O1'},{type:'sequence',name:'UML时序图',dsl:'@SequenceDiagram\n标题：登录时序图\n[参与者]\nA1|actor|用户\nP1|participant|系统\n[消息]\n1|A1->P1|请求登录'}]
 const lineNumbers=computed(()=>Array.from({length:Math.max(1,dsl.value.split('\n').length)},(_,i)=>i+1).join('\n'))
+const headerNames={'@FunctionModule':'三级功能模块图','@Flowchart':'标准程序流程图','@ERDiagram':'Chen ER图','@ArchitectureDiagram':'系统架构图','@UseCaseDiagram':'UML用例图','@BlockDiagram':'系统框图','@SequenceDiagram':'UML时序图'}
+function readHeader(source){const line=String(source||'').replace(/^\uFEFF/,'').replace(/\r\n?/g,'\n').split('\n').map(x=>x.trim()).find(x=>x&&!x.startsWith('#')&&!x.startsWith('//'));if(!line)return {valid:false,empty:true,header:''};return {valid:Boolean(headerNames[line]),empty:false,header:line}}
+const detectedHeader=computed(()=>readHeader(dsl.value)),currentTypeName=computed(()=>detectedHeader.value.empty?'等待识别':(headerNames[detectedHeader.value.header]||'不支持的图形类型'))
 function newFile(){dsl.value='';svg.value='';validation.value=null;projectId.value=null} function insertTemplate(){const t=templates.find(x=>x.type===selectedTemplate.value);if(t)dsl.value=t.dsl;selectedTemplate.value=''}
 async function check(){validation.value=await validateDiagram(dsl.value);tab.value='local';return validation.value} async function render(){busy.value=true;try{const r=await renderDiagram(dsl.value);validation.value=r;if(r.svg){svg.value=r.svg;dirty.value=false;fit()}}finally{busy.value=false}}
 function goLine(n){const e=editor.value,lines=dsl.value.split('\n');e.focus();e.setSelectionRange(lines.slice(0,n-1).join('\n').length+(n>1?1:0),lines.slice(0,n).join('\n').length)}
 function upload(e){const f=e.target.files?.[0];if(!f)return;if(f.size>1024*1024||!(/\.(txt|md)$/i.test(f.name))){ElMessage.error('仅支持1MB以内TXT或MD');return}const r=new FileReader();r.onload=()=>dsl.value=String(r.result||'');r.readAsText(f,'UTF-8')}
-function aiGenerate(){dialog.value='generate'} async function confirmGenerate(){busy.value=true;try{const r=await generateDiagramWithAi({diagramType:aiType.value,description:description.value});dsl.value=r.dsl||r.revised_dsl||'';dialog.value='';await check()}finally{busy.value=false}}
-async function aiReview(){busy.value=true;try{aiResult.value=await reviewDiagramWithAi(dsl.value);revisedDsl.value=aiResult.value.revisedDsl||aiResult.value.revised_dsl||'';tab.value='ai';if(revisedDsl.value)dialog.value='review'}finally{busy.value=false}} function applyRevision(){dsl.value=revisedDsl.value;dialog.value='';svg.value='';check()}
+function aiGenerate(){if(!detectedHeader.value.valid){ElMessage.warning('请先在第一条有效行填写受支持的@头标记');return}dialog.value='generate'} async function confirmGenerate(){busy.value=true;try{const r=await generateDiagramWithAi({dsl:dsl.value,description:description.value});dsl.value=r.dsl||'';dialog.value='';await check()}finally{busy.value=false}}
+async function aiReview(){busy.value=true;try{aiResult.value=await reviewDiagramWithAi(dsl.value);revisedDsl.value=aiResult.value.revisedDsl||aiResult.value.revised_dsl||'';tab.value='ai';if(revisedDsl.value)dialog.value='review'}finally{busy.value=false}} function applyRevision(){if(readHeader(revisedDsl.value).header!==detectedHeader.value.header){ElMessage.error('AI_DSL_INVALID：AI修改了图形头标记，已拒绝应用');return}dsl.value=revisedDsl.value;dialog.value='';svg.value='';check()}
 async function save(){projectId.value=await saveDiagramProject({id:projectId.value,title:validation.value?.title||'未命名图形',dsl:dsl.value});dirty.value=false;ElMessage.success('项目已保存')}
 async function download(format){const blob=await exportDiagram(dsl.value,format),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`diagram.${format}`;a.click();URL.revokeObjectURL(url)} function vsdx(){ElMessage.info('当前服务器未配置VSDX导出服务')} function fit(){zoom.value=1;pan.value={x:0,y:0}}
 function wheelZoom(e){zoom.value=Math.min(3,Math.max(.2,zoom.value+(e.deltaY<0?.1:-.1)))} function startPan(e){if(!svg.value)return;drag.value={x:e.clientX-pan.value.x,y:e.clientY-pan.value.y};e.currentTarget.setPointerCapture?.(e.pointerId)} function movePan(e){if(drag.value)pan.value={x:e.clientX-drag.value.x,y:e.clientY-drag.value.y}} function stopPan(){drag.value=null}

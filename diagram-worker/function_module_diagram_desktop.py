@@ -18,27 +18,40 @@ class App(OfflineDiagramApp):
 功能：首页健康概览，健康数据管理，运动记录
 """
     def parse(self,text):
-        issues=[];system=None;mods=[];pending=None;seen=set();valid=[]
+        text=(text or "").replace("\ufeff","").replace("\r\n","\n").replace("\r","\n").replace("\u00a0"," ").strip()
+        issues=[];system=None;mods=[];pending=None;seen=set();valid=[];function_value=None;function_line=0
+        def flush_function():
+            nonlocal pending,function_value,function_line
+            if function_value is None:return
+            if pending is None:issues.append(ParseIssue(function_line,"错误","ORPHAN_FUNCTION","功能行前没有模块",function_value,"先定义模块。"))
+            else:
+                fs=[x.strip() for x in re.split(r"[,，、;；]",function_value) if x.strip()]
+                if len(fs)!=len(set(fs)):issues.append(ParseIssue(function_line,"错误","DUP_FUNCTION","同一模块内功能重复",function_value,"删除重复功能。"))
+                mods.append(FunctionModule(pending,fs));pending=None
+            function_value=None;function_line=0
         for no,raw in enumerate(text.splitlines(),1):
             line=raw.strip()
             if not line or line.startswith("#"):continue
-            valid.append(no);m=re.match(r"^(系统|模块|功能)\s*[:：]\s*(.*)$",line)
-            if not m:issues.append(ParseIssue(no,"错误","UNKNOWN_LINE","无法识别的内容",raw,"仅使用“系统：”“模块：”“功能：”格式。"));continue
+            m=re.match(r"^(系统|模块|功能)\s*[:：]\s*(.*)$",line)
+            if not m:
+                if function_value is not None:function_value+=line;continue
+                issues.append(ParseIssue(no,"错误","UNKNOWN_LINE","无法识别的内容",raw,"仅使用“系统：”“模块：”“功能：”格式。"));continue
+            valid.append(no)
             kind,value=m.group(1),m.group(2).strip()
             if not value:issues.append(ParseIssue(no,"错误","EMPTY_VALUE",f"{kind}名称不能为空",raw,"在冒号后填写内容。"));continue
             if kind=="系统":
+                flush_function()
                 if system is not None:issues.append(ParseIssue(no,"错误","DUP_SYSTEM","只能定义一个系统",raw,"删除重复的系统行。"))
                 elif len(valid)>1:issues.append(ParseIssue(no,"错误","SYSTEM_ORDER","系统必须是第一条有效内容",raw,"把系统行移到最前。"))
                 else:system=value
             elif kind=="模块":
+                flush_function()
                 if pending is not None:issues.append(ParseIssue(no,"错误","MISSING_FUNCTION","上一模块缺少紧随其后的功能行",raw,"为上一模块增加功能行。"))
                 if value in seen:issues.append(ParseIssue(no,"错误","DUP_MODULE","模块名称重复",raw,"修改或删除重复模块。"))
                 pending=value;seen.add(value)
             else:
-                if pending is None:issues.append(ParseIssue(no,"错误","ORPHAN_FUNCTION","功能行前没有模块",raw,"先定义模块。"));continue
-                fs=[x.strip() for x in re.split(r"[,，]",value) if x.strip()]
-                if len(fs)!=len(set(fs)):issues.append(ParseIssue(no,"错误","DUP_FUNCTION","同一模块内功能重复",raw,"删除重复功能。"))
-                mods.append(FunctionModule(pending,fs));pending=None
+                flush_function();function_value=value;function_line=no
+        flush_function()
         if system is None:issues.append(ParseIssue(1,"错误","MISSING_SYSTEM","缺少系统行","","首行写“系统：系统名称”。"))
         if pending is not None:issues.append(ParseIssue(len(text.splitlines()) or 1,"错误","MISSING_FUNCTION","模块缺少功能行",pending,"在模块后紧跟功能行。"))
         if not mods:issues.append(ParseIssue(1,"错误","NO_MODULE","至少需要一个完整模块","","增加模块及功能。"))
