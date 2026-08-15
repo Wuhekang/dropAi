@@ -70,7 +70,8 @@ public class DiagramService {
     private JsonNode run(String command,String dsl,String format) {
         checkDsl(dsl);
         try {
-            Process process=new ProcessBuilder(python, Path.of(worker).toAbsolutePath().normalize().toString()).redirectErrorStream(false).start();
+            Path workerPath=resolveWorkerPath();
+            Process process=new ProcessBuilder(python, workerPath.toString()).redirectErrorStream(false).start();
             Map<String,Object> payload=format==null?Map.of("command",command,"dsl",dsl):Map.of("command",command,"dsl",dsl,"format",format);
             process.getOutputStream().write(objectMapper.writeValueAsBytes(payload)); process.getOutputStream().close();
             boolean done=process.waitFor(Duration.ofSeconds(60).toMillis(),java.util.concurrent.TimeUnit.MILLISECONDS);
@@ -86,6 +87,22 @@ public class DiagramService {
     private JsonNode parseAi(String response) {
         try { String s=response==null?"":response.trim().replaceFirst("^```(?:json)?","").replaceFirst("```$","").trim(); return objectMapper.readTree(s.substring(s.indexOf('{'),s.lastIndexOf('}')+1)); }
         catch(Exception e){throw new IllegalStateException("AI未返回有效JSON，请重试");}
+    }
+    private Path resolveWorkerPath() {
+        Path configured=Path.of(worker);
+        if(configured.isAbsolute()) {
+            if(Files.isRegularFile(configured)) return configured.normalize();
+            throw new IllegalStateException("绘图引擎文件不存在："+configured.normalize());
+        }
+        Path current=Path.of("").toAbsolutePath().normalize();
+        Path direct=current.resolve(configured).normalize();
+        if(Files.isRegularFile(direct)) return direct;
+        Path parent=current.getParent();
+        if(parent!=null) {
+            Path fromParent=parent.resolve(configured).normalize();
+            if(Files.isRegularFile(fromParent)) return fromParent;
+        }
+        throw new IllegalStateException("绘图引擎文件不存在，请设置 DIAGRAM_WORKER。已检查："+direct);
     }
     private String systemPrompt(String header){
         String base="你是ThesisDiagram DSL v1.6代码生成与审查器。只生成或修正"+header+" DSL；禁止输出坐标、SVG、PNG、VSDX、HTML或绘图代码。第一条有效行必须是正确头标记。输出严格JSON，不使用Markdown围栏，不覆盖用户明确业务步骤。";
