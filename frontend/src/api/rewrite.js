@@ -664,6 +664,13 @@ export function generatePptFile(id) { return request.post(`/ppt/projects/${id}/g
 export function getPptProgress(id) { return request.get(`/ppt/projects/${id}/progress`) }
 export function downloadPptFile(id) { return request.get(`/ppt/projects/${id}/download`, { responseType: 'blob', timeout: 300000 }) }
 export function listPptTemplates() { return request.get('/ppt/templates') }
+export function validateDiagram(dsl) { return request.post('/diagram/validate', { dsl }) }
+export function renderDiagram(dsl) { return request.post('/diagram/render', { dsl }) }
+export function generateDiagramWithAi(data) { return request.post('/diagram/ai/generate', data, { timeout: 120000 }) }
+export function reviewDiagramWithAi(dsl) { return request.post('/diagram/ai/review', { dsl }, { timeout: 120000 }) }
+export function saveDiagramProject(data) { return request.post('/diagram/projects', data) }
+export function listDiagramProjects() { return request.get('/diagram/projects') }
+export function exportDiagram(dsl, format) { return request.post('/diagram/export', { dsl, format }, { responseType: 'blob', timeout: 120000 }) }
 export function uploadPptTemplateZip(file) { const form = new FormData(); form.append('file', file?.raw || file); return request.post('/ppt/templates/upload', form, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 600000 }) }
 export function recommendPptTemplate(id) { return request.get(`/ppt/projects/${id}/template/recommend`) }
 export function selectPptTemplate(id, data) { return request.put(`/ppt/projects/${id}/template`, data) }

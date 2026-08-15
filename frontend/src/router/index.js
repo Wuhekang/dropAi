@@ -17,6 +17,7 @@ import WritingExportV2 from '../views/WritingExportV2/index.vue'
 import WritingMaterialsV2 from '../views/WritingMaterialsV2/index.vue'
 import PptGenerator from '../views/PptGenerator/index.vue'
 import SchoolStatistics from '../views/SchoolStatistics/index.vue'
+import DiagramStudio from '../views/Diagram/index.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -97,6 +98,9 @@ const router = createRouter({
       path: '/writing-generator/export',
       name: 'WritingExportV2',
       component: WritingExportV2
+    },
+    {
+      path: '/drawing', name: 'DiagramStudio', component: DiagramStudio
     },
     {
       path: '/points-admin',
