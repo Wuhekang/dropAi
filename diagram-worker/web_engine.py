@@ -42,9 +42,12 @@ class SvgCanvas:
         return self.seq
 
     @staticmethod
-    def _style(options, default_fill="none"):
+    def _style(options, default_fill="none", line=False):
         fill = options.get("fill", default_fill)
-        stroke = options.get("outline", options.get("fill", "#1f2937"))
+        # Tk canvas uses ``fill`` as a line colour, but as the interior colour
+        # for shapes.  Treating both cases alike made white-filled nodes also
+        # receive a white SVG stroke, so their borders vanished on white pages.
+        stroke = options.get("outline", options.get("fill", "#1f2937") if line else "#1f2937")
         width = options.get("width", 1.4)
         dash = options.get("dash")
         return f'fill="{html.escape(str(fill))}" stroke="{html.escape(str(stroke))}" stroke-width="{width}"' + (f' stroke-dasharray="{",".join(map(str,dash))}"' if dash else "")
@@ -54,11 +57,11 @@ class SvgCanvas:
         points = " ".join(f"{coords[i]},{coords[i+1]}" for i in range(0, len(coords), 2))
         marker_start = ' marker-start="url(#arrow)"' if options.get("arrow") == "both" else ""
         marker_end = ' marker-end="url(#arrow)"' if options.get("arrow") in ("last", "both") else ""
-        self.items.append(f'<polyline points="{points}" {self._style(options)}{marker_start}{marker_end}/>' )
+        self.items.append(f'<polyline points="{points}" {self._style(options, line=True)}{marker_start}{marker_end}/>' )
         return item
 
     def create_rectangle(self, x1, y1, x2, y2, **options):
-        item = self._id((x1,y1,x2,y2)); self.items.append(f'<rect x="{x1}" y="{y1}" width="{x2-x1}" height="{y2-y1}" rx="3" {self._style(options,"white")}/>'); return item
+        item = self._id((x1,y1,x2,y2)); css=html.escape(str(options.get("svg_class",""))); self.items.append(f'<rect class="{css}" x="{x1}" y="{y1}" width="{x2-x1}" height="{y2-y1}" rx="3" vector-effect="non-scaling-stroke" {self._style(options,"white")}/>'); return item
 
     def create_oval(self, x1, y1, x2, y2, **options):
         item = self._id((x1,y1,x2,y2)); self.items.append(f'<ellipse cx="{(x1+x2)/2}" cy="{(y1+y2)/2}" rx="{(x2-x1)/2}" ry="{(y2-y1)/2}" {self._style(options,"white")}/>'); return item
@@ -72,9 +75,10 @@ class SvgCanvas:
         if width and len(text) * 14 > width:
             count=max(1,int(width/14)); lines=[text[i:i+count] for i in range(0,len(text),count)]
         anchor={"w":"start","e":"end"}.get(options.get("anchor"),"middle")
-        size=(options.get("font") or ("",10))[-1]
+        size=(options.get("font") or ("",10))[-1]; line_spacing=float(options.get("line_spacing",size+3))
         item=self._id((x-len(text)*size*.3,y-size,x+len(text)*size*.3,y+size))
-        tspans="".join(f'<tspan x="{x}" dy="{0 if i==0 else size+3}">{html.escape(line)}</tspan>' for i,line in enumerate(lines))
+        first_offset=-(len(lines)-1)*line_spacing/2
+        tspans="".join(f'<tspan x="{x}" dy="{first_offset if i==0 else line_spacing}">{html.escape(line)}</tspan>' for i,line in enumerate(lines))
         self.items.append(f'<text x="{x}" y="{y}" text-anchor="{anchor}" dominant-baseline="middle" font-family="Noto Sans CJK SC,Microsoft YaHei,sans-serif" font-size="{size}">{tspans}</text>')
         return item
 
@@ -136,7 +140,7 @@ def execute(payload):
     elif header.diagram_type.value=="block_diagram": node_count=len(structure.get("nodes",[]))
     else: node_count=len(structure.get("participants",[]))+len(structure.get("messages",[]))
     trace(12,"svg_render_completed",header.canonical_header,node_count)
-    result.update({"ok":True,"success":True,"diagramType":header.canonical_header,"diagramTypeKey":header.diagram_type.value,"svg":svg,"width":bounds["width"],"height":bounds["height"],"bounds":bounds,"nodeCount":node_count,"warnings":[issue_dict(i) for i in issues if i.severity!="错误"],"exports":{"svg":True,"png":False,"json":True,"vsdx":False},"durationMs":round((time.perf_counter()-started)*1000),"structure":structure,"layout":serial(layout),"dslVersion":"1.6"})
+    result.update({"ok":True,"success":True,"diagramType":header.canonical_header,"diagramTypeKey":header.diagram_type.value,"svg":svg,"width":bounds["width"],"height":bounds["height"],"bounds":bounds,"nodeCount":node_count,"warnings":[issue_dict(i) for i in issues if i.severity!="错误"],"exports":{"svg":True,"png":True,"json":True,"vsdx":False},"durationMs":round((time.perf_counter()-started)*1000),"structure":structure,"layout":serial(layout),"dslVersion":"1.6"})
     trace(13,"response_serialized",header.canonical_header,node_count)
     if payload.get("command") == "export":
         kind=payload.get("format","svg").lower()

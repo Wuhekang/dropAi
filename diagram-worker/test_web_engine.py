@@ -25,7 +25,16 @@ class WebEngineTest(unittest.TestCase):
   result=execute({"command":"render","dsl":dsl})
   self.assertTrue(result["valid"],result["issues"]);self.assertEqual("function_module",result["diagramTypeKey"])
   self.assertEqual(2,len(result["structure"]["modules"]));self.assertEqual(14,sum(len(x["functions"]) for x in result["structure"]["modules"]))
+  self.assertEqual(17,result["svg"].count('class="td-node-shape'))
+  self.assertGreaterEqual(result["svg"].count('stroke="#111827"'),17)
  def test_comments_before_header_and_canonical_only(self):
   self.assertEqual("function_module",execute({"dsl":"# comment\n// comment\n@FunctionModule\n系统：系统\n模块：模块\n功能：功能"})["diagramType"])
   self.assertEqual("HEADER_UNKNOWN",execute({"dsl":"@Function\n系统：系统"})["issues"][0]["code"])
+ def test_flowchart_nodes_have_visible_explicit_strokes_and_png_export(self):
+  dsl="@Flowchart\n标题：边框测试\n[节点]\nN1|start|开始\nN2|process|处理\nN3|decision|判断\nN4|end|结束\n[连接]\nN1->N2\nN2->N3\nN3->N4|是\nN3->N2|否"
+  result=execute({"command":"render","dsl":dsl})
+  self.assertTrue(result["valid"],result["issues"])
+  self.assertTrue(result["exports"]["png"])
+  self.assertIn('fill="white" stroke="#1f2937"',result["svg"])
+  self.assertGreaterEqual(result["svg"].count('stroke="#1f2937"'),4)
 if __name__=="__main__": unittest.main()
