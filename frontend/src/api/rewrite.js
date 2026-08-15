@@ -665,7 +665,7 @@ export function getPptProgress(id) { return request.get(`/ppt/projects/${id}/pro
 export function downloadPptFile(id) { return request.get(`/ppt/projects/${id}/download`, { responseType: 'blob', timeout: 300000 }) }
 export function listPptTemplates() { return request.get('/ppt/templates') }
 export function validateDiagram(dsl) { return request.post('/diagram/validate', { dsl }) }
-export function renderDiagram(dsl) { return request.post('/diagram/render', { dsl }) }
+export function renderDiagram(dsl, signal) { return request.post('/diagram/render', { source: dsl }, { timeout: 6000, signal }) }
 export function getDiagramHealth() { return request.get('/diagram/health') }
 export function generateDiagramWithAi(data) { return request.post('/diagram/ai/generate', data, { timeout: 120000 }) }
 export function reviewDiagramWithAi(dsl) { return request.post('/diagram/ai/review', { dsl }, { timeout: 120000 }) }

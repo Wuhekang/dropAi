@@ -19,6 +19,9 @@ import java.time.Duration;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 @Service
 public class DiagramService {
@@ -86,22 +89,29 @@ public class DiagramService {
 
     private JsonNode run(String command,String dsl,String format) {
         checkDsl(dsl);
+        String traceId=UUID.randomUUID().toString().replace("-","").substring(0,12);
         try {
             Path workerPath=resolveWorkerPath();
             ProcessBuilder builder=new ProcessBuilder(python, "-X", "utf8", workerPath.toString()).redirectErrorStream(false);
             builder.environment().put("PYTHONUTF8", "1");
             builder.environment().put("PYTHONIOENCODING", "utf-8");
             Process process=builder.start();
-            Map<String,Object> payload=format==null?Map.of("command",command,"dsl",dsl):Map.of("command",command,"dsl",dsl,"format",format);
+            Map<String,Object> payload=format==null?Map.of("command",command,"dsl",dsl,"traceId",traceId):Map.of("command",command,"dsl",dsl,"format",format,"traceId",traceId);
             process.getOutputStream().write(objectMapper.writeValueAsBytes(payload)); process.getOutputStream().close();
-            boolean done=process.waitFor(Duration.ofSeconds(60).toMillis(),java.util.concurrent.TimeUnit.MILLISECONDS);
-            if(!done){process.destroyForcibly();throw new IllegalStateException("绘图引擎执行超时");}
-            ByteArrayOutputStream stderr=new ByteArrayOutputStream(); process.getErrorStream().transferTo(stderr);
-            String output=new String(process.getInputStream().readAllBytes(),StandardCharsets.UTF_8).trim();
-            if(process.exitValue()!=0||output.isBlank()) throw new IllegalStateException("绘图引擎失败："+safe(stderr.toString(StandardCharsets.UTF_8)));
+            CompletableFuture<byte[]> stdout=CompletableFuture.supplyAsync(()->readStream(process.getInputStream()));
+            CompletableFuture<byte[]> stderr=CompletableFuture.supplyAsync(()->readStream(process.getErrorStream()));
+            boolean done=process.waitFor(5,TimeUnit.SECONDS);
+            if(!done){process.destroyForcibly();process.waitFor(1,TimeUnit.SECONDS);String trace=safe(new String(stderr.get(1,TimeUnit.SECONDS),StandardCharsets.UTF_8));log.error("[diagram-render][{}] worker timeout pid={} trace={}",traceId,process.pid(),trace);throw new IllegalStateException("绘图引擎执行超过5秒，已终止。traceId="+traceId);}
+            String trace=safe(new String(stderr.get(1,TimeUnit.SECONDS),StandardCharsets.UTF_8));
+            for(String line:trace.split("\\R")) if(!line.isBlank()) log.info("{}",line);
+            String output=new String(stdout.get(1,TimeUnit.SECONDS),StandardCharsets.UTF_8).trim();
+            if(process.exitValue()!=0||output.isBlank()) throw new IllegalStateException("绘图引擎失败："+trace);
             JsonNode result=objectMapper.readTree(output); if(!result.path("success").asBoolean(true)&&result.has("error")) throw new IllegalArgumentException(result.path("error").asText()); return result;
         } catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new IllegalStateException("绘图任务已取消"); }
         catch (Exception e) { if(e instanceof RuntimeException runtime) throw runtime; throw new IllegalStateException("绘图引擎调用失败",e); }
+    }
+    private static byte[] readStream(java.io.InputStream stream) {
+        try{return stream.readAllBytes();}catch(java.io.IOException e){throw new java.io.UncheckedIOException(e);}
     }
 
     private JsonNode parseAi(String response) {
