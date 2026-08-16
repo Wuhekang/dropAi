@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
 from diagram_core.registry import CANONICAL, DISPLAY, PLUGIN_REGISTRY, detect_header
+from diagram_core.typography import FONT_FAMILY, line_height, text_units, wrap_text
 from diagram_plugins.legacy import register_plugins
 
 MAX_DSL = 100_000
@@ -71,15 +72,24 @@ class SvgCanvas:
 
     def create_text(self, x, y, **options):
         text = str(options.get("text", "")); width = float(options.get("width", 0) or 0)
-        lines = text.splitlines() or [""]
-        if width and len(text) * 14 > width:
-            count=max(1,int(width/14)); lines=[text[i:i+count] for i in range(0,len(text),count)]
+        size=int((options.get("font") or ("",10))[-1]); max_units=options.get("max_units")
+        if options.get("vertical"):
+            lines = [char for char in text if char not in "\r\n"] or [""]
+        elif max_units:
+            lines = wrap_text(text, float(max_units))
+        elif width:
+            unit_limit=max(1.0,(width-12)/max(size,1)); lines=wrap_text(text,unit_limit)
+        else:
+            lines=text.splitlines() or [""]
         anchor={"w":"start","e":"end"}.get(options.get("anchor"),"middle")
-        size=(options.get("font") or ("",10))[-1]; line_spacing=float(options.get("line_spacing",size+3))
-        item=self._id((x-len(text)*size*.3,y-size,x+len(text)*size*.3,y+size))
+        line_spacing=float(options.get("line_spacing",line_height(size)))
+        half_width=max((text_units(line)*size/2 for line in lines),default=size/2)
+        half_height=max(size/2,len(lines)*line_spacing/2)
+        item=self._id((x-half_width,y-half_height,x+half_width,y+half_height))
         first_offset=-(len(lines)-1)*line_spacing/2
         tspans="".join(f'<tspan x="{x}" dy="{first_offset if i==0 else line_spacing}">{html.escape(line)}</tspan>' for i,line in enumerate(lines))
-        self.items.append(f'<text x="{x}" y="{y}" text-anchor="{anchor}" dominant-baseline="middle" font-family="Noto Sans CJK SC,Microsoft YaHei,sans-serif" font-size="{size}">{tspans}</text>')
+        weight=html.escape(str(options.get("font_weight","400"))); fill=html.escape(str(options.get("fill","#111827")))
+        self.items.append(f'<text x="{x}" y="{y}" text-anchor="{anchor}" dominant-baseline="middle" font-family="{FONT_FAMILY}" font-size="{size}" font-weight="{weight}" fill="{fill}">{tspans}</text>')
         return item
 
     def bbox(self, item): return self.boxes.get(item, (0,0,0,0))

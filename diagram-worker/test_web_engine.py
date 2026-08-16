@@ -3,6 +3,7 @@ from pathlib import Path
 sys.path.insert(0,str(Path(__file__).parent))
 from diagram_plugins.legacy import register_plugins
 from web_engine import execute
+from diagram_core.typography import text_units, wrap_text
 
 ROOT=Path(__file__).parent
 TEMPLATES={"function_module":"三级功能模块图_输入模板.txt","flowchart":"标准程序流程图_输入模板.txt","er_diagram":"Chen_ER图_输入模板.txt","architecture":"系统架构图_输入模板.txt","use_case":"UML用例图_输入模板.txt","block_diagram":"系统框图_输入模板.txt","sequence":"UML时序图_输入模板.txt"}
@@ -37,4 +38,26 @@ class WebEngineTest(unittest.TestCase):
   self.assertTrue(result["exports"]["png"])
   self.assertIn('fill="white" stroke="#1f2937"',result["svg"])
   self.assertGreaterEqual(result["svg"].count('stroke="#1f2937"'),4)
+ def test_shared_wrap_text_keeps_all_characters_and_explicit_lines(self):
+  source="中文English混合换行测试\n第二行不会丢失"
+  lines=wrap_text(source,8)
+  self.assertTrue(all(text_units(line)<=8 for line in lines))
+  self.assertEqual(source.replace("\n",""),"".join(lines))
+ def test_er_authoritative_template_counts_and_typography(self):
+  dsl="@ERDiagram\n"+(ROOT/TEMPLATES["er_diagram"]).read_text(encoding="utf-8-sig")
+  result=execute({"command":"render","dsl":dsl})
+  self.assertTrue(result["valid"],result["issues"])
+  self.assertEqual(3,len(result["structure"]["entities"]))
+  self.assertEqual(2,len(result["structure"]["relationships"]))
+  self.assertEqual(5,result["nodeCount"])
+  self.assertIn("Microsoft YaHei, PingFang SC, SimSun, Noto Sans CJK SC",result["svg"])
+  self.assertIn("viewBox=",result["svg"])
+ def test_seven_templates_have_readable_node_fonts(self):
+  import re
+  for kind,name in TEMPLATES.items():
+   with self.subTest(kind=kind):
+    result=execute({"command":"render","dsl":HEADERS[kind]+"\n"+(ROOT/name).read_text(encoding="utf-8-sig")})
+    sizes=[int(x) for x in re.findall(r'font-size="(\d+)"',result["svg"])]
+    self.assertTrue(sizes)
+    self.assertGreaterEqual(min(sizes),17)
 if __name__=="__main__": unittest.main()

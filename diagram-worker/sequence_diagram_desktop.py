@@ -83,9 +83,9 @@ class App(OfflineDiagramApp):
   for x in s.messages:self.tree.insert(m,"end",text=f"{x.index}. {x.source_id}->{x.target_id}｜{x.text}")
   for x in s.activations:self.tree.insert(a,"end",text=f"{x.participant_id}｜{x.start_message}-{x.end_message}")
  def make_layout(self,s):
-  l=SequenceLayoutResult();margin=90;spacing=max(190,max((len(x.text)*13+70 for x in s.messages),default=190));header_y=80;message_start=180;message_gap=78
+  l=SequenceLayoutResult();margin=120;spacing=max(260,max((node_width(x.text,18,10,240) for x in s.messages),default=260));header_y=100;message_start=220;message_gap=94
   for i,p in enumerate(s.participants):
-   x=margin+i*spacing;l.lifeline_x[p.participant_id]=x;l.participant_bounds[p.participant_id]=RectBounds(x,header_y,150,54)
+   x=margin+i*spacing;l.lifeline_x[p.participant_id]=x;l.participant_bounds[p.participant_id]=RectBounds(x,header_y,node_width(p.name,NODE_FONT,8,200),node_height(p.name,NODE_FONT,8,70))
   last_y=message_start+(len(s.messages)-1)*message_gap
   for a in s.activations:
    y1=message_start+(a.start_message-1)*message_gap-18;y2=message_start+(a.end_message-1)*message_gap+22;l.activation_bounds.append((a,RectBounds(l.lifeline_x[a.participant_id],(y1+y2)/2,16,y2-y1)))
@@ -96,18 +96,18 @@ class App(OfflineDiagramApp):
    start=Point(sx+(sb.width/2*direction if sb else 0),y);end=Point(tx-(tb.width/2*direction if tb else 0),y);l.message_layouts.append(MessageLayout(m,y,start,end))
   l.width=margin*2+(len(s.participants)-1)*spacing;l.height=last_y+100;return l
  def draw_actor(self,c,b,name):
-  x,y=b.center_x,b.center_y;c.create_oval(x-9,y-23,x+9,y-5,fill="white");c.create_line(x,y-5,x,y+14);c.create_line(x-16,y+2,x+16,y+2);c.create_line(x,y+14,x-14,y+28);c.create_line(x,y+14,x+14,y+28);c.create_text(x,y+43,text=name,font=(FONT,9))
+  x,y=b.center_x,b.center_y;c.create_oval(x-11,y-30,x+11,y-8,fill="white");c.create_line(x,y-8,x,y+20);c.create_line(x-20,y+3,x+20,y+3);c.create_line(x,y+20,x-17,y+42);c.create_line(x,y+20,x+17,y+42);c.create_text(x,y+66,text=name,font=(FONT,NODE_FONT),max_units=8)
  def draw(self,c,s,l):
-  c.delete("all");bottom=l.height-35
+  c.delete("all");c.create_text(l.width/2,25,text=s.title,font=(FONT,DIAGRAM_TITLE_FONT),font_weight="600",max_units=18);bottom=l.height-35
   for p in s.participants:
    b=l.participant_bounds[p.participant_id]
    if p.participant_type=="actor":self.draw_actor(c,b,p.name)
-   elif p.participant_type=="database":c.create_oval(b.center_x-b.width/2,b.center_y-b.height/2,b.center_x+b.width/2,b.center_y-b.height/2+16,fill="white");c.create_rectangle(b.center_x-b.width/2,b.center_y-b.height/2+8,b.center_x+b.width/2,b.center_y+b.height/2,fill="white");c.create_oval(b.center_x-b.width/2,b.center_y+b.height/2-16,b.center_x+b.width/2,b.center_y+b.height/2,fill="white");c.create_text(b.center_x,b.center_y,text=p.name,font=(FONT,9))
-   else:c.create_rectangle(b.center_x-b.width/2,b.center_y-b.height/2,b.center_x+b.width/2,b.center_y+b.height/2,fill="white");c.create_text(b.center_x,b.center_y,text=p.name,font=(FONT,9))
+   elif p.participant_type=="database":c.create_oval(b.center_x-b.width/2,b.center_y-b.height/2,b.center_x+b.width/2,b.center_y-b.height/2+20,fill="white");c.create_rectangle(b.center_x-b.width/2,b.center_y-b.height/2+10,b.center_x+b.width/2,b.center_y+b.height/2,fill="white");c.create_oval(b.center_x-b.width/2,b.center_y+b.height/2-20,b.center_x+b.width/2,b.center_y+b.height/2,fill="white");c.create_text(b.center_x,b.center_y,text=p.name,font=(FONT,NODE_FONT),max_units=8)
+   else:c.create_rectangle(b.center_x-b.width/2,b.center_y-b.height/2,b.center_x+b.width/2,b.center_y+b.height/2,fill="white");c.create_text(b.center_x,b.center_y,text=p.name,font=(FONT,NODE_FONT),max_units=8)
    c.create_line(l.lifeline_x[p.participant_id],b.center_y+b.height/2,l.lifeline_x[p.participant_id],bottom,dash=(5,4))
   for a,b in l.activation_bounds:c.create_rectangle(b.center_x-b.width/2,b.center_y-b.height/2,b.center_x+b.width/2,b.center_y+b.height/2,fill="white")
   for item in l.message_layouts:
-   dash=(5,3) if item.message.message_type=="return" else None;c.create_line(item.start.x,item.y,item.end.x,item.y,arrow="last",dash=dash);c.create_text((item.start.x+item.end.x)/2,item.y-13,text=f"{item.message.index}. {item.message.text}",font=(FONT,9))
+   dash=(5,3) if item.message.message_type=="return" else None;c.create_line(item.start.x,item.y,item.end.x,item.y,arrow="last",dash=dash);c.create_text((item.start.x+item.end.x)/2,item.y-18,text=f"{item.message.index}. {item.message.text}",font=(FONT,18),max_units=14)
   c.configure(scrollregion=c.bbox("all"))
  def export_title(self,s):return s.title
  def json_payload(self):

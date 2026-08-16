@@ -80,8 +80,9 @@ class App(OfflineDiagramApp):
  def make_layout(self,s):
   l=UseCaseDiagramLayoutResult();case_by={x.id:x for x in s.use_cases}
   for si,system in enumerate(s.systems):
-   cases=[x for x in s.use_cases if x.system_id==system.id];relations=[r for r in s.use_case_relations if case_by[r.source_use_case_id].system_id==system.id];ellipse_w=max(210,max((len(x.name)*16+70 for x in cases),default=210));channel_w=max(125,len("<<include>>")*10+45) if relations else 0;w=max(ellipse_w+100+channel_w,len(system.name)*18+90);h=max(300,76*len(cases)+100);x=350+si*680;l.system_bounds[system.id]=RectBounds(x,90+h/2,w,h);case_x=x-channel_w/2
-   for i,u in enumerate(cases):l.use_case_bounds[u.id]=RectBounds(case_x,165+i*76,ellipse_w,52)
+   cases=[x for x in s.use_cases if x.system_id==system.id];relations=[r for r in s.use_case_relations if case_by[r.source_use_case_id].system_id==system.id];ellipse_w=max(250,max((node_width(x.name,MEDIUM_FONT,8,250) for x in cases),default=250));case_heights=[node_height(x.name,MEDIUM_FONT,8,72) for x in cases];channel_w=160 if relations else 0;w=max(ellipse_w+120+channel_w,len(system.name)*SECONDARY_FONT+110);h=max(340,sum(case_heights)+45*max(0,len(cases)-1)+130);x=400+si*760;l.system_bounds[system.id]=RectBounds(x,100+h/2,w,h);case_x=x-channel_w/2
+   y=180
+   for u,ch in zip(cases,case_heights):l.use_case_bounds[u.id]=RectBounds(case_x,y,ellipse_w,ch);y+=ch+45
   actors_by_system={z.id:[] for z in s.systems}
   for a in s.actors:
    linked=[case_by[x.use_case_id] for x in s.associations if x.actor_id==a.id and x.use_case_id in case_by];sid=linked[0].system_id if linked else s.systems[0].id;actors_by_system[sid].append((a,linked))
@@ -95,13 +96,13 @@ class App(OfflineDiagramApp):
    a,b=l.use_case_bounds[r.source_use_case_id],l.use_case_bounds[r.target_use_case_id];system=l.system_bounds[case_by[r.source_use_case_id].system_id];route_x=a.center_x+a.width/2+38+(ri%4)*42;route_x=min(route_x,system.center_x+system.width/2-52);start=Point(a.center_x+a.width/2,a.center_y);end=Point(b.center_x+b.width/2,b.center_y);points=[start,Point(route_x,a.center_y),Point(route_x,b.center_y),end];label=f"<<{r.relation_type}>>";l.relation_lines.append((points,r.relation_type));l.connectors.append(ConnectorLayout(r.source_use_case_id,r.target_use_case_id,start,end,points,r.relation_type,label))
   l.width=max(b.center_x+b.width/2 for b in l.system_bounds.values())+80;l.height=max(b.center_y+b.height/2 for b in l.system_bounds.values())+80
   return l
- def draw_actor(self,c,p,name):c.create_oval(p.x-10,p.y-35,p.x+10,p.y-15,fill="white");c.create_line(p.x,p.y-15,p.x,p.y+15);c.create_line(p.x-18,p.y-3,p.x+18,p.y-3);c.create_line(p.x,p.y+15,p.x-16,p.y+35);c.create_line(p.x,p.y+15,p.x+16,p.y+35);c.create_text(p.x,p.y+52,text=name,font=(FONT,9))
+ def draw_actor(self,c,p,name):c.create_oval(p.x-12,p.y-40,p.x+12,p.y-16,fill="white");c.create_line(p.x,p.y-16,p.x,p.y+18);c.create_line(p.x-22,p.y-2,p.x+22,p.y-2);c.create_line(p.x,p.y+18,p.x-18,p.y+40);c.create_line(p.x,p.y+18,p.x+18,p.y+40);c.create_text(p.x,p.y+62,text=name,font=(FONT,MEDIUM_FONT),max_units=8)
  def draw(self,c,s,l):
-  c.delete("all")
+  c.delete("all");c.create_text(l.width/2,30,text=s.title,font=(FONT,DIAGRAM_TITLE_FONT),font_weight="600",max_units=18)
   for system in s.systems:
    b=l.system_bounds[system.id];c.create_rectangle(b.center_x-b.width/2,b.center_y-b.height/2,b.center_x+b.width/2,b.center_y+b.height/2,fill="white")
   for system in s.systems:
-   b=l.system_bounds[system.id];c.create_text(b.center_x,b.center_y-b.height/2+22,text=system.name,font=(FONT,11))
+   b=l.system_bounds[system.id];c.create_text(b.center_x,b.center_y-b.height/2+28,text=system.name,font=(FONT,SECONDARY_FONT),font_weight="600",max_units=14)
   for x in [z for z in l.connectors if z.connector_type=="straight_association"]:c.create_line(x.start.x,x.start.y,x.end.x,x.end.y,fill="black",width=1,arrow=tk.NONE)
   for points,t in l.relation_lines:
    coords=[v for p in points for v in (p.x,p.y)];c.create_line(*coords,dash=(5,3),arrow="last")
@@ -109,9 +110,9 @@ class App(OfflineDiagramApp):
    b=l.use_case_bounds[u.id];c.create_oval(b.center_x-b.width/2,b.center_y-b.height/2,b.center_x+b.width/2,b.center_y+b.height/2,fill="white")
   for a in s.actors:self.draw_actor(c,l.actor_points[a.id],a.name)
   for u in s.use_cases:
-   b=l.use_case_bounds[u.id];c.create_text(b.center_x,b.center_y,text=u.name,font=(FONT,9))
+   b=l.use_case_bounds[u.id];c.create_text(b.center_x,b.center_y,text=u.name,font=(FONT,MEDIUM_FONT),max_units=8)
   for x in [z for z in l.connectors if z.connector_type in ("include","extend")]:
-   mid=x.points[2];c.create_text(mid.x+6,(x.start.y+x.end.y)/2,text=x.label,font=(FONT,8),anchor="w")
+   mid=x.points[2];c.create_text(mid.x+6,(x.start.y+x.end.y)/2,text=x.label,font=(FONT,SMALL_FONT),anchor="w")
   c.configure(scrollregion=c.bbox("all"))
  def export_title(self,s):return s.title
  def json_payload(self):return {"diagram_type":"uml_use_case","structure":asdict(self.structure),"layout":asdict(self.layout)}

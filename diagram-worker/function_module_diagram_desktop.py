@@ -62,16 +62,16 @@ class App(OfflineDiagramApp):
             mid=self.tree.insert(root,"end",text=m.name,open=True)
             for f in m.functions:self.tree.insert(mid,"end",text=f)
     def make_layout(self,s):
-        x=60;modules=[];function_height=max(160,max((len(f)*22+24 for m in s.modules for f in m.functions),default=160))
+        x=70;modules=[];function_height=max(190,max((len(f)*28+42 for m in s.modules for f in m.functions),default=190))
         for m in s.modules:
-            w=max(180,len(m.functions)*58);modules.append((m,x+w/2,w));x+=w+35
-        return {"width":x,"height":220+function_height+50,"function_height":function_height,"modules":modules}
+            w=max(220,len(m.functions)*72);modules.append((m,x+w/2,w));x+=w+42
+        return {"width":x,"height":255+function_height+55,"function_height":function_height,"modules":modules}
     def draw(self,c,s,l):
-        c.delete("all");cx=l["width"]/2;c.create_rectangle(cx-150,25,cx+150,75,fill="#FFFFFF",outline="#111827",width=2,svg_class="td-node-shape td-system-shape");c.create_text(cx,50,text=s.system_name,font=(FONT,12))
+        c.delete("all");cx=l["width"]/2;c.create_rectangle(cx-230,25,cx+230,101,fill="#FFFFFF",outline="#111827",width=2,svg_class="td-node-shape td-system-shape");c.create_text(cx,63,text=s.system_name,font=(FONT,DIAGRAM_TITLE_FONT),font_weight="600",max_units=16)
         for m,mx,w in l["modules"]:
-            c.create_line(cx,75,cx,100,mx,100,mx,130);c.create_rectangle(mx-65,130,mx+65,170,fill="#FFFFFF",outline="#111827",width=1.8,svg_class="td-node-shape td-module-shape");c.create_text(mx,150,text=m.name,font=(FONT,10));step=w/max(1,len(m.functions))
+            c.create_line(cx,101,cx,126,mx,126,mx,156);c.create_rectangle(mx-95,156,mx+95,218,fill="#FFFFFF",outline="#111827",width=1.8,svg_class="td-node-shape td-module-shape");c.create_text(mx,187,text=m.name,font=(FONT,SECONDARY_FONT),font_weight="600",max_units=8);step=w/max(1,len(m.functions))
             for i,f in enumerate(m.functions):
-                fx=mx-w/2+step*(i+.5);bottom=220+l["function_height"];c.create_line(mx,170,mx,195,fx,195,fx,220);c.create_rectangle(fx-24,220,fx+24,bottom,fill="#FFFFFF",outline="#111827",width=1.5,svg_class="td-node-shape td-function-shape");c.create_text(fx,(220+bottom)/2,text="\n".join(f),font=(FONT,14),line_spacing=22)
+                fx=mx-w/2+step*(i+.5);bottom=255+l["function_height"];c.create_line(mx,218,mx,236,fx,236,fx,255);c.create_rectangle(fx-27,255,fx+27,bottom,fill="#FFFFFF",outline="#111827",width=1.5,svg_class="td-node-shape td-function-shape");c.create_text(fx,(255+bottom)/2,text=f,font=(FONT,21),line_spacing=28,vertical=True)
         c.configure(scrollregion=c.bbox("all"))
     def export_title(self,s):return s.system_name
     def export_visio(self,s,l,out):

@@ -106,9 +106,9 @@ class App(OfflineDiagramApp):
    seen.add(current);main.append(current)
    if not outs[current]:break
    edge=outs[current][0];main_edges.add((edge.source,edge.target,edge.label));current=edge.target
-  main_index={x:i for i,x in enumerate(main)};cx=520;side_x=830;row_gap=122;l=FlowLayoutResult()
+  main_index={x:i for i,x in enumerate(main)};cx=520;side_x=900;row_gap=165;l=FlowLayoutResult()
   for nid in main:
-   n=by[nid];y=75+main_index[nid]*row_gap;w,h=((160,76) if n.type=="decision" else (180,62));l.node_bounds[nid]=RectBounds(cx,y,w,h);l.layers[nid]=main_index[nid]
+   n=by[nid];y=90+main_index[nid]*row_gap;font=MEDIUM_FONT if n.type=="decision" else NODE_FONT;w=node_width(n.text,font,8,230 if n.type=="decision" else 210);h=node_height(n.text,font,8,110 if n.type=="decision" else 72);l.node_bounds[nid]=RectBounds(cx,y,w,h);l.layers[nid]=main_index[nid]
   branch_role={};branch_owner={};return_exit={}
   for source in main:
    extras=outs[source][1:]
@@ -116,7 +116,7 @@ class App(OfflineDiagramApp):
     side=1 if branch_no%2==0 else -1;x=cx+side*310;node=first.target;depth=0;local=set()
     branch_role[(first.source,first.target,first.label)]="decision_side" if by[source].type=="decision" else "side_branch";branch_owner[node]=(source,side)
     while node not in main_index and node not in local:
-     local.add(node);n=by[node];y=l.node_bounds[source].center_y+depth*row_gap;w,h=((160,76) if n.type=="decision" else (180,62));l.node_bounds[node]=RectBounds(x,y,w,h);l.layers[node]=main_index[source]+depth;nexts=outs[node]
+     local.add(node);n=by[node];y=l.node_bounds[source].center_y+depth*row_gap;font=MEDIUM_FONT if n.type=="decision" else NODE_FONT;w=node_width(n.text,font,8,230 if n.type=="decision" else 210);h=node_height(n.text,font,8,110 if n.type=="decision" else 72);l.node_bounds[node]=RectBounds(x,y,w,h);l.layers[node]=main_index[source]+depth;nexts=outs[node]
      if not nexts:break
      edge=nexts[0]
      if edge.target in main_index:
@@ -124,7 +124,7 @@ class App(OfflineDiagramApp):
      branch_role[(edge.source,edge.target,edge.label)]="branch_internal";branch_owner[edge.target]=(source,side);node=edge.target;depth+=1
   # Any remaining non-main nodes get a deterministic side position.
   for n in s.nodes:
-   if n.id not in l.node_bounds:l.node_bounds[n.id]=RectBounds(side_x,75+len(l.node_bounds)*row_gap,180,62)
+   if n.id not in l.node_bounds:l.node_bounds[n.id]=RectBounds(side_x,90+len(l.node_bounds)*row_gap,node_width(n.text,NODE_FONT,8,210),node_height(n.text,NODE_FONT,8,72))
   def port(b,name):return {"top":Point(b.center_x,b.center_y-b.height/2),"bottom":Point(b.center_x,b.center_y+b.height/2),"left":Point(b.center_x-b.width/2,b.center_y),"right":Point(b.center_x+b.width/2,b.center_y)}[name]
   for e in s.edges:
    key=(e.source,e.target,e.label);role=branch_role.get(key)
@@ -162,9 +162,9 @@ class App(OfflineDiagramApp):
     if nodes[e.target].type=="merge":col[e.target]=0
     elif nodes[x].type in ("branch","decision") or len(outs[x])>1:col[e.target]=col[x] if i==0 else (i+1)//2*(1 if i%2 else -1)
     else:col.setdefault(e.target,col[x])
-  cx=520;col_gap=310;row_gap=120;l=FlowLayoutResult(layers=layer,virtual_branch_ids=virtual)
+  cx=520;col_gap=350;row_gap=165;l=FlowLayoutResult(layers=layer,virtual_branch_ids=virtual)
   for nid,n in nodes.items():
-   x,y=cx+col[nid]*col_gap,75+layer[nid]*row_gap;w,h=((10,10) if n.type in ("branch","merge") else ((160,76) if n.type=="decision" else (180,62)));l.node_bounds[nid]=RectBounds(x,y,w,h)
+   x,y=cx+col[nid]*col_gap,90+layer[nid]*row_gap;font=MEDIUM_FONT if n.type=="decision" else NODE_FONT;w,h=((10,10) if n.type in ("branch","merge") else (node_width(n.text,font,8,230 if n.type=="decision" else 210),node_height(n.text,font,8,110 if n.type=="decision" else 72)));l.node_bounds[nid]=RectBounds(x,y,w,h)
   def port(b,name):
    return {"top":Point(b.center_x,b.center_y-b.height/2),"bottom":Point(b.center_x,b.center_y+b.height/2),"left":Point(b.center_x-b.width/2,b.center_y),"right":Point(b.center_x+b.width/2,b.center_y)}[name]
   for e in edges:
@@ -183,10 +183,10 @@ class App(OfflineDiagramApp):
    lp,lsi,la=place_connector_label(points,e.label);l.connectors.append(FlowConnectorLayout(e.source,e.target,e.label,points,True,"bottom","top","legacy",lp,lsi,la))
   l.width=max(b.center_x+b.width/2 for b in l.node_bounds.values())+100;l.height=max(b.center_y+b.height/2 for b in l.node_bounds.values())+100;return l
  def draw(self,c,s,l):
-  c.delete("all")
+  c.delete("all");c.create_text(l.width/2-50,20,text=s.title,font=(FONT,DIAGRAM_TITLE_FONT),font_weight="600",max_units=18)
   for x in l.connectors:
    coords=[v for p in x.points for v in (p.x,p.y)];c.create_line(*coords,arrow="last")
-   if x.label and x.label_position:c.create_text(x.label_position.x,x.label_position.y,text=x.label,font=(FONT,9),anchor="center")
+   if x.label and x.label_position:c.create_text(x.label_position.x,x.label_position.y,text=x.label,font=(FONT,EDGE_LABEL_FONT),anchor="center",max_units=8)
   draw_nodes=list(s.nodes)+[FlowNode(x,"branch","") for x in l.virtual_branch_ids]
   for n in draw_nodes:
    b=l.node_bounds[n.id];x,y=b.center_x,b.center_y
@@ -195,7 +195,7 @@ class App(OfflineDiagramApp):
    elif n.type in ("start","end"):c.create_oval(x-b.width/2,y-b.height/2,x+b.width/2,y+b.height/2,fill="white")
    elif n.type in ("input","output"):c.create_polygon(x-b.width/2+15,y-b.height/2,x+b.width/2,y-b.height/2,x+b.width/2-15,y+b.height/2,x-b.width/2,y+b.height/2,fill="white",outline="black")
    else:c.create_rectangle(x-b.width/2,y-b.height/2,x+b.width/2,y+b.height/2,fill="white")
-   c.create_text(x,y,text=n.text,font=(FONT,10))
+   c.create_text(x,y,text=n.text,font=(FONT,MEDIUM_FONT if n.type=="decision" else NODE_FONT),max_units=8)
   c.configure(scrollregion=c.bbox("all"))
  def export_title(self,s):return s.title
  def export_visio(self,s,l,out):

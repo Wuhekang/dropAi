@@ -109,23 +109,24 @@ AI助手：AI ID，对话内容，数据同步时间
             for x in e.attributes:self.tree.insert(eid,"end",text=x.name+("（主键）" if x.is_primary_key else ""))
         for r in s.relationships:self.tree.insert(b,"end",text=f"{r.source_entity}-{r.target_entity}：{r.source_cardinality}*{r.target_cardinality}，{r.name}")
     def make_layout(self,s):
-        cx,cy=480,380;radius=max(210,80*len(s.entities));layout=ERLayout()
+        cy=430;spacing=500;start_x=220;layout=ERLayout()
         for i,e in enumerate(s.entities):
-            a=2*math.pi*i/len(s.entities)-math.pi/2;layout.entities[e.name]=Bounds(cx+radius*math.cos(a),cy+radius*.65*math.sin(a),130,50)
+            layout.entities[e.name]=Bounds(start_x+i*spacing,cy,node_width(e.name,NODE_FONT,8,190),node_height(e.name,NODE_FONT,8,70))
         for e in s.entities:
             eb=layout.entities[e.name]
+            split=(len(e.attributes)+1)//2
             for i,a in enumerate(e.attributes):
-                angle=2*math.pi*i/max(1,len(e.attributes));ab=Bounds(eb.center_x+130*math.cos(angle),eb.center_y+85*math.sin(angle),96,40)
+                row=i//split;column=i%split;count=split if row==0 else len(e.attributes)-split;aw=node_width(a.name,SMALL_FONT,8,145,32);ah=node_height(a.name,SMALL_FONT,8,56,20);offset=(column-(count-1)/2)*155;ab=Bounds(eb.center_x+offset,245 if row==0 else 615,aw,ah)
                 ea=rectangle_boundary_point(eb.center_x,eb.center_y,eb.width,eb.height,ab.center_x,ab.center_y);aa=ellipse_boundary_point(ab.center_x,ab.center_y,ab.width,ab.height,eb.center_x,eb.center_y)
                 layout.attributes.append(AttributeLayout(e.name,a.name,ab,ea,aa))
         for r in s.relationships:
-            sb,tb=layout.entities[r.source_entity],layout.entities[r.target_entity];rb=Bounds((sb.center_x+tb.center_x)/2,(sb.center_y+tb.center_y)/2,90,56)
+            sb,tb=layout.entities[r.source_entity],layout.entities[r.target_entity];rb=Bounds((sb.center_x+tb.center_x)/2,(sb.center_y+tb.center_y)/2,node_width(r.name,MEDIUM_FONT,8,140),node_height(r.name,MEDIUM_FONT,8,76))
             sa=rectangle_boundary_point(sb.center_x,sb.center_y,sb.width,sb.height,rb.center_x,rb.center_y);ta=rectangle_boundary_point(tb.center_x,tb.center_y,tb.width,tb.height,rb.center_x,rb.center_y)
             sda=diamond_boundary_point(rb.center_x,rb.center_y,rb.width,rb.height,sb.center_x,sb.center_y);tda=diamond_boundary_point(rb.center_x,rb.center_y,rb.width,rb.height,tb.center_x,tb.center_y)
             layout.relationships.append(RelationshipLayout(r,rb,sa,ta,sda,tda,offset_from_anchor(sa,sda),offset_from_anchor(ta,tda)))
         return layout
     def draw(self,c,s,l):
-        c.delete("all")
+        c.delete("all");c.create_text(220+(len(s.entities)-1)*250,115,text=s.title,font=(FONT,DIAGRAM_TITLE_FONT),font_weight="600",max_units=18)
         for r in l.relationships:c.create_line(r.source_anchor.x,r.source_anchor.y,r.source_diamond_anchor.x,r.source_diamond_anchor.y);c.create_line(r.target_anchor.x,r.target_anchor.y,r.target_diamond_anchor.x,r.target_diamond_anchor.y)
         for a in l.attributes:c.create_line(a.entity_anchor.x,a.entity_anchor.y,a.attribute_anchor.x,a.attribute_anchor.y)
         for r in l.relationships:
@@ -135,12 +136,12 @@ AI助手：AI ID，对话内容，数据同步时间
         attrs={(e.name,a.name):a for e in s.entities for a in e.attributes}
         for a in l.attributes:
             b=a.bounds;c.create_oval(b.center_x-b.width/2,b.center_y-b.height/2,b.center_x+b.width/2,b.center_y+b.height/2,fill="white",outline="black")
-        for r in l.relationships:c.create_text(r.source_cardinality_position.x,r.source_cardinality_position.y,text=r.relationship.source_cardinality);c.create_text(r.target_cardinality_position.x,r.target_cardinality_position.y,text=r.relationship.target_cardinality)
-        for r in l.relationships:c.create_text(r.bounds.center_x,r.bounds.center_y,text=r.relationship.name,font=(FONT,9))
+        for r in l.relationships:c.create_text(r.source_cardinality_position.x,r.source_cardinality_position.y,text=r.relationship.source_cardinality,font=(FONT,SMALL_FONT));c.create_text(r.target_cardinality_position.x,r.target_cardinality_position.y,text=r.relationship.target_cardinality,font=(FONT,SMALL_FONT))
+        for r in l.relationships:c.create_text(r.bounds.center_x,r.bounds.center_y,text=r.relationship.name,font=(FONT,MEDIUM_FONT),max_units=8)
         for e in s.entities:
-            b=l.entities[e.name];c.create_text(b.center_x,b.center_y,text=e.name,font=(FONT,10))
+            b=l.entities[e.name];c.create_text(b.center_x,b.center_y,text=e.name,font=(FONT,NODE_FONT),font_weight="600",max_units=8)
         for a in l.attributes:
-            b=a.bounds;tid=c.create_text(b.center_x,b.center_y,text=a.attribute_name,font=(FONT,9))
+            b=a.bounds;tid=c.create_text(b.center_x,b.center_y,text=a.attribute_name,font=(FONT,SMALL_FONT),max_units=8)
             if attrs[(a.entity_name,a.attribute_name)].is_primary_key:
                 bb=c.bbox(tid);c.create_line(bb[0],bb[3]+1,bb[2],bb[3]+1)
         c.configure(scrollregion=c.bbox("all"))

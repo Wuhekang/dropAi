@@ -44,21 +44,21 @@ class App(OfflineDiagramApp):
    lid=self.tree.insert(root,"end",text=layer.name,open=True)
    for c in layer.components:self.tree.insert(lid,"end",text=c.name)
  def make_layout(self,s):
-  result=SystemArchitectureLayoutResult();width=900;y=110
+  result=SystemArchitectureLayoutResult();width=1040;y=135
   for layer in s.layers:
-   h=110;lb=RectBounds(500,y,width,h);result.layer_bounds[layer.name]=lb;usable=width-190;step=usable/max(1,len(layer.components))
-   for i,c in enumerate(layer.components):result.component_bounds[(layer.name,c.name)]=RectBounds(500-width/2+160+step*(i+.5),y,min(180,step-16),56)
-   y+=155
+   max_h=max((node_height(c.name,MEDIUM_FONT,8,70) for c in layer.components),default=70);h=max(125,max_h+42);lb=RectBounds(560,y,width,h);result.layer_bounds[layer.name]=lb;usable=width-210;step=usable/max(1,len(layer.components))
+   for i,c in enumerate(layer.components):result.component_bounds[(layer.name,c.name)]=RectBounds(560-width/2+180+step*(i+.5),y,min(230,step-20),node_height(c.name,MEDIUM_FONT,8,70))
+   y+=h+58
   for a,b in zip(s.layers,s.layers[1:]):
-   x=500;aa=result.layer_bounds[a.name];bb=result.layer_bounds[b.name];result.connectors.append((Point(x,aa.center_y+aa.height/2),Point(x,bb.center_y-bb.height/2)))
+   x=560;aa=result.layer_bounds[a.name];bb=result.layer_bounds[b.name];result.connectors.append((Point(x,aa.center_y+aa.height/2),Point(x,bb.center_y-bb.height/2)))
   return result
  def draw(self,c,s,l):
-  c.delete("all")
+  c.delete("all");c.create_text(560,25,text=s.title,font=(FONT,DIAGRAM_TITLE_FONT),font_weight="600",max_units=18)
   for a,b in l.connectors:c.create_line(a.x,a.y,b.x,b.y,arrow="both")
   for layer in s.layers:
-   b=l.layer_bounds[layer.name];c.create_rectangle(b.center_x-b.width/2,b.center_y-b.height/2,b.center_x+b.width/2,b.center_y+b.height/2,fill="white");c.create_line(b.center_x-b.width/2+140,b.center_y-b.height/2,b.center_x-b.width/2+140,b.center_y+b.height/2);c.create_text(b.center_x-b.width/2+70,b.center_y,text=layer.name,font=(FONT,11))
+   b=l.layer_bounds[layer.name];c.create_rectangle(b.center_x-b.width/2,b.center_y-b.height/2,b.center_x+b.width/2,b.center_y+b.height/2,fill="white");c.create_line(b.center_x-b.width/2+160,b.center_y-b.height/2,b.center_x-b.width/2+160,b.center_y+b.height/2);c.create_text(b.center_x-b.width/2+80,b.center_y,text=layer.name,font=(FONT,21),font_weight="600",max_units=6)
    for comp in layer.components:
-    q=l.component_bounds[(layer.name,comp.name)];c.create_rectangle(q.center_x-q.width/2,q.center_y-q.height/2,q.center_x+q.width/2,q.center_y+q.height/2,fill="white");c.create_text(q.center_x,q.center_y,text=comp.name,width=q.width-8,font=(FONT,9))
+    q=l.component_bounds[(layer.name,comp.name)];c.create_rectangle(q.center_x-q.width/2,q.center_y-q.height/2,q.center_x+q.width/2,q.center_y+q.height/2,fill="white");c.create_text(q.center_x,q.center_y,text=comp.name,width=q.width-20,font=(FONT,MEDIUM_FONT),max_units=8)
   c.configure(scrollregion=c.bbox("all"))
  def export_title(self,s):return s.title
  def export_visio(self,s,l,out):

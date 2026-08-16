@@ -14,6 +14,7 @@ frontend/.idea/
 backend/.idea/
 /template-import/
 /dropai-demo/
+/diagram-worker/visual-baselines/
 
 *.log
 .DS_Store

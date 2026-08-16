@@ -58,13 +58,13 @@ class App(OfflineDiagramApp):
   for n in s.nodes:
    if n.zone=="left" and any({e.source,e.target}=={n.id,center.id} for e in s.edges):direct_left.append(n)
    if n.zone=="right" and any({e.source,e.target}=={n.id,center.id} for e in s.edges):direct_right.append(n)
-  node_h=66;gap=42
+  node_h=max(78,max((node_height(n.text,MEDIUM_FONT,8,78) for n in s.nodes if n.id!=center.id),default=78));gap=48
   def total(items):return len(items)*node_h+max(0,len(items)-1)*gap
-  center_h=max(240,total(direct_left),total(direct_right))+2*gap;center_b=RectBounds(520,400,300,center_h);l.node_bounds[center.id]=center_b
+  center_h=max(250,total(direct_left),total(direct_right))+2*gap;center_b=RectBounds(560,420,340,center_h);l.node_bounds[center.id]=center_b
   def place_primary(items,x,side):
    for i,n in enumerate(items):
-    y=center_b.center_y-center_b.height/2+(i+1)*center_b.height/(len(items)+1);l.node_bounds[n.id]=RectBounds(x,y,180,node_h)
-  place_primary(direct_left,170,"left");place_primary(direct_right,870,"right")
+    y=center_b.center_y-center_b.height/2+(i+1)*center_b.height/(len(items)+1);l.node_bounds[n.id]=RectBounds(x,y,node_width(n.text,MEDIUM_FONT,8,230),node_height(n.text,MEDIUM_FONT,8,78))
+  place_primary(direct_left,180,"left");place_primary(direct_right,940,"right")
   primary_ids={n.id for n in direct_left+direct_right}
   secondary=[n for n in s.nodes if n.id!=center.id and n.id not in primary_ids]
   child_groups={pid:[] for pid in primary_ids}
@@ -74,9 +74,9 @@ class App(OfflineDiagramApp):
   for pid,children in child_groups.items():
    pb=l.node_bounds[pid]
    for i,n in enumerate(children):
-    offset=(i//2+1)*115*(-1 if i%2==0 else 1);l.node_bounds[n.id]=RectBounds(pb.center_x,pb.center_y+offset,180,node_h)
+    offset=(i//2+1)*135*(-1 if i%2==0 else 1);l.node_bounds[n.id]=RectBounds(pb.center_x,pb.center_y+offset,node_width(n.text,MEDIUM_FONT,8,230),node_height(n.text,MEDIUM_FONT,8,78))
   leftovers=[n for n in secondary if n.id not in l.node_bounds]
-  for i,n in enumerate(leftovers):l.node_bounds[n.id]=RectBounds(1050,120+i*100,180,node_h)
+  for i,n in enumerate(leftovers):l.node_bounds[n.id]=RectBounds(1140,140+i*120,node_width(n.text,MEDIUM_FONT,8,230),node_height(n.text,MEDIUM_FONT,8,78))
   for e in s.edges:
    a,b=l.node_bounds[e.source],l.node_bounds[e.target]
    if e.source==center.id or e.target==center.id:
@@ -89,11 +89,11 @@ class App(OfflineDiagramApp):
   l.width=max(b.center_x+b.width/2 for b in l.node_bounds.values())+80;l.height=max(b.center_y+b.height/2 for b in l.node_bounds.values())+80
   return l
  def draw(self,c,s,l):
-  c.delete("all")
+  c.delete("all");c.create_text(l.width/2,70,text=s.title,font=(FONT,DIAGRAM_TITLE_FONT),font_weight="600",max_units=18)
   for path in l.edge_paths.values():
    coords=[v for p in path for v in (p.x,p.y)];c.create_line(*coords,arrow="last")
   for n in s.nodes:
-   b=l.node_bounds[n.id];c.create_rectangle(b.center_x-b.width/2,b.center_y-b.height/2,b.center_x+b.width/2,b.center_y+b.height/2,fill="white");c.create_text(b.center_x,b.center_y,text=n.text,font=(FONT,10))
+   b=l.node_bounds[n.id];c.create_rectangle(b.center_x-b.width/2,b.center_y-b.height/2,b.center_x+b.width/2,b.center_y+b.height/2,fill="white");c.create_text(b.center_x,b.center_y,text=n.text,font=(FONT,SECONDARY_FONT if n.zone=="center" else MEDIUM_FONT),font_weight="600" if n.zone=="center" else "400",max_units=8)
   c.configure(scrollregion=c.bbox("all"))
  def export_title(self,s):return s.title
  def json_payload(self):

@@ -14,7 +14,9 @@ import traceback
 from dataclasses import asdict, dataclass, field, is_dataclass
 from pathlib import Path
 
-FONT = "Noto Sans CJK SC"
+from diagram_core.typography import *
+
+FONT = FONT_FAMILY
 
 @dataclass
 class ParseIssue:
