@@ -49,9 +49,28 @@ class WebEngineTest(unittest.TestCase):
   self.assertTrue(result["valid"],result["issues"])
   self.assertEqual(6,len(result["structure"]["entities"]))
   self.assertEqual(5,len(result["structure"]["relationships"]))
-  self.assertEqual(11,result["nodeCount"])
+  self.assertEqual(38,result["nodeCount"])
   self.assertEqual(27,sum(len(x["attributes"]) for x in result["structure"]["entities"]))
   self.assertEqual(6,sum(1 for x in result["structure"]["entities"] for a in x["attributes"] if a["is_primary_key"]))
+  self.assertEqual({"entityCount":6,"attributeCount":27,"relationshipCount":5,"visualNodeCount":38},{k:result[k] for k in ("entityCount","attributeCount","relationshipCount","visualNodeCount")})
+  self.assertEqual("chen_radial",result["layoutMode"])
+  entities=result["layout"]["entities"];user=entities["用户"]
+  xs=[b["center_x"] for b in entities.values()];ys=[b["center_y"] for b in entities.values()]
+  self.assertLess(abs(user["center_x"]-(min(xs)+max(xs))/2),180);self.assertLess(abs(user["center_y"]-(min(ys)+max(ys))/2),180)
+  self.assertGreater(len({round(y) for y in ys}),2)
+  knowledge=entities["运动知识信息"];detail=entities["运动详情信息"]
+  distance=lambda a,b:((a["center_x"]-b["center_x"])**2+(a["center_y"]-b["center_y"])**2)**.5
+  self.assertLess(distance(knowledge,detail),distance(user,detail));self.assertGreater(distance(user,detail),distance(user,knowledge))
+  self.assertGreaterEqual(result["width"]/result["height"],1.4);self.assertLessEqual(result["width"]/result["height"],2.2)
+  boxes=list(entities.values())+[x["bounds"] for x in result["layout"]["relationships"]]+[x["bounds"] for x in result["layout"]["attributes"]]
+  overlaps=lambda a,b:abs(a["center_x"]-b["center_x"])<(a["width"]+b["width"])/2-1 and abs(a["center_y"]-b["center_y"])<(a["height"]+b["height"])/2-1
+  self.assertFalse(any(overlaps(a,b) for i,a in enumerate(boxes) for b in boxes[i+1:]))
+  for relation in result["layout"]["relationships"]:
+   a=entities[relation["relationship"]["source_entity"]];b=entities[relation["relationship"]["target_entity"]];diamond=relation["bounds"]
+   vector=(b["center_x"]-a["center_x"],b["center_y"]-a["center_y"]);projection=((diamond["center_x"]-a["center_x"])*vector[0]+(diamond["center_y"]-a["center_y"])*vector[1])/(vector[0]**2+vector[1]**2)
+   self.assertGreater(projection,0);self.assertLess(projection,1)
+  self.assertNotIn('marker-end="url(#arrow)"',result["svg"]);self.assertNotIn("角色ID*",result["svg"])
+  again=execute({"command":"render","dsl":dsl});self.assertEqual(result["layout"],again["layout"])
   self.assertIn("Microsoft YaHei, PingFang SC, SimSun, Noto Sans CJK SC",result["svg"])
   self.assertIn("viewBox=",result["svg"])
  def test_er_explicit_entity_syntax_from_website_case(self):
@@ -76,7 +95,7 @@ class WebEngineTest(unittest.TestCase):
   self.assertTrue(result["valid"],result["issues"])
   self.assertEqual(6,len(result["structure"]["entities"]))
   self.assertEqual(5,len(result["structure"]["relationships"]))
-  self.assertEqual(11,result["nodeCount"])
+  self.assertEqual(39,result["nodeCount"])
   self.assertIn("个人健康管理系统ER图",result["svg"])
  def test_er_legacy_pk_warning_and_missing_relation_entity(self):
   legacy="@ERDiagram\n标题：兼容\n[实体]\n角色：角色ID，角色名称\n用户：姓名，状态\n[关系]\n角色-用户：1×n，关联"

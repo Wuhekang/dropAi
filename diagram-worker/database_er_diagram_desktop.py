@@ -118,24 +118,60 @@ class App(OfflineDiagramApp):
             for x in e.attributes:self.tree.insert(eid,"end",text=x.name+("（主键）" if x.is_primary_key else ""))
         for r in s.relationships:self.tree.insert(b,"end",text=f"{r.source_entity}-{r.target_entity}：{r.source_cardinality}*{r.target_cardinality}，{r.name}")
     def make_layout(self,s):
-        cy=430;spacing=500;start_x=220;layout=ERLayout()
-        for i,e in enumerate(s.entities):
-            layout.entities[e.name]=Bounds(start_x+i*spacing,cy,node_width(e.name,NODE_FONT,8,190),node_height(e.name,NODE_FONT,8,70))
-        for e in s.entities:
-            eb=layout.entities[e.name]
-            split=(len(e.attributes)+1)//2
-            for i,a in enumerate(e.attributes):
-                row=i//split;column=i%split;count=split if row==0 else len(e.attributes)-split;aw=node_width(a.name,SMALL_FONT,8,145,32);ah=node_height(a.name,SMALL_FONT,8,56,20);offset=(column-(count-1)/2)*155;ab=Bounds(eb.center_x+offset,245 if row==0 else 615,aw,ah)
-                ea=rectangle_boundary_point(eb.center_x,eb.center_y,eb.width,eb.height,ab.center_x,ab.center_y);aa=ellipse_boundary_point(ab.center_x,ab.center_y,ab.width,ab.height,eb.center_x,eb.center_y)
-                layout.attributes.append(AttributeLayout(e.name,a.name,ab,ea,aa))
+        layout=ERLayout();by={e.name:e for e in s.entities};order={e.name:i for i,e in enumerate(s.entities)};adj={e.name:[] for e in s.entities};degree={e.name:0 for e in s.entities}
         for r in s.relationships:
-            sb,tb=layout.entities[r.source_entity],layout.entities[r.target_entity];rb=Bounds((sb.center_x+tb.center_x)/2,(sb.center_y+tb.center_y)/2,node_width(r.name,MEDIUM_FONT,8,140),node_height(r.name,MEDIUM_FONT,8,76))
+            if r.source_entity in adj and r.target_entity in adj:
+                adj[r.source_entity].append(r.target_entity);adj[r.target_entity].append(r.source_entity);degree[r.source_entity]+=1;degree[r.target_entity]+=1
+        aliases=("用户","会员","学生","患者","客户","账号","人员")
+        preferred=[e.name for e in s.entities if any(alias in e.name for alias in aliases)]
+        core=(next((name for name in preferred if name=="用户"),None) or (max(preferred,key=lambda n:(degree[n],-order[n])) if preferred else max(by,key=lambda n:(degree[n],-order[n]))))
+        center=Point(720,520);positions={core:center};parent={core:None};depth={core:0};queue=[core]
+        while queue:
+            current=queue.pop(0)
+            for child in sorted(adj[current],key=lambda n:order[n]):
+                if child not in depth:depth[child]=depth[current]+1;parent[child]=current;queue.append(child)
+        for name in by:
+            if name not in depth:depth[name]=1;parent[name]=core
+        first=sorted([n for n in by if depth[n]==1],key=lambda n:order[n]);count=max(1,len(first))
+        for i,name in enumerate(first):
+            angle=-math.pi/2+2*math.pi*i/count;positions[name]=Point(center.x+390*math.cos(angle),center.y+240*math.sin(angle))
+        for level in range(2,max(depth.values(),default=1)+1):
+            for p in sorted([n for n in by if depth[n]==level-1],key=lambda n:order[n]):
+                children=sorted([n for n in by if parent.get(n)==p],key=lambda n:order[n]);pb=positions[p];base=math.atan2(pb.y-center.y,pb.x-center.x)
+                for i,name in enumerate(children):
+                    angle=base+(i-(len(children)-1)/2)*.48;positions[name]=Point(pb.x+310*math.cos(angle),pb.y+190*math.sin(angle))
+        for name,e in by.items():
+            p=positions[name];layout.entities[name]=Bounds(p.x,p.y,node_width(name,NODE_FONT,8,150,40),node_height(name,NODE_FONT,8,58,24))
+        for r in s.relationships:
+            sb,tb=layout.entities[r.source_entity],layout.entities[r.target_entity];rb=Bounds((sb.center_x+tb.center_x)/2,(sb.center_y+tb.center_y)/2,node_width(r.name,MEDIUM_FONT,8,100,34),node_height(r.name,MEDIUM_FONT,8,60,20))
             sa=rectangle_boundary_point(sb.center_x,sb.center_y,sb.width,sb.height,rb.center_x,rb.center_y);ta=rectangle_boundary_point(tb.center_x,tb.center_y,tb.width,tb.height,rb.center_x,rb.center_y)
             sda=diamond_boundary_point(rb.center_x,rb.center_y,rb.width,rb.height,sb.center_x,sb.center_y);tda=diamond_boundary_point(rb.center_x,rb.center_y,rb.width,rb.height,tb.center_x,tb.center_y)
             layout.relationships.append(RelationshipLayout(r,rb,sa,ta,sda,tda,offset_from_anchor(sa,sda),offset_from_anchor(ta,tda)))
+        occupied=list(layout.entities.values())+[r.bounds for r in layout.relationships]
+        def collides(b,padding=18):
+            return any(abs(b.center_x-x.center_x)<(b.width+x.width)/2+padding and abs(b.center_y-x.center_y)<(b.height+x.height)/2+padding for x in occupied)
+        for e in s.entities:
+            eb=layout.entities[e.name];channels=[]
+            for other in adj[e.name]:channels.append(math.atan2(layout.entities[other].center_y-eb.center_y,layout.entities[other].center_x-eb.center_x))
+            candidates=[]
+            for ring in (145,220,295,370,445):
+                for i in range(24):
+                    angle=-math.pi/2+2*math.pi*i/24
+                    clearance=min((abs(math.atan2(math.sin(angle-c),math.cos(angle-c))) for c in channels),default=math.pi)
+                    candidates.append((clearance,ring,angle))
+            candidates.sort(key=lambda item:(-item[0],item[1],item[2]))
+            for attribute in e.attributes:
+                aw=node_width(attribute.name,SMALL_FONT,8,100,30);ah=node_height(attribute.name,SMALL_FONT,8,46,18);chosen=None
+                for _,ring,angle in candidates:
+                    candidate=Bounds(eb.center_x+ring*math.cos(angle),eb.center_y+ring*.62*math.sin(angle),aw,ah)
+                    if not collides(candidate):chosen=candidate;candidates.remove((_,ring,angle));break
+                if chosen is None:
+                    angle=2*math.pi*len(layout.attributes)/max(1,sum(len(x.attributes) for x in s.entities));chosen=Bounds(eb.center_x+330*math.cos(angle),eb.center_y+260*math.sin(angle),aw,ah)
+                occupied.append(chosen);ea=rectangle_boundary_point(eb.center_x,eb.center_y,eb.width,eb.height,chosen.center_x,chosen.center_y);aa=ellipse_boundary_point(chosen.center_x,chosen.center_y,chosen.width,chosen.height,eb.center_x,eb.center_y)
+                layout.attributes.append(AttributeLayout(e.name,attribute.name,chosen,ea,aa))
         return layout
     def draw(self,c,s,l):
-        c.delete("all");c.create_text(220+(len(s.entities)-1)*250,115,text=s.title,font=(FONT,DIAGRAM_TITLE_FONT),font_weight="600",max_units=18)
+        c.delete("all");all_bounds=list(l.entities.values())+[x.bounds for x in l.attributes]+[x.bounds for x in l.relationships];title_x=(min(b.center_x-b.width/2 for b in all_bounds)+max(b.center_x+b.width/2 for b in all_bounds))/2;title_y=min(b.center_y-b.height/2 for b in all_bounds)-85;c.create_text(title_x,title_y,text=s.title,font=(FONT,DIAGRAM_TITLE_FONT),font_weight="600",max_units=18)
         for r in l.relationships:c.create_line(r.source_anchor.x,r.source_anchor.y,r.source_diamond_anchor.x,r.source_diamond_anchor.y);c.create_line(r.target_anchor.x,r.target_anchor.y,r.target_diamond_anchor.x,r.target_diamond_anchor.y)
         for a in l.attributes:c.create_line(a.entity_anchor.x,a.entity_anchor.y,a.attribute_anchor.x,a.attribute_anchor.y)
         for r in l.relationships:
