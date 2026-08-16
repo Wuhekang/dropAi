@@ -152,7 +152,7 @@ def execute(payload):
     else: node_count=len(structure.get("participants",[]))+len(structure.get("messages",[]))
     trace(12,"svg_render_completed",header.canonical_header,node_count)
     result.update({"ok":True,"success":True,"diagramType":header.canonical_header,"diagramTypeKey":header.diagram_type.value,"svg":svg,"width":bounds["width"],"height":bounds["height"],"bounds":bounds,"nodeCount":node_count,"warnings":[issue_dict(i) for i in issues if i.severity!="错误"],"exports":{"svg":True,"png":True,"json":True,"vsdx":False},"durationMs":round((time.perf_counter()-started)*1000),"structure":structure,"layout":serial(layout),"dslVersion":"1.6"})
-    if header.diagram_type.value=="er_diagram":result.update({"entityCount":entity_count,"attributeCount":attribute_count,"relationshipCount":relationship_count,"visualNodeCount":node_count,"layoutMode":"chen_radial"})
+    if header.diagram_type.value=="er_diagram":result.update({"entityCount":entity_count,"attributeCount":attribute_count,"relationshipCount":relationship_count,"visualNodeCount":node_count,"layoutMode":"chen_skeleton_attributes","layoutDiagnostics":serial(getattr(layout,"diagnostics",{}))})
     trace(13,"response_serialized",header.canonical_header,node_count)
     if payload.get("command") == "export":
         kind=payload.get("format","svg").lower()

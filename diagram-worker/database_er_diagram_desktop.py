@@ -5,11 +5,11 @@ import math
 from pathlib import Path
 from offline_diagram_common import *
 @dataclass
-class ERAttribute:name:str;is_primary_key:bool=False
+class ERAttribute:name:str;is_primary_key:bool=False;id:str="";owner_entity_id:str=""
 @dataclass
-class EREntity:name:str;attributes:list[ERAttribute]
+class EREntity:name:str;attributes:list[ERAttribute];id:str=""
 @dataclass
-class ERRelationship:source_entity:str;target_entity:str;source_cardinality:str;target_cardinality:str;name:str
+class ERRelationship:source_entity:str;target_entity:str;source_cardinality:str;target_cardinality:str;name:str;id:str="";source_entity_id:str="";target_entity_id:str=""
 @dataclass
 class ERDiagramStructure:title:str;entities:list[EREntity];relationships:list[ERRelationship]
 @dataclass(frozen=True)
@@ -17,11 +17,18 @@ class Point:x:float;y:float
 @dataclass(frozen=True)
 class Bounds:center_x:float;center_y:float;width:float;height:float
 @dataclass
-class AttributeLayout:entity_name:str;attribute_name:str;bounds:Bounds;entity_anchor:Point;attribute_anchor:Point
+class AttributeLayout:entity_name:str;attribute_name:str;bounds:Bounds;entity_anchor:Point;attribute_anchor:Point;attribute_id:str="";owner_entity_id:str=""
 @dataclass
 class RelationshipLayout:relationship:ERRelationship;bounds:Bounds;source_anchor:Point;target_anchor:Point;source_diamond_anchor:Point;target_diamond_anchor:Point;source_cardinality_position:Point;target_cardinality_position:Point
+@dataclass(frozen=True)
+class LayoutEdge:id:str;source:str;target:str;edge_type:str;points:tuple[Point,...];cardinality:str=""
 @dataclass
-class ERLayout:entities:dict[str,Bounds]=field(default_factory=dict);attributes:list[AttributeLayout]=field(default_factory=list);relationships:list[RelationshipLayout]=field(default_factory=list)
+class ERRelationGraph:nodes:dict[str,str]=field(default_factory=dict);edges:list[LayoutEdge]=field(default_factory=list);core_entity_id:str=""
+@dataclass
+class ERLayout:
+    entities:dict[str,Bounds]=field(default_factory=dict);attributes:list[AttributeLayout]=field(default_factory=list);relationships:list[RelationshipLayout]=field(default_factory=list)
+    relation_graph:ERRelationGraph=field(default_factory=ERRelationGraph);relation_edges:list[LayoutEdge]=field(default_factory=list);attribute_edges:list[LayoutEdge]=field(default_factory=list)
+    occupied_relation_corridors:list[tuple[Point,Point]]=field(default_factory=list);diagnostics:dict=field(default_factory=dict)
 
 def rectangle_boundary_point(center_x,center_y,width,height,toward_x,toward_y):
     dx,dy=toward_x-center_x,toward_y-center_y
@@ -41,6 +48,18 @@ def diamond_boundary_point(center_x,center_y,width,height,toward_x,toward_y):
 def offset_from_anchor(anchor,toward,distance=12):
     dx,dy=toward.x-anchor.x,toward.y-anchor.y;length=math.hypot(dx,dy) or 1
     return Point(anchor.x+dx/length*distance,anchor.y+dy/length*distance)
+def boxes_overlap(a,b,padding=0):
+    return abs(a.center_x-b.center_x)<(a.width+b.width)/2+padding and abs(a.center_y-b.center_y)<(a.height+b.height)/2+padding
+def point_in_bounds(p,b,padding=0):
+    return b.center_x-b.width/2-padding<p.x<b.center_x+b.width/2+padding and b.center_y-b.height/2-padding<p.y<b.center_y+b.height/2+padding
+def orientation(a,b,c):return (b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x)
+def segments_cross(a,b,c,d):
+    return orientation(a,b,c)*orientation(a,b,d)<-1e-6 and orientation(c,d,a)*orientation(c,d,b)<-1e-6
+def segment_hits_bounds(a,b,bounds,padding=4):
+    if point_in_bounds(a,bounds,padding) or point_in_bounds(b,bounds,padding):return True
+    x1=bounds.center_x-bounds.width/2-padding;x2=bounds.center_x+bounds.width/2+padding;y1=bounds.center_y-bounds.height/2-padding;y2=bounds.center_y+bounds.height/2+padding
+    corners=(Point(x1,y1),Point(x2,y1),Point(x2,y2),Point(x1,y2))
+    return any(segments_cross(a,b,corners[i],corners[(i+1)%4]) for i in range(4))
 class App(OfflineDiagramApp):
     app_title="Chen ER图生成器";output_suffix="数据库ER图";template_name="Chen_ER图_输入模板.txt";log_path=Path(__file__).with_name("database_er_diagram_error.log")
     template_text=Path(__file__).with_name(template_name).read_text(encoding="utf-8-sig")
@@ -109,6 +128,13 @@ class App(OfflineDiagramApp):
             if r.target_entity in degree:degree[r.target_entity]+=1
         for name,d in degree.items():
             if d==0:issues.append(ParseIssue(1,"错误","ISOLATED_ENTITY","实体没有参与任何关系",name,"增加该实体的关系或删除实体。"))
+        for entity_index,entity in enumerate(entities,1):
+            entity.id=f"E{entity_index}"
+            for attribute_index,attribute in enumerate(entity.attributes,1):
+                attribute.id=f"{entity.id}A{attribute_index}";attribute.owner_entity_id=entity.id
+        entity_ids={entity.name:entity.id for entity in entities}
+        for relation_index,relation in enumerate(rels,1):
+            relation.id=f"R{relation_index}";relation.source_entity_id=entity_ids.get(relation.source_entity,"");relation.target_entity_id=entity_ids.get(relation.target_entity,"")
         fatal=any(x.severity=="错误" for x in issues)
         return (None if fatal else ERDiagramStructure(title,entities,rels)),issues
     def fill_tree(self,s):
@@ -117,59 +143,117 @@ class App(OfflineDiagramApp):
             eid=self.tree.insert(a,"end",text=e.name,open=True)
             for x in e.attributes:self.tree.insert(eid,"end",text=x.name+("（主键）" if x.is_primary_key else ""))
         for r in s.relationships:self.tree.insert(b,"end",text=f"{r.source_entity}-{r.target_entity}：{r.source_cardinality}*{r.target_cardinality}，{r.name}")
-    def make_layout(self,s):
-        layout=ERLayout();by={e.name:e for e in s.entities};order={e.name:i for i,e in enumerate(s.entities)};adj={e.name:[] for e in s.entities};degree={e.name:0 for e in s.entities}
+    def build_entity_relation_graph(self,s):
+        graph=ERRelationGraph({e.id:"entity" for e in s.entities})
+        for relation in s.relationships:
+            graph.nodes[relation.id]="relationship"
+            graph.edges.append(LayoutEdge(f"{relation.id}S",relation.source_entity_id,relation.id,"entity_relationship",(),relation.source_cardinality))
+            graph.edges.append(LayoutEdge(f"{relation.id}T",relation.id,relation.target_entity_id,"entity_relationship",(),relation.target_cardinality))
+        if any(kind=="attribute" for kind in graph.nodes.values()):raise ValueError("实体关系骨架中禁止包含属性节点")
+        return graph
+    def select_core_entity(self,s):
+        order={e.id:i for i,e in enumerate(s.entities)};degree={e.id:0 for e in s.entities};adj={e.id:set() for e in s.entities}
         for r in s.relationships:
-            if r.source_entity in adj and r.target_entity in adj:
-                adj[r.source_entity].append(r.target_entity);adj[r.target_entity].append(r.source_entity);degree[r.source_entity]+=1;degree[r.target_entity]+=1
-        aliases=("用户","会员","学生","患者","客户","账号","人员")
-        preferred=[e.name for e in s.entities if any(alias in e.name for alias in aliases)]
-        core=(next((name for name in preferred if name=="用户"),None) or (max(preferred,key=lambda n:(degree[n],-order[n])) if preferred else max(by,key=lambda n:(degree[n],-order[n]))))
-        center=Point(720,520);positions={core:center};parent={core:None};depth={core:0};queue=[core]
+            degree[r.source_entity_id]+=1;degree[r.target_entity_id]+=1;adj[r.source_entity_id].add(r.target_entity_id);adj[r.target_entity_id].add(r.source_entity_id)
+        def reach(start):
+            seen={start};queue=[start]
+            while queue:
+                for other in adj[queue.pop(0)]:
+                    if other not in seen:seen.add(other);queue.append(other)
+            return len(seen)
+        aliases=("用户","会员","学生","患者","客户","人员","账号","居民")
+        preferred=[e for e in s.entities if any(alias in e.name for alias in aliases)] or s.entities
+        return max(preferred,key=lambda e:(degree[e.id],reach(e.id),-order[e.id])).id
+    def layout_entity_relation_skeleton(self,s,graph):
+        by_id={e.id:e for e in s.entities};order={e.id:i for i,e in enumerate(s.entities)};adj={e.id:[] for e in s.entities};relation_by_pair={}
+        for r in s.relationships:
+            adj[r.source_entity_id].append(r.target_entity_id);adj[r.target_entity_id].append(r.source_entity_id);relation_by_pair[frozenset((r.source_entity_id,r.target_entity_id))]=r
+        core=self.select_core_entity(s);graph.core_entity_id=core;parent={core:None};depth={core:0};queue=[core]
         while queue:
             current=queue.pop(0)
-            for child in sorted(adj[current],key=lambda n:order[n]):
+            for child in sorted(adj[current],key=lambda x:order[x]):
                 if child not in depth:depth[child]=depth[current]+1;parent[child]=current;queue.append(child)
-        for name in by:
-            if name not in depth:depth[name]=1;parent[name]=core
-        first=sorted([n for n in by if depth[n]==1],key=lambda n:order[n]);count=max(1,len(first))
-        for i,name in enumerate(first):
-            angle=-math.pi/2+2*math.pi*i/count;positions[name]=Point(center.x+390*math.cos(angle),center.y+240*math.sin(angle))
+        for eid in by_id:
+            if eid not in depth:depth[eid]=1;parent[eid]=core
+        descendants={eid:0 for eid in by_id}
+        for eid in sorted(by_id,key=lambda x:depth[x],reverse=True):
+            if parent.get(eid):descendants[parent[eid]]+=1+descendants[eid]
+        positions={core:Point(760,330)};first=[eid for eid in by_id if depth[eid]==1]
+        semantic_slots={"permission":(-125,300,230),"profile":(32,330,245),"service":(105,270,255),"business":(150,360,245)}
+        fallback=[(-155,350,235),(-65,320,235),(15,350,245),(75,300,260),(135,350,245),(-20,420,270)]
+        def role(eid):
+            r=relation_by_pair.get(frozenset((core,eid)));text=(r.name if r else "")
+            if any(x in text for x in ("权限","授权","管理","分配")):return "permission"
+            if any(x in text for x in ("上传","登记","维护","填写","保存")):return "profile"
+            if any(x in text for x in ("对话","咨询","推荐","服务")):return "service"
+            if any(x in text for x in ("查看","浏览","使用","学习")):return "business"
+            return ""
+        used=set();fallback_index=0
+        for eid in sorted(first,key=lambda x:(-descendants[x],order[x])):
+            kind=role(eid)
+            if kind and kind not in used:angle,rx,ry=semantic_slots[kind];used.add(kind)
+            else:angle,rx,ry=fallback[fallback_index%len(fallback)];fallback_index+=1
+            rad=math.radians(angle);positions[eid]=Point(positions[core].x+rx*math.cos(rad),positions[core].y+ry*math.sin(rad))
         for level in range(2,max(depth.values(),default=1)+1):
-            for p in sorted([n for n in by if depth[n]==level-1],key=lambda n:order[n]):
-                children=sorted([n for n in by if parent.get(n)==p],key=lambda n:order[n]);pb=positions[p];base=math.atan2(pb.y-center.y,pb.x-center.x)
-                for i,name in enumerate(children):
-                    angle=base+(i-(len(children)-1)/2)*.48;positions[name]=Point(pb.x+310*math.cos(angle),pb.y+190*math.sin(angle))
-        for name,e in by.items():
-            p=positions[name];layout.entities[name]=Bounds(p.x,p.y,node_width(name,NODE_FONT,8,150,40),node_height(name,NODE_FONT,8,58,24))
+            for eid in sorted((x for x in by_id if depth[x]==level),key=lambda x:order[x]):
+                p=parent[eid];pp=positions[p];grand=positions.get(parent.get(p),positions[core]);base=math.atan2(pp.y-grand.y,pp.x-grand.x)
+                siblings=sorted((x for x in by_id if parent.get(x)==p and depth[x]==level),key=lambda x:order[x]);index=siblings.index(eid);spread=(index-(len(siblings)-1)/2)*.42;positions[eid]=Point(pp.x+330*math.cos(base+spread),pp.y+240*math.sin(base+spread))
+        layout=ERLayout(relation_graph=graph)
+        for eid,e in by_id.items():
+            p=positions[eid];layout.entities[e.name]=Bounds(p.x,p.y,node_width(e.name,NODE_FONT,8,150,40),node_height(e.name,NODE_FONT,8,58,24))
         for r in s.relationships:
-            sb,tb=layout.entities[r.source_entity],layout.entities[r.target_entity];rb=Bounds((sb.center_x+tb.center_x)/2,(sb.center_y+tb.center_y)/2,node_width(r.name,MEDIUM_FONT,8,100,34),node_height(r.name,MEDIUM_FONT,8,60,20))
-            sa=rectangle_boundary_point(sb.center_x,sb.center_y,sb.width,sb.height,rb.center_x,rb.center_y);ta=rectangle_boundary_point(tb.center_x,tb.center_y,tb.width,tb.height,rb.center_x,rb.center_y)
-            sda=diamond_boundary_point(rb.center_x,rb.center_y,rb.width,rb.height,sb.center_x,sb.center_y);tda=diamond_boundary_point(rb.center_x,rb.center_y,rb.width,rb.height,tb.center_x,tb.center_y)
-            layout.relationships.append(RelationshipLayout(r,rb,sa,ta,sda,tda,offset_from_anchor(sa,sda),offset_from_anchor(ta,tda)))
-        occupied=list(layout.entities.values())+[r.bounds for r in layout.relationships]
-        def collides(b,padding=18):
-            return any(abs(b.center_x-x.center_x)<(b.width+x.width)/2+padding and abs(b.center_y-x.center_y)<(b.height+x.height)/2+padding for x in occupied)
-        for e in s.entities:
-            eb=layout.entities[e.name];channels=[]
-            for other in adj[e.name]:channels.append(math.atan2(layout.entities[other].center_y-eb.center_y,layout.entities[other].center_x-eb.center_x))
-            candidates=[]
-            for ring in (145,220,295,370,445):
-                for i in range(24):
-                    angle=-math.pi/2+2*math.pi*i/24
-                    clearance=min((abs(math.atan2(math.sin(angle-c),math.cos(angle-c))) for c in channels),default=math.pi)
-                    candidates.append((clearance,ring,angle))
-            candidates.sort(key=lambda item:(-item[0],item[1],item[2]))
-            for attribute in e.attributes:
-                aw=node_width(attribute.name,SMALL_FONT,8,100,30);ah=node_height(attribute.name,SMALL_FONT,8,46,18);chosen=None
-                for _,ring,angle in candidates:
-                    candidate=Bounds(eb.center_x+ring*math.cos(angle),eb.center_y+ring*.62*math.sin(angle),aw,ah)
-                    if not collides(candidate):chosen=candidate;candidates.remove((_,ring,angle));break
+            sb,tb=layout.entities[r.source_entity],layout.entities[r.target_entity];dx=tb.center_x-sb.center_x;dy=tb.center_y-sb.center_y;length=math.hypot(dx,dy) or 1;offset=14*((order[r.source_entity_id]+order[r.target_entity_id])%3-1)
+            rb=Bounds((sb.center_x+tb.center_x)/2-dy/length*offset,(sb.center_y+tb.center_y)/2+dx/length*offset,node_width(r.name,MEDIUM_FONT,8,100,34),node_height(r.name,MEDIUM_FONT,8,60,20))
+            sa=rectangle_boundary_point(sb.center_x,sb.center_y,sb.width,sb.height,rb.center_x,rb.center_y);ta=rectangle_boundary_point(tb.center_x,tb.center_y,tb.width,tb.height,rb.center_x,rb.center_y);sda=diamond_boundary_point(rb.center_x,rb.center_y,rb.width,rb.height,sb.center_x,sb.center_y);tda=diamond_boundary_point(rb.center_x,rb.center_y,rb.width,rb.height,tb.center_x,tb.center_y)
+            item=RelationshipLayout(r,rb,sa,ta,sda,tda,offset_from_anchor(sa,sda),offset_from_anchor(ta,tda));layout.relationships.append(item)
+            edges=(LayoutEdge(f"{r.id}S",r.source_entity_id,r.id,"entity_relationship",(sa,sda),r.source_cardinality),LayoutEdge(f"{r.id}T",r.id,r.target_entity_id,"entity_relationship",(tda,ta),r.target_cardinality))
+            layout.relation_edges.extend(edges);layout.occupied_relation_corridors.extend(((sa,sda),(tda,ta)))
+        return layout,adj
+    def attach_attributes_to_entities(self,s,layout,adj):
+        occupied=list(layout.entities.values())+[r.bounds for r in layout.relationships];attribute_segments=[];name_by_id={e.id:e.name for e in s.entities}
+        for entity in s.entities:
+            eb=layout.entities[entity.name];channels=[math.atan2(layout.entities[name_by_id[n]].center_y-eb.center_y,layout.entities[name_by_id[n]].center_x-eb.center_x) for n in adj[entity.id]]
+            angles=[math.radians(x) for x in range(-180,180,15)]
+            angles.sort(key=lambda a:(-min((abs(math.atan2(math.sin(a-c),math.cos(a-c))) for c in channels),default=math.pi),abs(a+math.pi/2),a))
+            used_angles=[]
+            attributes=sorted(entity.attributes,key=lambda a:(not a.is_primary_key,entity.attributes.index(a)))
+            for attribute in attributes:
+                aw=node_width(attribute.name,SMALL_FONT,8,100,30);ah=node_height(attribute.name,SMALL_FONT,8,46,18);chosen=None;chosen_line=None
+                ranked=[]
+                for radius in (135,175,215,255,295,335,375):
+                    for angle in angles:
+                        if any(abs(math.atan2(math.sin(angle-old),math.cos(angle-old)))<math.radians(12) for old in used_angles):continue
+                        candidate=Bounds(eb.center_x+radius*math.cos(angle),eb.center_y+radius*.72*math.sin(angle),aw,ah)
+                        if any(boxes_overlap(candidate,b,14) for b in occupied):continue
+                        ea=rectangle_boundary_point(eb.center_x,eb.center_y,eb.width,eb.height,candidate.center_x,candidate.center_y);aa=ellipse_boundary_point(candidate.center_x,candidate.center_y,candidate.width,candidate.height,eb.center_x,eb.center_y)
+                        blockers=[b for b in occupied if b is not eb and b is not candidate]
+                        blocker_hits=sum(segment_hits_bounds(ea,aa,b,5) for b in blockers)
+                        relation_cross=sum(segments_cross(ea,aa,a,b) for a,b in layout.occupied_relation_corridors);attribute_cross=sum(segments_cross(ea,aa,a,b) for a,b in attribute_segments)
+                        ranked.append((blocker_hits*20000+relation_cross*10000+attribute_cross*5000+radius,candidate,(ea,aa),angle))
+                if ranked:
+                    _,chosen,chosen_line,chosen_angle=min(ranked,key=lambda item:item[0]);used_angles.append(chosen_angle)
                 if chosen is None:
-                    angle=2*math.pi*len(layout.attributes)/max(1,sum(len(x.attributes) for x in s.entities));chosen=Bounds(eb.center_x+330*math.cos(angle),eb.center_y+260*math.sin(angle),aw,ah)
-                occupied.append(chosen);ea=rectangle_boundary_point(eb.center_x,eb.center_y,eb.width,eb.height,chosen.center_x,chosen.center_y);aa=ellipse_boundary_point(chosen.center_x,chosen.center_y,chosen.width,chosen.height,eb.center_x,eb.center_y)
-                layout.attributes.append(AttributeLayout(e.name,attribute.name,chosen,ea,aa))
+                    raise ValueError(f"实体“{entity.name}”的属性“{attribute.name}”没有可用挂载扇区")
+                occupied.append(chosen);attribute_segments.append(chosen_line);item=AttributeLayout(entity.name,attribute.name,chosen,*chosen_line,attribute.id,entity.id);layout.attributes.append(item);layout.attribute_edges.append(LayoutEdge(f"EA-{attribute.id}",entity.id,attribute.id,"entity_attribute",chosen_line))
         return layout
+    def validate_er_layout(self,s,layout):
+        node_types=dict(layout.relation_graph.nodes)
+        for entity in s.entities:
+            node_types[entity.id]="entity"
+            for attribute in entity.attributes:node_types[attribute.id]="attribute"
+        if len(layout.attribute_edges)!=sum(len(e.attributes) for e in s.entities):raise ValueError("属性边数量与属性数量不一致")
+        for edge in layout.attribute_edges:
+            if {node_types.get(edge.source),node_types.get(edge.target)}!={"entity","attribute"}:raise ValueError(f"非法属性连接：{edge.source}->{edge.target}")
+        owners={a.id:a.owner_entity_id for e in s.entities for a in e.attributes}
+        for attribute_id,owner_id in owners.items():
+            edges=[edge for edge in layout.attribute_edges if attribute_id in (edge.source,edge.target)]
+            if len(edges)!=1 or owner_id not in (edges[0].source,edges[0].target):raise ValueError(f"属性{attribute_id}没有且仅有一条所属实体连接")
+        relation_crossings=sum(segments_cross(*a.points,*b.points) for i,a in enumerate(layout.relation_edges) for b in layout.relation_edges[i+1:] if not {a.source,a.target}&{b.source,b.target})
+        attribute_crossings=sum(segments_cross(*a.points,*b.points) for i,a in enumerate(layout.attribute_edges) for b in layout.attribute_edges[i+1:] if not {a.source,a.target}&{b.source,b.target})
+        layout.diagnostics={"entityCount":len(s.entities),"attributeCount":len(owners),"primaryKeyCount":sum(a.is_primary_key for e in s.entities for a in e.attributes),"relationshipCount":len(s.relationships),"entityRelationEdgeCount":len(layout.relation_edges),"attributeEdgeCount":len(layout.attribute_edges),"visibleNodeCount":len(s.entities)+len(owners)+len(s.relationships),"relationCrossings":relation_crossings,"attributeCrossings":attribute_crossings}
+        return layout
+    def make_layout(self,s):
+        graph=self.build_entity_relation_graph(s);layout,adj=self.layout_entity_relation_skeleton(s,graph);self.attach_attributes_to_entities(s,layout,adj);return self.validate_er_layout(s,layout)
     def draw(self,c,s,l):
         c.delete("all");all_bounds=list(l.entities.values())+[x.bounds for x in l.attributes]+[x.bounds for x in l.relationships];title_x=(min(b.center_x-b.width/2 for b in all_bounds)+max(b.center_x+b.width/2 for b in all_bounds))/2;title_y=min(b.center_y-b.height/2 for b in all_bounds)-85;c.create_text(title_x,title_y,text=s.title,font=(FONT,DIAGRAM_TITLE_FONT),font_weight="600",max_units=18)
         for r in l.relationships:c.create_line(r.source_anchor.x,r.source_anchor.y,r.source_diamond_anchor.x,r.source_diamond_anchor.y);c.create_line(r.target_anchor.x,r.target_anchor.y,r.target_diamond_anchor.x,r.target_diamond_anchor.y)

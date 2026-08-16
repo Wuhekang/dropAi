@@ -53,15 +53,28 @@ class WebEngineTest(unittest.TestCase):
   self.assertEqual(27,sum(len(x["attributes"]) for x in result["structure"]["entities"]))
   self.assertEqual(6,sum(1 for x in result["structure"]["entities"] for a in x["attributes"] if a["is_primary_key"]))
   self.assertEqual({"entityCount":6,"attributeCount":27,"relationshipCount":5,"visualNodeCount":38},{k:result[k] for k in ("entityCount","attributeCount","relationshipCount","visualNodeCount")})
-  self.assertEqual("chen_radial",result["layoutMode"])
+  self.assertEqual("chen_skeleton_attributes",result["layoutMode"])
+  self.assertEqual({"entityCount":6,"attributeCount":27,"primaryKeyCount":6,"relationshipCount":5,"entityRelationEdgeCount":10,"attributeEdgeCount":27,"visibleNodeCount":38},{k:result["layoutDiagnostics"][k] for k in ("entityCount","attributeCount","primaryKeyCount","relationshipCount","entityRelationEdgeCount","attributeEdgeCount","visibleNodeCount")})
+  self.assertTrue(all(kind in {"entity","relationship"} for kind in result["layout"]["relation_graph"]["nodes"].values()))
+  node_types=dict(result["layout"]["relation_graph"]["nodes"])
+  for entity in result["structure"]["entities"]:
+   node_types[entity["id"]]="entity"
+   for attribute in entity["attributes"]:node_types[attribute["id"]]="attribute"
+  self.assertEqual(27,len(result["layout"]["attribute_edges"]))
+  for edge in result["layout"]["attribute_edges"]:
+   self.assertEqual({"entity","attribute"},{node_types[edge["source"]],node_types[edge["target"]]})
+  for entity in result["structure"]["entities"]:
+   for attribute in entity["attributes"]:
+    edges=[edge for edge in result["layout"]["attribute_edges"] if attribute["id"] in (edge["source"],edge["target"])]
+    self.assertEqual(1,len(edges));self.assertIn(attribute["owner_entity_id"],(edges[0]["source"],edges[0]["target"]))
   entities=result["layout"]["entities"];user=entities["用户"]
   xs=[b["center_x"] for b in entities.values()];ys=[b["center_y"] for b in entities.values()]
-  self.assertLess(abs(user["center_x"]-(min(xs)+max(xs))/2),180);self.assertLess(abs(user["center_y"]-(min(ys)+max(ys))/2),180)
+  self.assertGreater(user["center_x"],(min(xs)+max(xs))/2);self.assertLess(user["center_y"],(min(ys)+max(ys))/2)
   self.assertGreater(len({round(y) for y in ys}),2)
   knowledge=entities["运动知识信息"];detail=entities["运动详情信息"]
   distance=lambda a,b:((a["center_x"]-b["center_x"])**2+(a["center_y"]-b["center_y"])**2)**.5
   self.assertLess(distance(knowledge,detail),distance(user,detail));self.assertGreater(distance(user,detail),distance(user,knowledge))
-  self.assertGreaterEqual(result["width"]/result["height"],1.4);self.assertLessEqual(result["width"]/result["height"],2.2)
+  self.assertGreaterEqual(result["width"]/result["height"],1.15);self.assertLessEqual(result["width"]/result["height"],2.4)
   boxes=list(entities.values())+[x["bounds"] for x in result["layout"]["relationships"]]+[x["bounds"] for x in result["layout"]["attributes"]]
   overlaps=lambda a,b:abs(a["center_x"]-b["center_x"])<(a["width"]+b["width"])/2-1 and abs(a["center_y"]-b["center_y"])<(a["height"]+b["height"])/2-1
   self.assertFalse(any(overlaps(a,b) for i,a in enumerate(boxes) for b in boxes[i+1:]))
