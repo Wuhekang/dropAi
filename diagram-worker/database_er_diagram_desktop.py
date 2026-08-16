@@ -43,56 +43,64 @@ def offset_from_anchor(anchor,toward,distance=12):
     return Point(anchor.x+dx/length*distance,anchor.y+dy/length*distance)
 class App(OfflineDiagramApp):
     app_title="Chen ER图生成器";output_suffix="数据库ER图";template_name="Chen_ER图_输入模板.txt";log_path=Path(__file__).with_name("database_er_diagram_error.log")
-    template_text="""标题：个人健康管理系统ER图
-
-角色：角色ID，角色名称，角色描述
-用户：用户ID，用户名，密码，手机号，邮箱，状态
-用户身体信息：身体信息ID，身高体重，年龄，性别，心率，血压
-AI助手：AI ID，对话内容，数据同步时间
-运动知识信息：运动知识ID，运动类型，适宜时间，适宜心率
-运动详情信息：运动详情ID，运动类型，注意事项，运动方法
-
----
-
-角色-用户：1*n，分配权限
-用户-用户身体信息：1*n，上传
-用户-AI助手：1*1，对话
-用户-运动知识信息：1*n，查看
-运动知识信息-运动详情信息：n*n，扩展
-"""
+    template_text=Path(__file__).with_name(template_name).read_text(encoding="utf-8-sig")
     def parse(self,text):
-        issues=[];title="ER图";entities=[];rels=[];names=set();sep=False;lines=text.splitlines();seen_rel=set()
+        text=(text or "").replace("\ufeff","").replace("\r\n","\n").replace("\r","\n")
+        issues=[];title="ER图";entities=[];rels=[];names=set();section=None;lines=text.splitlines();seen_rel=set()
+        def build_attributes(entity_name,attribute_text,no,raw,standard):
+            attributes=[]
+            for value in [x.strip() for x in re.split(r"[,，]",attribute_text) if x.strip()]:
+                marked=bool(re.search(r"(?:^\*|\*$|\[(?i:PK)\]$|[（(](?i:PK)[）)]$|[|｜](?i:PK)$)",value))
+                clean=re.sub(r"^\*|\*$|\[(?i:PK)\]$|[（(](?i:PK)[）)]$|[|｜](?i:PK)$","",value).strip()
+                attributes.append(ERAttribute(clean,marked))
+            if not any(a.is_primary_key for a in attributes):
+                exact=next((a for a in attributes if a.name.casefold()==(entity_name+"ID").casefold()),None)
+                candidate=exact or next((a for a in attributes if re.search(r"(?:ID|编号|编码)$",a.name,re.I)),None)
+                if candidate:candidate.is_primary_key=True
+                else:issues.append(ParseIssue(no,"警告","ER_PRIMARY_KEY_NOT_FOUND","未识别到主键，仍允许生成预览",raw,"建议使用属性名*显式标记主键。"))
+            if len(attributes)>6:issues.append(ParseIssue(no,"警告","ER_ATTRIBUTE_LIMIT",f"实体“{entity_name}”包含{len(attributes)}个属性，建议不超过6个",raw,"可拆分实体以保持图形清晰。"))
+            return attributes
+        def add_entity(name,attribute_text,no,raw,standard):
+            name=name.strip();attributes=build_attributes(name,attribute_text,no,raw,standard)
+            if standard and not re.search(r"[\u4e00-\u9fff]",name):issues.append(ParseIssue(no,"错误","ER_ENTITY_NAME_CHINESE","标准格式的实体名称必须包含中文",raw,"使用中文实体名称。"))
+            if name in names:issues.append(ParseIssue(no,"错误","DUP_ENTITY","实体名称重复",raw,"修改或删除重复实体。"))
+            if not attributes:issues.append(ParseIssue(no,"错误","NO_ATTRIBUTE","实体至少需要一个属性",raw,"在竖线后添加主键属性。"))
+            if len({a.name for a in attributes})!=len(attributes):issues.append(ParseIssue(no,"错误","DUP_ATTRIBUTE","同一实体属性重复",raw,"删除重复属性。"))
+            names.add(name);entities.append(EREntity(name,attributes))
+        def add_relation(a,b,verb,left,right,no,raw):
+            a,b,verb,left,right=a.strip(),b.strip(),verb.strip(),left.lower(),right.lower();key=(a,b,left,right,verb)
+            if a not in names or b not in names:issues.append(ParseIssue(no,"错误","ER_RELATION_ENTITY_NOT_FOUND","关系引用不存在实体",raw,"先在[实体]区段定义关系两端实体。"))
+            if a==b:issues.append(ParseIssue(no,"错误","SELF_REL","禁止实体自连接",raw,"连接两个不同实体。"))
+            if key in seen_rel:issues.append(ParseIssue(no,"错误","DUP_REL","关系完全重复",raw,"删除重复关系。"))
+            seen_rel.add(key);rels.append(ERRelationship(a,b,left,right,verb))
         for no,raw in enumerate(lines,1):
             line=raw.strip()
             if not line or line.startswith("#"):continue
             if re.match(r"^标题\s*[:：]",line):
-                if entities or sep:issues.append(ParseIssue(no,"错误","TITLE_ORDER","标题只能位于实体定义之前",raw,"将标题移到文件开头。"))
+                if entities or section:issues.append(ParseIssue(no,"错误","TITLE_ORDER","标题只能位于实体定义之前",raw,"将标题移到文件开头。"))
                 else:title=re.split(r"[:：]",line,1)[1].strip() or "ER图"
                 continue
+            if line=="[实体]":section="entities";continue
+            if line=="[关系]":section="relationships";continue
             if re.fullmatch(r"-{3,}",line):
-                if sep:issues.append(ParseIssue(no,"错误","DUP_SEPARATOR","只能有一条分隔线",raw,"删除多余分隔线。"))
-                sep=True;continue
-            if not sep:
-                m=re.match(r"^(.+?)\s*[:：]\s*(.+)$",line)
-                if not m:issues.append(ParseIssue(no,"错误","ENTITY_FORMAT","实体格式错误",raw,"写成 实体：主键，属性。"));continue
-                name=m.group(1).strip();parts=[x.strip() for x in re.split(r"[,，]",m.group(2)) if x.strip()]
-                if name in names:issues.append(ParseIssue(no,"错误","DUP_ENTITY","实体名称重复",raw,"修改或删除重复实体。"))
-                if not parts:issues.append(ParseIssue(no,"错误","NO_ATTRIBUTE","实体至少需要一个属性",raw,"在冒号后添加主键属性。"));continue
-                flat=[]
-                for i,p in enumerate(parts):
-                    pk=i==0
-                    for value in ([x.strip() for x in p.split("+") if x.strip()] if pk else [p]):flat.append(ERAttribute(value,pk))
-                if len({a.name for a in flat})!=len(flat):issues.append(ParseIssue(no,"错误","DUP_ATTRIBUTE","同一实体属性重复",raw,"删除重复属性。"))
-                names.add(name);entities.append(EREntity(name,flat))
-            else:
-                m=re.match(r"^(.+?)\s*-\s*(.+?)\s*[:：]\s*([1nmNM])\s*[*:×]\s*([1nmNM])\s*[,，]\s*(.+)$",line)
-                if not m:issues.append(ParseIssue(no,"错误","REL_FORMAT","关系格式错误",raw,"写成 实体A-实体B：1*n，关系名称。"));continue
-                a,b,left,right,verb=m.group(1).strip(),m.group(2).strip(),m.group(3).lower(),m.group(4).lower(),m.group(5).strip();key=(a,b,left,right,verb)
-                if a not in names or b not in names:issues.append(ParseIssue(no,"错误","UNKNOWN_ENTITY","关系引用未定义实体",raw,"先在分隔线前定义两端实体。"))
-                if a==b:issues.append(ParseIssue(no,"错误","SELF_REL","禁止实体自连接",raw,"连接两个不同实体。"))
-                if key in seen_rel:issues.append(ParseIssue(no,"错误","DUP_REL","关系完全重复",raw,"删除重复关系。"))
-                seen_rel.add(key);rels.append(ERRelationship(a,b,left,right,verb))
-        if not sep:issues.append(ParseIssue(len(lines) or 1,"错误","NO_SEPARATOR","缺少---分隔线","","在实体和关系之间添加---。"))
+                section="relationships";continue
+            if line.startswith("实体：") or line.startswith("实体:"):
+                explicit=re.match(r"^实体\s*[:：]\s*([^|｜]+?)\s*[|｜]\s*(.+)$",line)
+                if not explicit:issues.append(ParseIssue(no,"错误","ER_ENTITY_MISSING_SEPARATOR","标准实体格式缺少名称与属性分隔符",raw,"写成 实体：角色|角色ID*，角色名称。"));continue
+                add_entity(explicit.group(1),explicit.group(2),no,raw,True);continue
+            if line.startswith("关系：") or line.startswith("关系:"):
+                body=re.split(r"[:：]",line,1)[1];parts=[x.strip() for x in re.split(r"[|｜]",body)]
+                if len(parts)!=5:issues.append(ParseIssue(no,"错误","ER_RELATION_FIELD_COUNT","标准关系必须包含5个字段",raw,"写成 关系：实体A|实体B|关系名称|1|n。"));continue
+                a,b,verb,left,right=parts
+                if left.lower() not in ("1","m","n") or right.lower() not in ("1","m","n"):issues.append(ParseIssue(no,"错误","ER_CARDINALITY_INVALID","关系基数只能是1、m或n",raw,"使用1|n、1|1或m|n。"));continue
+                add_relation(a,b,verb,left,right,no,raw);continue
+            if section=="relationships":
+                m=re.match(r"^(.+?)\s*-\s*(.+?)\s*[:：]\s*([1mMnN])\s*(?:\*|×|:|\.\.)\s*([1mMnN])\s*[,，]\s*(.+)$",line)
+                if not m:issues.append(ParseIssue(no,"错误","REL_FORMAT","关系格式错误",raw,"写成 关系：实体A|实体B|关系名称|1|n。"));continue
+                add_relation(m.group(1),m.group(2),m.group(5),m.group(3),m.group(4),no,raw);continue
+            compact=re.match(r"^(.+?)\s*[:：]\s*(.+)$",line)
+            if compact and section in (None,"entities"):add_entity(compact.group(1),compact.group(2),no,raw,False);continue
+            issues.append(ParseIssue(no,"错误","ER_ENTITY_FORMAT_INVALID","实体格式错误",raw,"标准格式：实体：角色|角色ID*，角色名称。"))
         if len(entities)<2:issues.append(ParseIssue(1,"错误","FEW_ENTITIES","至少需要两个实体","","增加实体定义。"))
         if not rels:issues.append(ParseIssue(len(lines) or 1,"错误","NO_RELATION","至少需要一个关系","","在分隔线后增加关系。"))
         degree={x.name:0 for x in entities}
@@ -101,7 +109,8 @@ AI助手：AI ID，对话内容，数据同步时间
             if r.target_entity in degree:degree[r.target_entity]+=1
         for name,d in degree.items():
             if d==0:issues.append(ParseIssue(1,"错误","ISOLATED_ENTITY","实体没有参与任何关系",name,"增加该实体的关系或删除实体。"))
-        return (ERDiagramStructure(title,entities,rels) if not issues else None),issues
+        fatal=any(x.severity=="错误" for x in issues)
+        return (None if fatal else ERDiagramStructure(title,entities,rels)),issues
     def fill_tree(self,s):
         self.tree.delete(*self.tree.get_children());a=self.tree.insert("","end",text="实体与属性",open=True);b=self.tree.insert("","end",text="实体关系",open=True)
         for e in s.entities:

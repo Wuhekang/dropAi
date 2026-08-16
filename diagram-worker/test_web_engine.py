@@ -47,11 +47,50 @@ class WebEngineTest(unittest.TestCase):
   dsl="@ERDiagram\n"+(ROOT/TEMPLATES["er_diagram"]).read_text(encoding="utf-8-sig")
   result=execute({"command":"render","dsl":dsl})
   self.assertTrue(result["valid"],result["issues"])
-  self.assertEqual(3,len(result["structure"]["entities"]))
-  self.assertEqual(2,len(result["structure"]["relationships"]))
-  self.assertEqual(5,result["nodeCount"])
+  self.assertEqual(6,len(result["structure"]["entities"]))
+  self.assertEqual(5,len(result["structure"]["relationships"]))
+  self.assertEqual(11,result["nodeCount"])
+  self.assertEqual(27,sum(len(x["attributes"]) for x in result["structure"]["entities"]))
+  self.assertEqual(6,sum(1 for x in result["structure"]["entities"] for a in x["attributes"] if a["is_primary_key"]))
   self.assertIn("Microsoft YaHei, PingFang SC, SimSun, Noto Sans CJK SC",result["svg"])
   self.assertIn("viewBox=",result["svg"])
+ def test_er_explicit_entity_syntax_from_website_case(self):
+  dsl="""@ERDiagram
+标题：个人健康管理系统ER图
+
+实体：角色|角色ID，角色名称，角色描述
+实体：用户|用户ID，用户名，密码，手机号，邮箱，状态
+实体：用户身体信息|身体信息ID，身高体重，年龄，性别，心率，血压
+实体：智能助手|智能助手ID，对话内容，数据同步时间
+实体：运动知识信息|运动知识ID，运动类型，适宜时间，适宜心率，适宜频率
+实体：运动详情信息|运动详情ID，运动类型，注意事项，禁忌疾病，运动方法
+
+---
+
+角色-用户：1*n，分配权限
+用户-用户身体信息：1*n，上传
+用户-智能助手：1*1，对话
+用户-运动知识信息：1*n，查看
+运动知识信息-运动详情信息：1*n，扩展"""
+  result=execute({"command":"render","dsl":dsl})
+  self.assertTrue(result["valid"],result["issues"])
+  self.assertEqual(6,len(result["structure"]["entities"]))
+  self.assertEqual(5,len(result["structure"]["relationships"]))
+  self.assertEqual(11,result["nodeCount"])
+  self.assertIn("个人健康管理系统ER图",result["svg"])
+ def test_er_legacy_pk_warning_and_missing_relation_entity(self):
+  legacy="@ERDiagram\n标题：兼容\n[实体]\n角色：角色ID，角色名称\n用户：姓名，状态\n[关系]\n角色-用户：1×n，关联"
+  result=execute({"command":"render","dsl":legacy})
+  self.assertTrue(result["valid"],result["issues"])
+  self.assertTrue(result["structure"]["entities"][0]["attributes"][0]["is_primary_key"])
+  self.assertIn("ER_PRIMARY_KEY_NOT_FOUND",[x["code"] for x in result["issues"]])
+  missing=execute({"command":"validate","dsl":"@ERDiagram\n标题：错误\n[实体]\n实体：角色|角色ID*\n实体：用户|用户ID*\n[关系]\n关系：角色|订单|创建|1|n"})
+  self.assertIn("ER_RELATION_ENTITY_NOT_FOUND",[x["code"] for x in missing["issues"]])
+ def test_er_too_many_attributes_is_warning_only(self):
+  dsl="@ERDiagram\n标题：属性警告\n[实体]\n实体：角色|角色ID*，一，二，三，四，五，六\n实体：用户|用户ID*\n[关系]\n关系：角色|用户|关联|1|n"
+  result=execute({"command":"render","dsl":dsl})
+  self.assertTrue(result["valid"],result["issues"])
+  self.assertIn("ER_ATTRIBUTE_LIMIT",[x["code"] for x in result["issues"]])
  def test_seven_templates_have_readable_node_fonts(self):
   import re
   for kind,name in TEMPLATES.items():
