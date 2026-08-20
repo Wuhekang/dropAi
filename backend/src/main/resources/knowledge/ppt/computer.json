@@ -1,0 +1,15 @@
+{
+  "majorType": "computer",
+  "metadataLabels": [],
+  "formMarkers": [],
+  "forbiddenStandalone": ["Java程序设计", "数据库原理", "IDEA开发工具"],
+  "technologyTerms": ["Spring Boot", "Vue", "MySQL", "MyBatis", "Java"],
+  "purposeRules": [
+    {"purpose":"DESIGN","keywords":["架构","总体设计","分层","前后端"],"title":"系统总体架构","answerQuestion":"系统如何组织核心功能？"},
+    {"purpose":"DESIGN","keywords":["数据库","数据表","实体","ER图"],"title":"数据库结构设计","answerQuestion":"系统如何管理核心数据？"},
+    {"purpose":"DESIGN","keywords":["功能模块","模块设计","功能设计"],"title":"核心功能设计","answerQuestion":"系统包含哪些核心功能？"},
+    {"purpose":"IMPLEMENTATION","keywords":["系统实现","功能实现","管理端","用户端","界面"],"title":"核心功能实现","answerQuestion":"核心业务功能如何落地？"},
+    {"purpose":"TEST","keywords":["测试","测试用例","验证"],"title":"系统测试与验证","answerQuestion":"系统功能是否达到设计要求？"},
+    {"purpose":"METHOD","keywords":["技术路线","开发技术","Spring Boot","Vue","MySQL"],"title":"系统开发技术路线","answerQuestion":"系统采用什么技术实现？"}
+  ]
+}
