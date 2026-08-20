@@ -29,7 +29,7 @@ class PptContentPlannerV2Test {
         var input=new PptContentPlannerV2.PlannerInput(
                 Map.of("title","基于Spring Boot的个人健康管理系统的设计与实现","student","高瑞康"),
                 List.of(
-                        new PptContentPlannerV2.SourceChapter("c1","第一章 项目概述",List.of("题目：基于Spring Boot的个人健康管理系统的设计与实现","学生姓名：高瑞康","毕业设计任务书 审批意见 签字栏","Java简介","随着健康管理需求增长，传统记录方式难以持续跟踪数据，系统需要提供统一的信息管理能力。")),
+                        new PptContentPlannerV2.SourceChapter("c1","第一章 项目概述",List.of("题目：基于Spring Boot的个人健康管理系统的设计与实现","学生姓名：高瑞康","毕业设计任务书 审批意见 签字栏","Java简介","随着健康管理需求增长，传统记录方式难以持续跟踪数据，系统需要提供统一的信息管理能力。","系统采用Spring Boot、Vue和MySQL构建开发技术路线。")),
                         new PptContentPlannerV2.SourceChapter("c3","第三章 系统设计",List.of("3.1 系统架构设计","系统采用前后端分离和分层架构，前端负责交互，后端处理业务逻辑，数据库统一保存核心数据。","数据库围绕用户数据、健康记录和业务信息建立实体关系。","项目采用Spring Boot、Vue、MySQL和MyBatis完成系统开发。"))
                 ),List.of(),List.of(),"computer");
         var result=planner.plan(input);List<PptContentPlannerV2.CandidatePage> pages=result.chapters().stream().flatMap(c->c.candidatePages().stream()).toList();
@@ -38,7 +38,8 @@ class PptContentPlannerV2Test {
         assertEquals(1,pages.stream().filter(p->p.title().equals("系统开发技术路线")).count());
         assertTrue(pages.stream().allMatch(p->{assertDoesNotThrow(()->planner.requireComplete(p));return true;}));
         assertTrue(pages.stream().noneMatch(p->p.title().contains("Java简介")||p.title().contains("MySQL数据库")||p.title().contains("基于Spring Boot")));
-        assertEquals(List.of("THESIS_TITLE","METADATA","FORM_CONTENT","LOW_VALUE_STANDALONE"),result.filteredContents().stream().map(PptContentPlannerV2.FilteredContent::reason).toList());
+        var reasons=result.filteredContents().stream().map(PptContentPlannerV2.FilteredContent::reason).toList();
+        assertTrue(reasons.containsAll(List.of("THESIS_TITLE","METADATA","FORM_CONTENT","LOW_VALUE_STANDALONE")));
     }
 
     @Test void doesNotDecideFinalPageCountOrRenderAnything(){

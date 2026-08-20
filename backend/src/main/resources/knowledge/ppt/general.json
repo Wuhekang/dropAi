@@ -1,7 +1,7 @@
 {
   "majorType": "general",
   "metadataLabels": ["题目", "课题名称", "学生", "学生姓名", "学号", "专业", "学院", "教师", "指导教师", "职称", "日期", "课题来源"],
-  "formMarkers": ["毕业设计任务书", "答辩记录", "综合评价", "审批意见", "签字栏"],
+  "formMarkers": ["毕业设计任务书", "毕业设计（论文）任务书", "任务书", "开题报告", "答辩记录", "综合评价", "审批意见", "签字栏"],
   "forbiddenStandalone": ["Java简介", "MySQL介绍", "MySQL数据库", "Spring Boot介绍", "Vue介绍"],
   "technologyTerms": [],
   "purposeRules": [
@@ -10,5 +10,6 @@
     {"purpose":"METHOD","keywords":["方法","路线","方案"],"title":"项目实施方法","answerQuestion":"项目采用什么方法推进？"},
     {"purpose":"RESULT","keywords":["结果","成果","效果"],"title":"项目成果与价值","answerQuestion":"项目最终形成了什么成果？"},
     {"purpose":"SUMMARY","keywords":["总结","结论","展望"],"title":"总结与后续方向","answerQuestion":"项目得出了什么结论？"}
-  ]
+  ],
+  "chapterConstraints": []
 }
