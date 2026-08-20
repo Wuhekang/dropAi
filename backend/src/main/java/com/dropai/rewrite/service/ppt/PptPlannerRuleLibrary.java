@@ -30,8 +30,8 @@ public class PptPlannerRuleLibrary {
     private <T> List<T> concat(List<T>a,List<T>b){List<T> out=new ArrayList<>();if(a!=null)out.addAll(a);if(b!=null)out.addAll(b);return out;}
 
     public record RuleSet(String majorType,List<String> metadataLabels,List<String> formMarkers,List<String> forbiddenStandalone,List<String> technologyTerms,List<PurposeRule> purposeRules,List<ChapterConstraint> chapterConstraints){}
-    public record PurposeRule(String purpose,List<String> keywords,String title,String answerQuestion,List<String> keyPoints,List<Integer> chapterNumbers){
-        public PurposeRule(String purpose,List<String> keywords,String title,String answerQuestion){this(purpose,keywords,title,answerQuestion,List.of(),List.of());}
+    public record PurposeRule(String purpose,List<String> keywords,String title,String answerQuestion,List<String> keyPoints,List<Integer> chapterNumbers,String description){
+        public PurposeRule(String purpose,List<String> keywords,String title,String answerQuestion){this(purpose,keywords,title,answerQuestion,List.of(),List.of(),"");}
     }
     public record ChapterConstraint(int chapterNumber,List<String> allowedPurposes){}
 }

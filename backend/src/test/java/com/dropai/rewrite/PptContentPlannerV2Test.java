@@ -76,7 +76,7 @@ class PptContentPlannerV2Test {
         assertTrue(input.chapters().size()>=4&&input.chapters().size()<=8,"适配器应按一级章节聚合，而不是把每个二级标题当成章节");
         var pages=result.chapters().stream().flatMap(c->c.candidatePages().stream()).toList();
         assertTrue(pages.stream().anyMatch(p->p.title().equals("系统总体架构")));
-        assertTrue(pages.stream().anyMatch(p->p.title().equals("系统功能设计")));
+        assertTrue(pages.stream().anyMatch(p->p.title().equals("系统功能架构")));
         assertTrue(pages.stream().anyMatch(p->p.title().equals("系统开发技术路线")));
         assertTrue(pages.stream().anyMatch(p->p.title().equals("系统功能整体实现")));
         assertTrue(pages.stream().anyMatch(p->p.title().equals("AI健康评估功能")));
@@ -84,6 +84,8 @@ class PptContentPlannerV2Test {
         assertTrue(pages.stream().anyMatch(p->p.title().equals("用户端交互设计")));
         assertTrue(pages.stream().anyMatch(p->p.title().equals("项目总结")));
         assertTrue(pages.stream().anyMatch(p->p.title().equals("未来优化方向")));
+        assertTrue(pages.stream().anyMatch(p->p.title().equals("系统需求分析")&&!p.keyPoints().contains("第二章 需求分析")));
+        assertTrue(pages.stream().filter(p->p.title().equals("AI健康评估功能")).allMatch(p->p.description().contains("个性化建议")));
         assertEquals(1,pages.stream().filter(p->p.title().equals("系统开发技术路线")).count());
         assertTrue(pages.stream().noneMatch(p->p.title().equals(parsed.title())||p.title().matches("(?i).*(Java简介|MySQL介绍|Spring Boot介绍|Vue介绍).*")));
         assertTrue(pages.stream().allMatch(p->{assertDoesNotThrow(()->planner.requireComplete(p));return true;}));
