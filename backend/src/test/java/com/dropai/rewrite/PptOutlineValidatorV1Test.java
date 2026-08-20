@@ -18,10 +18,12 @@ class PptOutlineValidatorV1Test {
         var outline=planner.plan(new PptOutlinePlannerV1.OutlineRequest(List.of(
                 page("项目背景与价值","BACKGROUND","为什么开展项目？","第一章"),
                 page("项目总结","SUMMARY","项目完成了什么？","第六章")),12));
-        var result=validator.validate(new PptOutlineValidatorV1.ValidationRequest(Map.of("title","健康管理系统设计与实现"),outline));
+        var result=validator.validate(new PptOutlineValidatorV1.ValidationRequest(Map.of("title","健康管理系统设计与实现","englishTitle","Health Management System","presenter","测试学生","major","软件工程","advisor","测试教师","studentNumber","20260001"),outline));
         assertTrue(result.valid(),result.issues().toString());
         assertEquals("FULL_PRESENTATION_TREE",result.treeType());
         assertEquals(List.of("COVER","AGENDA","CONTENT","SUMMARY","THANKS"),result.slideTree().stream().map(PptOutlineValidatorV1.FullSlideNode::pageType).toList());
+        assertFalse(result.slideTree().get(1).agendaItems().isEmpty());
+        assertEquals("测试学生",result.slideTree().get(0).payload().presenter());
         assertEquals(List.of(1,2,3,4,5),result.slideTree().stream().map(PptOutlineValidatorV1.FullSlideNode::pageNumber).toList());
         assertDoesNotThrow(()->validator.requireValid(result));
     }

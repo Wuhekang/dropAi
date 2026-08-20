@@ -37,6 +37,10 @@ class PptContentPlannerV2Test {
         assertTrue(pages.stream().anyMatch(p->p.title().equals("数据库结构设计")));
         assertEquals(1,pages.stream().filter(p->p.title().equals("系统开发技术路线")).count());
         assertTrue(pages.stream().allMatch(p->{assertDoesNotThrow(()->planner.requireComplete(p));return true;}));
+        var imagePages=pages.stream().filter(p->p.candidateType().equals("IMAGE_EVIDENCE")).toList();
+        assertEquals(input.assets().size(),imagePages.size(),"每张有效图片必须生成一个证据候选页");
+        assertEquals(imagePages.size(),imagePages.stream().map(p->p.sourceRefs().figureId()).distinct().count());
+        assertTrue(pages.stream().filter(p->p.candidateType().equals("TABLE_SUMMARY")).collect(java.util.stream.Collectors.groupingBy(PptContentPlannerV2.CandidatePage::sourceChapter,java.util.stream.Collectors.counting())).values().stream().allMatch(count->count<=1));
         assertTrue(pages.stream().noneMatch(p->p.title().contains("Java简介")||p.title().contains("MySQL数据库")||p.title().contains("基于Spring Boot")));
         var reasons=result.filteredContents().stream().map(PptContentPlannerV2.FilteredContent::reason).toList();
         assertTrue(reasons.containsAll(List.of("THESIS_TITLE","METADATA","FORM_CONTENT","LOW_VALUE_STANDALONE")));
@@ -90,5 +94,12 @@ class PptContentPlannerV2Test {
         assertEquals(1,pages.stream().filter(p->p.title().equals("系统开发技术路线")).count());
         assertTrue(pages.stream().noneMatch(p->p.title().equals(parsed.title())||p.title().matches("(?i).*(Java简介|MySQL介绍|Spring Boot介绍|Vue介绍).*")));
         assertTrue(pages.stream().allMatch(p->{assertDoesNotThrow(()->planner.requireComplete(p));return true;}));
+        var evidence=pages.stream().filter(p->p.candidateType().equals("IMAGE_EVIDENCE")).toList();
+        assertEquals(input.assets().size(),evidence.size());
+        assertEquals(evidence.size(),evidence.stream().map(p->p.sourceRefs().figureId()).distinct().count());
+        var outline=new com.dropai.rewrite.service.ppt.PptOutlinePlannerV1().plan(new com.dropai.rewrite.service.ppt.PptOutlinePlannerV1.OutlineRequest(pages,12));
+        assertEquals(input.assets().size(),outline.slideTree().stream().filter(s->s.candidateType().equals("IMAGE_EVIDENCE")).count());
+        var validated=new com.dropai.rewrite.service.ppt.PptOutlineValidatorV1().validate(new com.dropai.rewrite.service.ppt.PptOutlineValidatorV1.ValidationRequest(input.metadata(),outline));
+        assertTrue(validated.valid(),validated.issues().toString());
     }
 }

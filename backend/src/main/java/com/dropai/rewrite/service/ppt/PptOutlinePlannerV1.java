@@ -27,10 +27,11 @@ public class PptOutlinePlannerV1 {
         List<MergeGroup> groups=mergeDuplicates(request.candidatePages());
         List<ScoredCandidate> scored=new ArrayList<>();
         for(int i=0;i<groups.size();i++)scored.add(score(groups.get(i),i));
-        List<ScoredCandidate> retained=scored.stream().filter(c->c.score().finalScore()>=MIN_FINAL_SCORE).toList();
-        LinkedHashSet<ScoredCandidate> selected=new LinkedHashSet<>(retained.stream()
+        List<ScoredCandidate> retained=scored.stream().filter(c->c.page().mandatoryAsset()||c.score().finalScore()>=MIN_FINAL_SCORE).toList();
+        LinkedHashSet<ScoredCandidate> selected=new LinkedHashSet<>(retained.stream().filter(c->!c.page().mandatoryAsset())
                 .sorted(Comparator.comparingInt((ScoredCandidate c)->c.score().finalScore()).reversed())
                 .limit(maxSlides).toList());
+        selected.addAll(retained.stream().filter(c->c.page().mandatoryAsset()).toList());
         List<ScoredCandidate> ordered=selected.stream().sorted(Comparator
                 .comparingInt((ScoredCandidate c)->PURPOSE_ORDER.getOrDefault(c.page().pagePurpose(),999))
                 .thenComparing(c->chapterNumber(c.page().sourceChapter()))
@@ -38,23 +39,23 @@ public class PptOutlinePlannerV1 {
         List<SlideNode> slides=new ArrayList<>();
         for(int i=0;i<ordered.size();i++){
             ScoredCandidate item=ordered.get(i);
-            slides.add(new SlideNode(i+1,item.page().title(),item.page().pagePurpose(),item.page().answerQuestion(),
-                    item.page().keyPoints(),item.page().description(),item.page().sourceChapter(),item.score(),item.mergedCandidateCount()));
+            slides.add(new SlideNode(i+1,item.page().candidateType(),item.page().title(),item.page().pagePurpose(),item.page().answerQuestion(),
+                    item.page().keyPoints(),item.page().description(),item.page().sourceChapter(),item.score(),item.mergedCandidateCount(),item.page().imageRole(),item.page().sourceRefs(),item.page().mandatoryAsset(),item.page().tableSummary()));
         }
         List<Decision> decisions=new ArrayList<>();
         for(ScoredCandidate item:scored){
-            String action=selected.contains(item)?(item.mergedCandidateCount()>1?"MERGED":"KEEP"):
+            String action=selected.contains(item)?(item.page().mandatoryAsset()?"KEEP_MANDATORY_ASSET":item.mergedCandidateCount()>1?"MERGED":"KEEP"):
                     item.score().finalScore()<MIN_FINAL_SCORE?"DELETE_LOW_SCORE":"DELETE_PAGE_LIMIT";
             decisions.add(new Decision(item.page().title(),item.page().sourceChapter(),action,item.score(),item.mergedCandidateCount()));
         }
-        return new OutlineResult("CONTENT_TREE",slides.size(),slides,decisions);
+        long evidenceCount=slides.stream().filter(s->!"TEXT".equals(s.candidateType())).count();return new OutlineResult("CONTENT_TREE",slides.size(),(int)(slides.size()-evidenceCount),(int)evidenceCount,slides,decisions);
     }
 
     private List<MergeGroup> mergeDuplicates(List<PptContentPlannerV2.CandidatePage> pages){
         LinkedHashMap<String,MergeGroup> groups=new LinkedHashMap<>();
         for(var page:pages){
             if(page==null)continue;
-            String key=canonical(page.title())+"|"+canonical(page.answerQuestion());
+            String evidenceKey=page.sourceRefs()==null?"":page.sourceRefs().figureId()+"|"+page.sourceRefs().tableIds();String key=!"TEXT".equals(page.candidateType())?page.candidateType()+"|"+evidenceKey:canonical(page.title())+"|"+canonical(page.answerQuestion());
             groups.computeIfAbsent(key,ignored->new MergeGroup()).pages.add(page);
         }
         return new ArrayList<>(groups.values());
@@ -64,7 +65,7 @@ public class PptOutlinePlannerV1 {
         var first=group.pages.get(0);LinkedHashSet<String> points=new LinkedHashSet<>();LinkedHashSet<String> chapters=new LinkedHashSet<>();
         String description="";double confidence=0;
         for(var page:group.pages){points.addAll(page.keyPoints()==null?List.of():page.keyPoints());chapters.add(page.sourceChapter());if(page.description()!=null&&page.description().length()>description.length())description=page.description();confidence=Math.max(confidence,page.confidence());}
-        var merged=new PptContentPlannerV2.CandidatePage(first.title(),first.pagePurpose(),first.answerQuestion(),points.stream().limit(3).toList(),description,String.join(" / ",chapters),confidence);
+        var merged=new PptContentPlannerV2.CandidatePage(first.candidateType(),first.title(),first.pagePurpose(),first.answerQuestion(),points.stream().limit(3).toList(),description,String.join(" / ",chapters),confidence,first.imageRole(),first.sourceRefs(),first.mandatoryAsset(),first.tableSummary());
         int contentScore=Math.min(100,45+merged.keyPoints().size()*12+Math.min(19,merged.description().length()/5));
         int answerScore=merged.answerQuestion()==null||merged.answerQuestion().isBlank()?0:Math.min(100,75+Math.min(25,merged.answerQuestion().length()));
         int duplicateScore=group.pages.size()>1?Math.min(100,(group.pages.size()-1)*20):0;
@@ -79,7 +80,7 @@ public class PptOutlinePlannerV1 {
     private record ScoredCandidate(PptContentPlannerV2.CandidatePage page,PageScore score,int mergedCandidateCount,int originalIndex){}
     public record OutlineRequest(List<PptContentPlannerV2.CandidatePage> candidatePages,int maxContentSlides){}
     public record PageScore(int contentScore,int answerScore,int duplicateScore,int finalScore){}
-    public record SlideNode(int pageNumber,String title,String pagePurpose,String answerQuestion,List<String> keyPoints,String description,String sourceChapter,PageScore score,int mergedCandidateCount){}
+    public record SlideNode(int pageNumber,String candidateType,String title,String pagePurpose,String answerQuestion,List<String> keyPoints,String description,String sourceChapter,PageScore score,int mergedCandidateCount,String imageRole,PptContentPlannerV2.SourceRefs sourceRefs,boolean mandatoryAsset,List<List<String>> tableSummary){}
     public record Decision(String title,String sourceChapter,String action,PageScore score,int candidateCount){}
-    public record OutlineResult(String treeType,int contentSlideCount,List<SlideNode> slideTree,List<Decision> decisions){}
+    public record OutlineResult(String treeType,int contentSlideCount,int ordinaryContentSlideCount,int evidenceSlideCount,List<SlideNode> slideTree,List<Decision> decisions){}
 }

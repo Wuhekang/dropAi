@@ -1,72 +1,31 @@
 package com.dropai.rewrite.service.ppt;
 
 import org.springframework.stereotype.Service;
+import java.util.*;
 
-import java.util.ArrayList;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Set;
-
-/** Quality gate and deterministic structural wrapper for a content-only outline. */
+/** Full-tree quality gate. It adds fixed structural payloads but never writes or infers body content. */
 @Service
 public class PptOutlineValidatorV1 {
-    private static final Set<String> LOW_VALUE_TITLES=Set.of(
-            "java","mysql","vue","springboot","java简介","mysql介绍","vue介绍","springboot介绍","开发环境","技术关键词");
-
+    private static final Set<String> LOW_VALUE_TITLES=Set.of("java","mysql","vue","springboot","java简介","mysql介绍","vue介绍","springboot介绍","开发环境","技术关键词");
     public ValidationResult validate(ValidationRequest request){
-        List<ValidationIssue> issues=new ArrayList<>();
-        if(request==null||request.outline()==null){
-            return new ValidationResult(false,"FULL_PRESENTATION_TREE",List.of(),List.of(new ValidationIssue("OUTLINE_MISSING",0,"缺少内容页面树")));
-        }
-        if(!"CONTENT_TREE".equals(request.outline().treeType()))issues.add(new ValidationIssue("TREE_TYPE_INVALID",0,"OutlineValidator只接受CONTENT_TREE"));
-        String title=metadataTitle(request.metadata());
-        if(title.isBlank())issues.add(new ValidationIssue("COVER_TITLE_MISSING",1,"封面缺少论文题目"));
-        List<FullSlideNode> fullTree=new ArrayList<>();
-        fullTree.add(fixed(1,"COVER",title.isBlank()?"答辩汇报":title,"OPENING"));
-        fullTree.add(fixed(2,"AGENDA","目录","OPENING"));
-        int number=3;
-        for(var slide:safe(request.outline().slideTree())){
-            validateContentSlide(slide,number,issues);
-            String pageType="SUMMARY".equals(slide.pagePurpose())?"SUMMARY":"CONTENT";
-            fullTree.add(new FullSlideNode(number++,pageType,sectionFor(slide.pagePurpose()),slide.title(),slide.pagePurpose(),slide.answerQuestion(),slide.keyPoints(),slide.description(),slide.sourceChapter(),slide.score()));
-        }
-        fullTree.add(fixed(number,"THANKS","谢谢大家","CLOSING"));
-        validateGlobal(fullTree,issues);
-        return new ValidationResult(issues.isEmpty(),"FULL_PRESENTATION_TREE",fullTree,issues);
+        List<ValidationIssue> issues=new ArrayList<>();if(request==null||request.outline()==null)return invalid("OUTLINE_MISSING","缺少内容页面树");
+        if(!"CONTENT_TREE".equals(request.outline().treeType()))issues.add(issue("TREE_TYPE_INVALID",0,"OutlineValidator只接受CONTENT_TREE"));FixedPayload payload=fixedPayload(request.metadata());validatePayload(payload,issues);
+        List<FullSlideNode> tree=new ArrayList<>();tree.add(fixed(1,"COVER",payload.title(),"OPENING",payload,List.of()));tree.add(fixed(2,"AGENDA","目录","OPENING",null,List.of()));int number=3;
+        for(var slide:safe(request.outline().slideTree())){double alignment=validateContentSlide(slide,number,issues);String pageType=switch(slide.candidateType()){case"IMAGE_EVIDENCE"->"IMAGE";case"TABLE_SUMMARY"->"TABLE";default->"SUMMARY".equals(slide.pagePurpose())?"SUMMARY":"CONTENT";};tree.add(new FullSlideNode(number++,pageType,sectionFor(slide.pagePurpose()),slide.title(),slide.pagePurpose(),slide.answerQuestion(),slide.keyPoints(),slide.description(),slide.sourceChapter(),slide.score(),null,List.of(),slide.imageRole(),slide.sourceRefs(),slide.mandatoryAsset(),slide.tableSummary(),alignment));}
+        tree.add(fixed(number,"THANKS","谢谢大家","CLOSING",payload,List.of()));List<AgendaItem> agenda=agendaItems(tree);tree.set(1,fixed(2,"AGENDA","目录","OPENING",null,agenda));validateGlobal(tree,issues);return new ValidationResult(issues.isEmpty(),"FULL_PRESENTATION_TREE",tree,issues);
     }
-
     public void requireValid(ValidationResult result){if(result==null||!result.valid())throw new IllegalStateException("OutlineValidator质量门禁失败: "+(result==null?"无结果":result.issues()));}
-
-    private void validateContentSlide(PptOutlinePlannerV1.SlideNode slide,int pageNumber,List<ValidationIssue> issues){
-        if(slide==null){issues.add(new ValidationIssue("CONTENT_PAGE_NULL",pageNumber,"内容页为空"));return;}
-        if(blank(slide.title()))issues.add(new ValidationIssue("TITLE_MISSING",pageNumber,"内容页缺少标题"));
-        if(blank(slide.pagePurpose()))issues.add(new ValidationIssue("PURPOSE_MISSING",pageNumber,"内容页缺少pagePurpose"));
-        if(blank(slide.answerQuestion()))issues.add(new ValidationIssue("ANSWER_QUESTION_MISSING",pageNumber,"内容页缺少answerQuestion"));
-        if(slide.keyPoints()==null||slide.keyPoints().isEmpty())issues.add(new ValidationIssue("KEY_POINTS_MISSING",pageNumber,"内容页缺少核心观点"));
-        if(LOW_VALUE_TITLES.contains(canonical(slide.title())))issues.add(new ValidationIssue("LOW_VALUE_TITLE",pageNumber,"禁止技术名词或关键词独立成页"));
-    }
-
-    private void validateGlobal(List<FullSlideNode> tree,List<ValidationIssue> issues){
-        checkCount(tree,"COVER",1,issues);checkCount(tree,"AGENDA",1,issues);checkCount(tree,"THANKS",1,issues);
-        if(tree.stream().noneMatch(p->"CONTENT".equals(p.pageType())))issues.add(new ValidationIssue("CONTENT_MISSING",0,"至少需要一个正文页"));
-        if(tree.stream().noneMatch(p->"SUMMARY".equals(p.pageType())))issues.add(new ValidationIssue("SUMMARY_MISSING",0,"至少需要一个总结或展望页"));
-        long sections=tree.stream().filter(p->"CONTENT".equals(p.pageType())||"SUMMARY".equals(p.pageType())).map(FullSlideNode::section).distinct().count();
-        if(sections>5)issues.add(new ValidationIssue("SECTION_LIMIT_EXCEEDED",0,"一级目录不能超过5个"));
-        for(int i=0;i<tree.size();i++)if(tree.get(i).pageNumber()!=i+1)issues.add(new ValidationIssue("PAGE_NUMBER_INVALID",tree.get(i).pageNumber(),"页面编号必须连续"));
-    }
-
-    private void checkCount(List<FullSlideNode> tree,String type,long expected,List<ValidationIssue> issues){long actual=tree.stream().filter(p->type.equals(p.pageType())).count();if(actual!=expected)issues.add(new ValidationIssue(type+"_COUNT_INVALID",0,type+"页面必须为"+expected+"页"));}
-    private FullSlideNode fixed(int number,String type,String title,String section){return new FullSlideNode(number,type,section,title,"","",List.of(),"","",null);}
-    private String sectionFor(String purpose){return switch(purpose==null?"":purpose){case "BACKGROUND","PROBLEM","METHOD"->"PROJECT_OVERVIEW";case "DESIGN","DATABASE"->"SYSTEM_DESIGN";case "IMPLEMENTATION","RESULT"->"SYSTEM_IMPLEMENTATION";case "TEST"->"TEST_VALIDATION";case "SUMMARY"->"CONCLUSION";default->"OTHER";};}
-    private String metadataTitle(Map<String,String> metadata){if(metadata==null)return"";for(String key:List.of("title","题目","课题名称")){String value=metadata.get(key);if(value!=null&&!value.isBlank())return PptDocumentParser.clean(value);}return"";}
-    private String canonical(String value){return value==null?"":value.replaceAll("[\\s：:，,。！？!?、._-]+","").toLowerCase(Locale.ROOT);}
-    private <T> List<T> safe(List<T> value){return value==null?List.of():value;}
-    private boolean blank(String value){return value==null||value.isBlank();}
-
-    public record ValidationRequest(Map<String,String> metadata,PptOutlinePlannerV1.OutlineResult outline){}
-    public record FullSlideNode(int pageNumber,String pageType,String section,String title,String pagePurpose,String answerQuestion,List<String> keyPoints,String description,String sourceChapter,PptOutlinePlannerV1.PageScore score){}
-    public record ValidationIssue(String code,int pageNumber,String message){}
-    public record ValidationResult(boolean valid,String treeType,List<FullSlideNode> slideTree,List<ValidationIssue> issues){}
+    private double validateContentSlide(PptOutlinePlannerV1.SlideNode slide,int page,List<ValidationIssue> issues){if(slide==null){issues.add(issue("CONTENT_PAGE_NULL",page,"内容页为空"));return 0;}if(blank(slide.title()))issues.add(issue("TITLE_MISSING",page,"内容页缺少标题"));if(blank(slide.pagePurpose()))issues.add(issue("PURPOSE_MISSING",page,"内容页缺少pagePurpose"));if(blank(slide.answerQuestion()))issues.add(issue("ANSWER_QUESTION_MISSING",page,"内容页缺少answerQuestion"));if(slide.keyPoints()==null||slide.keyPoints().isEmpty())issues.add(issue("KEY_POINTS_MISSING",page,"内容页缺少核心观点"));if(LOW_VALUE_TITLES.contains(canonical(slide.title())))issues.add(issue("LOW_VALUE_TITLE",page,"禁止技术名词或关键词独立成页"));validateText(slide,page,issues);double score=alignmentScore(slide);if(score<.8)issues.add(issue("SEMANTIC_ALIGNMENT_LOW",page,"标题、问题、观点与描述主题不一致"));if("IMAGE_EVIDENCE".equals(slide.candidateType())&&(slide.sourceRefs()==null||blank(slide.sourceRefs().figureId())))issues.add(issue("IMAGE_SOURCE_REFS_MISSING",page,"图片页缺少figureId/sourceRefs"));return score;}
+    private void validateText(PptOutlinePlannerV1.SlideNode slide,int page,List<ValidationIssue> issues){for(String point:safe(slide.keyPoints()))if(point.matches("^(?:第?[一二三四五六七八九十0-9]+章|\\d+(?:[.．]\\d+)+)\\s*.*"))issues.add(issue("OUTLINE_NUMBERING_REMAINS",page,"核心观点保留论文目录编号"));String d=slide.description()==null?"":slide.description().trim();if(!d.isBlank()&&!d.matches(".*[。！？.!?]$"))issues.add(issue("DESCRIPTION_INCOMPLETE",page,"描述不是完整句子"));if(d.matches(".*(?:以及|并且|通过|采用|基于|用于|形成|实现|进行|数据|系统)$"))issues.add(issue("DESCRIPTION_TRUNCATED",page,"描述疑似直接截断"));}
+    private double alignmentScore(PptOutlinePlannerV1.SlideNode slide){String title=slide.title()==null?"":slide.title();String body=String.join(" ",safe(slide.keyPoints()))+" "+slide.description()+" "+slide.answerQuestion();if("IMAGE_EVIDENCE".equals(slide.candidateType())&&body.contains(title.replace("图","")))return .9;List<String> terms;if(title.contains("可视化"))terms=List.of("可视化","ECharts","趋势","指标","图表","雷达图","折线图");else if(title.contains("AI")||title.contains("评估"))terms=List.of("AI","评估","模型","健康","建议","报告");else if(title.contains("用户")||title.contains("交互"))terms=List.of("用户","登录","录入","记录","交互","健康");else if(title.contains("数据库"))terms=List.of("数据库","数据","表","实体","存储");else if(title.contains("架构"))terms=List.of("架构","前端","后端","模块","分层","系统");else return 1;long hits=terms.stream().filter(body::contains).count();return Math.min(1,.6+hits*.1);}
+    private void validateGlobal(List<FullSlideNode> tree,List<ValidationIssue> issues){checkCount(tree,"COVER",1,issues);checkCount(tree,"AGENDA",1,issues);checkCount(tree,"THANKS",1,issues);if(tree.stream().noneMatch(p->"CONTENT".equals(p.pageType())))issues.add(issue("CONTENT_MISSING",0,"至少需要一个正文页"));if(tree.stream().noneMatch(p->"SUMMARY".equals(p.pageType())))issues.add(issue("SUMMARY_MISSING",0,"至少需要一个总结或展望页"));long sections=tree.stream().filter(p->List.of("CONTENT","IMAGE","TABLE","SUMMARY").contains(p.pageType())).map(FullSlideNode::section).distinct().count();if(sections>5)issues.add(issue("SECTION_LIMIT_EXCEEDED",0,"一级目录不能超过5个"));for(int i=0;i<tree.size();i++)if(tree.get(i).pageNumber()!=i+1)issues.add(issue("PAGE_NUMBER_INVALID",tree.get(i).pageNumber(),"页面编号必须连续"));Set<String> figures=new LinkedHashSet<>();for(var page:tree)if("IMAGE".equals(page.pageType())){String id=page.sourceRefs()==null?"":page.sourceRefs().figureId();if(!figures.add(id))issues.add(issue("DUPLICATE_IMAGE_NODE",page.pageNumber(),"每张有效图片只能出现一次"));}Map<String,Long> tables=new LinkedHashMap<>();for(var page:tree)if("TABLE".equals(page.pageType()))tables.merge(page.sourceChapter(),1L,Long::sum);tables.forEach((chapter,count)->{if(count>1)issues.add(issue("TABLE_LIMIT_EXCEEDED",0,"同一章节最多一个表格总结页: "+chapter));});}
+    private void validatePayload(FixedPayload p,List<ValidationIssue> issues){if(blank(p.title()))issues.add(issue("COVER_TITLE_MISSING",1,"封面缺少论文题目"));if(blank(p.englishTitle()))issues.add(issue("COVER_ENGLISH_TITLE_MISSING",1,"封面缺少英文题目"));if(blank(p.presenter()))issues.add(issue("COVER_PRESENTER_MISSING",1,"封面缺少汇报人"));if(blank(p.major()))issues.add(issue("COVER_MAJOR_MISSING",1,"封面缺少专业"));if(blank(p.advisor()))issues.add(issue("COVER_ADVISOR_MISSING",1,"封面缺少指导教师"));if(blank(p.studentNumber()))issues.add(issue("COVER_STUDENT_NUMBER_MISSING",1,"封面缺少学号"));}
+    private List<AgendaItem> agendaItems(List<FullSlideNode> tree){LinkedHashMap<String,List<FullSlideNode>> groups=new LinkedHashMap<>();for(var p:tree)if(List.of("CONTENT","IMAGE","TABLE","SUMMARY").contains(p.pageType()))groups.computeIfAbsent(p.section(),ignored->new ArrayList<>()).add(p);List<AgendaItem> out=new ArrayList<>();int order=0;for(var e:groups.entrySet()){var pages=e.getValue();out.add(new AgendaItem(++order,sectionTitle(e.getKey()),e.getKey(),List.of(pages.get(0).pageNumber(),pages.get(pages.size()-1).pageNumber())));}return out;}
+    private String sectionTitle(String s){return switch(s){case"PROJECT_OVERVIEW"->"项目概述";case"SYSTEM_DESIGN"->"系统设计";case"SYSTEM_IMPLEMENTATION"->"系统实现";case"TEST_VALIDATION"->"测试验证";case"CONCLUSION"->"总结展望";default->"其他";};}
+    private FixedPayload fixedPayload(Map<String,String> m){return new FixedPayload(value(m,"title","题目","课题名称"),value(m,"englishTitle"),value(m,"presenter","student","学生","学生姓名"),value(m,"major","专业"),value(m,"advisor","teacher","指导教师"),value(m,"studentNumber","studentId","学号"));}
+    private String value(Map<String,String> m,String...keys){if(m==null)return"";for(String key:keys){String v=m.get(key);if(!blank(v))return PptDocumentParser.clean(v);}return"";}
+    private FullSlideNode fixed(int n,String type,String title,String section,FixedPayload payload,List<AgendaItem> agenda){return new FullSlideNode(n,type,section,title,"","",List.of(),"","",null,payload,agenda,"",null,false,List.of(),1);}
+    private String sectionFor(String p){return switch(p==null?"":p){case"BACKGROUND","PROBLEM","METHOD"->"PROJECT_OVERVIEW";case"DESIGN","DATABASE"->"SYSTEM_DESIGN";case"IMPLEMENTATION","RESULT"->"SYSTEM_IMPLEMENTATION";case"TEST"->"TEST_VALIDATION";case"SUMMARY"->"CONCLUSION";default->"OTHER";};}
+    private void checkCount(List<FullSlideNode> t,String type,long expected,List<ValidationIssue> issues){if(t.stream().filter(p->type.equals(p.pageType())).count()!=expected)issues.add(issue(type+"_COUNT_INVALID",0,type+"页面必须为"+expected+"页"));}private ValidationResult invalid(String c,String m){return new ValidationResult(false,"FULL_PRESENTATION_TREE",List.of(),List.of(issue(c,0,m)));}private ValidationIssue issue(String c,int p,String m){return new ValidationIssue(c,p,m);}private String canonical(String v){return v==null?"":v.replaceAll("[\\s：:，,。！？!?、._-]+","").toLowerCase(Locale.ROOT);}private <T> List<T> safe(List<T> v){return v==null?List.of():v;}private boolean blank(String v){return v==null||v.isBlank();}
+    public record ValidationRequest(Map<String,String> metadata,PptOutlinePlannerV1.OutlineResult outline){}public record FixedPayload(String title,String englishTitle,String presenter,String major,String advisor,String studentNumber){}public record AgendaItem(int order,String title,String section,List<Integer> pageRange){}public record FullSlideNode(int pageNumber,String pageType,String section,String title,String pagePurpose,String answerQuestion,List<String> keyPoints,String description,String sourceChapter,PptOutlinePlannerV1.PageScore score,FixedPayload payload,List<AgendaItem> agendaItems,String imageRole,PptContentPlannerV2.SourceRefs sourceRefs,boolean mandatoryAsset,List<List<String>> tableSummary,double semanticAlignmentScore){}public record ValidationIssue(String code,int pageNumber,String message){}public record ValidationResult(boolean valid,String treeType,List<FullSlideNode> slideTree,List<ValidationIssue> issues){}
 }
