@@ -56,4 +56,11 @@ class PptContentPlannerTest {
         assertTrue(page.description().startsWith("管理员可以维护服务分类"));
         assertFalse(page.description().contains("图5-6"));
     }
+
+    @Test void everyImageDescriptionStaysBetweenFortyAndSeventyCharacters(){
+        for(String context:List.of("图5-6 管理员服务配置","短说明","")){
+            String description=planner.planImagePage("系统实现",context).description();
+            assertTrue(description.length()>=40&&description.length()<=70,description);
+        }
+    }
 }
