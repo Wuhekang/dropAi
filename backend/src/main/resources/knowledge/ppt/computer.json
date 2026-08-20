@@ -7,10 +7,15 @@
   "purposeRules": [
     {"purpose":"DESIGN","keywords":["架构","总体设计","分层","前后端"],"title":"系统总体架构","answerQuestion":"系统如何组织核心功能？"},
     {"purpose":"DATABASE","keywords":["数据库","数据表","实体","ER图"],"title":"数据库结构设计","answerQuestion":"系统如何管理核心数据？"},
-    {"purpose":"DESIGN","keywords":["功能模块","模块设计","功能设计"],"title":"核心功能设计","answerQuestion":"系统包含哪些核心功能？"},
-    {"purpose":"IMPLEMENTATION","keywords":["系统实现","功能实现","管理端","用户端","界面"],"title":"核心功能实现","answerQuestion":"核心业务功能如何落地？"},
+    {"purpose":"DESIGN","keywords":["功能模块","模块设计","功能设计"],"title":"系统功能设计","answerQuestion":"系统包含哪些核心功能？"},
+    {"purpose":"IMPLEMENTATION","keywords":["AI健康评估","智能健康评估","评估报告","大语言模型","豆包大模型"],"title":"AI健康评估功能","answerQuestion":"系统如何利用AI辅助健康分析？","keyPoints":["健康数据采集","AI模型分析","评估报告生成"],"chapterNumbers":[4]},
+    {"purpose":"RESULT","keywords":["数据可视化","ECharts","趋势可视化","趋势分析","雷达图"],"title":"健康数据可视化","answerQuestion":"系统如何帮助用户理解健康变化？","keyPoints":["趋势分析","指标展示","图表交互"],"chapterNumbers":[4]},
+    {"purpose":"IMPLEMENTATION","keywords":["登录注册","用户端功能","健康数据管理","数据录入","健康记录","用户首页"],"title":"用户端交互设计","answerQuestion":"用户如何完成健康管理流程？","keyPoints":["数据录入","健康记录","智能交互"],"chapterNumbers":[4]},
+    {"purpose":"IMPLEMENTATION","keywords":["系统实现","功能实现","管理端功能","用户端功能","功能模块"],"title":"系统功能整体实现","answerQuestion":"系统最终实现了哪些核心功能？","keyPoints":["管理员功能","用户健康管理","AI智能服务"],"chapterNumbers":[4]},
     {"purpose":"TEST","keywords":["测试","测试用例","验证"],"title":"系统测试与验证","answerQuestion":"系统功能是否达到设计要求？"},
-    {"purpose":"METHOD","keywords":["技术路线","开发技术","Spring Boot","Vue","MySQL"],"title":"系统开发技术路线","answerQuestion":"系统采用什么技术实现？"}
+    {"purpose":"METHOD","keywords":["技术路线","开发技术","Spring Boot","Vue","MySQL"],"title":"系统开发技术路线","answerQuestion":"系统采用什么技术实现？"},
+    {"purpose":"SUMMARY","keywords":["总结","完成了以下","具体工作","功能验证"],"title":"项目总结","answerQuestion":"项目完成了哪些成果？","chapterNumbers":[6]},
+    {"purpose":"SUMMARY","keywords":["展望","未来","后续","进一步"],"title":"未来优化方向","answerQuestion":"系统未来如何进一步提升？","chapterNumbers":[6]}
   ],
   "chapterConstraints": [
     {"chapterNumber":1,"allowedPurposes":["BACKGROUND","PROBLEM","METHOD"]},

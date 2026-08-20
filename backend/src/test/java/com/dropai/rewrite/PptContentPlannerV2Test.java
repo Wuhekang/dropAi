@@ -47,6 +47,27 @@ class PptContentPlannerV2Test {
         assertTrue(List.of(PptContentPlannerV2.class.getDeclaredMethods()).stream().noneMatch(m->m.getName().matches("generate|render|selectFinalPages")));
     }
 
+    @Test void splitsImplementationAndSummaryIntoDefenseReadyCandidates(){
+        var input=new PptContentPlannerV2.PlannerInput(Map.of(),List.of(
+                new PptContentPlannerV2.SourceChapter("c4","第四章 系统实现",List.of(
+                        "本章完成管理端功能、用户端功能和AI智能服务等系统功能实现。",
+                        "用户通过登录注册、健康数据管理和数据录入完成日常健康记录。",
+                        "数据可视化页面基于ECharts展示趋势分析、健康指标和交互图表。",
+                        "AI健康评估调用大语言模型分析健康数据并生成结构化评估报告。")),
+                new PptContentPlannerV2.SourceChapter("c6","第六章 总结与展望",List.of(
+                        "总结：系统完成了健康管理、智能分析和功能验证等具体工作。",
+                        "展望未来，系统将进一步提升模型能力并优化交互体验。"))
+        ),List.of(),List.of(),"computer");
+        var pages=planner.plan(input).chapters().stream().flatMap(c->c.candidatePages().stream()).toList();
+        assertTrue(pages.stream().anyMatch(p->p.title().equals("系统功能整体实现")));
+        assertTrue(pages.stream().anyMatch(p->p.title().equals("AI健康评估功能")&&p.keyPoints().contains("AI模型分析")));
+        assertTrue(pages.stream().anyMatch(p->p.title().equals("健康数据可视化")&&p.pagePurpose().equals("RESULT")));
+        assertTrue(pages.stream().anyMatch(p->p.title().equals("用户端交互设计")));
+        assertTrue(pages.stream().anyMatch(p->p.title().equals("项目总结")));
+        assertTrue(pages.stream().anyMatch(p->p.title().equals("未来优化方向")));
+        assertEquals(pages.size(),pages.stream().map(p->p.sourceChapter()+"|"+p.title()).distinct().count());
+    }
+
     @Test void realHealthThesisProducesDefenseCandidatesWithoutTitleOrStandaloneTechnologyPages()throws Exception{
         Path source=Path.of(System.getProperty("ppt.health.docx","D:/废纸/自己的/6022203537_高瑞康/6022203537_高瑞康_基于Spring Boot的个人健康管理系统的设计与实现最终稿.docx"));
         Assumptions.assumeTrue(Files.isRegularFile(source));
@@ -55,7 +76,14 @@ class PptContentPlannerV2Test {
         assertTrue(input.chapters().size()>=4&&input.chapters().size()<=8,"适配器应按一级章节聚合，而不是把每个二级标题当成章节");
         var pages=result.chapters().stream().flatMap(c->c.candidatePages().stream()).toList();
         assertTrue(pages.stream().anyMatch(p->p.title().equals("系统总体架构")));
+        assertTrue(pages.stream().anyMatch(p->p.title().equals("系统功能设计")));
         assertTrue(pages.stream().anyMatch(p->p.title().equals("系统开发技术路线")));
+        assertTrue(pages.stream().anyMatch(p->p.title().equals("系统功能整体实现")));
+        assertTrue(pages.stream().anyMatch(p->p.title().equals("AI健康评估功能")));
+        assertTrue(pages.stream().anyMatch(p->p.title().equals("健康数据可视化")));
+        assertTrue(pages.stream().anyMatch(p->p.title().equals("用户端交互设计")));
+        assertTrue(pages.stream().anyMatch(p->p.title().equals("项目总结")));
+        assertTrue(pages.stream().anyMatch(p->p.title().equals("未来优化方向")));
         assertEquals(1,pages.stream().filter(p->p.title().equals("系统开发技术路线")).count());
         assertTrue(pages.stream().noneMatch(p->p.title().equals(parsed.title())||p.title().matches("(?i).*(Java简介|MySQL介绍|Spring Boot介绍|Vue介绍).*")));
         assertTrue(pages.stream().allMatch(p->{assertDoesNotThrow(()->planner.requireComplete(p));return true;}));
