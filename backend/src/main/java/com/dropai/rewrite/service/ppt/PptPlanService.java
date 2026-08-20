@@ -19,11 +19,13 @@ public class PptPlanService {
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper;
     private final PptTextValidator validator;
+    private final PptContentPlanner contentPlanner;
 
-    public PptPlanService(JdbcTemplate jdbc, ObjectMapper mapper, PptTextValidator validator) {
+    public PptPlanService(JdbcTemplate jdbc, ObjectMapper mapper, PptTextValidator validator, PptContentPlanner contentPlanner) {
         this.jdbc = jdbc;
         this.mapper = mapper;
         this.validator = validator;
+        this.contentPlanner = contentPlanner;
     }
 
     @Transactional
@@ -33,28 +35,35 @@ public class PptPlanService {
         List<Map<String, Object>> sections = outline(projectId);
         if (sections.size() < 4) throw new IllegalStateException("请先确认至少4项目录");
 
-        List<String> blocks = contentBlocks(stringList(readJson(string(project.get("analysis_json"))).get("blocks")));
+        String thesisTitle=string(project.get("topic"));
+        List<String> blocks = contentBlocks(stringList(readJson(string(project.get("analysis_json"))).get("blocks")),thesisTitle);
         List<Map<String, Object>> assets = jdbc.queryForList(
-                "SELECT id,source_page,caption FROM ppt_asset WHERE project_id=? ORDER BY source_page,id", projectId);
+                "SELECT id,source_page,source_position,caption FROM ppt_asset WHERE project_id=? ORDER BY source_page,source_position,id", projectId);
         jdbc.update("DELETE FROM ppt_slide WHERE project_id=?", projectId);
 
-        int order = 0, blockIndex = 0, assetIndex = 0;
+        int order = 0;
         for (Map<String, Object> section : sections) {
             String sectionId = string(section.get("id"));
             String chapter = string(section.get("title"));
             int count = Math.max(1, integer(section.get("target_slides"), 2));
-            for (int i = 0; i < count; i++) {
-                String source = blocks.isEmpty() ? string(section.get("description")) : blocks.get(blockIndex++ % blocks.size());
-                List<String> boxes = summarize(source);
-                String title = i == 0 ? chapter : validator.compact(firstPhrase(source), 24);
+            List<PptContentPlanner.PagePlan> textPages=contentPlanner.planTextPages(thesisTitle,chapter,string(section.get("description")),blocks,count);
+            for (PptContentPlanner.PagePlan page : textPages) {
+                contentPlanner.requireValue(page);
+                List<String> boxes = new ArrayList<>(page.keyPoints());boxes.add(page.description());
                 List<String> assetIds = new ArrayList<>();
-                if (assetIndex < assets.size()) assetIds.add(string(assets.get(assetIndex++).get("id")));
-                String templateType = assetIds.isEmpty() ? "content" : "image";
-                String layoutType = assetIds.isEmpty() ? "KEYWORDS" : "IMAGE_TEXT";
-                PptTextValidator.ValidationResult checked = validator.validateSlideTextLimits(title, boxes);
+                String templateType = "content";
+                String layoutType = "KEYWORDS";
+                PptTextValidator.ValidationResult checked = validator.validateSlideTextLimits(page.title(), boxes);
                 jdbc.update("INSERT INTO ppt_slide(id,project_id,section_id,slide_order,slide_type,title,body_boxes_json,asset_ids_json,speaker_notes,layout_type,validation_status,chapter_title,content_summary,template_type) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                         UUID.randomUUID().toString(), projectId, sectionId, ++order, "CONTENT", checked.title(), json(checked.bodyBoxes()),
-                        json(assetIds), source, layoutType, checked.status(), chapter, String.join("；", checked.bodyBoxes()), templateType);
+                        json(assetIds), "pagePurpose="+page.pagePurpose()+"\n"+page.sourceText(), layoutType, checked.status(), chapter, page.description(), templateType);
+            }
+            int sectionIndex=sections.indexOf(section);
+            for(Map<String,Object> asset:assetsForSection(assets,sectionIndex,sections.size(),sourceChapterCount(blocks))){
+                String caption=text(asset,"caption",chapter+"相关图示");PptContentPlanner.PagePlan imagePage=contentPlanner.planImagePage(chapter,caption);contentPlanner.requireValue(imagePage);
+                PptTextValidator.ValidationResult checked=validator.validateSlideTextLimits(validator.compact(imagePage.title(),24),List.of(validator.compact(imagePage.description(),70)));
+                jdbc.update("INSERT INTO ppt_slide(id,project_id,section_id,slide_order,slide_type,title,body_boxes_json,asset_ids_json,speaker_notes,layout_type,validation_status,chapter_title,content_summary,template_type) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        UUID.randomUUID().toString(),projectId,sectionId,++order,"IMAGE",checked.title(),json(checked.bodyBoxes()),json(List.of(string(asset.get("id")))),"pagePurpose="+imagePage.pagePurpose()+"\n"+caption,"IMAGE_TEXT",checked.status(),chapter,imagePage.description(),"image");
             }
         }
         jdbc.update("UPDATE ppt_project SET status='PLANNED',current_stage='PPT方案待确认',progress=55,updated_at=? WHERE id=? AND user_id=?",
@@ -82,11 +91,11 @@ public class PptPlanService {
         return detail(projectId, userId);
     }
 
-    private List<String> contentBlocks(List<String> blocks) {
+    private List<String> contentBlocks(List<String> blocks,String thesisTitle) {
         List<String> out = new ArrayList<>();
         for (String block : blocks) {
             String clean = PptDocumentParser.clean(block);
-            if (clean.length() < 8 || isFrontMatter(clean)) continue;
+            if (clean.length() < 8 || isFrontMatter(clean) || !contentPlanner.isContent(clean,thesisTitle)) continue;
             out.add(clean);
         }
         return out;
@@ -112,6 +121,10 @@ public class PptPlanService {
     }
 
     private String firstPhrase(String source) { return summarize(source).get(0); }
+    private List<Map<String,Object>> assetsForSection(List<Map<String,Object>> assets,int sectionIndex,int sectionCount,int sourceChapterCount){List<Map<String,Object>> out=new ArrayList<>();int maxChapter=Math.max(1,sourceChapterCount);for(Map<String,Object> asset:assets)maxChapter=Math.max(maxChapter,assetChapter(asset,1));for(Map<String,Object> asset:assets){int chapter=assetChapter(asset,sectionIndex+1);int mapped;if(chapter<=1||sectionCount<=1)mapped=0;else if(maxChapter<=sectionCount)mapped=Math.min(sectionCount-1,chapter-1);else mapped=1+(int)Math.floor((chapter-2.0)*(sectionCount-1)/Math.max(1,maxChapter-1));mapped=Math.min(sectionCount-1,Math.max(0,mapped));if(mapped==sectionIndex)out.add(asset);}return out;}
+    private int assetChapter(Map<String,Object> asset,int fallback){var m=java.util.regex.Pattern.compile("chapter-(\\d+)-").matcher(string(asset.get("source_position")));return m.find()?Integer.parseInt(m.group(1)):fallback;}
+    private int sourceChapterCount(List<String> blocks){int max=1;for(String block:blocks){var m=java.util.regex.Pattern.compile("(?m)^(?:第)?(\\d+)章|^(\\d+)(?:[.．]\\d+)+").matcher(PptDocumentParser.clean(block));if(m.find()){String n=m.group(1)!=null?m.group(1):m.group(2);max=Math.max(max,Integer.parseInt(n));}String v=PptDocumentParser.clean(block);for(int i=1;i<=10;i++)if(v.startsWith("第"+List.of("一","二","三","四","五","六","七","八","九","十").get(i-1)+"章"))max=Math.max(max,i);}return max;}
+    private String imageTitle(String caption,String chapter){String clean=PptDocumentParser.clean(caption);var m=java.util.regex.Pattern.compile("(?:图|Figure|Fig\\.)\\s*\\d+(?:[-.．]\\d+)?\\s*(.*)",java.util.regex.Pattern.CASE_INSENSITIVE).matcher(clean);if(m.find()&&!m.group(1).isBlank())return m.group(1);return chapter+"图示";}
     private Map<String, Object> requireProject(String id, Long userId) { List<Map<String,Object>> rows=jdbc.queryForList("SELECT * FROM ppt_project WHERE id=? AND user_id=?",id,userId);if(rows.isEmpty())throw new IllegalArgumentException("PPT项目不存在或无权访问");return new LinkedHashMap<>(rows.get(0)); }
     private List<Map<String,Object>> outline(String id){return jdbc.queryForList("SELECT * FROM ppt_outline WHERE project_id=? ORDER BY section_order",id);}
     private Map<String,Object> detail(String id,Long userId){Map<String,Object> p=requireProject(id,userId);p.put("outline",outline(id));p.put("slides",jdbc.queryForList("SELECT * FROM ppt_slide WHERE project_id=? ORDER BY slide_order",id));p.put("assets",jdbc.queryForList("SELECT id,source_type,source_page,caption,width,height FROM ppt_asset WHERE project_id=? ORDER BY source_page,id",id));return p;}
