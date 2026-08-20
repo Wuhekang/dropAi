@@ -73,6 +73,7 @@ class PptContentPlannerV2Test {
         Assumptions.assumeTrue(Files.isRegularFile(source));
         var parsed=new PptDocumentParser().parse(source,Path.of("target","ppt-content-v2-assets"));
         var input=new PptContentPlannerV2InputAdapter().fromParsedDocument(parsed,"computer");var result=planner.plan(input);
+        assertTrue(input.metadata().get("title").contains("个人健康管理系统"));
         assertTrue(input.chapters().size()>=4&&input.chapters().size()<=8,"适配器应按一级章节聚合，而不是把每个二级标题当成章节");
         var pages=result.chapters().stream().flatMap(c->c.candidatePages().stream()).toList();
         assertTrue(pages.stream().anyMatch(p->p.title().equals("系统总体架构")));

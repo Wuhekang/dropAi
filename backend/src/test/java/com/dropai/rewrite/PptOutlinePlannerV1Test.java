@@ -17,6 +17,7 @@ class PptOutlinePlannerV1Test {
         var duplicate=page("系统总体架构","DESIGN","系统如何组织核心功能？","第三章",.88);
         var test=page("系统测试与验证","TEST","系统是否达到设计要求？","第五章",.90);
         var result=planner.plan(new PptOutlinePlannerV1.OutlineRequest(List.of(test,architecture,duplicate,background),12));
+        assertEquals("CONTENT_TREE",result.treeType());
         assertEquals(3,result.contentSlideCount());
         assertEquals(List.of(1,2,3),result.slideTree().stream().map(PptOutlinePlannerV1.SlideNode::pageNumber).toList());
         assertEquals(List.of("BACKGROUND","DESIGN","TEST"),result.slideTree().stream().map(PptOutlinePlannerV1.SlideNode::pagePurpose).toList());

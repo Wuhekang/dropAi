@@ -47,7 +47,7 @@ public class PptOutlinePlannerV1 {
                     item.score().finalScore()<MIN_FINAL_SCORE?"DELETE_LOW_SCORE":"DELETE_PAGE_LIMIT";
             decisions.add(new Decision(item.page().title(),item.page().sourceChapter(),action,item.score(),item.mergedCandidateCount()));
         }
-        return new OutlineResult(slides.size(),slides,decisions);
+        return new OutlineResult("CONTENT_TREE",slides.size(),slides,decisions);
     }
 
     private List<MergeGroup> mergeDuplicates(List<PptContentPlannerV2.CandidatePage> pages){
@@ -81,5 +81,5 @@ public class PptOutlinePlannerV1 {
     public record PageScore(int contentScore,int answerScore,int duplicateScore,int finalScore){}
     public record SlideNode(int pageNumber,String title,String pagePurpose,String answerQuestion,List<String> keyPoints,String description,String sourceChapter,PageScore score,int mergedCandidateCount){}
     public record Decision(String title,String sourceChapter,String action,PageScore score,int candidateCount){}
-    public record OutlineResult(int contentSlideCount,List<SlideNode> slideTree,List<Decision> decisions){}
+    public record OutlineResult(String treeType,int contentSlideCount,List<SlideNode> slideTree,List<Decision> decisions){}
 }
