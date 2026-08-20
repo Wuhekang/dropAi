@@ -51,9 +51,11 @@ class PptContentPlannerV2Test {
         Assumptions.assumeTrue(Files.isRegularFile(source));
         var parsed=new PptDocumentParser().parse(source,Path.of("target","ppt-content-v2-assets"));
         var input=new PptContentPlannerV2InputAdapter().fromParsedDocument(parsed,"computer");var result=planner.plan(input);
+        assertTrue(input.chapters().size()>=4&&input.chapters().size()<=8,"适配器应按一级章节聚合，而不是把每个二级标题当成章节");
         var pages=result.chapters().stream().flatMap(c->c.candidatePages().stream()).toList();
         assertTrue(pages.stream().anyMatch(p->p.title().equals("系统总体架构")));
         assertTrue(pages.stream().anyMatch(p->p.title().equals("系统开发技术路线")));
+        assertEquals(1,pages.stream().filter(p->p.title().equals("系统开发技术路线")).count());
         assertTrue(pages.stream().noneMatch(p->p.title().equals(parsed.title())||p.title().matches("(?i).*(Java简介|MySQL介绍|Spring Boot介绍|Vue介绍).*")));
         assertTrue(pages.stream().allMatch(p->{assertDoesNotThrow(()->planner.requireComplete(p));return true;}));
     }
