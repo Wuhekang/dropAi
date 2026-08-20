@@ -12,16 +12,26 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.ByteArrayOutputStream;
+import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
+import java.security.MessageDigest;
 import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.Base64;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import org.springframework.jdbc.support.GeneratedKeyHolder;
+import org.springframework.jdbc.core.PreparedStatementCreator;
+import java.sql.Statement;
+import javax.xml.parsers.DocumentBuilderFactory;
 
 @Service
 public class DiagramService {
@@ -32,15 +42,22 @@ public class DiagramService {
     private final JdbcTemplate jdbc;
     private final String python;
     private final String worker;
+    private final PointService points;
+    private final DiagramPreviewBillingService billing;
+    private final Path artifactRoot;
+    private static final String RENDERER_VERSION="thesis-diagram-v1.6-layout-1";
 
     public DiagramService(ObjectMapper objectMapper, MatrixDesignService matrix, JdbcTemplate jdbc,
                           @Value("${diagram.python:python}") String python,
-                          @Value("${diagram.worker:diagram-worker/web_engine.py}") String worker) {
+                          @Value("${diagram.worker:diagram-worker/web_engine.py}") String worker,
+                          @Value("${diagram.artifact-root:data/diagram-previews}") String artifactRoot,
+                          PointService points, DiagramPreviewBillingService billing) {
         this.objectMapper=objectMapper; this.matrix=matrix; this.jdbc=jdbc; this.python=python; this.worker=worker;
+        this.points=points;this.billing=billing;this.artifactRoot=Path.of(artifactRoot).toAbsolutePath().normalize();
     }
 
     public JsonNode validate(String dsl) { return run("validate", dsl, null); }
-    public JsonNode render(String dsl) {
+    public JsonNode renderLegacy(String dsl) {
         log.info("[diagram] request received");
         log.info("[diagram] source normalized");
         JsonNode result=run("render", dsl, null);
@@ -48,6 +65,49 @@ public class DiagramService {
         log.info("[diagram] parser selected: {}",result.path("displayName").asText());
         log.info("[diagram] parse, validation, layout and svg render completed in {}ms",result.path("durationMs").asLong());
         log.info("[diagram] response sent"); return result;
+    }
+
+    public Map<String,Object> render(Long requestedProjectId,String dsl) {
+        long userId=AuthContext.requireUserId(); JsonNode validation=validate(dsl);
+        if(!validation.path("valid").asBoolean())return Map.of("ok",false,"code","DSL_INVALID","validation",validation);
+        long projectId=ensureProject(requestedProjectId,validation.path("title").asText("未命名图形"),dsl,userId);
+        String type=validation.path("diagramType").asText();String normalized=normalizeDsl(dsl);String hash=renderHash(userId,projectId,type,normalized);
+        Map<String,Object> existing=billing.success(userId,projectId,hash);if(existing!=null)return previewResponse(existing,false,true,points.currentPoints(userId));
+        try{points.ensureEnoughCustom(userId,10);}catch(PointsNotEnoughException e){return Map.of("ok",false,"code","INSUFFICIENT_POINTS","requiredPoints",10,"balance",points.currentPoints(userId),"projectId",projectId,"message","当前积分不足，生成图形需要10积分。您仍可继续编辑代码、检查格式或使用绘图助手。");}
+        String taskId=billing.createTask(userId,projectId,type,hash,RENDERER_VERSION);if(taskId==null)return Map.of("ok",false,"code","RENDER_IN_PROGRESS","projectId",projectId,"renderHash",hash,"message","相同代码正在生成，请稍后重试");
+        Path temp=artifactRoot.resolve(".tmp").resolve(taskId),finalDir=null;DiagramPreviewBillingService.Finalized finalized=null;
+        try{
+            Files.createDirectories(temp);JsonNode rendered=renderLegacy(dsl);String svg=rendered.path("svg").asText();validateSvg(svg);billing.rendered(taskId);
+            String previewId=UUID.randomUUID().toString().replace("-","");finalDir=artifactRoot.resolve(String.valueOf(userId)).resolve(String.valueOf(projectId)).resolve(previewId).normalize();
+            if(!finalDir.startsWith(artifactRoot))throw new IllegalStateException("非法预览目录");
+            Files.writeString(temp.resolve("diagram.svg"),svg,StandardCharsets.UTF_8);
+            Files.writeString(temp.resolve("diagram.json"),objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(Map.of("dsl",dsl,"diagramType",type,"structure",rendered.path("structure"),"layout",rendered.path("layout"))),StandardCharsets.UTF_8);
+            List<DiagramPreviewBillingService.ArtifactDraft> artifacts=new ArrayList<>();
+            artifacts.add(new DiagramPreviewBillingService.ArtifactDraft("svg","READY",finalDir.resolve("diagram.svg").toString(),Files.size(temp.resolve("diagram.svg")),null));
+            artifacts.add(new DiagramPreviewBillingService.ArtifactDraft("json","READY",finalDir.resolve("diagram.json").toString(),Files.size(temp.resolve("diagram.json")),null));
+            try{ExportFile png=export(dsl,"png");Files.write(temp.resolve("diagram.png"),png.content());artifacts.add(new DiagramPreviewBillingService.ArtifactDraft("png","READY",finalDir.resolve("diagram.png").toString(),png.content().length,null));}
+            catch(Exception pngError){artifacts.add(new DiagramPreviewBillingService.ArtifactDraft("png","UNAVAILABLE",null,0,"当前服务器缺少Cairo运行库"));}
+            artifacts.add(new DiagramPreviewBillingService.ArtifactDraft("vsdx","UNSUPPORTED",null,0,"当前绘图引擎暂不支持VSDX导出"));
+            finalized=billing.finalizeRendered(taskId,previewId,userId,projectId,type,hash,RENDERER_VERSION,normalized,svg,artifacts);
+            if(!finalized.charged()){deleteTree(temp);Map<String,Object> reused=billing.ownedPreview(finalized.previewId(),userId);return previewResponse(reused,false,true,finalized.balance());}
+            Files.createDirectories(finalDir.getParent());
+            try{Files.move(temp,finalDir,StandardCopyOption.ATOMIC_MOVE);}
+            catch(java.nio.file.AtomicMoveNotSupportedException unsupported){Files.move(temp,finalDir);}
+            billing.published(taskId,finalized.previewId());
+            Map<String,Object> preview=billing.ownedPreview(finalized.previewId(),userId);return previewResponse(preview,true,false,finalized.balance());
+        }catch(Exception error){
+            if(finalized!=null&&finalized.charged())billing.refundPublishFailure(taskId,finalized.previewId(),userId,error.getMessage());else billing.failed(taskId,error.getMessage());
+            deleteTree(temp);throw error instanceof RuntimeException r?r:new IllegalStateException("预览生成失败",error);
+        }
+    }
+
+    public Map<String,Object> preview(String previewId){long userId=AuthContext.requireUserId();Map<String,Object> preview=billing.ownedPreview(previewId,userId);if(preview==null||!"SUCCESS".equals(String.valueOf(preview.get("status"))))throw new IllegalArgumentException("预览不存在或无权访问");Map<String,Object> out=previewResponse(preview,false,true,points.currentPoints(userId));out.put("dsl",preview.get("normalized_dsl"));return out;}
+
+    public ExportFile download(String previewId,String format){
+        long userId=AuthContext.requireUserId();Map<String,Object> preview=billing.ownedPreview(previewId,userId);
+        if(preview==null)throw new IllegalArgumentException("预览不存在或无权访问");if(!"SUCCESS".equals(String.valueOf(preview.get("status")))||((Number)preview.get("charged_points")).intValue()!=10)throw new IllegalStateException("该预览未完成计费，禁止下载");
+        String kind=format==null?"":format.toLowerCase();Map<String,Object> artifact=billing.artifact(previewId,kind);if(artifact==null||!"READY".equals(String.valueOf(artifact.get("status"))))throw new IllegalStateException(artifact==null?"产物不存在":String.valueOf(artifact.get("failure_reason")));
+        try{Path path=Path.of(String.valueOf(artifact.get("file_path"))).toAbsolutePath().normalize();if(!path.startsWith(artifactRoot)||!Files.isRegularFile(path))throw new IllegalStateException("产物文件不存在");return new ExportFile("diagram."+kind,Files.readAllBytes(path));}catch(java.io.IOException e){throw new IllegalStateException("读取产物失败",e);}
     }
     public Map<String,Object> health() {
         Path path=resolveWorkerPath();
@@ -78,8 +138,9 @@ public class DiagramService {
         long userId=AuthContext.requireUserId(); JsonNode validation=validate(dsl);
         String type=validation.path("diagramType").asText("");
         if (id == null) {
-            jdbc.update("INSERT INTO diagram_project(user_id,title,diagram_type,dsl_version,source_dsl,latest_valid_dsl,created_at,updated_at) VALUES(?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)",userId,cleanTitle(title),type,"1.6",dsl,validation.path("valid").asBoolean()?dsl:null);
-            return jdbc.queryForObject("SELECT MAX(id) FROM diagram_project WHERE user_id=?",Long.class,userId);
+            GeneratedKeyHolder keys=new GeneratedKeyHolder();
+            jdbc.update(connection->{var ps=connection.prepareStatement("INSERT INTO diagram_project(user_id,title,diagram_type,dsl_version,source_dsl,latest_valid_dsl,created_at,updated_at) VALUES(?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)",Statement.RETURN_GENERATED_KEYS);ps.setLong(1,userId);ps.setString(2,cleanTitle(title));ps.setString(3,type);ps.setString(4,"1.6");ps.setString(5,dsl);ps.setString(6,validation.path("valid").asBoolean()?dsl:null);return ps;},keys);
+            if(keys.getKey()==null)throw new IllegalStateException("创建智能画图项目失败");return keys.getKey().longValue();
         }
         int changed=jdbc.update("UPDATE diagram_project SET title=?,diagram_type=?,source_dsl=?,latest_valid_dsl=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=?",cleanTitle(title),type,dsl,validation.path("valid").asBoolean()?dsl:null,id,userId);
         if(changed==0) throw new IllegalArgumentException("项目不存在或无权修改"); return id;
@@ -160,6 +221,23 @@ public class DiagramService {
         } catch(Exception ignored){return base;}
     }
     private static void checkDsl(String dsl){if(dsl==null||dsl.isBlank())throw new IllegalArgumentException("DSL不能为空");if(dsl.length()>MAX_DSL)throw new IllegalArgumentException("DSL不能超过100000字符");}
+    private long ensureProject(Long projectId,String title,String dsl,long userId){
+        if(projectId==null)return save(null,title,dsl);
+        Integer owned=jdbc.queryForObject("SELECT COUNT(*) FROM diagram_project WHERE id=? AND user_id=?",Integer.class,projectId,userId);if(owned==null||owned==0)throw new IllegalArgumentException("项目不存在或无权访问");
+        save(projectId,title,dsl);return projectId;
+    }
+    static String normalizeDsl(String dsl){String value=dsl==null?"":dsl.replace("\uFEFF","").replace("\r\n","\n").replace('\r','\n');String[] lines=value.split("\n",-1);StringBuilder out=new StringBuilder();int end=lines.length;while(end>0&&lines[end-1].stripTrailing().isEmpty())end--;for(int i=0;i<end;i++){if(i>0)out.append('\n');out.append(lines[i].stripTrailing());}return out.toString();}
+    static String renderHash(long userId,long projectId,String type,String normalized){
+        try{MessageDigest digest=MessageDigest.getInstance("SHA-256");String input=userId+"\n"+projectId+"\n"+type+"\n"+normalized+"\n"+RENDERER_VERSION;return java.util.HexFormat.of().formatHex(digest.digest(input.getBytes(StandardCharsets.UTF_8)));}catch(Exception e){throw new IllegalStateException(e);}
+    }
+    private void validateSvg(String svg){
+        if(svg==null||svg.isBlank()||!svg.contains("<svg"))throw new IllegalStateException("绘图引擎没有返回有效SVG");
+        try{DocumentBuilderFactory f=DocumentBuilderFactory.newInstance();f.setFeature("http://apache.org/xml/features/disallow-doctype-decl",true);f.setExpandEntityReferences(false);var doc=f.newDocumentBuilder().parse(new ByteArrayInputStream(svg.getBytes(StandardCharsets.UTF_8)));var root=doc.getDocumentElement();if(!"svg".equalsIgnoreCase(root.getLocalName()==null?root.getNodeName():root.getLocalName()))throw new IllegalStateException("SVG根节点无效");boolean size=!root.getAttribute("viewBox").isBlank()||(!root.getAttribute("width").isBlank()&&!root.getAttribute("height").isBlank());if(!size)throw new IllegalStateException("SVG缺少有效viewBox或宽高");int shapes=0;for(String tag:List.of("rect","path","line","polyline","polygon","ellipse","circle","text"))shapes+=doc.getElementsByTagName(tag).getLength();if(shapes<2)throw new IllegalStateException("SVG没有有效图形节点");}catch(RuntimeException e){throw e;}catch(Exception e){throw new IllegalStateException("SVG解析失败",e);}
+    }
+    private Map<String,Object> previewResponse(Map<String,Object> preview,boolean charged,boolean reused,int balance){
+        String id=String.valueOf(preview.get("id"));Map<String,Object> out=new LinkedHashMap<>();out.put("ok",true);out.put("charged",charged);out.put("chargedPoints",charged?10:0);out.put("balance",balance);out.put("reused",reused);out.put("renderHash",preview.get("render_hash"));out.put("previewId",id);out.put("projectId",preview.get("project_id"));out.put("diagramType",preview.get("diagram_type"));out.put("svg",preview.get("svg_content"));out.put("downloadable",true);out.put("artifacts",billing.artifactStates(id));return out;
+    }
+    private static void deleteTree(Path path){if(path==null||!Files.exists(path))return;try(var stream=Files.walk(path)){stream.sorted(java.util.Comparator.reverseOrder()).forEach(p->{try{Files.deleteIfExists(p);}catch(Exception ignored){}});}catch(Exception ignored){}}
     private static String cleanTitle(String s){String x=s==null?"未命名图形":s.trim();return x.isBlank()?"未命名图形":x.substring(0,Math.min(120,x.length()));}
     private static String safe(String s){if(s==null)return "";String cleaned=s.replaceAll("(?i)(api[_-]?key|authorization)[^\\s]*","[REDACTED]");return cleaned.substring(0,Math.min(2000,cleaned.length()));}
     public record ExportFile(String name,byte[] content){}

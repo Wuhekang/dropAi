@@ -665,13 +665,43 @@ export function getPptProgress(id) { return request.get(`/ppt/projects/${id}/pro
 export function downloadPptFile(id) { return request.get(`/ppt/projects/${id}/download`, { responseType: 'blob', timeout: 300000 }) }
 export function listPptTemplates() { return request.get('/ppt/templates') }
 export function validateDiagram(dsl) { return request.post('/diagram/validate', { dsl }) }
-export function renderDiagram(dsl, signal) { return request.post('/diagram/render', { source: dsl }, { timeout: 6000, signal }) }
+export function renderDiagram(projectId, dsl, signal) { return request.post('/diagram/render', { projectId, dsl }, { timeout: 30000, signal }) }
 export function getDiagramHealth() { return request.get('/diagram/health') }
-export function generateDiagramWithAi(data) { return request.post('/diagram/ai/generate', data, { timeout: 120000 }) }
-export function reviewDiagramWithAi(dsl) { return request.post('/diagram/ai/review', { dsl }, { timeout: 120000 }) }
+export async function streamDiagramAssistant(data, { signal, onEvent } = {}) {
+  const token = sessionStorage.getItem('dropai_token')
+  const response = await fetch('/api/diagram/assistant/stream', {
+    method: 'POST', signal,
+    headers: { 'Content-Type': 'application/json;charset=UTF-8', Accept: 'text/event-stream', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify(data)
+  })
+  if (response.status === 401) {
+    sessionStorage.removeItem('dropai_token')
+    if (window.location.pathname !== '/login') window.location.href = '/login'
+    throw Object.assign(new Error('请先登录'), { code: 'UNAUTHORIZED' })
+  }
+  if (!response.ok || !response.body) throw Object.assign(new Error(`绘图助手连接失败（HTTP ${response.status}）`), { code: 'STREAM_CONNECT_FAILED' })
+  const reader = response.body.getReader(), decoder = new TextDecoder('utf-8'); let buffer = '', doneResult = null
+  const dispatch = (block) => {
+    let event = 'message', dataText = ''
+    for (const line of block.split('\n')) { if (line.startsWith('event:')) event = line.slice(6).trim(); else if (line.startsWith('data:')) dataText += line.slice(5).trim() }
+    if (!dataText) return
+    const payload = JSON.parse(dataText); onEvent?.(event, payload)
+    if (event === 'done') doneResult = payload.data || payload
+    if (event === 'error') { const detail = payload.data || payload; throw Object.assign(new Error(detail.message || payload.message || '生成失败，原图已恢复。'), { code: detail.code || 'GENERATION_FAILED', retryable: Boolean(detail.retryable) }) }
+  }
+  while (true) {
+    const part = await reader.read(); buffer += decoder.decode(part.value || new Uint8Array(), { stream: !part.done }).replace(/\r\n/g, '\n')
+    let cut; while ((cut = buffer.indexOf('\n\n')) >= 0) { const block = buffer.slice(0, cut); buffer = buffer.slice(cut + 2); if (block.trim()) dispatch(block) }
+    if (part.done) break
+  }
+  if (buffer.trim()) dispatch(buffer)
+  if (!doneResult) throw Object.assign(new Error('生成流结束但没有最终结果，原图已恢复。'), { code: 'STREAM_INCOMPLETE' })
+  return doneResult
+}
 export function saveDiagramProject(data) { return request.post('/diagram/projects', data) }
 export function listDiagramProjects() { return request.get('/diagram/projects') }
-export function exportDiagram(dsl, format) { return request.post('/diagram/export', { dsl, format }, { responseType: 'blob', timeout: 120000 }) }
+export function exportDiagram(previewId, format) { return request.get(`/diagram/previews/${previewId}/download/${format}`, { responseType: 'blob', timeout: 120000 }) }
+export function getDiagramPreview(previewId) { return request.get(`/diagram/previews/${previewId}`) }
 export function uploadPptTemplateZip(file) { const form = new FormData(); form.append('file', file?.raw || file); return request.post('/ppt/templates/upload', form, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 600000 }) }
 export function recommendPptTemplate(id) { return request.get(`/ppt/projects/${id}/template/recommend`) }
 export function selectPptTemplate(id, data) { return request.put(`/ppt/projects/${id}/template`, data) }

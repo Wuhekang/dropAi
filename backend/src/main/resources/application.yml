@@ -49,7 +49,7 @@ ai:
     responses-path: ${DOUBAO_RESPONSES_PATH:/responses}
     chat-path: ${DOUBAO_CHAT_PATH:/chat/completions}
     endpoint: ${DOUBAO_ENDPOINT:${ai.doubao.base-url}${ai.doubao.chat-path}}
-    model: ${DOUBAO_MODEL:doubao-seed-2-1-turbo-260628}
+    model: ${DOUBAO_MODEL:doubao-seed-2-1-260628}
     text-model: ${DOUBAO_TEXT_MODEL:${DOUBAO_MODEL:doubao-seed-2-1-turbo-260628}}
     review-model: ${DOUBAO_REVIEW_MODEL:doubao-seed-2-1-pro-260628}
     fallback-model: ${DOUBAO_FALLBACK_MODEL:doubao-seed-2-0-lite-260428}
@@ -89,3 +89,30 @@ reference:
     enabled: ${CROSSREF_SEARCH_ENABLED:false}
     mailto: ${CROSSREF_MAILTO:}
     api-token: ${CROSSREF_API_TOKEN:}
+
+diagram:
+  python: ${DIAGRAM_PYTHON:python}
+  worker: ${DIAGRAM_WORKER:diagram-worker/web_engine.py}
+  artifact-root: ${DIAGRAM_ARTIFACT_ROOT:data/diagram-previews}
+
+diagram-assistant:
+  provider: doubao
+  model: ${DOUBAO_DIAGRAM_MODEL:doubao-seed-2-1-turbo-260628}
+  api-key: ${DOUBAO_API_KEY:}
+  endpoint: ${DOUBAO_DIAGRAM_ENDPOINT:https://ark.cn-beijing.volces.com/api/v3/chat/completions}
+  stream: true
+  temperature: 0.1
+  connect-timeout: 5s
+  first-byte-timeout: 20s
+  read-idle-timeout: 20s
+  hard-limit: 90s
+  default-tokens: 1800
+  tokens:
+    FLOWCHART: 1800
+    FUNCTION_MODULE: 1800
+    ER_DIAGRAM: 2600
+    ARCHITECTURE: 2600
+    USE_CASE: 2000
+    BLOCK_DIAGRAM: 2000
+    SEQUENCE_DIAGRAM: 2600
+  sql-inference-confidence-threshold: 0.85
