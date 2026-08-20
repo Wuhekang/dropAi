@@ -32,8 +32,8 @@ public class PptContentPlanner {
     }
 
     public PagePlan planImagePage(String sectionTitle,String caption){
-        String clean=PptDocumentParser.clean(caption);String title=rewriteTitle(sectionTitle,clean,0);
-        String description=clean.length()>=40?PptDocumentParser.shorten(clean,70):"该图展示"+title+"的核心结构与业务关系，用于说明系统方案在实际功能流程中的组织方式。";
+        String clean=PptDocumentParser.clean(caption);String title=imageContextTitle(sectionTitle,clean);
+        String description=imageContextDescription(clean,title);
         return new PagePlan("用原文图示说明"+sectionTitle,title,List.of("呈现关键结构","对应章节方案"),description,clean);
     }
 
@@ -63,6 +63,8 @@ public class PptContentPlanner {
     private String uniqueTitle(String title,Set<String> used){String candidate=PptDocumentParser.shorten(title,24);if(used.add(candidate))return candidate;int n=2;while(!used.add(PptDocumentParser.shorten(candidate+"（"+n+"）",24)))n++;return PptDocumentParser.shorten(candidate+"（"+n+"）",24);}
     private List<String> keyPoints(String source,String fallback){LinkedHashSet<String> out=new LinkedHashSet<>();String combined=PptDocumentParser.clean(source+"。"+fallback);for(String part:combined.split("[。！？；;.!?\\n]+")){String clean=part.replaceFirst("^\\d+(?:[.．]\\d+)+\\s*","").trim();if(clean.length()<6||FORM_MARKERS.stream().anyMatch(clean::contains))continue;out.add(PptDocumentParser.shorten(clean,20));if(out.size()==3)break;}if(out.isEmpty())out.addAll(List.of("明确页面目标","提炼核心方案","说明实际作用"));return new ArrayList<>(out);}
     private String description(List<String> points,String purpose){String joined=String.join("、",points);return PptDocumentParser.shorten("本页围绕"+purpose+"展开，重点说明"+joined+"，形成面向答辩展示的完整结论。",70);}
+    private String imageContextTitle(String section,String context){var caption=java.util.regex.Pattern.compile("(?:图|Figure|Fig\\.)\\s*\\d+(?:[-.．]\\d+)?(?:[ \\t]*[:：、-]?[ \\t]*)([^，。；\\r\\n]{2,24})",java.util.regex.Pattern.CASE_INSENSITIVE).matcher(context);if(caption.find()){String value=caption.group(1).replaceFirst("^所示[，,:：]?","").trim();if(!value.isBlank())return PptDocumentParser.shorten(value,24);}if(context.contains("架构"))return "系统总体架构";if(context.contains("流程"))return "核心业务流程";if(context.contains("用例"))return "系统用例关系";if(context.contains("数据库")||context.contains("实体"))return "数据模型关系";if(context.contains("界面")||context.contains("页面"))return "核心功能界面";return PptDocumentParser.shorten(section+"图示",24);}
+    private String imageContextDescription(String context,String title){String clean=PptDocumentParser.clean(context);String[] lines=clean.split("[\\r\\n]+");String result=lines.length>1&&lines[0].matches("^(?:图|Figure|Fig\\.)\\s*\\d+(?:[-.．]\\d+)?(?:\\s+.{1,30})?$")?String.join(" ",java.util.Arrays.copyOfRange(lines,1,lines.length)).trim():clean.replaceAll("\\s+"," ");if(result.isBlank()||result.equals("源文档图片"))return "该图对应本节前文对"+title+"的说明，用于直观呈现相关结构、流程及其之间的关系。";if(result.length()<40)result="根据图片前文说明，"+result+"。该图用于直观呈现上述内容及其关系。";return PptDocumentParser.shorten(result,70);}
 
     public record PagePlan(String pagePurpose,String title,List<String> keyPoints,String description,String sourceText){}
 }

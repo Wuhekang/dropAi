@@ -15,6 +15,9 @@ import org.apache.poi.xslf.usermodel.XSLFTextShape;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.apache.poi.xwpf.usermodel.XWPFPictureData;
 import org.apache.poi.xwpf.usermodel.XWPFTable;
+import org.apache.poi.xwpf.usermodel.XWPFParagraph;
+import org.apache.poi.xwpf.usermodel.IBodyElement;
+import org.apache.poi.xwpf.usermodel.XWPFRun;
 import org.springframework.stereotype.Service;
 
 import javax.imageio.ImageIO;
@@ -78,16 +81,42 @@ public class PptDocumentParser {
 
     private ParsedDocument parseDocx(Path source, Path assetDir) throws Exception {
         List<String> blocks = new ArrayList<>(), headings = new ArrayList<>(); List<Asset> assets = new ArrayList<>(); int tables;
+        Set<String> hashes = new HashSet<>(); int totalImages = 0, filteredImages = 0;
         try (InputStream in = Files.newInputStream(source); XWPFDocument doc = new XWPFDocument(in)) {
-            doc.getParagraphs().forEach(p -> { String t=clean(p.getText()); if(t.isBlank()) return; blocks.add(t); String style=String.valueOf(p.getStyle()).toLowerCase(); if(style.contains("heading")||style.contains("标题")) headings.add(t); });
             tables = doc.getTables().size();
-            for (XWPFTable table : doc.getTables()) blocks.add(table.getText());
-            int i=0; for (XWPFPictureData data : doc.getAllPictures()) {
-                i++; String ext=data.suggestFileExtension(); Path target=assetDir.resolve(UUID.randomUUID()+"."+(ext==null?"png":ext)); Files.write(target,data.getData());
-                int[] size=imageSize(target); assets.add(new Asset(target, null,"image-"+i,"源文档图片",size[0],size[1]));
+            int chapter = 0, imageIndex = 0; boolean acceptImages = false;
+            String currentHeading = "", previousText = "", previousPreviousText = "";
+            for (IBodyElement element : doc.getBodyElements()) {
+                if (element instanceof XWPFTable table) { String text=clean(table.getText()); if(!text.isBlank())blocks.add(text); continue; }
+                if (!(element instanceof XWPFParagraph paragraph)) continue;
+                String text=clean(paragraph.getText());
+                if(!text.isBlank()){
+                    blocks.add(text);
+                    if(isHeading(doc,paragraph)){
+                        headings.add(text);
+                        if(isEndMatterHeading(text))acceptImages=false;
+                        else if(!isFrontMatterHeading(text)){
+                            int inferredChapter=chapterNumber(text);
+                            if(inferredChapter>0)chapter=Math.max(chapter,inferredChapter);
+                            else if(headingLevel(doc,paragraph)==1)chapter++;
+                            acceptImages=chapter>=2;currentHeading=text;
+                        }
+                    }
+                }
+                for(XWPFRun run:paragraph.getRuns())for(var picture:run.getEmbeddedPictures()){
+                    totalImages++;imageIndex++;XWPFPictureData data=picture.getPictureData();if(data==null){filteredImages++;continue;}
+                    String ext=data.suggestFileExtension();Path target=assetDir.resolve(UUID.randomUUID()+"."+(ext==null?"png":ext));Files.write(target,data.getData());
+                    int[] size=imageSize(target);String hash=sha256(data.getData());boolean valid=acceptImages&&size[0]>=240&&size[1]>=120&&hashes.add(hash);
+                    if(valid){String caption=nearestCaption(text,previousText,previousPreviousText,currentHeading);assets.add(new Asset(target,null,"chapter-"+chapter+"-image-"+imageIndex,caption,size[0],size[1]));}
+                    else{filteredImages++;Files.deleteIfExists(target);}
+                }
+                if(!text.isBlank()){previousPreviousText=previousText;previousText=text;}
             }
         }
-        return result(headings,blocks,assets,tables,assets.size(),0);
+        int packageImages;
+        try(InputStream in=Files.newInputStream(source);XWPFDocument doc=new XWPFDocument(in)){packageImages=doc.getAllPictures().size();}
+        if(packageImages>totalImages)filteredImages+=packageImages-totalImages;
+        return result(headings,blocks,assets,tables,Math.max(totalImages,packageImages),filteredImages);
     }
 
     private ParsedDocument parsePdf(Path source, Path assetDir) throws Exception {
@@ -111,6 +140,14 @@ public class PptDocumentParser {
         return new ParsedDocument(shorten(title,120),cleanHeadings,blocks,assets,tables,full.length(),totalImages,filteredImages);
     }
     private static String firstMeaningfulLine(String text){for(String line:text.split("[\r\n]+")){line=clean(line);if(line.length()>=4)return line;}return "未命名PPT项目";}
+    private static boolean isHeading(XWPFDocument document,XWPFParagraph paragraph){String id=String.valueOf(paragraph.getStyle());String name="";try{var style=document.getStyles()==null?null:document.getStyles().getStyle(id);name=style==null?"":String.valueOf(style.getName());}catch(Exception ignored){}String marker=(id+" "+name).toLowerCase(Locale.ROOT);if(marker.contains("toc")||marker.contains("目录"))return false;if(marker.contains("heading")||marker.contains("标题"))return true;return id.matches("[1-3]");}
+    private static int headingLevel(XWPFDocument document,XWPFParagraph paragraph){String id=String.valueOf(paragraph.getStyle());String name="";try{var style=document.getStyles()==null?null:document.getStyles().getStyle(id);name=style==null?"":String.valueOf(style.getName());}catch(Exception ignored){}String marker=(id+" "+name).toLowerCase(Locale.ROOT);var matcher=java.util.regex.Pattern.compile("(?:heading|标题|標題)\\s*([1-3])").matcher(marker);if(matcher.find())return Integer.parseInt(matcher.group(1));if(id.matches("[1-3]"))return Integer.parseInt(id);String text=clean(paragraph.getText());return text.matches("^(?:第?[一二三四五六七八九十0-9]+章|[一二三四五六七八九十0-9]+[、.．]\\s*[^0-9]).*")?1:2;}
+    private static boolean isFrontMatterHeading(String text){String v=clean(text).replaceAll("\\s+","").toLowerCase(Locale.ROOT);return v.contains("摘要")||v.equals("abstract")||v.contains("关键词")||v.contains("目录");}
+    private static boolean isEndMatterHeading(String text){String v=clean(text).replaceAll("\\s+","");return List.of("结论","总结","参考文献","致谢","附录").stream().anyMatch(v::contains);}
+    private static int chapterNumber(String text){String v=clean(text);var decimal=java.util.regex.Pattern.compile("^(\\d+)(?:[.．]\\d+)+").matcher(v);if(decimal.find())return Integer.parseInt(decimal.group(1));var arabic=java.util.regex.Pattern.compile("^第?(\\d+)章").matcher(v);if(arabic.find())return Integer.parseInt(arabic.group(1));var chinese=java.util.regex.Pattern.compile("^第([一二三四五六七八九十])章").matcher(v);if(!chinese.find())return 0;return switch(chinese.group(1)){case"一"->1;case"二"->2;case"三"->3;case"四"->4;case"五"->5;case"六"->6;case"七"->7;case"八"->8;case"九"->9;case"十"->10;default->0;};}
+    private static String nearestCaption(String current,String previous,String previousPrevious,String heading){String before=clean(previous);if(isFigureCaptionOnly(before)&&isImageContextParagraph(previousPrevious))return shorten(before+"\n"+clean(previousPrevious),320);if(isImageContextParagraph(before))return shorten(before,240);String same=clean(current);if(isImageContextParagraph(same))return shorten(same,240);return shorten(clean(heading).isBlank()?"源文档图片":heading,80);}
+    private static boolean isFigureCaptionOnly(String value){return clean(value).matches("^(?:图|Figure|Fig\\.)\\s*\\d+(?:[-.．]\\d+)?(?:\\s+.{1,30})?$");}
+    private static boolean isImageContextParagraph(String value){String v=clean(value);if(v.length()<8)return false;if(v.matches("^(?:第?[一二三四五六七八九十0-9]+章|\\d+(?:[.．]\\d+)+)\\s*[^，。；]{0,30}$"))return false;return !List.of("目录","摘要","关键词","参考文献","致谢").stream().anyMatch(v::equals);}
     private static int[] imageSize(Path p){try{BufferedImage i=ImageIO.read(p.toFile());return i==null?new int[]{0,0}:new int[]{i.getWidth(),i.getHeight()};}catch(Exception e){return new int[]{0,0};}}
     private static String extension(String name){int dot=name.lastIndexOf('.');return dot<0?"":name.substring(dot+1).toLowerCase(Locale.ROOT);}
     private static String slideText(XSLFSlide slide){StringBuilder out=new StringBuilder();for(XSLFShape shape:slide.getShapes())if(shape instanceof XSLFTextShape text&&!text.getText().isBlank())out.append(text.getText()).append('\n');return out.toString();}

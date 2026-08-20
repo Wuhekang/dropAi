@@ -39,4 +39,21 @@ class PptContentPlannerTest {
         var invalid=new PptContentPlanner.PagePlan("总结技术","技术关键词页",List.of("Spring Boot"),"关键词汇总说明","关键词");
         assertThrows(IllegalStateException.class,()->planner.requireValue(invalid));
     }
+
+    @Test void imagePageUsesTheParagraphBeforeTheImageAsDescription(){
+        String before="如图3-1所示，系统采用前后端分离架构，前端负责交互展示，后端负责业务处理，数据库负责持久化核心业务数据。";
+        var page=planner.planImagePage("课题设计",before);
+        assertEquals(before,page.sourceText());
+        assertTrue(page.description().startsWith("如图3-1所示"));
+        assertTrue(page.description().length()>=40&&page.description().length()<=70);
+        assertEquals("系统总体架构",page.title());
+    }
+
+    @Test void pureFigureCaptionProvidesTitleWhileEarlierParagraphProvidesDescription(){
+        String context="图5-6 管理员服务配置\n管理员可以维护服务分类、价格、状态与预约规则，并通过统一列表完成新增、编辑和启停操作。";
+        var page=planner.planImagePage("系统实现",context);
+        assertEquals("管理员服务配置",page.title());
+        assertTrue(page.description().startsWith("管理员可以维护服务分类"));
+        assertFalse(page.description().contains("图5-6"));
+    }
 }
