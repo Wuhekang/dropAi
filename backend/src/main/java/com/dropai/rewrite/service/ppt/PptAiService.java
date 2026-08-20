@@ -25,7 +25,7 @@ public class PptAiService {
             request.put("input",prompt(topic,document));
             JsonNode root=client.post().uri(endpoint()).header(HttpHeaders.AUTHORIZATION,"Bearer "+properties.apiKey()).contentType(MediaType.APPLICATION_JSON).body(request).retrieve().body(JsonNode.class);
             List<OutlineItem> parsed=parse(outputText(root));
-            return parsed.size()>=4?new AiOutline(parsed,true,"SUCCESS"):new AiOutline(fallback(document),true,"INVALID_OUTLINE_FALLBACK");
+            return parsed.size()>=2?new AiOutline(parsed.stream().limit(5).toList(),true,"SUCCESS"):new AiOutline(fallback(document),true,"INVALID_OUTLINE_FALLBACK");
         } catch(Exception e) { return new AiOutline(fallback(document),false,"CALL_FAILED"); }
     }
 
@@ -36,12 +36,13 @@ public class PptAiService {
 
     private String prompt(String topic,PptDocumentParser.ParsedDocument d){
         String source=String.join("\n",d.blocks()); if(source.length()>18000)source=source.substring(0,18000);
-        return "你是学术答辩PPT结构设计师。严格依据来源内容生成4至6个不重复目录，不得编造事实。返回纯JSON数组，每项字段title、description、slides。"
-            +"每个title不超过12字，description不超过40字。题目："+topic+"\n识别标题："+d.headings()+"\n来源内容：\n"+source;
+        return "你是AI内容规划服务。只能使用输入中的事实，不得联网、不得调用搜索或浏览器、不得补充外部知识。"
+            +"按原章节顺序生成2至5个一级目录；超过5章时只能合并相邻且主题相近的章节。只返回合法JSON数组，"
+            +"每项字段title、description、slides，title不超过12字，description不超过40字，slides为1或2。题目："+topic+"\n识别标题："+d.headings()+"\n来源内容：\n"+source;
     }
     private List<OutlineItem> parse(String text)throws Exception{
         int a=text.indexOf('['),b=text.lastIndexOf(']'); if(a<0||b<=a)return List.of(); JsonNode array=mapper.readTree(text.substring(a,b+1)); List<OutlineItem> result=new ArrayList<>();
-        for(JsonNode n:array){String title=PptDocumentParser.shorten(n.path("title").asText(),20);if(title.isBlank()||result.stream().anyMatch(x->x.title().equals(title)))continue;result.add(new OutlineItem(title,PptDocumentParser.shorten(n.path("description").asText(),80),Math.max(1,Math.min(8,n.path("slides").asInt(2)))));}
+        for(JsonNode n:array){String title=PptDocumentParser.shorten(n.path("title").asText(),20);if(title.isBlank()||result.stream().anyMatch(x->x.title().equals(title)))continue;result.add(new OutlineItem(title,PptDocumentParser.shorten(n.path("description").asText(),80),Math.max(1,Math.min(2,n.path("slides").asInt(2)))));if(result.size()==5)break;}
         return result;
     }
     private String outputText(JsonNode root){
