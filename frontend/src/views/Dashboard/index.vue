@@ -1,75 +1,953 @@
 <template>
   <main class="workspace-shell">
     <aside class="workspace-sidebar">
-      <button class="brand" type="button" @click="router.push('/')"><span>D</span><b>Dokiai Academic</b><small>Research Workspace</small></button>
-      <nav class="main-nav">
+      <button class="brand" type="button" @click="router.push('/')">
+        <span>D</span><b>Dokiai Academic</b><small>Research Workspace</small>
+      </button>
+
+      <nav class="workspace-nav">
         <small>工作空间</small>
-        <button class="active"><i>⌂</i>工作台</button>
-        <button @click="scrollToProjects"><i>□</i>我的项目</button>
-        <button @click="router.push('/projects')"><i>📁</i>历史项目</button>
-        <button @click="router.push('/writing-generator')"><i>✦</i>文档创作</button>
-        <button @click="router.push('/writing-generator')"><i>⌕</i>文献中心</button>
-        <button @click="router.push('/rewrite')"><i>Aa</i>双降中心</button>
-        <button class="nav-separated" @click="router.push('/points')"><i>✦</i>积分中心</button>
-        <button class="nav-separated" @click="router.push('/account')"><i>◌</i>账户中心</button>
+        <button class="active" type="button"><i>⌂</i>工作台</button>
+        <button type="button" @click="router.push('/projects')"><i>□</i>我的项目</button>
+        <button type="button" @click="router.push('/projects')"><i>📁</i>历史项目</button>
+        <button type="button" @click="router.push('/points')"><i>✦</i>积分中心</button>
+        <button type="button" @click="router.push('/account')"><i>◌</i>账户中心</button>
       </nav>
-      <nav class="tool-nav">
-        <small>更多工具</small>
-        <button @click="router.push('/computer-generator')"><i>&lt;/&gt;</i>AI 工程生成</button>
-        <button @click="router.push('/ppt-generator')"><i>P</i>PPT生成</button>
-        <button @click="router.push('/drawing')"><i>◇</i>智能画图</button>
-        <button @click="router.push('/new-project')"><i>⚙</i>机械设计</button>
-        <button v-if="isAdmin" @click="router.push('/points-admin')"><i>⚒</i>管理控制台</button>
-        <button v-if="isAdmin" @click="adminNoticeVisible=true"><i>i</i>系统公告</button>
+
+      <nav class="creation-nav">
+        <small>创作工具</small>
+        <button type="button" @click="router.push('/writing-generator')"><i>✦</i>文档创作</button>
+        <button type="button" @click="router.push('/writing-generator')"><i>⌕</i>文献中心</button>
+        <button type="button" @click="router.push('/rewrite')"><i>Aa</i>双降中心</button>
+        <button type="button" @click="router.push('/ppt-generator')"><i>P</i>PPT生成</button>
+        <button type="button" @click="router.push('/drawing')"><i>◇</i>智能绘图</button>
+        <button type="button" @click="router.push('/mechanical-design')"><i>⚙</i>机械设计</button>
+        <button type="button" @click="router.push('/computer-generator')"><i>&lt;/&gt;</i>AI 工程生成</button>
       </nav>
-      <div class="user-card"><span>{{ username.slice(0,1).toUpperCase() }}</span><div><strong>{{ username }}</strong><small>{{ isAdmin?'管理员账户':'研究者账户' }}</small></div><button title="退出登录" @click="signOut">↗</button></div>
+
+      <nav v-if="isAdmin" class="admin-nav">
+        <small>管理工具</small>
+        <button type="button" @click="router.push('/points-admin')"><i>⚒</i>管理控制台</button>
+        <button type="button" @click="adminNoticeVisible = true"><i>i</i>系统公告</button>
+      </nav>
+
+      <div class="user-card-wrap">
+        <button class="user-card" type="button" @click.stop="userMenuOpen = !userMenuOpen">
+          <span>{{ username.slice(0, 1).toUpperCase() }}</span>
+          <div>
+            <strong>{{ username }}</strong>
+            <small>{{ roleLabel }}</small>
+          </div>
+          <i :class="{ open: userMenuOpen }">⌃</i>
+        </button>
+
+        <section v-if="userMenuOpen" class="user-menu" @click.stop>
+          <header>
+            <strong>{{ username }}</strong>
+            <small>{{ roleLabel }}</small>
+          </header>
+          <div class="menu-points">
+            <span>积分余额</span>
+            <b>{{ pointBalance }}</b>
+          </div>
+          <button type="button" @click="goAccount">个人中心</button>
+          <button type="button" @click="goAccount">账号设置</button>
+          <button type="button" @click="router.push('/points')">会员权益</button>
+          <button type="button" @click="router.push('/points')">积分记录</button>
+          <button class="danger" type="button" @click="signOut">退出登录</button>
+        </section>
+      </div>
     </aside>
 
     <section class="workspace-main">
-      <header class="topbar"><div><span>MY RESEARCH WORKSPACE</span><h1>欢迎回来，{{ username }}</h1><strong v-if="schoolName" class="school-name">{{ schoolName }}</strong><p>继续正在进行的研究，或从一个新想法开始。</p></div><button class="create-button" @click="router.push('/writing-generator')">＋ 创建新项目</button></header>
+      <header class="topbar">
+        <div>
+          <span>MY RESEARCH WORKSPACE</span>
+          <h1>欢迎回来，{{ username }}</h1>
+          <strong v-if="schoolName" class="school-name">{{ schoolName }}</strong>
+          <p>继续正在进行的研究，或从一个新想法开始。</p>
+        </div>
+        <div class="top-actions">
+          <button class="points-pill" type="button" @click="router.push('/points')">
+            <small>积分余额</small>
+            <strong>{{ pointBalance }}</strong>
+            <em>+充值</em>
+          </button>
+        </div>
+      </header>
 
-      <section class="focus-project">
-        <div v-if="currentProject" class="focus-copy"><span>当前进行项目</span><h2>{{ currentProject.projectName||currentProject.fileName||'未命名项目' }}</h2><p>{{ projectType(currentProject) }} · {{ currentStep(currentProject) }}</p><div class="focus-progress"><label><span>项目进度</span><strong>{{ projectProgress(currentProject) }}%</strong></label><i><b :style="{width:projectProgress(currentProject)+'%'}"></b></i></div><button @click="continueProject(currentProject)">继续工作　→</button></div>
-        <div v-else class="focus-copy"><span>开始第一个项目</span><h2>把研究主题变成完整成果</h2><p>从真实文献、大纲和素材开始创建专业文档。</p><button @click="router.push('/writing-generator')">开始创建　→</button></div>
-        <div class="focus-flow"><article><b>文</b><span>文献研究<small>检索与核验</small></span></article><i></i><article><b>纲</b><span>结构设计<small>大纲已保存</small></span></article><i></i><article><b>稿</b><span>成果生成<small>DOCX 交付</small></span></article></div>
+      <section class="quick-start">
+        <header>
+          <span>START HERE</span>
+          <h2>快速开始</h2>
+          <p>选择一个方向，直接进入对应创作模块。</p>
+        </header>
+        <div class="start-grid">
+          <button
+            v-for="item in startCards"
+            :key="item.title"
+            class="start-card"
+            type="button"
+            @click="router.push(item.route)"
+          >
+            <b :class="item.tone">{{ item.icon }}</b>
+            <span>
+              <strong>{{ item.title }}</strong>
+              <small>{{ item.desc }}</small>
+            </span>
+            <i>→</i>
+          </button>
+        </div>
       </section>
 
-      <section class="quick-section"><header><span>QUICK ACTIONS</span><h2>快捷操作</h2></header><div class="quick-grid">
-        <button @click="router.push('/writing-generator')"><b class="violet">✦</b><span><strong>创建文档</strong><small>启动智能创作流程</small></span><i>→</i></button>
-        <button @click="router.push('/writing-generator')"><b class="blue">⌕</b><span><strong>搜索文献</strong><small>建立真实参考文献库</small></span><i>→</i></button>
-        <button @click="router.push('/rewrite')"><b class="pink">Aa</b><span><strong>学术优化</strong><small>优化已有论文表达</small></span><i>→</i></button>
-        <button @click="scrollToProjects"><b class="green">□</b><span><strong>我的项目</strong><small>查看任务与生成进度</small></span><i>→</i></button>
-      </div></section>
+      <section class="continue-panel">
+        <header>
+          <span>CONTINUE</span>
+          <h2>继续工作</h2>
+        </header>
 
-      <section id="my-projects" class="projects-section"><header><div><span>RECENT PROJECTS</span><h2>最近项目</h2></div><div><button :disabled="loading" @click="refreshDocuments">刷新</button><button @click="router.push('/projects')">全部项目 →</button></div></header>
-        <div v-if="recentProjects.length" class="project-grid"><article v-for="project in recentProjects" :key="project.id||project.fileName"><header><b>{{ projectType(project).slice(0,1) }}</b><span :class="statusClass(project.status)">{{ statusText(project.status) }}</span></header><h3>{{ project.projectName||project.fileName||'未命名项目' }}</h3><p>{{ projectType(project) }}</p><div><label><span>{{ currentStep(project) }}</span><strong>{{ projectProgress(project) }}%</strong></label><i><b :style="{width:projectProgress(project)+'%'}"></b></i></div><footer><small>{{ formatTime(project.createTime||project.createdAt) }}</small><button @click="continueProject(project)">继续 →</button></footer></article></div>
-        <div v-else class="empty-projects"><b>□</b><strong>暂无项目</strong><span>创建新文档后，项目会出现在这里。</span><button @click="router.push('/writing-generator')">创建项目</button></div>
+        <article v-if="currentProject" class="continue-card">
+          <div>
+            <small>{{ projectType(currentProject) }}</small>
+            <h3>{{ currentProject.projectName || currentProject.fileName || '未命名项目' }}</h3>
+            <dl>
+              <div>
+                <dt>当前阶段</dt>
+                <dd>{{ currentStep(currentProject) }}</dd>
+              </div>
+              <div>
+                <dt>项目进度</dt>
+                <dd>{{ projectProgress(currentProject) }}%</dd>
+              </div>
+            </dl>
+          </div>
+          <div class="task-status">
+            <ul>
+              <li v-for="step in taskSteps(currentProject)" :key="step.label" :class="step.state">
+                <b>{{ step.mark }}</b>
+                <span>{{ step.label }}</span>
+              </li>
+            </ul>
+            <small v-if="isGenerating(currentProject)">预计剩余：约 60 秒</small>
+          </div>
+          <button type="button" @click="continueProject(currentProject)">继续 →</button>
+        </article>
+
+        <article v-else class="empty-work">
+          <b>✦</b>
+          <strong>还没有正在进行的创作</strong>
+          <span>从论文、机械设计、PPT 或智能绘图开始，下一步会出现在这里。</span>
+          <button type="button" @click="router.push('/writing-generator')">创建论文项目</button>
+        </article>
       </section>
 
-      <section class="account-section"><header><span>ACCOUNT OVERVIEW</span><h2>账户状态</h2></header><div class="account-grid">
-        <article class="points-summary"><b>积分余额</b><strong>{{ pointAccount.points??'--' }}</strong><span>累计 {{ pointAccount.totalPoints??'--' }} · 已用 {{ pointAccount.usedPoints??'--' }}</span><button @click="router.push('/points')">充值积分 →</button></article>
-        <article><b>生成任务</b><strong>{{ documents.length }}</strong><span>当前账户的最近任务</span><button @click="scrollToProjects">查看项目</button></article>
-        <article><b>可下载文件</b><strong>{{ successfulDocuments }}</strong><span>已完成并可导出的成果</span><button @click="scrollToExports">查看导出</button></article>
-      </div></section>
+      <section id="my-projects" class="recent-panel">
+        <header>
+          <div>
+            <span>RECENT PROJECTS</span>
+            <h2>最近项目</h2>
+          </div>
+          <div>
+            <button type="button" :disabled="loading" @click="refreshDocuments">刷新</button>
+            <button type="button" @click="router.push('/projects')">查看全部 →</button>
+          </div>
+        </header>
 
-      <section id="recent-exports" class="export-section"><header><div><span>RECENT EXPORTS</span><h2>最近导出文件</h2><p>最近完成的文档与成果包。</p></div></header><div class="export-list"><article v-for="doc in documents.slice(0,6)" :key="doc.id||doc.fileName"><b>{{ fileTypeName(doc).slice(0,4) }}</b><span><strong>{{ doc.fileName||'生成文件' }}</strong><small>{{ fileTypeName(doc) }} · {{ statusText(doc.status) }} · {{ formatTime(doc.createTime||doc.createdAt) }}</small></span><button :disabled="doc.status!=='SUCCESS'" @click="downloadUrl(doc.downloadUrl,doc.fileName)">下载</button></article><p v-if="!documents.length">生成后的下载文件会显示在这里。</p></div></section>
+        <div v-if="recentProjects.length" class="recent-list">
+          <article v-for="project in recentProjects" :key="project.id || project.fileName">
+            <b>{{ projectType(project).slice(0, 1) }}</b>
+            <span>
+              <strong>{{ project.projectName || project.fileName || '未命名项目' }}</strong>
+              <small>{{ projectType(project) }} · {{ currentStep(project) }}</small>
+            </span>
+            <button type="button" @click="continueProject(project)">继续 →</button>
+          </article>
+        </div>
+
+        <div v-else class="empty-recent">
+          <span>暂无最近项目，创建后的项目会显示在这里。</span>
+        </div>
+      </section>
     </section>
+
     <admin-notice-modal v-model="adminNoticeVisible" />
   </main>
 </template>
 
 <script setup>
-import { computed,onMounted,ref } from 'vue';import { useRouter } from 'vue-router';import AdminNoticeModal from '../../components/AdminNoticeModal.vue';import { downloadArtifact,getMyDocuments,getPointAccount,logout } from '../../api/rewrite'
-const router=useRouter(),username=sessionStorage.getItem('dropai_username')||'当前用户',role=sessionStorage.getItem('dropai_role')||'USER',schoolName=sessionStorage.getItem('dropai_school_name')||'',documents=ref([]),loading=ref(false),pointsLoading=ref(false),adminNoticeVisible=ref(false),pointAccount=ref({points:null,totalPoints:null,usedPoints:null})
-const isAdmin=computed(()=>String(role).toLowerCase()==='admin'),recentProjects=computed(()=>documents.value.slice(0,3)),currentProject=computed(()=>documents.value.find(x=>!['SUCCESS','FAILED'].includes(x.status))||documents.value[0]||null),successfulDocuments=computed(()=>documents.value.filter(x=>x.status==='SUCCESS').length)
-async function loadDocuments(){loading.value=true;try{documents.value=(await getMyDocuments({pageNum:1,pageSize:8}))?.list||[]}finally{loading.value=false}}function refreshDocuments(){loadDocuments()}async function loadPoints(){pointsLoading.value=true;try{pointAccount.value=await getPointAccount()||pointAccount.value}finally{pointsLoading.value=false}}
-function continueProject(project){const name=project.projectName||project.fileName||'Dokiai 项目';router.push({path:'/result',query:{name}})}function openResult(project){continueProject(project)}
-async function downloadUrl(url,name){if(!url)return;const blob=await downloadArtifact(url),objectUrl=URL.createObjectURL(blob),link=document.createElement('a');link.href=objectUrl;link.download=name||'dokiai-result';link.click();URL.revokeObjectURL(objectUrl)}async function signOut(){try{await logout()}finally{sessionStorage.removeItem('dropai_token');sessionStorage.removeItem('dropai_username');sessionStorage.removeItem('dropai_role');router.replace('/login')}}
-function statusText(s){return({SUCCESS:'已完成',FAILED:'失败',RUNNING:'生成中',GENERATING:'生成中',PENDING:'排队中',WAITING:'待继续'})[s]||s||'进行中'}function statusClass(s){return String(s||'').toLowerCase()}function formatTime(v){return v?String(v).replace('T',' ').slice(0,16):'--'}function fileTypeName(r){if(r.packageUrl||r.fileType==='zip')return'ZIP 成果包';if(r.fileType==='pdf')return'PDF';if(r.fileType==='docx')return'DOCX 文档';return r.fileType||'文件'}function projectType(p){return p.documentType||p.projectType||fileTypeName(p)||'智能文档'}function projectProgress(p){const value=Number(p.progress);if(Number.isFinite(value)&&value>0)return Math.min(100,value);return p.status==='SUCCESS'?100:p.status==='FAILED'?0:p.status==='RUNNING'||p.status==='GENERATING'?65:20}function currentStep(p){if(p.currentStep)return p.currentStep;if(p.status==='SUCCESS')return'成果已完成';if(p.status==='RUNNING'||p.status==='GENERATING')return'正文生成';if(p.status==='FAILED')return'需要处理';return'项目准备'}function scrollToProjects(){document.getElementById('my-projects')?.scrollIntoView({behavior:'smooth'})}function scrollToExports(){document.getElementById('recent-exports')?.scrollIntoView({behavior:'smooth'})}
-onMounted(()=>{loadDocuments();loadPoints()})
+import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
+import AdminNoticeModal from '../../components/AdminNoticeModal.vue'
+import { getMyDocuments, getPointAccount, logout } from '../../api/rewrite'
+
+const router = useRouter()
+const username = sessionStorage.getItem('dropai_username') || '当前用户'
+const role = sessionStorage.getItem('dropai_role') || 'USER'
+const schoolName = sessionStorage.getItem('dropai_school_name') || ''
+const documents = ref([])
+const loading = ref(false)
+const pointsLoading = ref(false)
+const adminNoticeVisible = ref(false)
+const userMenuOpen = ref(false)
+const pointAccount = ref({ points: null, totalPoints: null, usedPoints: null })
+
+const startCards = [
+  { title: '论文创作', desc: '开题、文献、大纲、正文与导出', icon: '文', tone: 'violet', route: '/writing-generator' },
+  { title: '机械设计', desc: '方案、说明书、图纸与成果展示', icon: '⚙', tone: 'blue', route: '/mechanical-design' },
+  { title: 'PPT生成', desc: '答辩与汇报展示材料', icon: 'P', tone: 'pink', route: '/ppt-generator' },
+  { title: '智能绘图', desc: '流程图、UML、ER 图生成', icon: '◇', tone: 'green', route: '/drawing' }
+]
+
+const isAdmin = computed(() => String(role).toLowerCase() === 'admin')
+const roleLabel = computed(() => (isAdmin.value ? '管理员' : '普通用户'))
+const pointBalance = computed(() => pointAccount.value.points ?? '--')
+const recentProjects = computed(() => documents.value.slice(0, 2))
+const currentProject = computed(() => documents.value.find(x => !['SUCCESS', 'FAILED'].includes(x.status)) || documents.value[0] || null)
+
+async function loadDocuments() {
+  loading.value = true
+  try {
+    documents.value = (await getMyDocuments({ pageNum: 1, pageSize: 6 }))?.list || []
+  } finally {
+    loading.value = false
+  }
+}
+
+function refreshDocuments() {
+  loadDocuments()
+}
+
+async function loadPoints() {
+  pointsLoading.value = true
+  try {
+    pointAccount.value = await getPointAccount() || pointAccount.value
+  } finally {
+    pointsLoading.value = false
+  }
+}
+
+function goAccount() {
+  userMenuOpen.value = false
+  router.push('/account')
+}
+
+function continueProject(project) {
+  const name = project.projectName || project.fileName || 'Dokiai 项目'
+  router.push({ path: '/result', query: { name } })
+}
+
+async function signOut() {
+  try {
+    await logout()
+  } finally {
+    sessionStorage.removeItem('dropai_token')
+    sessionStorage.removeItem('dropai_username')
+    sessionStorage.removeItem('dropai_role')
+    userMenuOpen.value = false
+    router.replace('/login')
+  }
+}
+
+function statusText(status) {
+  return ({ SUCCESS: '已完成', FAILED: '失败', RUNNING: '生成中', GENERATING: '生成中', PENDING: '排队中', WAITING: '待继续' })[status] || status || '进行中'
+}
+
+function fileTypeName(record) {
+  if (record.packageUrl || record.fileType === 'zip') return 'ZIP 成果包'
+  if (record.fileType === 'pdf') return 'PDF'
+  if (record.fileType === 'docx') return 'DOCX 文档'
+  return record.fileType || '文件'
+}
+
+function projectType(project) {
+  return project.documentType || project.projectType || fileTypeName(project) || '智能文档'
+}
+
+function projectProgress(project) {
+  const value = Number(project.progress)
+  if (Number.isFinite(value) && value > 0) return Math.min(100, value)
+  return project.status === 'SUCCESS' ? 100 : project.status === 'FAILED' ? 0 : isGenerating(project) ? 65 : 20
+}
+
+function currentStep(project) {
+  if (project.currentStep) return project.currentStep
+  if (project.status === 'SUCCESS') return '成果已完成'
+  if (isGenerating(project)) return '正文生成'
+  if (project.status === 'FAILED') return '需要处理'
+  return '项目准备'
+}
+
+function isGenerating(project) {
+  return ['RUNNING', 'GENERATING', 'PENDING'].includes(String(project.status || '').toUpperCase())
+}
+
+function taskSteps(project) {
+  if (!isGenerating(project)) {
+    return [
+      { label: '需求分析', state: 'done', mark: '✓' },
+      { label: currentStep(project), state: project.status === 'SUCCESS' ? 'done' : 'active', mark: project.status === 'SUCCESS' ? '✓' : '●' },
+      { label: '成果导出', state: project.status === 'SUCCESS' ? 'done' : 'waiting', mark: '待' }
+    ]
+  }
+  return [
+    { label: '需求分析', state: 'done', mark: '✓' },
+    { label: '方案设计', state: 'active', mark: '●' },
+    { label: '图纸生成', state: 'waiting', mark: '待' },
+    { label: '三维模型', state: 'waiting', mark: '待' }
+  ]
+}
+
+onMounted(() => {
+  loadDocuments()
+  loadPoints()
+})
 </script>
 
 <style scoped>
-.workspace-shell{--ink:#1b2437;--muted:#758096;display:grid;grid-template-columns:245px minmax(0,1fr);gap:30px;width:min(1450px,calc(100% - 38px));margin:auto;padding:20px 0 55px;color:var(--ink)}button{font:inherit}.workspace-sidebar{position:sticky;top:20px;display:flex;flex-direction:column;height:calc(100vh - 40px);padding:18px 14px;border:1px solid #e8e6f1;border-radius:20px;background:#ffffffd9;box-shadow:0 20px 60px #30395812;backdrop-filter:blur(20px)}.brand{display:grid;grid-template-columns:40px 1fr;gap:0 10px;align-items:center;padding:0 5px 20px;border:0;background:none;text-align:left}.brand>span{grid-row:1/3;display:grid;place-items:center;width:40px;height:40px;border-radius:12px;color:#fff;background:linear-gradient(145deg,#4198ff,#7658ef 60%,#df66b7);font-size:20px;font-weight:900}.brand b{font-size:15px}.brand small{color:#9aa2b3;font-size:9px}.workspace-sidebar nav{display:grid;gap:4px;padding:13px 0;border-top:1px solid #efedf5}.workspace-sidebar nav>small{padding:0 10px 8px;color:#a1a8b7;font-size:9px;font-weight:800;letter-spacing:.14em;text-transform:uppercase}.workspace-sidebar nav button{display:flex;align-items:center;gap:11px;padding:10px;border:0;border-radius:10px;color:#667188;background:transparent;text-align:left}.workspace-sidebar nav button:hover,.workspace-sidebar nav .active{color:#5648ce;background:#f0edff}.workspace-sidebar nav i{display:grid;place-items:center;width:24px;font-style:normal;font-size:12px}.tool-nav{margin-top:4px}.user-card{display:grid;grid-template-columns:34px 1fr auto;gap:9px;align-items:center;margin-top:auto;padding:11px;border-radius:13px;background:#f6f4fb}.user-card>span{display:grid;place-items:center;width:34px;height:34px;border-radius:10px;color:#fff;background:#7764e5}.user-card div{display:grid}.user-card small{color:#9099aa;font-size:10px}.user-card button{border:0;color:#81899a;background:none}.workspace-main{min-width:0}.topbar{display:flex;align-items:flex-end;justify-content:space-between;gap:25px;padding:25px 5px 22px}.topbar>div>span,.quick-section>header>span,.projects-section>header span,.account-section>header>span,.export-section>header span{color:#6a59df;font-size:10px;font-weight:800;letter-spacing:.15em}.topbar h1{margin:9px 0 5px;font-size:38px}.topbar p,.export-section header p{margin:0;color:var(--muted)}.create-button,.focus-copy button{padding:12px 18px;border:0;border-radius:11px;color:#fff;background:linear-gradient(115deg,#6259eb,#a15ddb);box-shadow:0 13px 28px #604ed62b}.focus-project{display:grid;grid-template-columns:1fr 1.05fr;gap:35px;align-items:center;padding:32px;border:1px solid #ddd9f0;border-radius:24px;background:linear-gradient(135deg,#fff,#f7f4ff 58%,#fff7fb);box-shadow:0 23px 65px #443d8a17}.focus-copy>span{color:#6b59dd;font-size:11px;font-weight:800}.focus-copy h2{margin:12px 0 7px;font-size:30px}.focus-copy p{color:var(--muted)}.focus-progress{margin:24px 0}.focus-progress label,.project-grid article>div label{display:flex;justify-content:space-between}.focus-progress i,.project-grid article>div>i{display:block;height:7px;margin-top:8px;border-radius:99px;background:#e8e5f3}.focus-progress i b,.project-grid article>div>i b{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#5d83ee,#a75fd9)}.focus-flow{display:flex;align-items:center;gap:10px}.focus-flow article{display:flex;align-items:center;gap:9px;padding:13px;border:1px solid #e7e4f0;border-radius:13px;background:#ffffffad}.focus-flow article>b{display:grid;place-items:center;width:35px;height:35px;border-radius:10px;color:#6553d7;background:#ebe8ff}.focus-flow article span{display:grid;font-size:12px}.focus-flow article small{color:#929aab;font-size:9px}.focus-flow>i{flex:1;height:1px;background:#d7d2ed}.quick-section,.projects-section,.account-section,.export-section{padding-top:38px}.quick-section h2,.projects-section h2,.account-section h2,.export-section h2{margin:8px 0 16px;font-size:27px}.quick-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.quick-grid button{display:grid;grid-template-columns:43px 1fr auto;gap:11px;align-items:center;padding:16px;border:1px solid #e5e3ed;border-radius:15px;background:#ffffffc4;text-align:left}.quick-grid button>b{display:grid;place-items:center;width:43px;height:43px;border-radius:12px}.quick-grid .violet{color:#684fd9;background:#eee9ff}.quick-grid .blue{color:#2d78ce;background:#e6f2ff}.quick-grid .pink{color:#c34e8b;background:#ffe8f3}.quick-grid .green{color:#278b70;background:#e3f7f0}.quick-grid button span{display:grid}.quick-grid button small{color:#929aab;font-size:10px}.quick-grid button>i{color:#9fa6b4;font-style:normal}.projects-section>header{display:flex;align-items:end;justify-content:space-between}.projects-section>header button,.account-grid button{border:0;color:#6655d6;background:none}.project-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:13px}.project-grid>article{padding:19px;border:1px solid #e6e4ed;border-radius:17px;background:#ffffffc4}.project-grid article>header{display:flex;align-items:center;justify-content:space-between}.project-grid article>header>b{display:grid;place-items:center;width:37px;height:37px;border-radius:11px;color:#fff;background:linear-gradient(145deg,#5f8deb,#845fdc)}.project-grid article>header>span{padding:5px 8px;border-radius:99px;color:#7567ca;background:#f0edff;font-size:9px}.project-grid h3{min-height:44px;margin:16px 0 6px;font-size:17px}.project-grid p{color:var(--muted);font-size:12px}.project-grid article>div{margin:20px 0}.project-grid article>div label{color:#838da1;font-size:11px}.project-grid footer{display:flex;align-items:center;justify-content:space-between}.project-grid footer small{color:#a0a7b6}.project-grid footer button{border:0;color:#6253ce;background:none}.empty-projects{display:grid;place-items:center;gap:8px;min-height:210px;border:1px dashed #dcd8ea;border-radius:18px;color:var(--muted);background:#ffffff78}.empty-projects>b{font-size:28px}.empty-projects button{padding:9px 14px;border:1px solid #d8d3eb;border-radius:9px;color:#5f50cb;background:#fff}.account-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:13px}.account-grid article{display:grid;gap:8px;padding:20px;border:1px solid #e6e4ed;border-radius:16px;background:#ffffffbd}.account-grid article>b{color:#768095;font-size:12px}.account-grid article>strong{font-size:35px}.account-grid article>span{color:#929aab;font-size:11px}.account-grid article>button{justify-self:start;padding:6px 0}.export-section{margin-top:8px}.export-list{display:grid;gap:9px;padding:13px;border:1px solid #e6e3ee;border-radius:18px;background:#ffffffa8}.export-list article{display:grid;grid-template-columns:58px 1fr auto;gap:13px;align-items:center;padding:12px;border-radius:12px}.export-list article:hover{background:#f7f5fb}.export-list article>b{display:grid;place-items:center;width:50px;height:42px;border-radius:9px;color:#6454ce;background:#eeebff;font-size:10px}.export-list article>span{display:grid}.export-list article small{color:#939bac}.export-list article>button{padding:7px 12px;border:1px solid #dad6e9;border-radius:8px;color:#5f51c8;background:#fff}.export-list article>button:disabled{opacity:.4}.export-list>p{padding:20px;text-align:center;color:var(--muted)}@media(max-width:1100px){.workspace-shell{grid-template-columns:1fr}.workspace-sidebar{position:static;height:auto}.workspace-sidebar nav{grid-template-columns:repeat(3,1fr)}.workspace-sidebar nav>small{grid-column:1/-1}.user-card{margin-top:10px}.focus-project{grid-template-columns:1fr}.quick-grid,.project-grid{grid-template-columns:repeat(2,1fr)}}@media(max-width:700px){.workspace-shell{width:min(100% - 24px,1450px)}.topbar{align-items:flex-start;flex-direction:column}.workspace-sidebar nav,.quick-grid,.project-grid,.account-grid{grid-template-columns:1fr}.focus-flow{align-items:stretch;flex-direction:column}.focus-flow>i{width:1px;height:10px}.focus-project{padding:22px}.export-list article{grid-template-columns:auto 1fr}.export-list article>button{grid-column:1/3}}
-.workspace-sidebar nav .nav-separated{margin-top:7px;border-top:1px solid #ebe8f3;border-radius:0;padding-top:14px}.points-summary{background:linear-gradient(135deg,#fff,#f4f0ff 60%,#fff1f8)!important}.points-summary strong{color:#6e4fff}
+.workspace-shell {
+  --ink: #1b2437;
+  --muted: #758096;
+  display: grid;
+  grid-template-columns: 245px minmax(0, 1fr);
+  gap: 30px;
+  width: min(1450px, calc(100% - 38px));
+  margin: auto;
+  padding: 20px 0 55px;
+  color: var(--ink);
+}
+
+button { font: inherit; }
+
+.workspace-sidebar {
+  position: sticky;
+  top: 20px;
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 40px);
+  padding: 18px 14px;
+  border: 1px solid #e8e6f1;
+  border-radius: 20px;
+  background: #ffffffd9;
+  box-shadow: 0 20px 60px #30395812;
+  backdrop-filter: blur(20px);
+}
+
+.brand {
+  display: grid;
+  grid-template-columns: 40px 1fr;
+  gap: 0 10px;
+  align-items: center;
+  padding: 0 5px 20px;
+  border: 0;
+  background: none;
+  text-align: left;
+}
+
+.brand > span {
+  grid-row: 1/3;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  color: #fff;
+  background: linear-gradient(145deg, #4198ff, #7658ef 60%, #df66b7);
+  font-size: 20px;
+  font-weight: 900;
+}
+
+.brand b { font-size: 15px; }
+.brand small { color: #9aa2b3; font-size: 9px; }
+
+.workspace-sidebar nav {
+  display: grid;
+  gap: 4px;
+  padding: 13px 0;
+  border-top: 1px solid #efedf5;
+}
+
+.workspace-sidebar nav > small {
+  padding: 0 10px 8px;
+  color: #a1a8b7;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+}
+
+.workspace-sidebar nav button {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 10px;
+  color: #667188;
+  background: transparent;
+  text-align: left;
+}
+
+.workspace-sidebar nav button:hover,
+.workspace-sidebar nav .active {
+  color: #5648ce;
+  background: #f0edff;
+}
+
+.workspace-sidebar nav i {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  font-style: normal;
+  font-size: 12px;
+}
+
+.admin-nav {
+  margin-top: 4px;
+}
+
+.user-card-wrap {
+  position: relative;
+  margin-top: auto;
+}
+
+.user-card {
+  display: grid;
+  grid-template-columns: 34px 1fr auto;
+  gap: 9px;
+  align-items: center;
+  width: 100%;
+  padding: 11px;
+  border: 0;
+  border-radius: 13px;
+  background: #f6f4fb;
+  text-align: left;
+}
+
+.user-card > span {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  color: #fff;
+  background: #7764e5;
+}
+
+.user-card div { display: grid; }
+.user-card small { color: #9099aa; font-size: 10px; }
+.user-card i { color: #81899a; font-style: normal; transition: transform .2s ease; }
+.user-card i.open { transform: rotate(180deg); }
+
+.user-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 10px);
+  z-index: 5;
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid #e4e0f0;
+  border-radius: 16px;
+  background: #ffffffef;
+  box-shadow: 0 18px 50px #2e2d5e24;
+  backdrop-filter: blur(18px);
+}
+
+.user-menu header {
+  display: grid;
+  gap: 3px;
+  padding: 4px 4px 10px;
+  border-bottom: 1px solid #ece8f4;
+}
+
+.user-menu header small,
+.menu-points span {
+  color: #8d96a9;
+  font-size: 11px;
+}
+
+.menu-points {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 6px 0;
+  padding: 10px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #f4f0ff, #fff5fb);
+}
+
+.menu-points b {
+  color: #6652dc;
+  font-size: 20px;
+}
+
+.user-menu button {
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 10px;
+  color: #49536a;
+  background: transparent;
+  text-align: left;
+}
+
+.user-menu button:hover {
+  color: #5d4bd5;
+  background: #f2efff;
+}
+
+.user-menu .danger {
+  color: #d84d6a;
+}
+
+.workspace-main {
+  position: relative;
+  min-width: 0;
+  isolation: isolate;
+}
+
+.workspace-main::before,
+.workspace-main::after {
+  content: '';
+  position: absolute;
+  pointer-events: none;
+  z-index: -1;
+}
+
+.workspace-main::before {
+  top: 10px;
+  right: -22px;
+  width: 520px;
+  height: 280px;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 24% 42%, #7d66ff2e, transparent 38%),
+    radial-gradient(circle at 72% 22%, #4a90ff24, transparent 35%),
+    radial-gradient(circle at 68% 80%, #ff7bc321, transparent 42%);
+  filter: blur(18px);
+}
+
+.workspace-main::after {
+  top: 118px;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #8d7cff42, transparent);
+  box-shadow:
+    0 100px 0 #ffffff42,
+    0 236px 0 #ffffff38;
+}
+
+.topbar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 25px;
+  padding: 25px 5px 22px;
+}
+
+.topbar > div > span,
+.quick-start header span,
+.continue-panel header span,
+.recent-panel header span {
+  color: #6a59df;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .15em;
+}
+
+.topbar h1 {
+  margin: 9px 0 5px;
+  font-size: 38px;
+}
+
+.topbar p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.school-name {
+  display: inline-block;
+  margin-bottom: 6px;
+  color: #6653d5;
+}
+
+.top-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.points-pill {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 2px 10px;
+  align-items: center;
+  min-width: 156px;
+  padding: 12px 15px;
+  border: 1px solid #d9d2ff;
+  border-radius: 16px;
+  color: #443c84;
+  background:
+    linear-gradient(135deg, #ffffffeb, #f7f3ffde),
+    radial-gradient(circle at top right, #725bf026, transparent 45%);
+  box-shadow: 0 18px 45px #5846c51a;
+  text-align: left;
+  cursor: pointer;
+  transition: transform .2s ease, box-shadow .2s ease, border-color .2s ease;
+}
+
+.points-pill:hover {
+  transform: translateY(-2px);
+  border-color: #b8acff;
+  box-shadow: 0 22px 55px #5846c529;
+}
+
+.points-pill small {
+  color: #7a8397;
+  font-size: 10px;
+}
+
+.points-pill strong {
+  color: #634fff;
+  font-size: 19px;
+}
+
+.points-pill em {
+  grid-column: 2;
+  color: #6d58de;
+  font-size: 11px;
+  font-style: normal;
+}
+
+.create-button,
+.continue-card > button,
+.empty-work button {
+  padding: 12px 18px;
+  border: 0;
+  border-radius: 11px;
+  color: #fff;
+  background: linear-gradient(115deg, #6259eb, #a15ddb);
+  box-shadow: 0 13px 28px #604ed62b;
+}
+
+.quick-start,
+.continue-panel,
+.recent-panel {
+  margin-top: 18px;
+  padding: 24px;
+  border: 1px solid #e5e1f0;
+  border-radius: 24px;
+  background: #ffffffbd;
+  box-shadow: 0 22px 60px #443d8a12;
+}
+
+.quick-start {
+  position: relative;
+  overflow: hidden;
+  background:
+    linear-gradient(135deg, #ffffffef, #fbf9ffee 72%, #f4efffee),
+    radial-gradient(circle at 96% 0%, #7360ee18, transparent 42%);
+}
+
+.quick-start::after {
+  content: '';
+  position: absolute;
+  right: 28px;
+  top: 22px;
+  width: 130px;
+  height: 130px;
+  border-radius: 42px;
+  background:
+    linear-gradient(135deg, #785fff17, transparent),
+    repeating-linear-gradient(135deg, #6c5ce70f 0 1px, transparent 1px 11px);
+  transform: rotate(12deg);
+  pointer-events: none;
+}
+
+.quick-start header,
+.continue-panel header,
+.recent-panel header {
+  margin-bottom: 16px;
+}
+
+.quick-start h2,
+.continue-panel h2,
+.recent-panel h2 {
+  margin: 8px 0 6px;
+  font-size: 27px;
+}
+
+.quick-start p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.start-grid {
+  position: relative;
+  z-index: 1;
+  display: grid !important;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 13px;
+}
+
+.start-card {
+  appearance: none;
+  display: grid !important;
+  grid-template-columns: 54px 1fr auto;
+  gap: 13px;
+  align-items: center;
+  min-height: 112px;
+  padding: 17px;
+  border: 1px solid #e5e2ef;
+  border-radius: 18px;
+  background: linear-gradient(145deg, #fff, #fbfaff);
+  text-align: left;
+  color: var(--ink);
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 #ffffff, 0 12px 30px #574d9d0d;
+  transition: transform .2s ease, box-shadow .2s ease, border-color .2s ease;
+}
+
+.start-card:hover {
+  transform: translateY(-4px);
+  border-color: #cfc6ff;
+  box-shadow: 0 18px 44px #4e40b519;
+}
+
+.start-card b {
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  border-radius: 15px;
+  font-size: 20px;
+}
+
+.start-card .violet { color: #684fd9; background: #eee9ff; }
+.start-card .blue { color: #2d78ce; background: #e6f2ff; }
+.start-card .pink { color: #c34e8b; background: #ffe8f3; }
+.start-card .green { color: #278b70; background: #e3f7f0; }
+.start-card span { display: grid; gap: 5px; }
+.start-card small { color: #8c96aa; font-size: 12px; line-height: 1.45; }
+.start-card i { color: #9aa1b1; font-style: normal; }
+
+.continue-card {
+  position: relative;
+  overflow: hidden;
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) 310px auto;
+  gap: 22px;
+  align-items: center;
+  padding: 20px;
+  border: 1px solid #ded9ef;
+  border-radius: 19px;
+  background: linear-gradient(135deg, #fff, #f8f5ff 65%, #fff7fb);
+}
+
+.continue-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 92% 12%, #705bf320, transparent 28%),
+    linear-gradient(90deg, transparent, #ffffff66, transparent);
+  pointer-events: none;
+}
+
+.continue-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+.continue-card small {
+  color: #6a59df;
+  font-weight: 700;
+}
+
+.continue-card h3 {
+  margin: 9px 0 14px;
+  font-size: 22px;
+}
+
+.continue-card dl {
+  display: flex;
+  gap: 28px;
+  margin: 0;
+}
+
+.continue-card dl div {
+  display: grid;
+  gap: 4px;
+}
+
+.continue-card dt {
+  color: #8993a8;
+  font-size: 12px;
+}
+
+.continue-card dd {
+  margin: 0;
+  font-weight: 800;
+}
+
+.task-status {
+  display: grid;
+  gap: 8px;
+  padding: 13px;
+  border: 1px solid #e8e4f2;
+  border-radius: 15px;
+  background: #ffffffa8;
+}
+
+.task-status ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.task-status li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #8a93a5;
+  font-size: 12px;
+}
+
+.task-status li b {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  font-size: 10px;
+}
+
+.task-status li.done b {
+  color: #fff;
+  background: #5ec09d;
+}
+
+.task-status li.active {
+  color: #5f4ed6;
+  font-weight: 800;
+}
+
+.task-status li.active b {
+  color: #fff;
+  background: #6f5ce6;
+  box-shadow: 0 0 0 5px #6f5ce61c;
+}
+
+.task-status li.waiting b {
+  color: #8c95aa;
+  background: #f0eef6;
+}
+
+.task-status > small {
+  color: #6f5ce6;
+}
+
+.empty-work {
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  min-height: 190px;
+  border: 1px dashed #dcd8ea;
+  border-radius: 18px;
+  color: var(--muted);
+  background: #ffffff78;
+}
+
+.empty-work b {
+  font-size: 30px;
+}
+
+.recent-panel > header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+}
+
+.recent-panel > header button {
+  border: 0;
+  color: #6655d6;
+  background: none;
+}
+
+.recent-list {
+  display: grid;
+  gap: 10px;
+}
+
+.recent-list article {
+  display: grid !important;
+  grid-template-columns: 46px 1fr auto;
+  gap: 13px;
+  align-items: center;
+  padding: 14px;
+  border: 1px solid #ebe8f2;
+  border-radius: 15px;
+  background: #ffffffc4;
+}
+
+.recent-list article > b {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  color: #fff;
+  background: linear-gradient(145deg, #5f8deb, #845fdc);
+}
+
+.recent-list article span {
+  display: grid;
+  gap: 4px;
+}
+
+.recent-list article small {
+  color: #919bad;
+}
+
+.recent-list article button {
+  border: 0;
+  color: #6253ce;
+  background: none;
+}
+
+.empty-recent {
+  padding: 22px;
+  border: 1px dashed #dcd8ea;
+  border-radius: 15px;
+  color: var(--muted);
+  text-align: center;
+}
+
+@media (max-width: 1180px) {
+  .workspace-shell { grid-template-columns: 1fr; }
+  .workspace-sidebar { position: static; height: auto; }
+  .workspace-sidebar nav { grid-template-columns: repeat(3, 1fr); }
+  .workspace-sidebar nav > small { grid-column: 1 / -1; }
+  .user-card-wrap { margin-top: 10px; }
+  .user-menu { position: static; margin-top: 10px; }
+  .start-grid { grid-template-columns: repeat(2, 1fr); }
+  .continue-card { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 720px) {
+  .workspace-shell { width: min(100% - 24px, 1450px); }
+  .topbar { align-items: flex-start; flex-direction: column; }
+  .top-actions { width: 100%; flex-direction: column; align-items: stretch; }
+  .points-pill { grid-template-columns: 1fr auto; }
+  .workspace-sidebar nav,
+  .start-grid { grid-template-columns: 1fr; }
+  .recent-panel > header { align-items: flex-start; flex-direction: column; gap: 10px; }
+  .recent-list article { grid-template-columns: 44px 1fr; }
+  .recent-list article button { grid-column: 1 / -1; justify-self: start; }
+}
 </style>
