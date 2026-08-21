@@ -33,6 +33,7 @@ public class PointService {
     public static final String DOCUMENT_HUMANIZE = "DOCUMENT_HUMANIZE";
     public static final String DOCUMENT_DOUBLE = "DOCUMENT_DOUBLE";
     public static final String DIAGRAM_PREVIEW = "DIAGRAM_PREVIEW";
+    public static final String LITERATURE_SEARCH = "LITERATURE_SEARCH";
 
     private final UserAccountMapper userMapper;
     private final FeaturePricingMapper pricingMapper;

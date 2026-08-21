@@ -16,8 +16,8 @@
 
       <nav class="creation-nav">
         <small>创作工具</small>
-        <button type="button" @click="router.push('/writing-generator')"><i>✦</i>文档创作</button>
-        <button type="button" @click="router.push('/writing-generator')"><i>⌕</i>文献中心</button>
+        <button type="button" @click="router.push('/writing')"><i>✦</i>文字创作中心</button>
+        <button type="button" @click="router.push('/literature')"><i>⌕</i>文献中心</button>
         <button type="button" @click="router.push('/rewrite')"><i>Aa</i>双降中心</button>
         <button type="button" @click="router.push('/ppt-generator')"><i>P</i>PPT生成</button>
         <button type="button" @click="router.push('/drawing')"><i>◇</i>智能绘图</button>
@@ -137,7 +137,7 @@
           <b>✦</b>
           <strong>还没有正在进行的创作</strong>
           <span>从论文、机械设计、PPT 或智能绘图开始，下一步会出现在这里。</span>
-          <button type="button" @click="router.push('/writing-generator')">创建论文项目</button>
+          <button type="button" @click="router.push('/writing')">创建论文项目</button>
         </article>
       </section>
 
@@ -192,7 +192,7 @@ const userMenuOpen = ref(false)
 const pointAccount = ref({ points: null, totalPoints: null, usedPoints: null })
 
 const startCards = [
-  { title: '论文创作', desc: '开题、文献、大纲、正文与导出', icon: '文', tone: 'violet', route: '/writing-generator' },
+  { title: '文字创作中心', desc: '设置、大纲、正文与 DOCX 导出', icon: '文', tone: 'violet', route: '/writing' },
   { title: '机械设计', desc: '方案、说明书、图纸与成果展示', icon: '⚙', tone: 'blue', route: '/mechanical-design' },
   { title: 'PPT生成', desc: '答辩与汇报展示材料', icon: 'P', tone: 'pink', route: '/ppt-generator' },
   { title: '智能绘图', desc: '流程图、UML、ER 图生成', icon: '◇', tone: 'green', route: '/drawing' }

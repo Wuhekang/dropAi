@@ -10,6 +10,8 @@ import PointsCenter from '../views/PointsCenter/index.vue'
 import ProjectCenter from '../views/ProjectCenter/index.vue'
 import ComputerGenerator from '../views/ComputerGenerator/index.vue'
 import ReferenceSearch from '../views/ReferenceSearch/index.vue'
+import LiteratureCenter from '../views/LiteratureCenter/index.vue'
+import WritingCenterV2 from '../views/WritingCenterV2/index.vue'
 import WritingOutlineV2 from '../views/WritingOutlineV2/index.vue'
 import WritingGenerationV2 from '../views/WritingGenerationV2/index.vue'
 import WritingExportV2 from '../views/WritingExportV2/index.vue'
@@ -81,6 +83,20 @@ const router = createRouter({
     },
     {
       path: '/writing-generator',
+      redirect: '/writing'
+    },
+    {
+      path: '/writing',
+      name: 'WritingCenterV2',
+      component: WritingCenterV2
+    },
+    {
+      path: '/literature',
+      name: 'LiteratureCenter',
+      component: LiteratureCenter
+    },
+    {
+      path: '/reference-search',
       name: 'ReferenceSearch',
       component: ReferenceSearch
     },

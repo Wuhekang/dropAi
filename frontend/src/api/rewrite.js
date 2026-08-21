@@ -408,8 +408,61 @@ export function getWritingReferenceSearchStatus() {
   return request.get('/writing/reference-search/status')
 }
 
+export function searchLiterature(data) {
+  return request.post('/literature/search', data, { timeout: 300000 })
+}
+
 export function getWritingReferenceProviders() {
   return request.get('/writing/reference-search/providers', { skipAuthRedirect: true })
+}
+
+export function getWritingV2Templates() {
+  return request.get('/writing-v2/templates')
+}
+
+export function createWritingV2Project(data) {
+  return request.post('/writing-v2/projects', data, { timeout: 120000 })
+}
+
+export function getWritingV2Project(id) {
+  return request.get(`/writing-v2/projects/${id}`)
+}
+
+export function saveWritingV2Settings(id, data) {
+  return request.post(`/writing-v2/projects/${id}/settings`, data)
+}
+
+export function saveWritingV2CaseMaterials(id, content) {
+  return request.post(`/writing-v2/projects/${id}/case-materials`, { content })
+}
+
+export function uploadWritingV2Images(id, files = []) {
+  const formData = new FormData()
+  files.forEach(file => formData.append('files', file.raw || file))
+  return request.post(`/writing-v2/projects/${id}/image-materials`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 180000
+  })
+}
+
+export function designWritingV2Outline(id, data) {
+  return request.post(`/writing-v2/projects/${id}/outline`, data, { timeout: 180000 })
+}
+
+export function saveWritingV2ChapterResources(id, chapterId, data) {
+  return request.post(`/writing-v2/projects/${id}/chapters/${chapterId}/resources`, data)
+}
+
+export function saveWritingV2References(id, references) {
+  return request.post(`/writing-v2/projects/${id}/references`, { references })
+}
+
+export function generateWritingV2Content(id) {
+  return request.post(`/writing-v2/projects/${id}/content`, {}, { timeout: 600000 })
+}
+
+export function exportWritingV2Docx(id) {
+  return request.post(`/writing-v2/projects/${id}/document/docx`, {}, { timeout: 300000 })
 }
 
 export function createWritingProject(data) {

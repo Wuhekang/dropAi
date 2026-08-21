@@ -180,13 +180,16 @@ public class DoubaoWebSearchProvider implements ReferenceSearchProvider {
                 Field: %s
                 Year range: %d-%d
                 Search keywords: %s
+                Required language: %s. Return publications written in this language only.
 
                 JSON item fields:
                 title, authors, year, journalOrPublisher, volume, issue, pages, doi, url,
                 documentType, language, abstractText, keywords, sourceTitle, sourceSnippet, sourceType.
                 sourceType must be one of CNKI_PUBLIC_PAGE, CNKI_JOURNAL_PORTAL, JOURNAL_OFFICIAL, UNIVERSITY,
                 PUBLISHER, DOI_PAGE, OTHER_PUBLIC.
-                """.formatted(query.title(), query.major(), query.yearStart(), query.yearEnd(), query.joinedChineseKeywords());
+                """.formatted(query.title(), query.major(), query.yearStart(), query.yearEnd(), query.joinedChineseKeywords(),
+                        query.chineseTarget() > 0 && query.englishTarget() == 0 ? "Chinese" :
+                                query.englishTarget() > 0 && query.chineseTarget() == 0 ? "English" : "Chinese or English");
     }
 
     private List<ReferenceCandidate> parseCandidates(JsonNode root, ReferenceSearchQuery query) {

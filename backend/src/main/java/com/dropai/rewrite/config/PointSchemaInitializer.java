@@ -164,6 +164,7 @@ public class PointSchemaInitializer implements ApplicationRunner {
         seed("DOCUMENT_HUMANIZE", "智能降AI（每千字）", 10);
         seed("DOCUMENT_DOUBLE", "双降增强（每千字）", 20);
         seed("DIAGRAM_PREVIEW", "智能画图预览生成", 10);
+        seed("LITERATURE_SEARCH", "文献搜索（每篇）", 1);
     }
 
     private void seed(String code, String name, int cost) {

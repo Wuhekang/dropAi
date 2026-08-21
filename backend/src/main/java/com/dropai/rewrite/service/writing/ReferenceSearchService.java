@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.time.Year;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -319,6 +320,115 @@ public class ReferenceSearchService {
         } catch (Exception ignored) {
             return List.of();
         }
+    }
+
+    public Map<String, Object> standaloneSearch(String chineseKeyword, String englishKeyword, int count) {
+        int target = Math.max(1, Math.min(20, count));
+        int currentYear = Year.now().getValue();
+        List<String> keywords = new ArrayList<>();
+        if (chineseKeyword != null && !chineseKeyword.isBlank()) keywords.add(chineseKeyword.trim());
+        if (englishKeyword != null && !englishKeyword.isBlank()) keywords.add(englishKeyword.trim());
+        if (keywords.isEmpty()) throw new IllegalArgumentException("请输入中文或英文关键词");
+        ReferenceSearchQuery query = new ReferenceSearchQuery(
+                "literature_" + WritingJdbc.id("search"),
+                String.join(" / ", keywords),
+                "文献中心独立检索",
+                keywords,
+                List.of(),
+                currentYear - 5,
+                currentYear,
+                target,
+                0,
+                0
+        );
+        List<ReferenceCandidate> selected = dedupe(searchOnline(query)).stream()
+                .filter(ReferenceCandidate::basicallyVerified)
+                .sorted(Comparator.comparingDouble(ReferenceCandidate::relevanceScore).reversed())
+                .limit(target)
+                .toList();
+        List<Map<String, Object>> items = new ArrayList<>();
+        int index = 1;
+        for (ReferenceCandidate candidate : selected) {
+            items.add(Map.ofEntries(
+                    Map.entry("number", index),
+                    Map.entry("title", blank(candidate.title())),
+                    Map.entry("authors", String.join("; ", candidate.authors() == null ? List.of() : candidate.authors())),
+                    Map.entry("year", candidate.year() == null ? "" : candidate.year()),
+                    Map.entry("source", blank(candidate.container())),
+                    Map.entry("abstractText", blank(candidate.abstractText())),
+                    Map.entry("url", blank(candidate.url())),
+                    Map.entry("language", languageOf(candidate)),
+                    Map.entry("gbt7714", formatter.format(index, candidate, "GBT_7714_2025"))
+            ));
+            index++;
+        }
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("keywordZh", blank(chineseKeyword));
+        response.put("keywordEn", blank(englishKeyword));
+        response.put("requestedCount", target);
+        response.put("actualCount", items.size());
+        response.put("costPoints", target);
+        response.put("citationText", citationText(items));
+        response.put("items", items);
+        return response;
+    }
+
+    public Map<String, Object> standaloneSearch(String title, int chineseCount, int englishCount) {
+        String normalizedTitle = blank(title).trim();
+        if (normalizedTitle.isBlank()) throw new IllegalArgumentException("请输入题目名称");
+        int zhTarget = Math.max(0, Math.min(20, chineseCount));
+        int enTarget = Math.max(0, Math.min(20, englishCount));
+        if (zhTarget + enTarget < 1) throw new IllegalArgumentException("中文和英文文献数量不能同时为 0");
+
+        int currentYear = Year.now().getValue();
+        List<ReferenceCandidate> selected = new ArrayList<>();
+        if (zhTarget > 0) {
+            ReferenceSearchQuery zhQuery = new ReferenceSearchQuery(
+                    "literature_" + WritingJdbc.id("zh"), normalizedTitle, "中文学术文献",
+                    List.of(normalizedTitle, "中文文献"), List.of(), currentYear - 5, currentYear,
+                    zhTarget, zhTarget, 0);
+            selected.addAll(dedupe(searchOnline(zhQuery, "ZH")).stream()
+                    .filter(ReferenceCandidate::basicallyVerified).limit(zhTarget).toList());
+        }
+        if (enTarget > 0) {
+            ReferenceSearchQuery enQuery = new ReferenceSearchQuery(
+                    "literature_" + WritingJdbc.id("en"), normalizedTitle, "English academic literature",
+                    List.of(normalizedTitle, "English papers"), List.of(), currentYear - 5, currentYear,
+                    enTarget, 0, enTarget);
+            selected.addAll(dedupe(searchOnline(enQuery, "EN")).stream()
+                    .filter(ReferenceCandidate::basicallyVerified).limit(enTarget).toList());
+        }
+
+        List<ReferenceCandidate> unique = dedupe(selected);
+        List<Map<String, Object>> items = new ArrayList<>();
+        int index = 1;
+        for (ReferenceCandidate candidate : unique) {
+            items.add(Map.ofEntries(
+                    Map.entry("number", index), Map.entry("title", blank(candidate.title())),
+                    Map.entry("authors", String.join("; ", candidate.authors() == null ? List.of() : candidate.authors())),
+                    Map.entry("year", candidate.year() == null ? "" : candidate.year()),
+                    Map.entry("source", blank(candidate.container())), Map.entry("abstractText", blank(candidate.abstractText())),
+                    Map.entry("url", blank(candidate.url())), Map.entry("language", languageOf(candidate)),
+                    Map.entry("gbt7714", formatter.format(index, candidate, "GBT_7714_2025"))));
+            index++;
+        }
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("title", normalizedTitle);
+        response.put("chineseCount", zhTarget);
+        response.put("englishCount", enTarget);
+        response.put("requestedCount", zhTarget + enTarget);
+        response.put("actualCount", items.size());
+        response.put("citationText", citationText(items));
+        response.put("items", items);
+        return response;
+    }
+
+    private String citationText(List<Map<String, Object>> items) {
+        StringBuilder builder = new StringBuilder();
+        for (Map<String, Object> item : items) {
+            builder.append(item.get("gbt7714")).append("\n");
+        }
+        return builder.toString().trim();
     }
 
     private void insertSearchLog(String projectId, String provider, String language, String queryText, int resultCount,
