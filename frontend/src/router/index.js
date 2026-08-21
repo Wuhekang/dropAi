@@ -3,7 +3,6 @@ import HomeIndex from '../views/Home/index.vue'
 import RewriteIndex from '../views/Rewrite/index.vue'
 import LoginIndex from '../views/Login/index.vue'
 import DashboardIndex from '../views/Dashboard/index.vue'
-import NewProjectIndex from '../views/NewProject/index.vue'
 import ResultIndex from '../views/Result/index.vue'
 import PointsAdmin from '../views/PointsAdmin.vue'
 import RechargeIndex from '../views/Recharge/index.vue'
@@ -18,6 +17,7 @@ import WritingMaterialsV2 from '../views/WritingMaterialsV2/index.vue'
 import PptGenerator from '../views/PptGenerator/index.vue'
 import SchoolStatistics from '../views/SchoolStatistics/index.vue'
 import DiagramStudio from '../views/Diagram/index.vue'
+import MechanicalDesign from '../views/MechanicalDesign/index.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -54,9 +54,13 @@ const router = createRouter({
       component: RewriteIndex
     },
     {
+      path: '/mechanical-design',
+      name: 'MechanicalDesign',
+      component: MechanicalDesign
+    },
+    {
       path: '/new-project',
-      name: 'NewProject',
-      component: NewProjectIndex
+      redirect: '/mechanical-design'
     },
     {
       path: '/result',

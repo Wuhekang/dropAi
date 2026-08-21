@@ -217,3 +217,15 @@ CREATE TABLE IF NOT EXISTS computer_preview_instances (
   INDEX idx_computer_preview_job (job_id),
   UNIQUE KEY uk_computer_preview_id (preview_id)
 ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+CREATE TABLE IF NOT EXISTS mechanical_projects (
+  id VARCHAR(64) PRIMARY KEY,
+  user_id BIGINT,
+  project_name VARCHAR(255),
+  description TEXT,
+  input_images TEXT,
+  analysis_result LONGTEXT,
+  design_solution LONGTEXT,
+  structure_tree LONGTEXT,
+  report_file VARCHAR(500),
+  created_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

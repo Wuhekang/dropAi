@@ -172,3 +172,15 @@ CREATE TABLE IF NOT EXISTS computer_preview_instances (
   created_at TIMESTAMP NOT NULL,
   expired_at TIMESTAMP
 );
+CREATE TABLE IF NOT EXISTS mechanical_projects (
+  id VARCHAR(64) PRIMARY KEY,
+  user_id BIGINT,
+  project_name VARCHAR(255),
+  description CLOB,
+  input_images CLOB,
+  analysis_result CLOB,
+  design_solution CLOB,
+  structure_tree CLOB,
+  report_file VARCHAR(500),
+  created_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

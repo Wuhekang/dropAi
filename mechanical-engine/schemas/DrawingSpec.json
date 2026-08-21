@@ -1,1 +1,0 @@
-{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"DrawingSpec","type":"object","required":["views","standard","outputs"],"properties":{"views":{"type":"array","contains":{"const":"section"}},"outputs":{"type":"array","items":{"enum":["PDF","SVG","DXF"]}}}}

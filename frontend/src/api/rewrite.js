@@ -330,46 +330,16 @@ export function getEngineeringAiStatus() {
   return request.get('/engineering-writing/ai/status', { timeout: 240000 })
 }
 
-export function designMechanicalProject(payload) {
-  return request.post('/mechanical/projects/design', payload, { timeout: 120000 })
-}
-
-export function designMechanicalSpec(payload) {
-  return request.post('/mechanical/projects/design-spec', payload, { timeout: 120000 })
-}
-
-export function executeMechanicalProject(payload) {
-  return request.post('/mechanical/projects/execute', payload, { timeout: 1800000 })
-}
-
-export function startMechanicalGeneration(projectId, payload) {
-  return request.post(`/mechanical/projects/${projectId}/generate`, payload, { timeout: 30000 })
-}
-
-export function getMechanicalJob(jobId) {
-  return request.get(`/mechanical/jobs/${jobId}`, { timeout: 30000 })
-}
-
-export function continueMechanicalJob(jobId) {
-  return request.post(`/mechanical/jobs/${jobId}/continue`, {}, { timeout: 30000 })
-}
-
-export function startMechanicalDocument(payload) {
-  return request.post('/documents/generate', payload, { timeout: 30000 })
-}
-
-export function getMechanicalDocumentJob(jobId) {
-  return request.get(`/documents/jobs/${jobId}`, { timeout: 30000 })
-}
-
-export function getMechanicalTools() {
-  return request.get('/mechanical/projects/tools', { timeout: 30000 })
-}
-
-export function extractMechanicalRequirement(file) {
+export function analyzeMechanicalAssistant({ projectName, description, files }) {
   const form = new FormData()
-  form.append('file', file)
-  return request.post('/mechanical/projects/requirement/extract', form, { headers: { 'Content-Type': 'multipart/form-data' } })
+  form.append('projectName', projectName || '')
+  form.append('description', description || '')
+  ;(files || []).forEach(file => form.append('files', file))
+  return request.post('/mechanical-assistant/analyze', form, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 300000 })
+}
+
+export function downloadMechanicalAssistantReport(projectId) {
+  return request.get(`/mechanical-assistant/projects/${projectId}/report.docx`, { responseType: 'blob', timeout: 120000 })
 }
 
 export function downloadArtifact(downloadUrl) {
