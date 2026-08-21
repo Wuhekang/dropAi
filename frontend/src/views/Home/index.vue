@@ -42,8 +42,7 @@
 
           <h1>
             让复杂学术创作<br />
-            变成一条<br />
-            <span>智能工作流</span>
+            <span>变成智能工作流</span>
           </h1>
 
           <p class="hero-description">
