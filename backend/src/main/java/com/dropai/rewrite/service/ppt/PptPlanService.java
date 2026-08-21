@@ -56,14 +56,14 @@ public class PptPlanService {
                 PptTextValidator.ValidationResult checked = validator.validateSlideTextLimits(page.title(), boxes);
                 jdbc.update("INSERT INTO ppt_slide(id,project_id,section_id,slide_order,slide_type,title,body_boxes_json,asset_ids_json,speaker_notes,layout_type,validation_status,chapter_title,content_summary,template_type) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                         UUID.randomUUID().toString(), projectId, sectionId, ++order, "CONTENT", checked.title(), json(checked.bodyBoxes()),
-                        json(assetIds), "pagePurpose="+page.pagePurpose()+"\n"+page.sourceText(), layoutType, checked.status(), chapter, page.description(), templateType);
+                        json(assetIds), page.sourceText(), layoutType, checked.status(), chapter, page.description(), templateType);
             }
             int sectionIndex=sections.indexOf(section);
             for(Map<String,Object> asset:assetsForSection(assets,sectionIndex,sections.size(),sourceChapterCount(blocks))){
                 String caption=text(asset,"caption",chapter+"相关图示");PptContentPlanner.PagePlan imagePage=contentPlanner.planImagePage(chapter,caption);contentPlanner.requireValue(imagePage);
                 PptTextValidator.ValidationResult checked=validator.validateSlideTextLimits(validator.compact(imagePage.title(),24),List.of(validator.compact(imagePage.description(),70)));
                 jdbc.update("INSERT INTO ppt_slide(id,project_id,section_id,slide_order,slide_type,title,body_boxes_json,asset_ids_json,speaker_notes,layout_type,validation_status,chapter_title,content_summary,template_type) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                        UUID.randomUUID().toString(),projectId,sectionId,++order,"IMAGE",checked.title(),json(checked.bodyBoxes()),json(List.of(string(asset.get("id")))),"pagePurpose="+imagePage.pagePurpose()+"\n"+caption,"IMAGE_TEXT",checked.status(),chapter,imagePage.description(),"image");
+                        UUID.randomUUID().toString(),projectId,sectionId,++order,"IMAGE",checked.title(),json(checked.bodyBoxes()),json(List.of(string(asset.get("id")))),caption,"IMAGE_TEXT",checked.status(),chapter,imagePage.description(),"image");
             }
         }
         jdbc.update("UPDATE ppt_project SET status='PLANNED',current_stage='PPT方案待确认',progress=55,updated_at=? WHERE id=? AND user_id=?",
