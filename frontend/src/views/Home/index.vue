@@ -276,9 +276,9 @@ const workflowSteps = [
 ]
 
 const creationCards = [
-  { title: '论文创作', copy: '从开题规划到论文交付', icon: Reading, tone: 'violet', route: '/writing-generator' },
-  { title: '文献检索', copy: '快速定位高价值资料', icon: Search, tone: 'blue', route: '/writing-generator' },
-  { title: '文献分析', copy: 'AI理解文献内容', icon: DataAnalysis, tone: 'green', route: '/writing-generator' },
+  { title: '论文创作', copy: '从项目设置到正文与 DOCX', icon: Reading, tone: 'violet', route: '/writing' },
+  { title: '文献检索', copy: '快速定位高价值资料', icon: Search, tone: 'blue', route: '/literature' },
+  { title: '文献分析', copy: '整理引用格式与摘要信息', icon: DataAnalysis, tone: 'green', route: '/literature' },
   { title: '学术优化', copy: '提升论文质量表达', icon: MagicStick, tone: 'gold', route: '/rewrite' },
   { title: '机械设计', copy: '图片理解、结构方案与工程报告', icon: Cpu, tone: 'blue', route: '/mechanical-design' },
   { title: '图纸智能处理', copy: '识别图纸并分析机械结构', icon: Picture, tone: 'cyan', route: '/mechanical-design' },
@@ -662,25 +662,25 @@ button {
 
 .hero-inner {
   display: grid;
-  grid-template-columns: minmax(0, 0.94fr) minmax(520px, 1.06fr);
+  grid-template-columns: minmax(460px, 0.82fr) minmax(680px, 1.18fr);
   align-items: center;
   width: min(1780px, calc(100% - clamp(28px, 3vw, 56px)));
   margin: 0 auto;
-  gap: clamp(38px, 3vw, 58px);
+  gap: clamp(34px, 2.5vw, 48px);
 }
 
 .eyebrow {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  margin: 0 0 28px;
-  padding: 10px 16px;
+  margin: 0 0 24px;
+  padding: 9px 15px;
   border: 1px solid rgba(109, 93, 251, 0.14);
   border-radius: 999px;
   color: #5b4cf0;
   background: rgba(255, 255, 255, 0.62);
   box-shadow: 0 12px 34px rgba(109, 93, 251, 0.08);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 800;
 }
 
@@ -695,9 +695,10 @@ button {
 .hero-copy h1 {
   margin: 0;
   color: #101733;
-  font-size: clamp(48px, 5.25vw, 66px);
-  line-height: 1.1;
-  letter-spacing: 0;
+  max-width: 620px;
+  font-size: clamp(46px, 3.8vw, 60px);
+  line-height: 1.08;
+  letter-spacing: -.035em;
 }
 
 .hero-copy h1 span {
@@ -709,7 +710,7 @@ button {
 
 .hero-description {
   width: min(650px, 100%);
-  margin: 24px 0 0;
+  margin: 22px 0 0;
   color: #4e5a78;
   font-size: 17px;
   line-height: 1.85;
@@ -718,8 +719,8 @@ button {
 .hero-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 18px;
-  margin-top: 28px;
+  gap: 14px;
+  margin-top: 24px;
 }
 
 .primary-button {
@@ -752,8 +753,8 @@ button {
 .value-tags {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-  margin-top: 30px;
+  gap: 12px;
+  margin-top: 26px;
 }
 
 .value-tags article {
@@ -805,8 +806,8 @@ button {
 
 .workflow-preview {
   position: relative;
-  min-height: 505px;
-  padding: 22px;
+  min-height: 474px;
+  padding: 20px;
   overflow: hidden;
   border: 1px solid rgba(109, 93, 251, 0.16);
   border-radius: 22px;
@@ -865,8 +866,8 @@ button {
   position: relative;
   z-index: 1;
   display: grid;
-  grid-template-columns: 0.92fr 1.08fr;
-  gap: 20px;
+  grid-template-columns: .9fr 1.1fr;
+  gap: 16px;
 }
 
 .analysis-card,
@@ -881,8 +882,8 @@ button {
 .analysis-card {
   display: grid;
   grid-template-rows: auto 1fr auto;
-  min-height: 420px;
-  padding: 18px;
+  min-height: 390px;
+  padding: 16px;
 }
 
 .analysis-card h3 {
