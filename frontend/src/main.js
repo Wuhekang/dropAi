@@ -4,11 +4,9 @@ import 'element-plus/dist/index.css'
 import './styles/global.css'
 import App from './App.vue'
 import router from './router'
+import { hydrateAuthSession } from './utils/authStorage'
 
-// Remove credentials created by older builds. Login state now belongs only to
-// the current tab session and disappears when the page/browser is closed.
-localStorage.removeItem('dropai_token')
-localStorage.removeItem('dropai_username')
+hydrateAuthSession()
 
 createApp(App)
   .use(router)

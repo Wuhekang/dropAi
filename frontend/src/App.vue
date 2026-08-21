@@ -8,6 +8,10 @@
     </footer>
   </div>
 
+  <transition name="route-loader-fade">
+    <LoadingLogo v-if="routeLoading" />
+  </transition>
+
   <admin-notice-modal v-model="adminNoticeVisible" />
 
   <el-dialog
@@ -46,7 +50,9 @@ import { ElMessage } from 'element-plus'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AdminNoticeModal from './components/AdminNoticeModal.vue'
+import LoadingLogo from './components/LoadingLogo.vue'
 import { createRechargeOrder, getLatestNotice, getRechargePlans, markNoticeRead } from './api/rewrite'
+import { getAuthRole, getAuthToken } from './utils/authStorage'
 
 const router = useRouter()
 const route = useRoute()
@@ -59,6 +65,30 @@ const noticeVisible = ref(false)
 const notice = ref(null)
 const noticeLoading = ref(false)
 const noticeAllowedRoutes = new Set(['/dashboard'])
+const routeLoading = ref(false)
+let routeLoaderShownAt = 0
+let routeLoaderTimer = null
+
+function showRouteLoader() {
+  clearTimeout(routeLoaderTimer)
+  routeLoaderShownAt = Date.now()
+  routeLoading.value = true
+}
+
+function hideRouteLoader() {
+  const elapsed = Date.now() - routeLoaderShownAt
+  const delay = Math.max(0, 520 - elapsed)
+  clearTimeout(routeLoaderTimer)
+  routeLoaderTimer = setTimeout(() => {
+    routeLoading.value = false
+  }, delay)
+}
+
+const removeRouteBefore = router.beforeEach((to, from) => {
+  if (from.name && to.fullPath !== from.fullPath) showRouteLoader()
+})
+const removeRouteAfter = router.afterEach(() => hideRouteLoader())
+const removeRouteError = router.onError(() => hideRouteLoader())
 
 function handlePointShortage(event) {
   shortage.value = {
@@ -115,8 +145,8 @@ function renderMarkdown(markdown = '') {
 const noticeHtml = computed(() => renderMarkdown(notice.value?.content || ''))
 
 async function loadNotice() {
-  const token = sessionStorage.getItem('dropai_token')
-  const role = sessionStorage.getItem('dropai_role')
+  const token = getAuthToken()
+  const role = getAuthRole()
   if (!noticeAllowedRoutes.has(route.path)) {
     noticeVisible.value = false
     return
@@ -148,7 +178,13 @@ async function ackNotice() {
 }
 
 window.addEventListener('dropai:points-not-enough', handlePointShortage)
-onBeforeUnmount(() => window.removeEventListener('dropai:points-not-enough', handlePointShortage))
+onBeforeUnmount(() => {
+  window.removeEventListener('dropai:points-not-enough', handlePointShortage)
+  clearTimeout(routeLoaderTimer)
+  removeRouteBefore()
+  removeRouteAfter()
+  removeRouteError()
+})
 
 watch(() => route.fullPath, () => loadNotice(), { immediate: true })
 </script>
@@ -191,5 +227,15 @@ watch(() => route.fullPath, () => loadNotice(), { immediate: true })
 
 .notice-content :deep(p) {
   margin: 0 0 12px;
+}
+
+.route-loader-fade-enter-active,
+.route-loader-fade-leave-active {
+  transition: opacity .28s ease;
+}
+
+.route-loader-fade-enter-from,
+.route-loader-fade-leave-to {
+  opacity: 0;
 }
 </style>

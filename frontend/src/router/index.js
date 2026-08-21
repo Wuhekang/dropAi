@@ -18,6 +18,7 @@ import PptGenerator from '../views/PptGenerator/index.vue'
 import SchoolStatistics from '../views/SchoolStatistics/index.vue'
 import DiagramStudio from '../views/Diagram/index.vue'
 import MechanicalDesign from '../views/MechanicalDesign/index.vue'
+import { getAuthRole, isAuthenticated } from '../utils/authStorage'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -126,13 +127,13 @@ const router = createRouter({
 })
 
 router.beforeEach((to) => {
-  const loggedIn = Boolean(sessionStorage.getItem('dropai_token'))
+  const loggedIn = isAuthenticated()
   if (!['/', '/login'].includes(to.path) && !loggedIn) return '/login'
   if (to.path === '/login' && loggedIn) return '/dashboard'
-  const role = sessionStorage.getItem('dropai_role')?.toUpperCase()
+  const role = getAuthRole()?.toUpperCase()
   if (role === 'SCHOOL_VIEWER' && to.path !== '/school-statistics') return '/school-statistics'
   if (to.path === '/school-statistics' && role !== 'SCHOOL_VIEWER') return '/dashboard'
-  if (to.path === '/points-admin' && sessionStorage.getItem('dropai_role')?.toLowerCase() !== 'admin') {
+  if (to.path === '/points-admin' && getAuthRole()?.toLowerCase() !== 'admin') {
     return '/dashboard'
   }
   if (to.path === '/school-admin' && role !== 'ADMIN') return '/dashboard'

@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
+import { clearAuthSession, getAuthToken } from '../utils/authStorage'
 
 const request = axios.create({
   baseURL: '/api',
@@ -74,7 +75,7 @@ function rejectApiError(message, code, responseData) {
 }
 
 request.interceptors.request.use((config) => {
-  const token = sessionStorage.getItem('dropai_token')
+  const token = getAuthToken()
   if (token) config.headers.Authorization = `Bearer ${token}`
   return config
 })
@@ -99,9 +100,7 @@ request.interceptors.response.use(
   (error) => {
     logApiError(error)
     if (error.response?.status === 401 && !error.config?.skipAuthRedirect) {
-      sessionStorage.removeItem('dropai_token')
-      sessionStorage.removeItem('dropai_username')
-      sessionStorage.removeItem('dropai_role')
+      clearAuthSession()
       if (window.location.pathname !== '/login') window.location.href = '/login'
     }
     const serverMessage = error.response?.data?.message
@@ -126,8 +125,12 @@ export function register(data) {
   return request.post('/auth/register', data)
 }
 
-export function logout() {
-  return request.post('/auth/logout')
+export async function logout() {
+  try {
+    return await request.post('/auth/logout')
+  } finally {
+    clearAuthSession()
+  }
 }
 
 export function getPointAccount() {
@@ -638,14 +641,14 @@ export function validateDiagram(dsl) { return request.post('/diagram/validate', 
 export function renderDiagram(projectId, dsl, signal) { return request.post('/diagram/render', { projectId, dsl }, { timeout: 30000, signal }) }
 export function getDiagramHealth() { return request.get('/diagram/health') }
 export async function streamDiagramAssistant(data, { signal, onEvent } = {}) {
-  const token = sessionStorage.getItem('dropai_token')
+  const token = getAuthToken()
   const response = await fetch('/api/diagram/assistant/stream', {
     method: 'POST', signal,
     headers: { 'Content-Type': 'application/json;charset=UTF-8', Accept: 'text/event-stream', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     body: JSON.stringify(data)
   })
   if (response.status === 401) {
-    sessionStorage.removeItem('dropai_token')
+    clearAuthSession()
     if (window.location.pathname !== '/login') window.location.href = '/login'
     throw Object.assign(new Error('请先登录'), { code: 'UNAUTHORIZED' })
   }
