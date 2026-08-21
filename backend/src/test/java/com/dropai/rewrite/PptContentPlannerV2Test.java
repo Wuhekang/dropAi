@@ -97,6 +97,7 @@ class PptContentPlannerV2Test {
         var evidence=pages.stream().filter(p->p.candidateType().equals("IMAGE_EVIDENCE")).toList();
         assertEquals(input.assets().size(),evidence.size());
         assertEquals(evidence.size(),evidence.stream().map(p->p.sourceRefs().figureId()).distinct().count());
+        var sanitized=new com.dropai.rewrite.service.ppt.PptContentSanitizerV1().sanitize(result);pages=sanitized.chapters().stream().flatMap(c->c.candidatePages().stream()).toList();
         var outline=new com.dropai.rewrite.service.ppt.PptOutlinePlannerV1().plan(new com.dropai.rewrite.service.ppt.PptOutlinePlannerV1.OutlineRequest(pages,12));
         assertEquals(input.assets().size(),outline.slideTree().stream().filter(s->s.candidateType().equals("IMAGE_EVIDENCE")).count());
         var validated=new com.dropai.rewrite.service.ppt.PptOutlineValidatorV1().validate(new com.dropai.rewrite.service.ppt.PptOutlineValidatorV1.ValidationRequest(input.metadata(),outline));
