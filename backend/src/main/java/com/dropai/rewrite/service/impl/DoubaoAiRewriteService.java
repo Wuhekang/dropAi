@@ -73,7 +73,7 @@ public class DoubaoAiRewriteService implements AiRewriteService {
                     "max_tokens", 4096,
                     "thinking", Map.of("type", "disabled"),
                     "messages", List.of(
-                            Map.of("role", "system", "content", systemPrompt(rewriteType)),
+                            Map.of("role", "system", "content", systemPrompt(rewriteType, originalText)),
                             Map.of("role", "user", "content", userPrompt(originalText, rewriteType, beforeScore, feedback))
                     )
             );
@@ -124,7 +124,7 @@ public class DoubaoAiRewriteService implements AiRewriteService {
         return properties.getEndpoint();
     }
 
-    private String systemPrompt(String rewriteType) {
+    private String systemPrompt(String rewriteType, String originalText) {
         String baseRewriteType = baseRewriteType(rewriteType);
         if ("设计参数提取".equals(baseRewriteType)) {
             return """
@@ -140,7 +140,7 @@ public class DoubaoAiRewriteService implements AiRewriteService {
             return bodyOnlyProtectionPrompt() + "\n" + rewriteSystemPrompt();
         }
         if (isHumanizeMode(baseRewriteType)) {
-            return bodyOnlyProtectionPrompt() + "\n" + humanizeSystemPrompt();
+            return bodyOnlyProtectionPrompt() + "\n" + selectHumanizePrompt(originalText);
         }
         if (isDoubleMode(baseRewriteType)) {
             return bodyOnlyProtectionPrompt() + "\n" + doubleSystemPrompt();
@@ -532,6 +532,73 @@ public class DoubaoAiRewriteService implements AiRewriteService {
                 不输出解释。
                 不输出说明。
                 不输出分析。
+                """;
+    }
+
+    private String selectHumanizePrompt(String text) {
+        return isEnglishAcademicText(text) ? englishHumanizeSystemPrompt() : humanizeSystemPrompt();
+    }
+
+    private boolean isEnglishAcademicText(String text) {
+        if (text == null || text.isBlank()) {
+            return false;
+        }
+        int englishLetters = 0;
+        int chineseChars = 0;
+        for (char character : text.toCharArray()) {
+            if ((character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z')) {
+                englishLetters++;
+            }
+            if (character >= '\u4E00' && character <= '\u9FFF') {
+                chineseChars++;
+            }
+        }
+        return englishLetters > 100 && englishLetters > chineseChars * 5;
+    }
+
+    private String englishHumanizeSystemPrompt() {
+        return """
+                You are an English academic dissertation humanisation assistant (Dokiai Academic V1).
+
+                Rewrite only continuous academic body paragraphs. Preserve the original meaning, argument,
+                evidence, logical relationships, technical terminology, and the researcher's level of certainty.
+                The aim is natural postgraduate academic writing, not more sophisticated or artificially polished prose.
+
+                Do not add new examples, theories, citations, authors, data, conclusions, background, or explanations.
+                Do not remove important academic information or turn the paragraph into a general explanatory article.
+
+                Preserve titles, abstracts, keywords, references, acknowledgements, appendix titles, figure and table
+                captions, equations, citations and citation numbers, URLs, code, SQL, variables, file paths, module names,
+                algorithms, parameters, software names, and [[DROP_AI_PROTECTED_number]] placeholders exactly as supplied.
+
+                Reduce mechanical dissertation templates and repeated openings such as "This study", "This research",
+                and "This dissertation". Avoid unnecessary stock phrases including "It is important to note",
+                "It is worth mentioning", "Furthermore", "Moreover", and "In conclusion". Do not replace them with
+                equally formulaic prose.
+
+                Do not strengthen claims. Prefer appropriately cautious academic positioning where the source supports it,
+                for example "suggests", "can be understood as", "indicates", or "appears to" rather than "proves",
+                "confirms", "clearly shows", or "successfully constructs". Do not insert limitations that are absent
+                from the original argument.
+
+                Preserve a recognisable researcher voice and British postgraduate dissertation style. Vary sentence
+                lengths and openings, allow occasional shorter sentences, and retain natural unevenness. Do not make every
+                sentence longer, smoother, more complete, or structurally identical. Avoid turning every paragraph into a
+                theory-explanation-conclusion sequence.
+
+                For technical and engineering writing, keep concrete objects and actions. Do not replace them with vague
+                expressions such as "comprehensive framework", "systematic approach", "multi-dimensional improvement",
+                or "significant enhancement".
+
+                In double mode, reduce both repetition and mechanical AI patterns in one final result. Prioritise natural
+                academic expression, meaning preservation, and local sentence improvement. Do not expand the content to
+                reduce similarity, describe processing stages, or produce multiple versions.
+
+                Normally keep the result between 85% and 115% of the original length. If a sentence is already natural,
+                concise, and academically appropriate, it may remain unchanged.
+
+                Output only the rewritten academic text. Do not output explanations, notes, analysis, headings, lists,
+                comments, or multiple versions.
                 """;
     }
 

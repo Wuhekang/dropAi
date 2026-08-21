@@ -36,14 +36,33 @@ public final class AiRiskAnalyzeUtil {
             "登录", "查询", "新增", "删除", "修改", "审核", "统计", "导出"
     );
 
+    private static final List<String> EN_TEMPLATE_WORDS = Arrays.asList(
+            "this dissertation aims", "this study aims", "this paper aims", "the findings reveal",
+            "it is important to note", "it is worth noting", "it is worth mentioning",
+            "in conclusion", "overall", "these findings demonstrate", "this highlights the importance"
+    );
+
+    private static final List<String> EN_CONNECTORS = Arrays.asList(
+            "therefore", "moreover", "furthermore", "consequently", "in addition", "thus", "however"
+    );
+
+    private static final List<String> EN_REPEATED_OPENINGS = Arrays.asList(
+            "this study", "this research", "this dissertation"
+    );
+
     private AiRiskAnalyzeUtil() {
     }
 
     public static AiAnalyzeVO analyze(String text) {
         String safeText = text == null ? "" : text.trim();
-        List<String> sentences = sentences(safeText);
+        boolean englishText = isEnglishText(safeText);
+        List<String> sentences = englishText ? englishSentences(safeText) : sentences(safeText);
         int score = 8;
         List<String> suggestions = new ArrayList<>();
+
+        if (englishText) {
+            score += englishTemplateScore(safeText, sentences, suggestions);
+        }
 
         int regularityScore = sentenceRegularityScore(sentences);
         score += regularityScore;
@@ -187,9 +206,67 @@ public final class AiRiskAnalyzeUtil {
         return count;
     }
 
+    private static boolean isEnglishText(String text) {
+        int englishLetters = 0;
+        int chineseChars = 0;
+        for (char character : text.toCharArray()) {
+            if ((character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z')) {
+                englishLetters++;
+            }
+            if (character >= '\u4E00' && character <= '\u9FFF') {
+                chineseChars++;
+            }
+        }
+        return englishLetters > 100 && englishLetters > chineseChars * 5;
+    }
+
+    private static int englishTemplateScore(String text, List<String> sentences, List<String> suggestions) {
+        String lowerText = text.toLowerCase(java.util.Locale.ROOT);
+        int score = 0;
+        int templateHits = countHits(lowerText, EN_TEMPLATE_WORDS);
+        if (templateHits > 0) {
+            score += Math.min(24, templateHits * 5);
+            suggestions.add("Self-check: reduce stock English dissertation openings, conclusions, and certainty claims");
+        }
+
+        int connectorHits = countHits(lowerText, EN_CONNECTORS);
+        double connectorDensity = connectorHits * 1.0 / Math.max(1, sentences.size());
+        if (connectorHits >= 4 || connectorDensity >= 0.8) {
+            score += 16;
+            suggestions.add("Self-check: reduce the density of explicit English academic connectors");
+        } else if (connectorHits >= 2 || connectorDensity >= 0.5) {
+            score += 8;
+            suggestions.add("Self-check: vary or remove unnecessary English academic connectors");
+        }
+
+        int repeatedOpenings = 0;
+        for (String sentence : sentences) {
+            String lowerSentence = sentence.trim().toLowerCase(java.util.Locale.ROOT);
+            if (EN_REPEATED_OPENINGS.stream().anyMatch(lowerSentence::startsWith)) {
+                repeatedOpenings++;
+            }
+        }
+        if (repeatedOpenings >= 2) {
+            score += Math.min(18, repeatedOpenings * 5);
+            suggestions.add("Self-check: avoid repeatedly opening sentences with This study, This research, or This dissertation");
+        }
+        return score;
+    }
+
     private static List<String> sentences(String text) {
         List<String> sentences = new ArrayList<>();
         for (String sentence : text.split("[。！？!?；;\\n]+")) {
+            String trimmed = sentence.trim();
+            if (!trimmed.isEmpty()) {
+                sentences.add(trimmed);
+            }
+        }
+        return sentences;
+    }
+
+    private static List<String> englishSentences(String text) {
+        List<String> sentences = new ArrayList<>();
+        for (String sentence : text.split("(?<=[.!?;])\\s+|[\\n]+")) {
             String trimmed = sentence.trim();
             if (!trimmed.isEmpty()) {
                 sentences.add(trimmed);
