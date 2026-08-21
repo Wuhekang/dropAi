@@ -174,7 +174,7 @@ public class PptxGenerator {
     }
 
     private void content(XMLSlideShow deck,SlideSpec spec,int no)throws Exception{
-        XSLFSlide s=base(deck);title(s,spec.title(),no);List<String> boxes=spec.bodyBoxes();boolean picture=spec.assetPath()!=null&&Files.isRegularFile(spec.assetPath());boolean design=List.of("environment","visual").contains(activeTemplate.get().layoutVariant());double textW=picture?(design?350:390):800;int count=Math.max(1,boxes.size());double each=Math.min(92,280.0/count);
+        XSLFSlide s=base(deck);title(s,spec.title(),no);List<String> boxes=spec.bodyBoxes();boolean picture=spec.assetPath()!=null&&Files.isRegularFile(spec.assetPath());String variant=String.valueOf(activeTemplate.get().layoutVariant());boolean design=List.of("environment","visual").contains(variant);double textW=picture?(design?350:390):800;int count=Math.max(1,boxes.size());double each=Math.min(92,280.0/count);
         for(int i=0;i<boxes.size();i++){double y=135+i*(each+15);shape(s,70,y,textW,each,pale());text(s,boxes.get(i),90,y+20,textW-40,each-24,20,i==0,ink());}
         if(picture)addPicture(s,spec.assetPath(),design?455:500,design?110:125,design?440:390,design?340:300);
         if("business".equals(activeTemplate.get().layoutVariant()))shape(s,50,135,5,300,secondary());
