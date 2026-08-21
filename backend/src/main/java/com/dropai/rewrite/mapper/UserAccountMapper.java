@@ -26,6 +26,15 @@ public interface UserAccountMapper extends BaseMapper<UserAccount> {
 
     @Update("""
             UPDATE user_account
+            SET points = points + #{points},
+                used_points = CASE WHEN used_points >= #{points} THEN used_points - #{points} ELSE 0 END,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = #{userId}
+            """)
+    int refundPoints(@Param("userId") Long userId, @Param("points") int points);
+
+    @Update("""
+            UPDATE user_account
             SET last_notice_time = CURRENT_TIMESTAMP,
                 notice_read_id = #{noticeId},
                 updated_at = CURRENT_TIMESTAMP

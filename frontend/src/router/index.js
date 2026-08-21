@@ -17,13 +17,13 @@ import WritingExportV2 from '../views/WritingExportV2/index.vue'
 import WritingMaterialsV2 from '../views/WritingMaterialsV2/index.vue'
 import PptGenerator from '../views/PptGenerator/index.vue'
 import SchoolStatistics from '../views/SchoolStatistics/index.vue'
-import SchoolAdmin from '../views/SchoolAdmin/index.vue'
+import DiagramStudio from '../views/Diagram/index.vue'
 
 const router = createRouter({
   history: createWebHistory(),
   routes: [
     {
-      path: '/school-admin', name: 'SchoolAdmin', component: SchoolAdmin
+      path: '/school-admin', name: 'SchoolAdmin', redirect: '/points-admin?tab=schools'
     },
     {
       path: '/school-statistics', name: 'SchoolStatistics', component: SchoolStatistics
@@ -98,6 +98,9 @@ const router = createRouter({
       path: '/writing-generator/export',
       name: 'WritingExportV2',
       component: WritingExportV2
+    },
+    {
+      path: '/drawing', name: 'DiagramStudio', component: DiagramStudio
     },
     {
       path: '/points-admin',
