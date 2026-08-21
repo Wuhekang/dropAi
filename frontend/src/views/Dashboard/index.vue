@@ -309,8 +309,8 @@ onMounted(() => {
   --muted: #758096;
   display: grid;
   grid-template-columns: 245px minmax(0, 1fr);
-  gap: clamp(24px, 2vw, 38px);
-  width: min(1780px, calc(100% - clamp(28px, 3vw, 64px)));
+  gap: clamp(22px, 1.5vw, 30px);
+  width: min(1860px, calc(100% - clamp(20px, 2vw, 40px)));
   margin: auto;
   padding: 20px 0 55px;
   color: var(--ink);
@@ -543,7 +543,7 @@ button { font: inherit; }
   align-items: flex-end;
   justify-content: space-between;
   gap: 25px;
-  padding: 28px 8px 24px;
+  padding: 25px 5px 22px;
 }
 
 .topbar > div > span,
@@ -690,7 +690,7 @@ button { font: inherit; }
   z-index: 1;
   display: grid !important;
   grid-template-columns: repeat(4, 1fr);
-  gap: clamp(13px, 1.15vw, 22px);
+  gap: clamp(13px, .9vw, 17px);
 }
 
 .start-card {
@@ -699,8 +699,8 @@ button { font: inherit; }
   grid-template-columns: 54px 1fr auto;
   gap: 13px;
   align-items: center;
-  min-height: 118px;
-  padding: clamp(17px, 1.25vw, 23px);
+  min-height: 112px;
+  padding: 17px;
   border: 1px solid #e5e2ef;
   border-radius: 18px;
   background: linear-gradient(145deg, #fff, #fbfaff);
@@ -738,10 +738,10 @@ button { font: inherit; }
   position: relative;
   overflow: hidden;
   display: grid !important;
-  grid-template-columns: minmax(0, 1fr) minmax(310px, 380px) auto;
-  gap: clamp(22px, 2vw, 36px);
+  grid-template-columns: minmax(0, 1fr) 310px auto;
+  gap: 22px;
   align-items: center;
-  padding: clamp(20px, 1.6vw, 28px);
+  padding: 20px;
   border: 1px solid #ded9ef;
   border-radius: 19px;
   background: linear-gradient(135deg, #fff, #f8f5ff 65%, #fff7fb);
@@ -937,16 +937,6 @@ button { font: inherit; }
   .user-menu { position: static; margin-top: 10px; }
   .start-grid { grid-template-columns: repeat(2, 1fr); }
   .continue-card { grid-template-columns: 1fr; }
-}
-
-@media (min-width: 1600px) {
-  .quick-start,
-  .continue-panel,
-  .recent-panel { padding: 30px; }
-  .topbar h1 { font-size: 42px; }
-  .start-card { grid-template-columns: 60px 1fr auto; }
-  .start-card b { width: 60px; height: 60px; }
-  .recent-list article { padding: 17px 18px; }
 }
 
 @media (max-width: 720px) {

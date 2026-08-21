@@ -534,7 +534,7 @@ button {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  width: min(1580px, calc(100% - clamp(40px, 5vw, 96px)));
+  width: min(1780px, calc(100% - clamp(28px, 3vw, 56px)));
   height: 72px;
   margin: 0 auto;
   gap: 24px;
@@ -662,11 +662,11 @@ button {
 
 .hero-inner {
   display: grid;
-  grid-template-columns: minmax(520px, 0.94fr) minmax(600px, 1.06fr);
+  grid-template-columns: minmax(0, 0.94fr) minmax(520px, 1.06fr);
   align-items: center;
-  width: min(1580px, calc(100% - clamp(40px, 5vw, 96px)));
+  width: min(1780px, calc(100% - clamp(28px, 3vw, 56px)));
   margin: 0 auto;
-  gap: clamp(48px, 5vw, 88px);
+  gap: clamp(38px, 3vw, 58px);
 }
 
 .eyebrow {
@@ -1141,7 +1141,7 @@ button {
 .section {
   position: relative;
   z-index: 1;
-  width: min(1580px, calc(100% - clamp(40px, 5vw, 96px)));
+  width: min(1780px, calc(100% - clamp(28px, 3vw, 56px)));
   margin: 0 auto;
 }
 
@@ -1173,15 +1173,15 @@ button {
 .creation-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: clamp(14px, 1.25vw, 22px);
+  gap: clamp(13px, 1vw, 18px);
 }
 
 .creation-card {
   position: relative;
   display: grid;
   justify-items: center;
-  min-height: 196px;
-  padding: 22px clamp(18px, 1.5vw, 28px);
+  min-height: 188px;
+  padding: 19px 18px;
   overflow: hidden;
   border: 1px solid rgba(109, 93, 251, 0.13);
   border-radius: 18px;
@@ -1483,11 +1483,11 @@ button {
   position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto 250px;
-  gap: clamp(36px, 4vw, 72px);
+  gap: clamp(34px, 3vw, 52px);
   align-items: center;
   min-height: 120px;
   margin-top: 0;
-  padding: 30px clamp(34px, 4vw, 68px);
+  padding: 25px clamp(32px, 3vw, 52px);
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.24);
   border-radius: 18px;
@@ -1621,7 +1621,7 @@ button {
   z-index: 1;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  width: min(1580px, calc(100% - clamp(40px, 5vw, 96px)));
+  width: min(1780px, calc(100% - clamp(28px, 3vw, 56px)));
   margin: 14px auto 28px;
   border: 1px solid rgba(109, 93, 251, 0.12);
   border-radius: 18px;
