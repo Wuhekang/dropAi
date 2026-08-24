@@ -12,6 +12,8 @@ import com.dropai.rewrite.entity.UserPointsLog;
 import com.dropai.rewrite.mapper.PointTransactionMapper;
 import com.dropai.rewrite.mapper.RechargeOrderMapper;
 import com.dropai.rewrite.mapper.UserAccountMapper;
+import com.dropai.rewrite.mapper.SchoolMapper;
+import com.dropai.rewrite.entity.School;
 import com.dropai.rewrite.mapper.UserPointsLogMapper;
 import com.dropai.rewrite.vo.RechargeOrderVO;
 import com.dropai.rewrite.vo.RechargePlanVO;
@@ -21,6 +23,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Comparator;
@@ -39,18 +42,20 @@ public class RechargeService {
 
     private final RechargeOrderMapper orderMapper;
     private final UserAccountMapper userMapper;
+    private final SchoolMapper schoolMapper;
     private final UserPointsLogMapper pointsLogMapper;
     private final PointTransactionMapper transactionMapper;
     private final EpayService epayService;
     private final RechargeReconciliationAuditService reconciliationAudit;
 
     public RechargeService(RechargeOrderMapper orderMapper,
-                           UserAccountMapper userMapper,
+                           UserAccountMapper userMapper, SchoolMapper schoolMapper,
                            UserPointsLogMapper pointsLogMapper,
                            PointTransactionMapper transactionMapper,
                            EpayService epayService, RechargeReconciliationAuditService reconciliationAudit) {
         this.orderMapper = orderMapper;
         this.userMapper = userMapper;
+        this.schoolMapper = schoolMapper;
         this.pointsLogMapper = pointsLogMapper;
         this.transactionMapper = transactionMapper;
         this.epayService = epayService;
@@ -70,15 +75,18 @@ public class RechargeService {
         if (dto.getUserId() != null && !dto.getUserId().equals(userId)) {
             throw new IllegalArgumentException("不能为其他用户创建充值订单");
         }
-        BigDecimal amount = validateAmount(dto.getAmount());
-        int points = amount.intValueExact() * 10;
         UserAccount user = userMapper.selectById(userId);
         if (user == null) throw new IllegalArgumentException("用户不存在");
+        boolean schoolAccount = "SCHOOL_VIEWER".equalsIgnoreCase(user.getRole());
+        BigDecimal schoolPrice=schoolAccount?schoolRechargePrice(user):null;
+        BigDecimal amount = schoolAccount ? validateSchoolAmount(dto.getAmount(),schoolPrice) : validateAmount(dto.getAmount());
+        int points = calculateRechargePoints(amount, schoolPrice);
         RechargeOrder order = new RechargeOrder();
         order.setUserId(userId);
         order.setSchoolId(user.getSchoolId() == null ? 0L : user.getSchoolId());
         order.setOrderNo("R" + System.currentTimeMillis() + UUID.randomUUID().toString().replace("-", "").substring(0, 4).toUpperCase());
         order.setAmount(amount);
+        order.setRechargePricePer10(schoolPrice);
         order.setPoints(points);
         order.setStatus("pending");
         order.setPayMethod(normalizePayMethod(dto.getPayMethod()));
@@ -174,7 +182,7 @@ public class RechargeService {
         String money = trim(params.get("money"));
         if (money == null) money = trim(params.get("total_fee"));
         boolean amountMatches = money != null && parseAmount(money).compareTo(order.getAmount()) == 0;
-        if (!amountMatches || order.getPoints() == null || order.getPoints() != order.getAmount().intValueExact() * 10) {
+        if (!amountMatches || !pointsMatchAccountRate(order)) {
             log.warn("EPAY notify rejected orderNo={}, amountMatches={}, originalStatus={}", orderNo, amountMatches, originalStatus);
             return "fail";
         }
@@ -204,7 +212,7 @@ public class RechargeService {
             EpayService.PaymentQuery payment = epayService.queryPaidOrder(order.getOrderNo());
             if (payment.money().compareTo(order.getAmount()) != 0) throw new IllegalStateException("支付平台金额与本地订单不一致");
             if (!"paid".equalsIgnoreCase(order.getStatus()) && !"approved".equalsIgnoreCase(order.getStatus())) {
-                if (order.getPoints() == null || order.getPoints() != order.getAmount().intValueExact() * 10)
+                if (!pointsMatchAccountRate(order))
                     throw new IllegalStateException("本地订单积分计算不一致");
                 if (orderMapper.claimPending(order.getId()) != 1) throw new IllegalStateException("订单正在处理或状态不可补单");
                 Long transactionId = creditPoints(order);
@@ -296,6 +304,28 @@ public class RechargeService {
         if (normalized.compareTo(BigDecimal.valueOf(1000)) > 0) throw new IllegalArgumentException("充值金额不能超过1000元");
         return normalized.setScale(2);
     }
+
+    public BigDecimal validateSchoolAmount(BigDecimal amount) { return validateSchoolAmount(amount,new BigDecimal("0.30")); }
+    public BigDecimal validateSchoolAmount(BigDecimal amount,BigDecimal pricePer10) {
+        if (amount == null) throw new IllegalArgumentException("充值金额不能为空");
+        if (amount.scale() > 2) throw new IllegalArgumentException("充值金额最多保留两位小数");
+        if (amount.compareTo(pricePer10) < 0) throw new IllegalArgumentException("学校充值金额不能少于每10积分价格");
+        if (amount.compareTo(BigDecimal.valueOf(100000)) > 0) throw new IllegalArgumentException("学校充值金额不能超过100000元");
+        return amount.setScale(2, RoundingMode.UNNECESSARY);
+    }
+
+    public int calculateRechargePoints(BigDecimal amount, boolean schoolAccount) { return calculateRechargePoints(amount,schoolAccount?new BigDecimal("0.30"):null); }
+    public int calculateRechargePoints(BigDecimal amount, BigDecimal pricePer10) {
+        if (pricePer10==null) return amount.intValueExact() * 10;
+        return amount.multiply(BigDecimal.TEN).divide(pricePer10, 0, RoundingMode.DOWN).intValueExact();
+    }
+
+    private boolean pointsMatchAccountRate(RechargeOrder order) {
+        if (order.getPoints() == null || order.getAmount() == null) return false;
+        return order.getPoints() == calculateRechargePoints(order.getAmount(),order.getRechargePricePer10());
+    }
+
+    private BigDecimal schoolRechargePrice(UserAccount user){School school=user.getSchoolId()==null?null:schoolMapper.selectById(user.getSchoolId());if(school==null||!Boolean.TRUE.equals(school.getEnabled()))throw new IllegalStateException("学校不存在或已停用");return school.getRechargePricePer10()==null?new BigDecimal("0.30"):school.getRechargePricePer10();}
 
     private String normalizeLast4(String value) {
         String trimmed = trim(value);

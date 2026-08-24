@@ -13,4 +13,6 @@ public class SchoolController {
  @PostMapping("/api/admin/schools/{id}/viewers") public Result<Map<String,Object>> viewer(@PathVariable Long id,@RequestBody SchoolService.ViewerInput in){return Result.success(service.createViewer(id,in));}
  @PutMapping("/api/admin/school-viewers/{id}") public Result<Void> viewerUpdate(@PathVariable Long id,@RequestBody SchoolService.ViewerUpdate in){service.updateViewer(id,in);return Result.success(null);}
  @GetMapping("/api/school-viewer/statistics") public Result<Map<String,Object>> stats(@RequestParam(defaultValue="30d") String range){return Result.success(service.viewerStats(range));}
+ @GetMapping("/api/school-viewer/students") public Result<List<Map<String,Object>>> students(){return Result.success(service.students());}
+ @PostMapping("/api/school-viewer/students/{id}/gift") public Result<Map<String,Object>> gift(@PathVariable Long id,@RequestBody SchoolService.GiftInput in){return Result.success(service.gift(id,in));}
 }

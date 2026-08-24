@@ -22,7 +22,7 @@ class RechargeNotifySecurityTest {
         when(epay.verifyNotify(anyMap())).thenReturn(true); when(orders.selectOne(any())).thenReturn(order);
         when(orders.claimPending(1L)).thenReturn(1); UserAccount before=user(0),after=user(100);
         when(users.selectById(7L)).thenReturn(before,after);
-        RechargeService service=new RechargeService(orders,users,logs,transactions,epay,mock(RechargeReconciliationAuditService.class));
+        RechargeService service=new RechargeService(orders,users,mock(com.dropai.rewrite.mapper.SchoolMapper.class),logs,transactions,epay,mock(RechargeReconciliationAuditService.class));
         assertEquals("success",service.handleNotify(params("10.00"),"127.0.0.1"));
         verify(users,times(1)).addPoints(7L,100); verify(transactions,times(1)).insert(any(com.dropai.rewrite.entity.PointTransaction.class));
         assertEquals("paid",order.getStatus()); assertEquals("T123",order.getThirdPartyTradeNo());
@@ -31,7 +31,7 @@ class RechargeNotifySecurityTest {
     @Test void paidDuplicateAndForgedAmountNeverCredit() {
         RechargeOrderMapper orders=mock(RechargeOrderMapper.class); UserAccountMapper users=mock(UserAccountMapper.class);
         EpayService epay=mock(EpayService.class); when(epay.verifyNotify(anyMap())).thenReturn(true);
-        RechargeService service=new RechargeService(orders,users,mock(UserPointsLogMapper.class),mock(PointTransactionMapper.class),epay,mock(RechargeReconciliationAuditService.class));
+        RechargeService service=new RechargeService(orders,users,mock(com.dropai.rewrite.mapper.SchoolMapper.class),mock(UserPointsLogMapper.class),mock(PointTransactionMapper.class),epay,mock(RechargeReconciliationAuditService.class));
         when(orders.selectOne(any())).thenReturn(order("paid"));
         assertEquals("success",service.handleNotify(params("10.00"),"test")); verify(users,never()).addPoints(anyLong(),anyInt());
         when(orders.selectOne(any())).thenReturn(order("pending"));

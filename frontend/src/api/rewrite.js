@@ -184,6 +184,7 @@ export function getAdminRechargeOrders() {
 export function adjustAdminUserPoints(userId, data) {
   return request.post(`/admin/users/${userId}/points-adjust`, data)
 }
+export function getAdminFinancialSummary(month){return request.get('/admin/users/financial-summary',{params:{month}})}
 export function getSchools(){return request.get('/admin/schools')}
 export function createSchool(data){return request.post('/admin/schools',data)}
 export function updateSchool(id,data){return request.put(`/admin/schools/${id}`,data)}
@@ -191,6 +192,8 @@ export function setSchoolEnabled(id,enabled){return request.put(`/admin/schools/
 export function createSchoolViewer(id,data){return request.post(`/admin/schools/${id}/viewers`,data)}
 export function updateSchoolViewer(id,data){return request.put(`/admin/school-viewers/${id}`,data)}
 export function getSchoolViewerStatistics(range='30d'){return request.get('/school-viewer/statistics',{params:{range}})}
+export function getSchoolStudents(){return request.get('/school-viewer/students')}
+export function giftSchoolStudentPoints(id,points){return request.post(`/school-viewer/students/${id}/gift`,{points})}
 
 export function mockPayRechargeOrder(orderNo) {
   return request.post(`/recharge/orders/${orderNo}/mock-pay`)

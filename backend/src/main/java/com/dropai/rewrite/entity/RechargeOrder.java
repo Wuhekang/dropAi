@@ -15,6 +15,7 @@ public class RechargeOrder {
     private Long schoolId;
     private String orderNo;
     private BigDecimal amount;
+    private BigDecimal rechargePricePer10;
     private Integer points;
     private String status;
     private String payMethod;
@@ -41,6 +42,8 @@ public class RechargeOrder {
     public void setOrderNo(String orderNo) { this.orderNo = orderNo; }
     public BigDecimal getAmount() { return amount; }
     public void setAmount(BigDecimal amount) { this.amount = amount; }
+    public BigDecimal getRechargePricePer10() { return rechargePricePer10; }
+    public void setRechargePricePer10(BigDecimal rechargePricePer10) { this.rechargePricePer10 = rechargePricePer10; }
     public Integer getPoints() { return points; }
     public void setPoints(Integer points) { this.points = points; }
     public String getStatus() { return status; }

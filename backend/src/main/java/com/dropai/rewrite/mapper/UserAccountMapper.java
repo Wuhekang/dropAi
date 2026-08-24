@@ -17,6 +17,15 @@ public interface UserAccountMapper extends BaseMapper<UserAccount> {
 
     @Update("""
             UPDATE user_account
+            SET points = points - #{points},
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = #{userId}
+              AND points >= #{points}
+            """)
+    int transferOutPoints(@Param("userId") Long userId, @Param("points") int points);
+
+    @Update("""
+            UPDATE user_account
             SET points = points + #{points},
                 total_points = total_points + #{points},
                 updated_at = CURRENT_TIMESTAMP

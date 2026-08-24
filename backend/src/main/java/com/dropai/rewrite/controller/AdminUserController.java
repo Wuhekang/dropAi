@@ -15,8 +15,12 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.jdbc.core.JdbcTemplate;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
+import java.time.format.DateTimeParseException;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -28,13 +32,41 @@ public class AdminUserController {
     private final PointTransactionMapper transactionMapper;
     private final RechargeOrderMapper orderMapper;
     private final SchoolMapper schoolMapper;
+    private final JdbcTemplate jdbc;
 
     public AdminUserController(UserAccountMapper userMapper, PointTransactionMapper transactionMapper,
-                               RechargeOrderMapper orderMapper, SchoolMapper schoolMapper) {
+                               RechargeOrderMapper orderMapper, SchoolMapper schoolMapper, JdbcTemplate jdbc) {
         this.userMapper = userMapper;
         this.transactionMapper = transactionMapper;
         this.orderMapper = orderMapper;
         this.schoolMapper = schoolMapper;
+        this.jdbc = jdbc;
+    }
+
+    @GetMapping("/financial-summary")
+    public Result<Map<String, Object>> financialSummary(@RequestParam(required = false) String month) {
+        requireAdmin();
+        YearMonth selected;
+        try { selected = month == null || month.isBlank() ? YearMonth.now() : YearMonth.parse(month); }
+        catch (DateTimeParseException ex) { throw new IllegalArgumentException("月份格式必须为 YYYY-MM"); }
+        LocalDateTime from=selected.atDay(1).atStartOfDay(),to=selected.plusMonths(1).atDay(1).atStartOfDay();
+        BigDecimal userRecharge = money("SELECT COALESCE(SUM(COALESCE(o.pay_amount,o.amount)),0) FROM recharge_order o JOIN user_account u ON u.id=o.user_id WHERE UPPER(u.role)='USER' AND o.status IN ('paid','approved') AND o.paid_at>=? AND o.paid_at<?",from,to);
+        BigDecimal schoolRecharge = money("SELECT COALESCE(SUM(COALESCE(o.pay_amount,o.amount)),0) FROM recharge_order o JOIN user_account u ON u.id=o.user_id WHERE UPPER(u.role)='SCHOOL_VIEWER' AND o.status IN ('paid','approved') AND o.paid_at>=? AND o.paid_at<?",from,to);
+        Long rechargePoints = count("SELECT COALESCE(SUM(o.points),0) FROM recharge_order o WHERE o.status IN ('paid','approved') AND o.paid_at>=? AND o.paid_at<?",from,to);
+        Long addedPoints = count("SELECT COALESCE(SUM(CASE WHEN points_change>0 THEN points_change ELSE 0 END),0) FROM point_transactions WHERE feature_code='ADMIN_ADJUSTMENT' AND created_at>=? AND created_at<?",from,to);
+        Long deductedPoints = count("SELECT COALESCE(SUM(CASE WHEN points_change<0 THEN -points_change ELSE 0 END),0) FROM point_transactions WHERE feature_code='ADMIN_ADJUSTMENT' AND created_at>=? AND created_at<?",from,to);
+        BigDecimal addedValue = BigDecimal.valueOf(addedPoints).multiply(new BigDecimal("0.03"));
+        BigDecimal deductedValue = BigDecimal.valueOf(deductedPoints).multiply(new BigDecimal("0.10"));
+        BigDecimal actualReceipts = userRecharge.add(schoolRecharge);
+        long operationPointsTotal=rechargePoints+addedPoints-deductedPoints;
+        Map<String,Object> out=new LinkedHashMap<>();
+        out.put("month",selected.toString());
+        out.put("userRechargeAmount",userRecharge);out.put("schoolRechargeAmount",schoolRecharge);
+        out.put("rechargePoints",rechargePoints);out.put("operationPointsTotal",operationPointsTotal);
+        out.put("adminAddedPoints",addedPoints);out.put("adminAddedValue",addedValue);
+        out.put("adminDeductedPoints",deductedPoints);out.put("adminDeductedValue",deductedValue);
+        out.put("actualReceipts",actualReceipts);out.put("adjustedStatisticalValue",actualReceipts.add(addedValue).subtract(deductedValue));
+        return Result.success(out);
     }
 
     @GetMapping("/orders")
@@ -124,6 +156,9 @@ public class AdminUserController {
         if (user == null) throw new IllegalArgumentException("用户不存在");
         return user;
     }
+
+    private BigDecimal money(String sql,Object... args) { return jdbc.queryForObject(sql, BigDecimal.class,args); }
+    private Long count(String sql,Object... args) { return jdbc.queryForObject(sql, Long.class,args); }
 
     private Map<String, Object> userView(UserAccount user) {
         Map<String, Object> view = new LinkedHashMap<>();
