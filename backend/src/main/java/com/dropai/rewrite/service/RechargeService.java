@@ -35,9 +35,9 @@ import java.util.UUID;
 public class RechargeService {
     private static final Logger log = LoggerFactory.getLogger(RechargeService.class);
     private static final Map<String, Plan> PLANS = Map.of(
-            "PLAN_10", new Plan("PLAN_10", 10, 20, false),
-            "PLAN_20", new Plan("PLAN_20", 20, 40, true),
-            "PLAN_100", new Plan("PLAN_100", 100, 200, false)
+            "PLAN_10", new Plan("PLAN_10", 10, 50, false),
+            "PLAN_20", new Plan("PLAN_20", 20, 100, true),
+            "PLAN_100", new Plan("PLAN_100", 100, 500, false)
     );
 
     private final RechargeOrderMapper orderMapper;
@@ -316,7 +316,7 @@ public class RechargeService {
 
     public int calculateRechargePoints(BigDecimal amount, boolean schoolAccount) { return calculateRechargePoints(amount,schoolAccount?new BigDecimal("0.30"):null); }
     public int calculateRechargePoints(BigDecimal amount, BigDecimal pricePer10) {
-        if (pricePer10==null) return amount.intValueExact() * 2;
+        if (pricePer10==null) return amount.intValueExact() * 5;
         return amount.multiply(BigDecimal.TEN).divide(pricePer10, 0, RoundingMode.DOWN).intValueExact();
     }
 

@@ -35,7 +35,7 @@ class RechargeAmountRuleTest {
         assertThrows(IllegalArgumentException.class, () -> recharge.validateSchoolAmount(new BigDecimal("1.001")));
     }
 
-    @Test void ordinaryUsersRechargeAtFiveYuanPerTenPoints() {
-        assertEquals(20, service().calculateRechargePoints(new BigDecimal("10.00"), false));
+    @Test void ordinaryUsersRechargeAtTwoYuanPerTenPoints() {
+        assertEquals(50, service().calculateRechargePoints(new BigDecimal("10.00"), false));
     }
 }

@@ -20,11 +20,11 @@ class RechargeNotifySecurityTest {
         UserPointsLogMapper logs=mock(UserPointsLogMapper.class); PointTransactionMapper transactions=mock(PointTransactionMapper.class);
         EpayService epay=mock(EpayService.class); RechargeOrder order=order("pending");
         when(epay.verifyNotify(anyMap())).thenReturn(true); when(orders.selectOne(any())).thenReturn(order);
-        when(orders.claimPending(1L)).thenReturn(1); UserAccount before=user(0),after=user(20);
+        when(orders.claimPending(1L)).thenReturn(1); UserAccount before=user(0),after=user(50);
         when(users.selectById(7L)).thenReturn(before,after);
         RechargeService service=new RechargeService(orders,users,mock(com.dropai.rewrite.mapper.SchoolMapper.class),logs,transactions,epay,mock(RechargeReconciliationAuditService.class));
         assertEquals("success",service.handleNotify(params("10.00"),"127.0.0.1"));
-        verify(users,times(1)).addPoints(7L,20); verify(transactions,times(1)).insert(any(com.dropai.rewrite.entity.PointTransaction.class));
+        verify(users,times(1)).addPoints(7L,50); verify(transactions,times(1)).insert(any(com.dropai.rewrite.entity.PointTransaction.class));
         assertEquals("paid",order.getStatus()); assertEquals("T123",order.getThirdPartyTradeNo());
     }
 
@@ -38,7 +38,7 @@ class RechargeNotifySecurityTest {
         assertEquals("fail",service.handleNotify(params("9.99"),"test")); verify(users,never()).addPoints(anyLong(),anyInt());
     }
 
-    private RechargeOrder order(String status){RechargeOrder o=new RechargeOrder();o.setId(1L);o.setUserId(7L);o.setOrderNo("R1");o.setAmount(new BigDecimal("10.00"));o.setPoints(20);o.setStatus(status);return o;}
+    private RechargeOrder order(String status){RechargeOrder o=new RechargeOrder();o.setId(1L);o.setUserId(7L);o.setOrderNo("R1");o.setAmount(new BigDecimal("10.00"));o.setPoints(50);o.setStatus(status);return o;}
     private UserAccount user(int points){UserAccount u=new UserAccount();u.setId(7L);u.setPoints(points);return u;}
     private Map<String,String> params(String money){Map<String,String> p=new HashMap<>();p.put("pid","1000");p.put("out_trade_no","R1");p.put("trade_no","T123");p.put("trade_status","TRADE_SUCCESS");p.put("money",money);p.put("sign","valid");return p;}
 }
