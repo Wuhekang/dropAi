@@ -14,8 +14,9 @@ public class DiagramAssistantProperties {
     private String apiKey=""; private String endpoint="https://ark.cn-beijing.volces.com/api/v3/chat/completions";
     private boolean stream=true; private double temperature=.1; private Duration connectTimeout=Duration.ofSeconds(5);
     private Duration firstByteTimeout=Duration.ofSeconds(20); private Duration readIdleTimeout=Duration.ofSeconds(20); private Duration hardLimit=Duration.ofSeconds(90);
-    private int defaultTokens=1800; private double sqlInferenceConfidenceThreshold=.85;
-    private Map<DiagramType,Integer> tokens=new EnumMap<>(Map.of(DiagramType.FLOWCHART,1800,DiagramType.FUNCTION_MODULE,1800,DiagramType.ER_DIAGRAM,2600,DiagramType.ARCHITECTURE,2600,DiagramType.USE_CASE,2000,DiagramType.BLOCK_DIAGRAM,2000,DiagramType.SEQUENCE_DIAGRAM,2600));
+    private int defaultTokens=4096; private double sqlInferenceConfidenceThreshold=.85;
+    private int summaryMaxChars=100; private int sourceMaxChars=50000;
+    private Map<DiagramType,Integer> tokens=new EnumMap<>(Map.of(DiagramType.FLOWCHART,4096,DiagramType.FUNCTION_MODULE,4096,DiagramType.ER_DIAGRAM,6144,DiagramType.ARCHITECTURE,4096,DiagramType.USE_CASE,4096,DiagramType.BLOCK_DIAGRAM,4096,DiagramType.SEQUENCE_DIAGRAM,4096));
     public int tokensFor(DiagramType type){return tokens.getOrDefault(type,defaultTokens);}
     public String getProvider(){return provider;} public void setProvider(String v){provider=v;} public String getModel(){return model;} public void setModel(String v){model=v;}
     public String getApiKey(){return apiKey;} public void setApiKey(String v){apiKey=v;} public String getEndpoint(){return endpoint;} public void setEndpoint(String v){endpoint=v;}
@@ -24,4 +25,6 @@ public class DiagramAssistantProperties {
     public Duration getReadIdleTimeout(){return readIdleTimeout;} public void setReadIdleTimeout(Duration v){readIdleTimeout=v;} public Duration getHardLimit(){return hardLimit;} public void setHardLimit(Duration v){hardLimit=v;}
     public int getDefaultTokens(){return defaultTokens;} public void setDefaultTokens(int v){defaultTokens=v;} public Map<DiagramType,Integer> getTokens(){return tokens;} public void setTokens(Map<DiagramType,Integer> v){tokens=v;}
     public double getSqlInferenceConfidenceThreshold(){return sqlInferenceConfidenceThreshold;} public void setSqlInferenceConfidenceThreshold(double v){sqlInferenceConfidenceThreshold=v;}
+    public int getSummaryMaxChars(){return summaryMaxChars;} public void setSummaryMaxChars(int v){summaryMaxChars=v;}
+    public int getSourceMaxChars(){return sourceMaxChars;} public void setSourceMaxChars(int v){sourceMaxChars=v;}
 }

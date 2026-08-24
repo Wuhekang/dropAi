@@ -29,6 +29,21 @@ class DiagramAssistantServiceTest {
         assertEquals("DIAGRAM_RELATION_INVALID",error.code());
     }
 
+    @Test void flowchartDecisionWithMoreThanTwoBranchesIsRejected() {
+        var ir=new FlowchartIr("1.0",DiagramType.FLOWCHART,"光照等级判定流程",
+                List.of(new FlowNode("N1",FlowNodeKind.START,"开始"),new FlowNode("N2",FlowNodeKind.DECISION,"光照等级判定"),
+                        new FlowNode("N3",FlowNodeKind.PROCESS,"调高PWM"),new FlowNode("N4",FlowNodeKind.PROCESS,"小幅提高PWM"),
+                        new FlowNode("N5",FlowNodeKind.PROCESS,"微调PWM"),new FlowNode("N6",FlowNodeKind.PROCESS,"关闭LED"),
+                        new FlowNode("N7",FlowNodeKind.END,"结束")),
+                List.of(new Edge("E1","N1","N2","normal","",1),new Edge("E2","N2","N3","normal","明显不足",2),
+                        new Edge("E3","N2","N4","normal","不足",3),new Edge("E4","N2","N5","normal","接近目标",4),
+                        new Edge("E5","N2","N6","normal","充足",5),new Edge("E6","N3","N7","normal","",6),
+                        new Edge("E7","N4","N7","normal","",7),new Edge("E8","N5","N7","normal","",8),
+                        new Edge("E9","N6","N7","normal","",9)),List.of());
+        var error=assertThrows(DiagramGenerationException.class,()->new DiagramRuleEngine().normalize(ir));
+        assertTrue(error.getMessage().contains("最多只能有两个分支"));
+    }
+
     @Test void sqlRelationsAreResolvedLocallyIncludingUniqueAndCompositeKeys() {
         String sql="""
                 CREATE TABLE users (id BIGINT PRIMARY KEY, name VARCHAR(64) NOT NULL);

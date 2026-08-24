@@ -15,6 +15,22 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.jupiter.api.Assertions.*;
 
 class DoubaoDiagramClientTest {
+    @Test void summarizesLongSourceToHardCharacterLimitBeforeDiagramGeneration() throws Exception {
+        AtomicReference<String> requestBody=new AtomicReference<>();
+        HttpServer server=HttpServer.create(new InetSocketAddress("127.0.0.1",0),0);
+        String longSummary="这是一个超过限制的绘图摘要，用于确认服务端不会信任模型长度，而会在进入图形生成前执行确定性的最终截断。";
+        server.createContext("/chat",exchange->{requestBody.set(new String(exchange.getRequestBody().readAllBytes(),StandardCharsets.UTF_8));String content=new ObjectMapper().writeValueAsString(java.util.Map.of("summary",longSummary));byte[] body=new ObjectMapper().writeValueAsBytes(java.util.Map.of("choices",java.util.List.of(java.util.Map.of("message",java.util.Map.of("content",content)))));exchange.getResponseHeaders().set("Content-Type","application/json");exchange.sendResponseHeaders(200,body.length);exchange.getResponseBody().write(body);exchange.close();});server.start();
+        try{
+            DiagramAssistantProperties p=new DiagramAssistantProperties();p.setApiKey("secret-test-key");p.setEndpoint("http://127.0.0.1:"+server.getAddress().getPort()+"/chat");p.setHardLimit(Duration.ofSeconds(3));
+            var result=new DoubaoDiagramClient(p,new ObjectMapper()).summarize("一段很长的原始业务说明",20);
+            assertEquals(20,result.summary().length());
+            var json=new ObjectMapper().readTree(requestBody.get());
+            assertFalse(json.path("stream").asBoolean());
+            assertEquals(256,json.path("max_completion_tokens").asInt());
+            assertFalse(requestBody.get().contains("secret-test-key"));
+        }finally{server.stop(0);}
+    }
+
     @Test void sendsSingleStreamingStructuredRequestWithConfiguredLimits() throws Exception {
         AtomicReference<String> requestBody=new AtomicReference<>();
         HttpServer server=HttpServer.create(new InetSocketAddress("127.0.0.1",0),0);
@@ -28,7 +44,7 @@ class DoubaoDiagramClientTest {
             assertTrue(json.path("stream").asBoolean());
             assertEquals("disabled",json.path("thinking").path("type").asText());
             assertEquals(.1,json.path("temperature").asDouble());
-            assertEquals(1800,json.path("max_completion_tokens").asInt());
+            assertEquals(4096,json.path("max_completion_tokens").asInt());
             assertEquals("json_object",json.path("response_format").path("type").asText());
             assertFalse(requestBody.get().contains("test-only-key"));
         }finally{server.stop(0);}
