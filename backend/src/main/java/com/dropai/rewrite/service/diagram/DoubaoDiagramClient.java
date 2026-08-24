@@ -23,7 +23,7 @@ public class DoubaoDiagramClient {
     private final DiagramAssistantProperties properties; private final ObjectMapper mapper; private final HttpClient http;
     public DoubaoDiagramClient(DiagramAssistantProperties properties,ObjectMapper mapper){this.properties=properties;this.mapper=mapper;this.http=HttpClient.newBuilder().connectTimeout(properties.getConnectTimeout()).build();}
     public ModelResult generate(DiagramType type,DiagramPromptFactory.Prompt prompt,IntConsumer onDelta){
-        String key=cleanKey(properties.getApiKey());if(key.isBlank())throw new DiagramGenerationException("DOUBAO_AUTH_MISSING","未配置豆包API Key");
+        String key=configuredKey();if(key.isBlank())throw new DiagramGenerationException("DOUBAO_AUTH_MISSING","未配置豆包API Key");
         long started=System.nanoTime();
         try{
             Map<String,Object> body=new LinkedHashMap<>();body.put("model",properties.getModel());body.put("stream",true);body.put("thinking",Map.of("type","disabled"));body.put("temperature",properties.getTemperature());body.put("max_completion_tokens",properties.tokensFor(type));body.put("response_format",Map.of("type","json_object"));body.put("messages",List.of(Map.of("role","system","content",prompt.system()),Map.of("role","user","content",prompt.user())));
@@ -37,7 +37,7 @@ public class DoubaoDiagramClient {
         catch(Exception e){if(Thread.currentThread().isInterrupted())throw new DiagramGenerationException("GENERATION_CANCELLED","生成已取消，原图已恢复。");throw new DiagramGenerationException("DOUBAO_REQUEST_FAILED","豆包请求失败，原图已恢复。",false,e);}
     }
     public SummaryResult summarize(String source,int maxChars){
-        String key=cleanKey(properties.getApiKey());if(key.isBlank())throw new DiagramGenerationException("DOUBAO_AUTH_MISSING","未配置豆包API Key");
+        String key=configuredKey();if(key.isBlank())throw new DiagramGenerationException("DOUBAO_AUTH_MISSING","未配置豆包API Key");
         if(source==null||source.isBlank())return new SummaryResult("",0,properties.getModel());
         long started=System.nanoTime();
         try{
@@ -66,6 +66,7 @@ public class DoubaoDiagramClient {
         long total=(System.nanoTime()-started)/1_000_000;log.info("diagram model completed model={} firstByteMs={} totalMs={} outputChars={}",properties.getModel(),firstByte,total,content.length());return new ModelResult(content.toString(),firstByte,total,properties.getModel());
     }
     private DiagramGenerationException idle(){return new DiagramGenerationException("MODEL_IDLE_TIMEOUT","豆包连续20秒未返回新数据，本次生成已终止，原图已恢复。");}
+    private String configuredKey(){String key=cleanKey(properties.getApiKey());return key.isBlank()?cleanKey(System.getenv("DOUBAO_API_KEY")):key;}
     private static String cleanKey(String value){String v=Objects.toString(value,"").trim();if(v.regionMatches(true,0,"Bearer ",0,7))v=v.substring(7);return v.replaceAll("[\\p{Cc}\\p{Z}\\s]","").replaceAll("^[\"']|[\"']$","");}
     private static String safe(String value){String v=value.replaceAll("(?i)bearer\\s+\\S+","Bearer ***").replaceAll("[\\r\\n]+"," ");return v.substring(0,Math.min(500,v.length()));}
     private static String limit(String value,int max){if(value.length()<=max)return value;String cut=value.substring(0,Math.max(1,max)).replaceAll("[，、；：\\s]+$","");return cut.length()<max?cut+"。":cut;}
