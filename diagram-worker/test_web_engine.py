@@ -38,6 +38,43 @@ class WebEngineTest(unittest.TestCase):
   self.assertTrue(result["exports"]["png"])
   self.assertIn('fill="white" stroke="#1f2937"',result["svg"])
   self.assertGreaterEqual(result["svg"].count('stroke="#1f2937"'),4)
+ def test_flowchart_keeps_edge_labels_and_places_them_clear_of_nodes(self):
+  dsl="""@Flowchart
+标题：教室两区独立照明自动控制流程
+
+[节点]
+N1|start|程序启动
+N2|decision|讲台区是否有人
+N3|process|讲台区执行关灯计时
+N4|process|按光照调讲台区PWM
+N5|decision|学生区是否有人
+N6|process|学生区执行关灯计时
+N7|process|按光照调学生区PWM
+N8|end|进入下一轮检测
+
+[连接]
+N1->N2|启动检测
+N2->N3|无人
+N2->N4|有人
+N3->N5|讲台区设置完成
+N4->N5|讲台区调光完成
+N5->N6|无人
+N5->N7|有人
+N6->N8|学生区设置完成
+N7->N8|学生区调光完成"""
+  result=execute({"command":"render","dsl":dsl})
+  self.assertTrue(result["valid"],result["issues"])
+  layout=result["layout"];nodes=list(layout["node_bounds"].values())
+  labels=[x for x in layout["connectors"] if x["label"]]
+  self.assertEqual(9,len(labels));self.assertTrue(all(x["label"] in result["svg"] for x in labels))
+  boxes=[]
+  for connector in labels:
+   point=connector["label_position"];text=connector["label"]
+   box={"center_x":point["x"],"center_y":point["y"],"width":max(48,min(260,len(text)*16+18)),"height":30}
+   boxes.append(box)
+  overlaps=lambda a,b,p=0:abs(a["center_x"]-b["center_x"])<(a["width"]+b["width"])/2+p and abs(a["center_y"]-b["center_y"])<(a["height"]+b["height"])/2+p
+  self.assertFalse(any(overlaps(label,node,4) for label in boxes for node in nodes))
+  self.assertFalse(any(overlaps(a,b,2) for i,a in enumerate(boxes) for b in boxes[i+1:]))
  def test_shared_wrap_text_keeps_all_characters_and_explicit_lines(self):
   source="中文English混合换行测试\n第二行不会丢失"
   lines=wrap_text(source,8)

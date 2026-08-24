@@ -25,6 +25,29 @@ def place_connector_label(points,label,source_port="bottom"):
  vertical=[(i,a,b,abs(b.y-a.y)) for i,(a,b) in enumerate(segments) if a.x==b.x and a.y!=b.y]
  if not vertical:return points[0],0,"above_center"
  i,a,b,_=max(vertical,key=lambda x:x[3]);return Point(a.x+16,(a.y+b.y)/2),i,"right_center"
+def _label_box(point,label):
+ width=max(48,min(260,len(label)*16+18));return RectBounds(point.x,point.y,width,30)
+def _boxes_overlap(a,b,padding=8):
+ return abs(a.center_x-b.center_x)<(a.width+b.width)/2+padding and abs(a.center_y-b.center_y)<(a.height+b.height)/2+padding
+def _layout_extent(node_bounds,label_boxes):
+ boxes=list(node_bounds.values())+list(label_boxes)
+ return max(b.center_x+b.width/2 for b in boxes)+100,max(b.center_y+b.height/2 for b in boxes)+100
+def place_connector_label_clear(points,label,node_bounds,used_boxes):
+ if not label:return None,-1,"above_center"
+ segments=list(zip(points,points[1:]));label_width=max(48,min(260,len(label)*16+18));candidates=[]
+ for i,(a,b) in enumerate(segments):
+  if a.y==b.y and a.x!=b.x:
+   mid=Point((a.x+b.x)/2,a.y);length=abs(b.x-a.x)
+   candidates.extend([(Point(mid.x,mid.y-27),i,"above_center",0,-length),(Point(mid.x,mid.y+27),i,"below_center",1,-length)])
+  elif a.x==b.x and a.y!=b.y:
+   mid=Point(a.x,(a.y+b.y)/2);length=abs(b.y-a.y);offset=label_width/2+12
+   candidates.extend([(Point(mid.x+offset,mid.y),i,"right_center",2,-length),(Point(mid.x-offset,mid.y),i,"left_center",3,-length)])
+ def score(item):
+  point,_,_,preference,negative_length=item;box=_label_box(point,label)
+  node_hits=sum(_boxes_overlap(box,node,5) for node in node_bounds.values());label_hits=sum(_boxes_overlap(box,other,4) for other in used_boxes)
+  return node_hits*1000+label_hits*500+preference*5+negative_length/1000
+ point,index,anchor,_,_=min(candidates,key=score) if candidates else (points[0],0,"above_center",0,0)
+ used_boxes.append(_label_box(point,label));return point,index,anchor
 @dataclass
 class FlowLayoutResult:node_bounds:dict[str,RectBounds]=field(default_factory=dict);connectors:list[FlowConnectorLayout]=field(default_factory=list);layers:dict[str,int]=field(default_factory=dict);virtual_branch_ids:set[str]=field(default_factory=set);width:float=0;height:float=0
 class App(OfflineDiagramApp):
@@ -126,6 +149,7 @@ class App(OfflineDiagramApp):
   for n in s.nodes:
    if n.id not in l.node_bounds:l.node_bounds[n.id]=RectBounds(side_x,90+len(l.node_bounds)*row_gap,node_width(n.text,NODE_FONT,8,210),node_height(n.text,NODE_FONT,8,72))
   def port(b,name):return {"top":Point(b.center_x,b.center_y-b.height/2),"bottom":Point(b.center_x,b.center_y+b.height/2),"left":Point(b.center_x-b.width/2,b.center_y),"right":Point(b.center_x+b.width/2,b.center_y)}[name]
+  used_label_boxes=[]
   for e in s.edges:
    key=(e.source,e.target,e.label);role=branch_role.get(key)
    if key in main_edges:role="decision_main" if by[e.source].type=="decision" else "main"
@@ -142,8 +166,8 @@ class App(OfflineDiagramApp):
     channel_x=(start_p.x+end_p.x)/2;points=[start_p,Point(channel_x,start_p.y),Point(channel_x,end_p.y),end_p]
    else:
     channel_y=(start_p.y+end_p.y)/2;points=[start_p,Point(start_p.x,channel_y),Point(end_p.x,channel_y),end_p]
-   lp,lsi,la=place_connector_label(points,e.label,sp);l.connectors.append(FlowConnectorLayout(e.source,e.target,e.label,points,True,sp,tp,role,lp,lsi,la))
-  l.width=max(b.center_x+b.width/2 for b in l.node_bounds.values())+100;l.height=max(b.center_y+b.height/2 for b in l.node_bounds.values())+100;return l
+   lp,lsi,la=place_connector_label_clear(points,e.label,l.node_bounds,used_label_boxes);l.connectors.append(FlowConnectorLayout(e.source,e.target,e.label,points,True,sp,tp,role,lp,lsi,la))
+  l.width,l.height=_layout_extent(l.node_bounds,used_label_boxes);return l
  def _make_legacy_layout(self,s):
   original={n.id:n for n in s.nodes};nodes=dict(original);edges=list(s.edges);virtual=set()
   raw_out={n.id:[] for n in s.nodes}
@@ -167,6 +191,7 @@ class App(OfflineDiagramApp):
    x,y=cx+col[nid]*col_gap,90+layer[nid]*row_gap;font=MEDIUM_FONT if n.type=="decision" else NODE_FONT;w,h=((10,10) if n.type in ("branch","merge") else (node_width(n.text,font,8,230 if n.type=="decision" else 210),node_height(n.text,font,8,110 if n.type=="decision" else 72)));l.node_bounds[nid]=RectBounds(x,y,w,h)
   def port(b,name):
    return {"top":Point(b.center_x,b.center_y-b.height/2),"bottom":Point(b.center_x,b.center_y+b.height/2),"left":Point(b.center_x-b.width/2,b.center_y),"right":Point(b.center_x+b.width/2,b.center_y)}[name]
+  used_label_boxes=[]
   for e in edges:
    a,b=l.node_bounds[e.source],l.node_bounds[e.target];st=nodes[e.source].type;tt=nodes[e.target].type;sc,tc=col[e.source],col[e.target]
    if st in ("branch","decision"):
@@ -180,8 +205,8 @@ class App(OfflineDiagramApp):
    elif tt=="merge" and end.y==b.center_y:points=[start,Point(start.x,end.y),end]
    else:
     mid_y=(start.y+end.y)/2;points=[start,Point(start.x,mid_y),Point(end.x,mid_y),end]
-   lp,lsi,la=place_connector_label(points,e.label);l.connectors.append(FlowConnectorLayout(e.source,e.target,e.label,points,True,"bottom","top","legacy",lp,lsi,la))
-  l.width=max(b.center_x+b.width/2 for b in l.node_bounds.values())+100;l.height=max(b.center_y+b.height/2 for b in l.node_bounds.values())+100;return l
+   lp,lsi,la=place_connector_label_clear(points,e.label,l.node_bounds,used_label_boxes);l.connectors.append(FlowConnectorLayout(e.source,e.target,e.label,points,True,"bottom","top","legacy",lp,lsi,la))
+  l.width,l.height=_layout_extent(l.node_bounds,used_label_boxes);return l
  def draw(self,c,s,l):
   c.delete("all");c.create_text(l.width/2-50,20,text=s.title,font=(FONT,DIAGRAM_TITLE_FONT),font_weight="600",max_units=18)
   for x in l.connectors:
