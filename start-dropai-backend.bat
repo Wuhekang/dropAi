@@ -46,10 +46,11 @@ if not exist "%ROOT_DIR%diagram-worker\web_engine.py" (
   exit /b 1
 )
 
-python -c "from PIL import Image,ImageDraw,ImageFont" >nul 2>nul
+python "%ROOT_DIR%diagram-worker\web_engine.py" --self-test >nul 2>nul
 if errorlevel 1 (
-  echo [ERROR] Pillow is not installed. PNG and VSDX export cannot work.
+  echo [ERROR] PNG/VSDX export self-test failed.
   echo Run: python -m pip install -r "%ROOT_DIR%diagram-worker\requirements-web.txt"
+  echo Then run: python "%ROOT_DIR%diagram-worker\web_engine.py" --self-test
   pause
   exit /b 1
 )

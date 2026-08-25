@@ -29,10 +29,18 @@ def _svg_number(value, default=0.0):
     except (TypeError, ValueError): return float(default)
 
 def _font_path(bold=False):
-    candidates = ([r"C:\Windows\Fonts\msyhbd.ttc", "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc"] if bold else
-                  [r"C:\Windows\Fonts\msyh.ttc", "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"])
+    candidates = ([r"C:\Windows\Fonts\msyhbd.ttc", r"C:\Windows\Fonts\simhei.ttf", "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc"] if bold else
+                  [r"C:\Windows\Fonts\msyh.ttc", r"C:\Windows\Fonts\simsun.ttc", r"C:\Windows\Fonts\simhei.ttf", "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"])
     candidates += ["/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"]
-    return next((x for x in candidates if Path(x).is_file()), candidates[-1])
+    return next((x for x in candidates if Path(x).is_file()), None)
+
+def _load_font(ImageFont, size, bold=False):
+    path=_font_path(bold)
+    if path:
+        try: return ImageFont.truetype(path,size)
+        except OSError: pass
+    try: return ImageFont.truetype("arial.ttf",size)
+    except OSError: return ImageFont.load_default(size=size)
 
 def svg_to_png(svg, scale=2.0):
     """Render the constrained SVG emitted by SvgCanvas without Cairo."""
@@ -60,7 +68,7 @@ def svg_to_png(svg, scale=2.0):
         elif tag=="ellipse":
             cx,cy,rx,ry=map(_svg_number,(a.get("cx"),a.get("cy"),a.get("rx"),a.get("ry")));draw.ellipse((sx(cx-rx),sy(cy-ry),sx(cx+rx),sy(cy+ry)),fill=paint(a.get("fill"),"#FFFFFF"),outline=paint(a.get("stroke"),"#1f2937"),width=max(1,int(_svg_number(a.get("stroke-width"),1)*scale)))
         elif tag=="text":
-            base_x,base_y=_svg_number(a.get("x")),_svg_number(a.get("y"));size=max(8,int(_svg_number(a.get("font-size"),21)*scale));font=ImageFont.truetype(_font_path(int(a.get("font-weight","400"))>=600),size);current_y=base_y
+            base_x,base_y=_svg_number(a.get("x")),_svg_number(a.get("y"));size=max(8,int(_svg_number(a.get("font-size"),21)*scale));font=_load_font(ImageFont,size,int(a.get("font-weight","400"))>=600);current_y=base_y
             spans=[x for x in list(element) if x.tag.rsplit("}",1)[-1]=="tspan"] or [element]
             for span in spans:
                 current_y+=_svg_number(span.attrib.get("dy"));text=span.text or "";box=draw.textbbox((0,0),text,font=font);anchor=a.get("text-anchor","middle");x=sx(_svg_number(span.attrib.get("x"),base_x));x=x-(box[2]-box[0])/2 if anchor=="middle" else x-(box[2]-box[0]) if anchor=="end" else x;y=sy(current_y)-(box[3]-box[1])/2
@@ -241,4 +249,9 @@ def main():
     try: print(json.dumps(execute(json.load(sys.stdin)),ensure_ascii=False))
     except Exception as exc: print(json.dumps({"success":False,"error":str(exc)},ensure_ascii=False))
 
-if __name__ == "__main__": main()
+if __name__ == "__main__":
+    if "--self-test" in sys.argv:
+        sample='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 120"><rect x="10" y="10" width="300" height="100" fill="#fff" stroke="#111827"/><text x="160" y="60" text-anchor="middle" font-size="24" font-weight="600" fill="#111827"><tspan x="160" dy="0">PNG与VSDX导出自检</tspan></text></svg>'
+        png=svg_to_png(sample);vsdx=png_to_vsdx(png,"导出自检")
+        print(json.dumps({"success":png.startswith(b"\x89PNG") and vsdx.startswith(b"PK"),"pngBytes":len(png),"vsdxBytes":len(vsdx),"font":_font_path(False)},ensure_ascii=False))
+    else: main()
