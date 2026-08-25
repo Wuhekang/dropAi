@@ -45,7 +45,7 @@ public class DiagramService {
     private final PointService points;
     private final DiagramPreviewBillingService billing;
     private final Path artifactRoot;
-    private static final String RENDERER_VERSION="thesis-diagram-v1.6-export-2";
+    private static final String RENDERER_VERSION="thesis-diagram-v1.6-export-3";
 
     public DiagramService(ObjectMapper objectMapper, MatrixDesignService matrix, JdbcTemplate jdbc,
                           @Value("${diagram.python:python}") String python,
