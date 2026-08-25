@@ -33,6 +33,27 @@ if errorlevel 1 (
   exit /b 1
 )
 
+where python >nul 2>nul
+if errorlevel 1 (
+  echo [ERROR] Python is not available in PATH.
+  pause
+  exit /b 1
+)
+
+if not exist "%ROOT_DIR%diagram-worker\web_engine.py" (
+  echo [ERROR] Diagram worker not found: %ROOT_DIR%diagram-worker\web_engine.py
+  pause
+  exit /b 1
+)
+
+python -c "from PIL import Image,ImageDraw,ImageFont" >nul 2>nul
+if errorlevel 1 (
+  echo [ERROR] Pillow is not installed. PNG and VSDX export cannot work.
+  echo Run: python -m pip install -r "%ROOT_DIR%diagram-worker\requirements-web.txt"
+  pause
+  exit /b 1
+)
+
 if not exist "%JAR_FILE%" (
   echo [ERROR] Jar not found:
   echo %JAR_FILE%
