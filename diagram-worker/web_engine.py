@@ -40,7 +40,14 @@ def _load_font(ImageFont, size, bold=False):
         try: return ImageFont.truetype(path,size)
         except OSError: pass
     try: return ImageFont.truetype("arial.ttf",size)
-    except OSError: return ImageFont.load_default(size=size)
+    except OSError:
+        try: return ImageFont.load_default(size=size)
+        except TypeError: return ImageFont.load_default()
+
+def _text_box(draw, text, font):
+    if hasattr(draw,"textbbox"): return draw.textbbox((0,0),text,font=font)
+    width,height=draw.textsize(text,font=font)
+    return (0,0,width,height)
 
 def svg_to_png(svg, scale=2.0):
     """Render the constrained SVG emitted by SvgCanvas without Cairo."""
@@ -54,24 +61,32 @@ def svg_to_png(svg, scale=2.0):
         tag=element.tag.rsplit("}",1)[-1];a=element.attrib
         if tag=="rect":
             x,y,w,h=map(_svg_number,(a.get("x"),a.get("y"),a.get("width"),a.get("height")));box=(sx(x),sy(y),sx(x+w),sy(y+h));stroke=a.get("stroke")
-            draw.rounded_rectangle(box,radius=_svg_number(a.get("rx"))*scale,fill=paint(a.get("fill"),"#FFFFFF"),outline=stroke,width=max(1,int(_svg_number(a.get("stroke-width"),1)*scale)))
+            line_width=max(1,int(_svg_number(a.get("stroke-width"),1)*scale));fill=paint(a.get("fill"),"#FFFFFF")
+            if hasattr(draw,"rounded_rectangle"):
+                draw.rounded_rectangle(box,radius=_svg_number(a.get("rx"))*scale,fill=fill,outline=stroke,width=line_width)
+            else:
+                try: draw.rectangle(box,fill=fill,outline=stroke,width=line_width)
+                except TypeError: draw.rectangle(box,fill=fill,outline=stroke)
         elif tag in ("polyline","polygon"):
             points=[tuple(map(float,p.split(","))) for p in a.get("points","").split()];points=[(sx(x),sy(y)) for x,y in points]
             if not points: continue
             if tag=="polygon": draw.polygon(points,fill=paint(a.get("fill"),"#FFFFFF"),outline=paint(a.get("stroke"),"#1f2937"))
             else:
-                draw.line(points,fill=paint(a.get("stroke"),"#1f2937"),width=max(1,int(_svg_number(a.get("stroke-width"),1.4)*scale)),joint="curve")
+                try: draw.line(points,fill=paint(a.get("stroke"),"#1f2937"),width=max(1,int(_svg_number(a.get("stroke-width"),1.4)*scale)),joint="curve")
+                except TypeError: draw.line(points,fill=paint(a.get("stroke"),"#1f2937"),width=max(1,int(_svg_number(a.get("stroke-width"),1.4)*scale)))
                 if a.get("marker-end") and len(points)>1:
                     x1,y1=points[-2];x2,y2=points[-1];ang=math.atan2(y2-y1,x2-x1);size=9*scale
                     arrow=[(x2,y2),(x2-size*math.cos(ang-.5),y2-size*math.sin(ang-.5)),(x2-size*math.cos(ang+.5),y2-size*math.sin(ang+.5))]
                     draw.polygon(arrow,fill=paint(a.get("stroke"),"#1f2937"))
         elif tag=="ellipse":
-            cx,cy,rx,ry=map(_svg_number,(a.get("cx"),a.get("cy"),a.get("rx"),a.get("ry")));draw.ellipse((sx(cx-rx),sy(cy-ry),sx(cx+rx),sy(cy+ry)),fill=paint(a.get("fill"),"#FFFFFF"),outline=paint(a.get("stroke"),"#1f2937"),width=max(1,int(_svg_number(a.get("stroke-width"),1)*scale)))
+            cx,cy,rx,ry=map(_svg_number,(a.get("cx"),a.get("cy"),a.get("rx"),a.get("ry")));ellipse_box=(sx(cx-rx),sy(cy-ry),sx(cx+rx),sy(cy+ry));ellipse_fill=paint(a.get("fill"),"#FFFFFF");ellipse_stroke=paint(a.get("stroke"),"#1f2937");ellipse_width=max(1,int(_svg_number(a.get("stroke-width"),1)*scale))
+            try: draw.ellipse(ellipse_box,fill=ellipse_fill,outline=ellipse_stroke,width=ellipse_width)
+            except TypeError: draw.ellipse(ellipse_box,fill=ellipse_fill,outline=ellipse_stroke)
         elif tag=="text":
             base_x,base_y=_svg_number(a.get("x")),_svg_number(a.get("y"));size=max(8,int(_svg_number(a.get("font-size"),21)*scale));font=_load_font(ImageFont,size,int(a.get("font-weight","400"))>=600);current_y=base_y
             spans=[x for x in list(element) if x.tag.rsplit("}",1)[-1]=="tspan"] or [element]
             for span in spans:
-                current_y+=_svg_number(span.attrib.get("dy"));text=span.text or "";box=draw.textbbox((0,0),text,font=font);anchor=a.get("text-anchor","middle");x=sx(_svg_number(span.attrib.get("x"),base_x));x=x-(box[2]-box[0])/2 if anchor=="middle" else x-(box[2]-box[0]) if anchor=="end" else x;y=sy(current_y)-(box[3]-box[1])/2
+                current_y+=_svg_number(span.attrib.get("dy"));text=span.text or "";box=_text_box(draw,text,font);anchor=a.get("text-anchor","middle");x=sx(_svg_number(span.attrib.get("x"),base_x));x=x-(box[2]-box[0])/2 if anchor=="middle" else x-(box[2]-box[0]) if anchor=="end" else x;y=sy(current_y)-(box[3]-box[1])/2
                 draw.text((x,y),text,font=font,fill=paint(a.get("fill"),"#111827"))
     output=io.BytesIO();image.save(output,"PNG",optimize=True);return output.getvalue()
 
