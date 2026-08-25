@@ -5,6 +5,7 @@ import com.dropai.rewrite.auth.AuthContext;
 import com.dropai.rewrite.entity.DocumentJobRecord;
 import com.dropai.rewrite.mapper.DocumentJobMapper;
 import com.dropai.rewrite.service.DocumentRewriteService;
+import com.dropai.rewrite.service.DocumentCharacterCountService;
 import com.dropai.rewrite.service.AiRewriteService;
 import com.dropai.rewrite.service.PointService;
 import com.dropai.rewrite.service.WorkflowRewriteService;
@@ -14,9 +15,7 @@ import com.dropai.rewrite.vo.DocumentRewriteJobVO;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.apache.poi.xwpf.usermodel.XWPFParagraph;
 import org.apache.poi.xwpf.usermodel.XWPFRun;
-import org.apache.poi.xwpf.usermodel.XWPFTable;
-import org.apache.poi.xwpf.usermodel.XWPFTableCell;
-import org.apache.poi.xwpf.usermodel.XWPFTableRow;
+import org.apache.poi.xwpf.usermodel.XWPFSDT;
 import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTRPr;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
@@ -66,6 +65,7 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
     private final DocumentJobMapper documentJobMapper;
     private final ObjectMapper objectMapper;
     private final PointService pointService;
+    private final DocumentCharacterCountService documentCharacterCountService;
     private final Map<String, DocumentRewriteJobVO> jobs = new ConcurrentHashMap<>();
     private final Map<String, String> requestJobs = new ConcurrentHashMap<>();
     private final Path uploadDir = Path.of("storage", "uploads");
@@ -80,7 +80,8 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             DoubaoProperties doubaoProperties,
             DocumentJobMapper documentJobMapper,
             ObjectMapper objectMapper,
-            PointService pointService
+            PointService pointService,
+            DocumentCharacterCountService documentCharacterCountService
     ) {
         this.workflowRewriteService = workflowRewriteService;
         this.aiRewriteService = aiRewriteService;
@@ -88,6 +89,7 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
         this.documentJobMapper = documentJobMapper;
         this.objectMapper = objectMapper;
         this.pointService = pointService;
+        this.documentCharacterCountService = documentCharacterCountService;
     }
 
     @PostConstruct
@@ -149,7 +151,7 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             Files.createDirectories(outputDir);
             Files.createDirectories(jobLogDir);
             String jobId = UUID.randomUUID().toString().replace("-", "");
-            int charCount = countDocumentChars(file);
+            int charCount = documentCharacterCountService.countFromAbstractOrCatalog(file);
             int costPoints = calculateCostPoints(charCount, normalizedMode);
             String featureCode = documentFeatureCode(normalizedMode);
             pointService.deductCustom(userId, jobId, featureCode, documentFeatureName(normalizedMode), costPoints,
@@ -201,7 +203,7 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
         if (!originalName.toLowerCase().endsWith(".docx")) {
             throw new IllegalArgumentException("当前仅支持上传 .docx 文件");
         }
-        int charCount = countDocumentChars(file);
+        int charCount = documentCharacterCountService.countFromAbstractOrCatalog(file);
         int costPoints = calculateCostPoints(charCount, normalizeMode(mode));
         int currentPoints = pointService.currentPoints(userId);
         return new DocumentPrecheckVO(charCount, costPoints, currentPoints, currentPoints >= costPoints);
@@ -312,7 +314,7 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             }
             update(job, "RUNNING", "已读取 " + paragraphs.size() + " 个文档段落，正在筛选正文段落");
 
-            List<RewriteTarget> targets = collectRewriteTargets(job, paragraphs);
+            List<RewriteTarget> targets = collectRewriteTargets(job, document);
             job.setParagraphs(targets.stream().map(this::toParagraphJob).collect(Collectors.toList()));
             job.setProcessedParagraphs(0);
             job.setTotalParagraphs(targets.size());
@@ -459,18 +461,30 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
         return count;
     }
 
-    private List<RewriteTarget> collectRewriteTargets(DocumentRewriteJobVO job, List<XWPFParagraph> paragraphs) {
+    private List<RewriteTarget> collectRewriteTargets(DocumentRewriteJobVO job, XWPFDocument document) {
+        List<XWPFParagraph> paragraphs = collectParagraphs(document);
         List<RewriteTarget> targets = new ArrayList<>();
-        boolean hasCatalog = hasCatalog(paragraphs);
-        boolean hasBodyStart = hasBodyStart(paragraphs);
-        boolean afterCatalog = !hasCatalog;
-        boolean inBody = !hasBodyStart && !hasCatalog;
+        boolean useAbstractBoundary = paragraphs.stream()
+                .map(XWPFParagraph::getText)
+                .map(text -> text == null ? "" : text.trim())
+                .anyMatch(this::isAbstractSectionTitle);
+        if (!useAbstractBoundary && !hasCatalogBoundary(document)) {
+            throw new IllegalArgumentException("未识别到摘要或目录，无法确定正文处理起点");
+        }
+        boolean boundaryReached = false;
+        boolean inBody = false;
         for (int index = 0; index < paragraphs.size(); index++) {
             XWPFParagraph paragraph = paragraphs.get(index);
             String text = paragraph.getText();
             String trimmed = text == null ? "" : text.trim();
-            if (!afterCatalog) {
-                afterCatalog = isCatalogEnd(trimmed);
+            if (!boundaryReached) {
+                if (useAbstractBoundary && isAbstractSectionTitle(trimmed)) {
+                    boundaryReached = true;
+                    inBody = true;
+                } else if (!useAbstractBoundary && isBodyStartTitle(trimmed)) {
+                    boundaryReached = true;
+                    inBody = true;
+                }
                 continue;
             }
             if (isTrailingProtectedSectionTitle(trimmed)) {
@@ -492,6 +506,21 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             }
         }
         return targets;
+    }
+
+    private boolean hasCatalogBoundary(XWPFDocument document) {
+        return document.getBodyElements().stream()
+                .map(element -> {
+                    if (element instanceof XWPFParagraph paragraph) {
+                        return paragraph.getText();
+                    }
+                    if (element instanceof XWPFSDT contentControl) {
+                        return contentControl.getContent().getText();
+                    }
+                    return "";
+                })
+                .map(this::normalizeChargeText)
+                .anyMatch(text -> text.matches("(?s)^目\\s*录(?:\\s.*)?$"));
     }
 
     private List<RewriteResult> rewriteTargetsWithLengthControl(
@@ -852,37 +881,6 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
         return new java.util.ArrayList<>(document.getParagraphs());
     }
 
-    private int countDocumentChars(MultipartFile file) {
-        try (InputStream inputStream = file.getInputStream();
-             XWPFDocument document = new XWPFDocument(inputStream)) {
-            DocumentRewriteJobVO countingJob = new DocumentRewriteJobVO();
-            countingJob.setMode("humanize");
-            List<String> chunks = new ArrayList<>();
-            for (RewriteTarget target : collectRewriteTargets(countingJob, collectParagraphs(document))) {
-                chunks.add(target.text());
-            }
-            chunks.addAll(collectTableTexts(document));
-            return normalizeChargeText(String.join("\n", chunks)).length();
-        } catch (IOException exception) {
-            throw new IllegalStateException("文档字符数解析失败：" + exception.getMessage(), exception);
-        }
-    }
-
-    private List<String> collectTableTexts(XWPFDocument document) {
-        List<String> texts = new ArrayList<>();
-        for (XWPFTable table : document.getTables()) {
-            for (XWPFTableRow row : table.getRows()) {
-                for (XWPFTableCell cell : row.getTableCells()) {
-                    String text = normalizeChargeText(cell.getText());
-                    if (!text.isBlank() && !isCatalogLine(text) && !isTrailingProtectedSectionTitle(text)) {
-                        texts.add(text);
-                    }
-                }
-            }
-        }
-        return texts;
-    }
-
     private String normalizeChargeText(String text) {
         if (text == null) {
             return "";
@@ -1030,33 +1028,6 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
         return text.matches("^(图|表)\\s*\\d+(\\.\\d+)*\\s+.*$")
                 || text.matches("^公式\\s*\\d+(\\.\\d+)*\\s+.*$")
                 || text.matches("^\\(?\\d+(\\.\\d+)*\\)?\\s*.*[=＋+\\-*/×÷].*$");
-    }
-
-    private boolean hasBodyStart(List<XWPFParagraph> paragraphs) {
-        return paragraphs.stream()
-                .map(XWPFParagraph::getText)
-                .filter(text -> text != null)
-                .map(String::trim)
-                .anyMatch(this::isBodyStartTitle);
-    }
-
-    private boolean hasCatalog(List<XWPFParagraph> paragraphs) {
-        return paragraphs.stream()
-                .map(XWPFParagraph::getText)
-                .filter(text -> text != null)
-                .map(String::trim)
-                .anyMatch(text -> "目录".equals(text) || "目 录".equals(text) || isCatalogLine(text));
-    }
-
-    private boolean isCatalogEnd(String text) {
-        String trimmed = text == null ? "" : text.trim();
-        if (trimmed.isEmpty()) {
-            return false;
-        }
-        if ("目录".equals(trimmed) || "目 录".equals(trimmed)) {
-            return false;
-        }
-        return isAbstractSectionTitle(trimmed) || isBodyStartTitle(trimmed);
     }
 
     private boolean isHeadingParagraph(XWPFParagraph paragraph, String text) {
