@@ -97,13 +97,17 @@ request.interceptors.response.use(
     }
     return result.data
   },
-  (error) => {
+  async (error) => {
     logApiError(error)
     if (error.response?.status === 401 && !error.config?.skipAuthRedirect) {
       clearAuthSession()
       if (window.location.pathname !== '/login') window.location.href = '/login'
     }
-    const serverMessage = error.response?.data?.message
+    const responseData = error.response?.data
+    const blobMessage = responseData instanceof Blob && responseData.type?.includes('json')
+      ? await responseData.text().then(text => { try { return JSON.parse(text)?.message } catch { return '' } })
+      : ''
+    const serverMessage = blobMessage || responseData?.message
     let message = serverMessage || error.message || '网络请求异常'
     if (error.response?.status === 429 || String(message).includes('429')) {
       message = '大模型接口请求频率受限，请稍后重试或更换可用 API Key。'

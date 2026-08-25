@@ -108,7 +108,14 @@ public class DiagramService {
         long userId=AuthContext.requireUserId();Map<String,Object> preview=billing.ownedPreview(previewId,userId);
         if(preview==null)throw new IllegalArgumentException("预览不存在或无权访问");if(!"SUCCESS".equals(String.valueOf(preview.get("status")))||((Number)preview.get("charged_points")).intValue()!=10)throw new IllegalStateException("该预览未完成计费，禁止下载");
         String kind=format==null?"":format.toLowerCase();Map<String,Object> artifact=billing.artifact(previewId,kind);if(artifact==null||!"READY".equals(String.valueOf(artifact.get("status"))))throw new IllegalStateException(artifact==null?"产物不存在":String.valueOf(artifact.get("failure_reason")));
-        try{Path path=Path.of(String.valueOf(artifact.get("file_path"))).toAbsolutePath().normalize();if(!path.startsWith(artifactRoot)||!Files.isRegularFile(path))throw new IllegalStateException("产物文件不存在");return new ExportFile("diagram."+kind,Files.readAllBytes(path));}catch(java.io.IOException e){throw new IllegalStateException("读取产物失败",e);}
+        try{
+            Path path=Path.of(String.valueOf(artifact.get("file_path"))).toAbsolutePath().normalize();
+            if(path.startsWith(artifactRoot)&&Files.isRegularFile(path))return new ExportFile("diagram."+kind,Files.readAllBytes(path));
+            String dsl=String.valueOf(preview.get("normalized_dsl"));
+            if(dsl.isBlank()||"null".equals(dsl))throw new IllegalStateException("产物文件不存在，且预览代码无法恢复");
+            log.warn("[diagram] artifact missing, regenerate on download previewId={} format={} path={}",previewId,kind,path);
+            return export(dsl,kind);
+        }catch(java.io.IOException e){throw new IllegalStateException("读取产物失败",e);}
     }
     public Map<String,Object> health() {
         Path path=resolveWorkerPath();
