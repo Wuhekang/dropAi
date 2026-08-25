@@ -31,6 +31,8 @@ RUN apt-get update \
     && fc-cache -f -v \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /app/data /app/storage/uploads /app/storage/outputs /app/storage/jobs
+COPY diagram-worker /app/diagram-worker
+RUN pip install --no-cache-dir -r /app/diagram-worker/requirements-web.txt
 COPY --from=backend-build /backend/target/*.jar /app/app.jar
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=3 \

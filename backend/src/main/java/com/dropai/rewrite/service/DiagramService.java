@@ -45,7 +45,7 @@ public class DiagramService {
     private final PointService points;
     private final DiagramPreviewBillingService billing;
     private final Path artifactRoot;
-    private static final String RENDERER_VERSION="thesis-diagram-v1.6-layout-1";
+    private static final String RENDERER_VERSION="thesis-diagram-v1.6-export-2";
 
     public DiagramService(ObjectMapper objectMapper, MatrixDesignService matrix, JdbcTemplate jdbc,
                           @Value("${diagram.python:python}") String python,
@@ -86,8 +86,9 @@ public class DiagramService {
             artifacts.add(new DiagramPreviewBillingService.ArtifactDraft("svg","READY",finalDir.resolve("diagram.svg").toString(),Files.size(temp.resolve("diagram.svg")),null));
             artifacts.add(new DiagramPreviewBillingService.ArtifactDraft("json","READY",finalDir.resolve("diagram.json").toString(),Files.size(temp.resolve("diagram.json")),null));
             try{ExportFile png=export(dsl,"png");Files.write(temp.resolve("diagram.png"),png.content());artifacts.add(new DiagramPreviewBillingService.ArtifactDraft("png","READY",finalDir.resolve("diagram.png").toString(),png.content().length,null));}
-            catch(Exception pngError){artifacts.add(new DiagramPreviewBillingService.ArtifactDraft("png","UNAVAILABLE",null,0,"当前服务器缺少Cairo运行库"));}
-            artifacts.add(new DiagramPreviewBillingService.ArtifactDraft("vsdx","UNSUPPORTED",null,0,"当前绘图引擎暂不支持VSDX导出"));
+            catch(Exception pngError){artifacts.add(new DiagramPreviewBillingService.ArtifactDraft("png","UNAVAILABLE",null,0,"PNG导出失败："+pngError.getMessage()));}
+            try{ExportFile vsdx=export(dsl,"vsdx");Files.write(temp.resolve("diagram.vsdx"),vsdx.content());artifacts.add(new DiagramPreviewBillingService.ArtifactDraft("vsdx","READY",finalDir.resolve("diagram.vsdx").toString(),vsdx.content().length,null));}
+            catch(Exception vsdxError){artifacts.add(new DiagramPreviewBillingService.ArtifactDraft("vsdx","UNAVAILABLE",null,0,"VSDX导出失败："+vsdxError.getMessage()));}
             finalized=billing.finalizeRendered(taskId,previewId,userId,projectId,type,hash,RENDERER_VERSION,normalized,svg,artifacts);
             if(!finalized.charged()){deleteTree(temp);Map<String,Object> reused=billing.ownedPreview(finalized.previewId(),userId);return previewResponse(reused,false,true,finalized.balance());}
             Files.createDirectories(finalDir.getParent());
