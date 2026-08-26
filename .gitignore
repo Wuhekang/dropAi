@@ -17,4 +17,6 @@ backend/.idea/
 /diagram-worker/visual-baselines/
 
 *.log
+__pycache__/
+*.pyc
 .DS_Store
