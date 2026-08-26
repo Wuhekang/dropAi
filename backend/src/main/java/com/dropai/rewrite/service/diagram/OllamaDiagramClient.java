@@ -30,7 +30,7 @@ public class OllamaDiagramClient {
         try{
             ObjectNode user=mapper.createObjectNode().put("task",current==null?"CREATE":"EDIT").put("diagramType",type.name()).put("instruction",Objects.toString(instruction,"")).put("outputSchema","SemanticIR-Lite-v3").put("outputContract",contract(type));
             if(current!=null)user.set("currentSemanticIr",adapter.toLite(current));
-            Map<String,Object> body=new LinkedHashMap<>();body.put("model",properties.getOllamaModel());body.put("stream",false);body.put("format","json");body.put("keep_alive","15m");body.put("options",Map.of("temperature",0,"num_predict",Math.min(1800,properties.tokensFor(type)),"num_ctx",4096));body.put("messages",List.of(Map.of("role","system","content",SYSTEM),Map.of("role","user","content",mapper.writeValueAsString(user))));
+            Map<String,Object> body=new LinkedHashMap<>();body.put("model",properties.getOllamaModel());body.put("stream",false);body.put("format","json");body.put("keep_alive","15m");body.put("options",Map.of("temperature",0,"seed",42,"repeat_penalty",1.15,"repeat_last_n",256,"num_predict",Math.min(1800,properties.tokensFor(type)),"num_ctx",4096));body.put("messages",List.of(Map.of("role","system","content",SYSTEM),Map.of("role","user","content",mapper.writeValueAsString(user))));
             HttpRequest request=HttpRequest.newBuilder(URI.create(properties.getOllamaEndpoint())).timeout(properties.getHardLimit()).header("Content-Type","application/json").POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body),StandardCharsets.UTF_8)).build();
             HttpResponse<String> response=http.send(request,HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             if(response.statusCode()/100!=2)throw new DiagramGenerationException("OLLAMA_HTTP_ERROR","本地绘图模型请求失败（HTTP "+response.statusCode()+"）。");
@@ -41,7 +41,7 @@ public class OllamaDiagramClient {
 
     private static String contract(DiagramType type){return switch(type){
         case FLOWCHART->"nodes.kind仅start/process/decision/end；relations.kind=flow；decision必须有两个不同非空label";
-        case ER_DIAGRAM->"nodes仅entity且必须含table、attributes[{name,type,pk?,fk?,unique?,nullable?,ref?}]；relations.kind=relationship且必须含fromCardinality,toCardinality,fromField,toField,source(DECLARED或INFERRED)";
+        case ER_DIAGRAM->"nodes仅entity且必须含table、attributes[{name,type,pk?,fk?,unique?,nullable?,ref?}]；只生成用户明确提到的实体，每个实体最多6个不重复属性；relations.kind=relationship且必须含fromCardinality,toCardinality,fromField,toField,source(DECLARED或INFERRED)";
         case FUNCTION_MODULE->"恰好一个root，其余module；每个module必须由一条contains关系连接到唯一父节点";
         case ARCHITECTURE->"每个node必须含group，kind仅client/gateway/service/cache/message_queue/database/external_system；relation.kind仅call/data_flow/dependency";
         case USE_CASE->"kind仅actor/use_case；每个use_case必须含同一系统名group；relation.kind仅association/include/extend/generalization";

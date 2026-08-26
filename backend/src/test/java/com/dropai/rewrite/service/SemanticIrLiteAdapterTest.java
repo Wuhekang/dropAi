@@ -51,6 +51,15 @@ class SemanticIrLiteAdapterTest {
         assertEquals(DiagramType.ER_DIAGRAM,codec.parse(dsl).diagramType());
     }
 
+    @Test void capsAndDeduplicatesErAttributesFromLocalModel(){
+        StringBuilder attributes=new StringBuilder();
+        for(int i=0;i<12;i++){if(i>0)attributes.append(',');attributes.append("{\"name\":\"字段").append(i%9).append("\",\"type\":\"TEXT\"}");}
+        String json="{\"type\":\"ER_DIAGRAM\",\"nodes\":[{\"kind\":\"entity\",\"text\":\"用户\",\"attributes\":["+attributes+"]},{\"kind\":\"entity\",\"text\":\"订单\"}],\"relations\":[]}";
+        ErDiagramIr ir=(ErDiagramIr)adapter.adapt(DiagramType.ER_DIAGRAM,json,"测试ER图");
+        assertEquals(8,ir.entities().get(0).attributes().size());
+        assertEquals(8,ir.entities().get(0).attributes().stream().map(ErAttribute::name).distinct().count());
+    }
+
     @Test void normalizesReversedFunctionModuleRelationsAndMissingLeafFunctions(){
         String json="{\"type\":\"FUNCTION_MODULE\",\"nodes\":[{\"kind\":\"root\",\"text\":\"商城系统\"},{\"kind\":\"module\",\"text\":\"用户管理\"},{\"kind\":\"module\",\"text\":\"订单管理\"},{\"kind\":\"module\",\"text\":\"用户档案\"}],\"relations\":[{\"from\":\"用户管理\",\"to\":\"商城系统\",\"kind\":\"contains\"},{\"from\":\"订单管理\",\"to\":\"商城系统\",\"kind\":\"contains\"},{\"from\":\"用户档案\",\"to\":\"用户管理\",\"kind\":\"contains\"}]}";
         FunctionModuleIr ir=(FunctionModuleIr)adapter.adapt(DiagramType.FUNCTION_MODULE,json,"商城功能图");
