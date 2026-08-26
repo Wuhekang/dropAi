@@ -1,0 +1,59 @@
+{
+  "version": "1.0.0",
+  "description": "绘图助手七状态高清透明图元；统一 1024x1024 画布，PNG 与无损 WebP。",
+  "canvas": {
+    "width": 1024,
+    "height": 1024
+  },
+  "states": {
+    "idle": {
+      "label": "待机",
+      "png": "png/assistant_idle.png",
+      "webp": "webp/assistant_idle.webp",
+      "fallback": "png/01_待机.png",
+      "recommended_status_text": "等待输入"
+    },
+    "analyzing": {
+      "label": "解析需求",
+      "png": "png/assistant_analyzing.png",
+      "webp": "webp/assistant_analyzing.webp",
+      "fallback": "png/02_解析需求.png",
+      "recommended_status_text": "正在理解需求…"
+    },
+    "generating": {
+      "label": "生成代码",
+      "png": "png/assistant_generating.png",
+      "webp": "webp/assistant_generating.webp",
+      "fallback": "png/03_生成代码.png",
+      "recommended_status_text": "正在生成代码…"
+    },
+    "assembling": {
+      "label": "拼装代码",
+      "png": "png/assistant_assembling.png",
+      "webp": "webp/assistant_assembling.webp",
+      "fallback": "png/04_拼装代码.png",
+      "recommended_status_text": "正在拼装代码…"
+    },
+    "rendering": {
+      "label": "渲染图形",
+      "png": "png/assistant_rendering.png",
+      "webp": "webp/assistant_rendering.webp",
+      "fallback": "png/05_渲染图形.png",
+      "recommended_status_text": "正在渲染图形…"
+    },
+    "success": {
+      "label": "生成完成",
+      "png": "png/assistant_success.png",
+      "webp": "webp/assistant_success.webp",
+      "fallback": "png/06_生成完成.png",
+      "recommended_status_text": "生成完成"
+    },
+    "error": {
+      "label": "异常",
+      "png": "png/assistant_error.png",
+      "webp": "webp/assistant_error.webp",
+      "fallback": "png/07_异常.png",
+      "recommended_status_text": "生成失败，请重试"
+    }
+  }
+}
