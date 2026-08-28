@@ -76,6 +76,16 @@ class DiagramAssistantServiceTest {
         assertTrue(error.getMessage().contains("是否停止"));
     }
 
+    @Test void overlongSummaryIsCompactedBySemanticSlotsInsteadOfCuttingOffTheEnding() throws Exception {
+        String value="主题=光敏电阻调光；起点=初始化ADC与PWM；主链=采集照度>换算>比较；分支=范围外关灯/范围内调PWM；循环/终点=继续则采集/停止则结束";
+        var method=DoubaoDiagramClient.class.getDeclaredMethod("limit",String.class,int.class);method.setAccessible(true);
+        String compact=(String)method.invoke(null,value,80);
+        assertTrue(compact.length()<=80);
+        assertTrue(compact.contains("主题="));
+        assertTrue(compact.contains("分支="));
+        assertTrue(compact.endsWith("结束"));
+    }
+
     @Test
     @EnabledIfEnvironmentVariable(named="RUN_DIAGRAM_LIVE_TEST",matches="true")
     void realDoubaoLightControlCaseAlwaysCompilesWithAnEndNode() {
@@ -84,7 +94,7 @@ class DiagramAssistantServiceTest {
         properties.setTemperature(0);
         var mapper=new ObjectMapper();
         var client=new DoubaoDiagramClient(properties,mapper);
-        var summary=client.summarize(LIGHT_CONTROL_SOURCE,100).summary();
+        var summary=client.summarize(LIGHT_CONTROL_SOURCE,100,DiagramType.FLOWCHART).summary();
         var prompt=new DiagramPromptFactory(new DiagramSchemaFactory(mapper),mapper).build(DiagramType.FLOWCHART,summary,null);
         var model=client.generate(DiagramType.FLOWCHART,prompt,ignored->{});
         FlowchartIr raw;

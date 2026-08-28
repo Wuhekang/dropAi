@@ -36,12 +36,17 @@ public class DoubaoDiagramClient {
         }catch(DiagramGenerationException e){throw e;}catch(HttpConnectTimeoutException e){throw new DiagramGenerationException("DOUBAO_CONNECT_TIMEOUT","连接豆包超过5秒，本次生成已终止，原图已恢复。");}
         catch(Exception e){if(Thread.currentThread().isInterrupted())throw new DiagramGenerationException("GENERATION_CANCELLED","生成已取消，原图已恢复。");throw new DiagramGenerationException("DOUBAO_REQUEST_FAILED","豆包请求失败，原图已恢复。",false,e);}
     }
-    public SummaryResult summarize(String source,int maxChars){
+    public SummaryResult summarize(String source,int maxChars){return summarize(source,maxChars,null);}
+    public SummaryResult summarize(String source,int maxChars,DiagramType type){
         String key=configuredKey();if(key.isBlank())throw new DiagramGenerationException("DOUBAO_AUTH_MISSING","未配置豆包API Key");
         if(source==null||source.isBlank())return new SummaryResult("",0,properties.getModel());
         long started=System.nanoTime();
         try{
-            String system="你是绘图需求压缩器。提取主体、关键步骤、判断分支和关系，删除背景、解释、举例和重复内容。只返回JSON对象：{\"summary\":\"...\"}。summary不得超过"+maxChars+"个中文字符，不生成DSL或图形代码。";
+            String system="你是绘图需求语义压缩器。先在内部理解完整原文，再重组成可绘图的结构提纲，禁止直接截取原文前半段。"
+                    +"删除背景、解释、举例和重复，但必须保留主题、核心对象/起点、主链、关系/分支以及循环/终点。"
+                    +"当原文含有停止、返回、循环或结束语义时，最后一槽必须明确保留。按此图类型使用固定五槽："+summaryTemplate(type)+"。"
+                    +"每槽用短语和 > / 表示顺序或分支，不适用写“无”。在输出前自行计数，summary整体不得超过"+maxChars+"个字符。"
+                    +"只返回JSON对象：{\"summary\":\"...\"}，不生成DSL、图形代码、解释或思考过程。";
             Map<String,Object> body=new LinkedHashMap<>();body.put("model",properties.getModel());body.put("stream",false);body.put("thinking",Map.of("type","disabled"));body.put("temperature",0);body.put("max_completion_tokens",256);body.put("response_format",Map.of("type","json_object"));body.put("messages",List.of(Map.of("role","system","content",system),Map.of("role","user","content",source)));
             HttpRequest request=HttpRequest.newBuilder(URI.create(properties.getEndpoint())).timeout(properties.getHardLimit()).header("Authorization","Bearer "+key).header("Content-Type","application/json").POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body),StandardCharsets.UTF_8)).build();
             HttpResponse<String> response=http.send(request,HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
@@ -69,7 +74,26 @@ public class DoubaoDiagramClient {
     private String configuredKey(){String key=cleanKey(properties.getApiKey());return key.isBlank()?cleanKey(System.getenv("DOUBAO_API_KEY")):key;}
     private static String cleanKey(String value){String v=Objects.toString(value,"").trim();if(v.regionMatches(true,0,"Bearer ",0,7))v=v.substring(7);return v.replaceAll("[\\p{Cc}\\p{Z}\\s]","").replaceAll("^[\"']|[\"']$","");}
     private static String safe(String value){String v=value.replaceAll("(?i)bearer\\s+\\S+","Bearer ***").replaceAll("[\\r\\n]+"," ");return v.substring(0,Math.min(500,v.length()));}
-    private static String limit(String value,int max){if(value.length()<=max)return value;String cut=value.substring(0,Math.max(1,max)).replaceAll("[，、；：\\s]+$","");return cut.length()<max?cut+"。":cut;}
+    private static String summaryTemplate(DiagramType type){return switch(type==null?DiagramType.FLOWCHART:type){
+        case FLOWCHART->"主题=…；起点=…；主链=…；分支=…；循环/终点=…";
+        case ER_DIAGRAM->"主题=…；实体=…；关键属性=…；关系=…；约束=…";
+        case FUNCTION_MODULE->"主题=…；根模块=…；一级模块=…；下级功能=…；层级=…";
+        case ARCHITECTURE->"主题=…；入口=…；分层=…；组件=…；依赖=…";
+        case USE_CASE->"主题=…；系统=…；参与者=…；用例=…；关系=…";
+        case BLOCK_DIAGRAM->"主题=…；输入=…；核心块=…；连接=…；输出=…";
+        case SEQUENCE_DIAGRAM->"主题=…；参与者=…；起始消息=…；主调用=…；返回=…";};}
+    private static String limit(String value,int max){
+        String normalized=Objects.toString(value,"").replaceAll("[\\r\\n\\t]+","").replaceAll("\\s{2,}"," ").trim();
+        if(normalized.length()<=max)return normalized;
+        List<String> clauses=Arrays.stream(normalized.split("[；;]+" )).map(String::trim).filter(s->!s.isEmpty()).toList();
+        if(clauses.size()<2)return headTail(normalized,max);
+        int count=Math.min(5,clauses.size());List<String> selected=new ArrayList<>(clauses.subList(0,Math.min(count,clauses.size())));
+        String last=clauses.get(clauses.size()-1);if(clauses.size()>count&&!selected.contains(last))selected.set(selected.size()-1,last);
+        int available=Math.max(selected.size(),max-(selected.size()-1)),base=available/selected.size(),extra=available%selected.size();List<String> compact=new ArrayList<>();
+        for(int i=0;i<selected.size();i++)compact.add(headTail(selected.get(i),base+(i<extra?1:0)));
+        return String.join("；",compact);
+    }
+    private static String headTail(String value,int max){if(value.length()<=max)return value;if(max<=1)return value.substring(0,Math.max(0,max));int remaining=max-1,head=Math.max(1,(remaining*2)/3),tail=Math.max(0,remaining-head);return value.substring(0,head)+"…"+(tail==0?"":value.substring(value.length()-tail));}
     public record ModelResult(String json,long firstByteMs,long totalMs,String model){}
     public record SummaryResult(String summary,long totalMs,String model){}
 }
