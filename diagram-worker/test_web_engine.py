@@ -1,4 +1,5 @@
-import json, sys, unittest
+import base64, io, json, sys, unittest, zipfile
+import xml.etree.ElementTree as ET
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).parent))
 from diagram_plugins.legacy import register_plugins
@@ -38,6 +39,37 @@ class WebEngineTest(unittest.TestCase):
   self.assertTrue(result["exports"]["png"])
   self.assertIn('fill="white" stroke="#1f2937"',result["svg"])
   self.assertGreaterEqual(result["svg"].count('stroke="#1f2937"'),4)
+  self.assertEqual(2,result["svg"].count('data-shape="terminator"'))
+  self.assertEqual(2,result["svg"].count('class="td-flow-terminator"'))
+  er_dsl="@ERDiagram\n"+(ROOT/TEMPLATES["er_diagram"]).read_text(encoding="utf-8-sig")
+  self.assertIn('<ellipse',execute({"command":"render","dsl":er_dsl})["svg"])
+ def test_png_export_returns_real_png_bytes(self):
+  dsl="@Flowchart\n标题：PNG下载测试\n[节点]\nN1|start|开始\nN2|process|处理\nN3|end|结束\n[连接]\nN1->N2\nN2->N3"
+  result=execute({"command":"export","format":"png","dsl":dsl})
+  payload=base64.b64decode(result["data"])
+  self.assertTrue(result["success"]);self.assertTrue(payload.startswith(b"\x89PNG\r\n\x1a\n"));self.assertGreater(len(payload),1000)
+ def test_seven_templates_export_editable_vector_vsdx(self):
+  for kind,name in TEMPLATES.items():
+   with self.subTest(kind=kind):
+    dsl=HEADERS[kind]+"\n"+(ROOT/name).read_text(encoding="utf-8-sig")
+    result=execute({"command":"export","format":"vsdx","dsl":dsl})
+    payload=base64.b64decode(result["data"]);self.assertTrue(payload.startswith(b"PK"))
+    with zipfile.ZipFile(io.BytesIO(payload)) as package:
+     names=set(package.namelist());self.assertNotIn("visio/media/image1.png",names)
+     self.assertIn("visio/windows.xml",names)
+     document_rels=package.read("visio/_rels/document.xml.rels").decode("utf-8")
+     self.assertIn("relationships/windows",document_rels)
+     page=package.read("visio/pages/page1.xml").decode("utf-8")
+     self.assertNotIn("ForeignData",page);self.assertNotIn('Type="Foreign"',page)
+     self.assertIn("<Text>",page);self.assertGreater(page.count("<Shape "),result.get("nodeCount",0))
+     for entry in (x for x in names if x.endswith(".xml")):ET.fromstring(package.read(entry))
+ def test_flowchart_vsdx_uses_editable_terminator_shapes(self):
+  dsl="@Flowchart\n标题：起止框测试\n[节点]\nN1|start|开始\nN2|process|处理\nN3|end|结束\n[连接]\nN1->N2\nN2->N3"
+  result=execute({"command":"export","format":"vsdx","dsl":dsl})
+  with zipfile.ZipFile(io.BytesIO(base64.b64decode(result["data"]))) as package:
+   page=package.read("visio/pages/page1.xml").decode("utf-8")
+   self.assertEqual(2,page.count('NameU="Terminator.'))
+   self.assertNotIn("ForeignData",page)
  def test_flowchart_keeps_edge_labels_and_places_them_clear_of_nodes(self):
   dsl="""@Flowchart
 标题：教室两区独立照明自动控制流程

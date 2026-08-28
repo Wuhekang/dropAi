@@ -22,6 +22,11 @@ public class DiagramPreviewBillingService {
         return rows.isEmpty()?null:rows.get(0);
     }
 
+    public Map<String,Object> successByDsl(Long userId,Long projectId,String type,String normalizedDsl) {
+        List<Map<String,Object>> rows=jdbc.queryForList("SELECT * FROM diagram_preview WHERE user_id=? AND project_id=? AND diagram_type=? AND normalized_dsl=? AND status='SUCCESS' ORDER BY updated_at DESC LIMIT 1",userId,projectId,type,normalizedDsl);
+        return rows.isEmpty()?null:rows.get(0);
+    }
+
     public String createTask(Long userId,Long projectId,String type,String hash,String rendererVersion) {
         String id=UUID.randomUUID().toString().replace("-",""); LocalDateTime now=LocalDateTime.now();
         try {
@@ -76,8 +81,21 @@ public class DiagramPreviewBillingService {
     }
 
     public Map<String,Object> ownedPreview(String previewId,Long userId){List<Map<String,Object>> rows=jdbc.queryForList("SELECT * FROM diagram_preview WHERE id=? AND user_id=?",previewId,userId);return rows.isEmpty()?null:rows.get(0);}
+    public void refreshRenderer(String previewId,Long userId,String rendererVersion,String svg){
+        int changed=jdbc.update("UPDATE diagram_preview SET renderer_version=?,svg_content=?,updated_at=? WHERE id=? AND user_id=? AND status='SUCCESS'",rendererVersion,svg,LocalDateTime.now(),previewId,userId);
+        if(changed!=1)throw new IllegalStateException("预览不存在、无权访问或状态不可刷新");
+    }
     public Map<String,Object> artifact(String previewId,String format){List<Map<String,Object>> rows=jdbc.queryForList("SELECT * FROM diagram_artifact WHERE preview_id=? AND format=?",previewId,format.toLowerCase());return rows.isEmpty()?null:rows.get(0);}
     public Map<String,String> artifactStates(String previewId){return jdbc.query("SELECT format,status FROM diagram_artifact WHERE preview_id=?",rs->{java.util.LinkedHashMap<String,String> m=new java.util.LinkedHashMap<>();while(rs.next())m.put(rs.getString(1),rs.getString(2));return m;},previewId);}
+    @Transactional
+    public void upsertReadyArtifact(String previewId,String format,String path,long size){
+        LocalDateTime now=LocalDateTime.now();String kind=format.toLowerCase();
+        int changed=jdbc.update("UPDATE diagram_artifact SET status='READY',file_path=?,file_size=?,failure_reason=NULL,updated_at=? WHERE preview_id=? AND format=?",path,size,now,previewId,kind);
+        if(changed==0){
+            try{jdbc.update("INSERT INTO diagram_artifact(id,preview_id,format,status,file_path,file_size,failure_reason,created_at,updated_at) VALUES(?,?,?,'READY',?,?,NULL,?,?)",UUID.randomUUID().toString().replace("-",""),previewId,kind,path,size,now,now);}
+            catch(DuplicateKeyException race){jdbc.update("UPDATE diagram_artifact SET status='READY',file_path=?,file_size=?,failure_reason=NULL,updated_at=? WHERE preview_id=? AND format=?",path,size,now,previewId,kind);}
+        }
+    }
     private static String truncate(String s){String v=s==null?"":s;return v.substring(0,Math.min(480,v.length()));}
     public record ArtifactDraft(String format,String status,String path,long size,String reason){}
     public record Finalized(String previewId,boolean charged,int chargedPoints,int balance){}

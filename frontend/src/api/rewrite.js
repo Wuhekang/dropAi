@@ -734,6 +734,7 @@ export async function streamDiagramAssistant(data, { signal, onEvent } = {}) {
 export function saveDiagramProject(data) { return request.post('/diagram/projects', data) }
 export function listDiagramProjects() { return request.get('/diagram/projects') }
 export function exportDiagram(previewId, format) { return request.get(`/diagram/previews/${previewId}/download/${format}`, { responseType: 'blob', timeout: 120000 }) }
+export function createDiagramDownloadTicket(previewId, format, fileName) { return request.post(`/diagram/previews/${previewId}/download/${format}/ticket`, { fileName }) }
 export function getDiagramPreview(previewId) { return request.get(`/diagram/previews/${previewId}`) }
 export function uploadPptTemplateZip(file) { const form = new FormData(); form.append('file', file?.raw || file); return request.post('/ppt/templates/upload', form, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 600000 }) }
 export function recommendPptTemplate(id) { return request.get(`/ppt/projects/${id}/template/recommend`) }

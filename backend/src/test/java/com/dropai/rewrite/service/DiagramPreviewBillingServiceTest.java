@@ -45,4 +45,20 @@ class DiagramPreviewBillingServiceTest {
         assertNotNull(service.ownedPreview("owned-preview",1L));
         assertNull(service.ownedPreview("owned-preview",9L));
     }
+    @Test void missingOrFailedArtifactCanBeRegeneratedWithoutAnotherCharge(){
+        String task=service.createTask(1L,2L,"flowchart","artifact-hash","v1");service.rendered(task);
+        service.finalizeRendered(task,"artifact-preview",1L,2L,"flowchart","artifact-hash","v1","@Flowchart","<svg/>",List.of(new DiagramPreviewBillingService.ArtifactDraft("vsdx","UNAVAILABLE",null,0,"old exporter failed")));
+        service.published(task,"artifact-preview");service.upsertReadyArtifact("artifact-preview","vsdx","data/new.vsdx",2048);
+        var artifact=service.artifact("artifact-preview","vsdx");assertEquals("READY",artifact.get("status"));assertEquals("data/new.vsdx",artifact.get("file_path"));
+        assertEquals(2048L,((Number)artifact.get("file_size")).longValue());verify(points,times(1)).deductDiagramPreview(anyLong(),anyString(),anyString());
+    }
+    @Test void rendererUpgradeFindsSameDslAndRefreshesWithoutChargingAgain(){
+        String task=service.createTask(1L,2L,"flowchart","old-hash","old-renderer");service.rendered(task);
+        service.finalizeRendered(task,"upgrade-preview",1L,2L,"flowchart","old-hash","old-renderer","@Flowchart\n标题：测试","<svg id='old'/>",List.of());
+        service.published(task,"upgrade-preview");
+        var existing=service.successByDsl(1L,2L,"flowchart","@Flowchart\n标题：测试");assertNotNull(existing);
+        service.refreshRenderer("upgrade-preview",1L,"new-renderer","<svg id='new'/>");
+        var refreshed=service.ownedPreview("upgrade-preview",1L);assertEquals("new-renderer",refreshed.get("renderer_version"));assertEquals("<svg id='new'/>",refreshed.get("svg_content"));
+        verify(points,times(1)).deductDiagramPreview(anyLong(),anyString(),anyString());
+    }
 }

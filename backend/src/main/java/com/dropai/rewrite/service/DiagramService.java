@@ -44,16 +44,17 @@ public class DiagramService {
     private final String worker;
     private final PointService points;
     private final DiagramPreviewBillingService billing;
+    private final DiagramDownloadTicketService downloadTickets;
     private final Path artifactRoot;
-    private static final String RENDERER_VERSION="thesis-diagram-v1.6-export-3";
+    private static final String RENDERER_VERSION="thesis-diagram-v1.6-export-6-flow-terminator";
 
     public DiagramService(ObjectMapper objectMapper, MatrixDesignService matrix, JdbcTemplate jdbc,
                           @Value("${diagram.python:python}") String python,
                           @Value("${diagram.worker:diagram-worker/web_engine.py}") String worker,
                           @Value("${diagram.artifact-root:data/diagram-previews}") String artifactRoot,
-                          PointService points, DiagramPreviewBillingService billing) {
+                          PointService points, DiagramPreviewBillingService billing,DiagramDownloadTicketService downloadTickets) {
         this.objectMapper=objectMapper; this.matrix=matrix; this.jdbc=jdbc; this.python=python; this.worker=worker;
-        this.points=points;this.billing=billing;this.artifactRoot=Path.of(artifactRoot).toAbsolutePath().normalize();
+        this.points=points;this.billing=billing;this.downloadTickets=downloadTickets;this.artifactRoot=Path.of(artifactRoot).toAbsolutePath().normalize();
     }
 
     public JsonNode validate(String dsl) { return run("validate", dsl, null); }
@@ -73,6 +74,11 @@ public class DiagramService {
         long projectId=ensureProject(requestedProjectId,validation.path("title").asText("未命名图形"),dsl,userId);
         String type=validation.path("diagramType").asText();String normalized=normalizeDsl(dsl);String hash=renderHash(userId,projectId,type,normalized);
         Map<String,Object> existing=billing.success(userId,projectId,hash);if(existing!=null)return previewResponse(existing,false,true,points.currentPoints(userId));
+        Map<String,Object> sameDsl=billing.successByDsl(userId,projectId,type,normalized);
+        if(sameDsl!=null){
+            if(!RENDERER_VERSION.equals(String.valueOf(sameDsl.get("renderer_version"))))return refreshRenderer(sameDsl,normalized,userId);
+            return previewResponse(sameDsl,false,true,points.currentPoints(userId));
+        }
         try{points.ensureEnoughCustom(userId,10);}catch(PointsNotEnoughException e){return Map.of("ok",false,"code","INSUFFICIENT_POINTS","requiredPoints",10,"balance",points.currentPoints(userId),"projectId",projectId,"message","当前积分不足，生成图形需要10积分。您仍可继续编辑代码、检查格式或使用绘图助手。");}
         String taskId=billing.createTask(userId,projectId,type,hash,RENDERER_VERSION);if(taskId==null)return Map.of("ok",false,"code","RENDER_IN_PROGRESS","projectId",projectId,"renderHash",hash,"message","相同代码正在生成，请稍后重试");
         Path temp=artifactRoot.resolve(".tmp").resolve(taskId),finalDir=null;DiagramPreviewBillingService.Finalized finalized=null;
@@ -102,20 +108,73 @@ public class DiagramService {
         }
     }
 
-    public Map<String,Object> preview(String previewId){long userId=AuthContext.requireUserId();Map<String,Object> preview=billing.ownedPreview(previewId,userId);if(preview==null||!"SUCCESS".equals(String.valueOf(preview.get("status"))))throw new IllegalArgumentException("预览不存在或无权访问");Map<String,Object> out=previewResponse(preview,false,true,points.currentPoints(userId));out.put("dsl",preview.get("normalized_dsl"));return out;}
+    public Map<String,Object> preview(String previewId){long userId=AuthContext.requireUserId();Map<String,Object> preview=billing.ownedPreview(previewId,userId);if(preview==null||!"SUCCESS".equals(String.valueOf(preview.get("status"))))throw new IllegalArgumentException("预览不存在或无权访问");String dsl=String.valueOf(preview.get("normalized_dsl"));Map<String,Object> out=!RENDERER_VERSION.equals(String.valueOf(preview.get("renderer_version")))&&!dsl.isBlank()&&!"null".equals(dsl)?refreshRenderer(preview,dsl,userId):previewResponse(preview,false,true,points.currentPoints(userId));out.put("dsl",dsl);return out;}
 
     public ExportFile download(String previewId,String format){
-        long userId=AuthContext.requireUserId();Map<String,Object> preview=billing.ownedPreview(previewId,userId);
-        if(preview==null)throw new IllegalArgumentException("预览不存在或无权访问");if(!"SUCCESS".equals(String.valueOf(preview.get("status")))||((Number)preview.get("charged_points")).intValue()!=10)throw new IllegalStateException("该预览未完成计费，禁止下载");
-        String kind=format==null?"":format.toLowerCase();Map<String,Object> artifact=billing.artifact(previewId,kind);if(artifact==null||!"READY".equals(String.valueOf(artifact.get("status"))))throw new IllegalStateException(artifact==null?"产物不存在":String.valueOf(artifact.get("failure_reason")));
+        return downloadForUser(AuthContext.requireUserId(),previewId,format);
+    }
+
+    public Map<String,Object> createDownloadTicket(String previewId,String format,String requestedName){
+        long userId=AuthContext.requireUserId();validateDownloadAccess(userId,previewId,format);
+        String kind=format.toLowerCase();String base=cleanDownloadName(requestedName);String fileName=base.toLowerCase().endsWith("."+kind)?base:base+"."+kind;
+        String token=downloadTickets.issue(userId,previewId,kind,fileName);return Map.of("url","/api/diagram/download-ticket/"+token,"expiresInSeconds",downloadTickets.ttlSeconds());
+    }
+
+    public ExportFile downloadTicket(String token){
+        DiagramDownloadTicketService.Ticket ticket=downloadTickets.consume(token);ExportFile file=downloadForUser(ticket.userId(),ticket.previewId(),ticket.format());return new ExportFile(ticket.fileName(),file.content());
+    }
+
+    private void validateDownloadAccess(long userId,String previewId,String format){
+        Map<String,Object> preview=billing.ownedPreview(previewId,userId);if(preview==null)throw new IllegalArgumentException("预览不存在或无权访问");
+        if(!"SUCCESS".equals(String.valueOf(preview.get("status")))||((Number)preview.get("charged_points")).intValue()!=10)throw new IllegalStateException("该预览未完成计费，禁止下载");
+        String kind=format==null?"":format.toLowerCase();if(!List.of("svg","json","png","vsdx").contains(kind))throw new IllegalArgumentException("不支持的下载格式");
+    }
+
+    private ExportFile downloadForUser(long userId,String previewId,String format){
+        validateDownloadAccess(userId,previewId,format);Map<String,Object> preview=billing.ownedPreview(previewId,userId);
+        String kind=format==null?"":format.toLowerCase();if(!List.of("svg","json","png","vsdx").contains(kind))throw new IllegalArgumentException("不支持的下载格式");
+        Map<String,Object> artifact=billing.artifact(previewId,kind);boolean staleRenderer=!RENDERER_VERSION.equals(String.valueOf(preview.get("renderer_version")));
         try{
-            Path path=Path.of(String.valueOf(artifact.get("file_path"))).toAbsolutePath().normalize();
-            if(path.startsWith(artifactRoot)&&Files.isRegularFile(path))return new ExportFile("diagram."+kind,Files.readAllBytes(path));
+            if(!staleRenderer&&artifact!=null&&"READY".equals(String.valueOf(artifact.get("status")))){
+                Path path=Path.of(String.valueOf(artifact.get("file_path"))).toAbsolutePath().normalize();
+                if(path.startsWith(artifactRoot)&&Files.isRegularFile(path))return new ExportFile("diagram."+kind,Files.readAllBytes(path));
+            }
             String dsl=String.valueOf(preview.get("normalized_dsl"));
             if(dsl.isBlank()||"null".equals(dsl))throw new IllegalStateException("产物文件不存在，且预览代码无法恢复");
-            log.warn("[diagram] artifact missing, regenerate on download previewId={} format={} path={}",previewId,kind,path);
-            return export(dsl,kind);
+            log.info("[diagram] regenerate artifact on download previewId={} format={} reason={}",previewId,kind,staleRenderer?"renderer-upgrade":artifact==null?"missing-record":"missing-or-unavailable-file");
+            ExportFile regenerated=export(dsl,kind);Path directory=artifactRoot.resolve(String.valueOf(userId)).resolve(String.valueOf(preview.get("project_id"))).resolve(previewId).normalize();
+            if(!directory.startsWith(artifactRoot))throw new IllegalStateException("非法产物目录");Files.createDirectories(directory);
+            Path target=directory.resolve("diagram."+kind),temporary=directory.resolve("diagram."+kind+".tmp-"+UUID.randomUUID().toString().replace("-",""));Files.write(temporary,regenerated.content());
+            try{Files.move(temporary,target,StandardCopyOption.ATOMIC_MOVE,StandardCopyOption.REPLACE_EXISTING);}catch(java.nio.file.AtomicMoveNotSupportedException unsupported){Files.move(temporary,target,StandardCopyOption.REPLACE_EXISTING);}
+            billing.upsertReadyArtifact(previewId,kind,target.toString(),regenerated.content().length);return new ExportFile("diagram."+kind,regenerated.content());
         }catch(java.io.IOException e){throw new IllegalStateException("读取产物失败",e);}
+    }
+
+    private static String cleanDownloadName(String value){String name=value==null?"diagram":value.replaceAll("[\\\\/:*?\"<>|\\p{Cntrl}]","_").trim();if(name.isBlank())name="diagram";return name.substring(0,Math.min(100,name.length()));}
+
+    private Map<String,Object> refreshRenderer(Map<String,Object> preview,String dsl,long userId){
+        String previewId=String.valueOf(preview.get("id"));long projectId=((Number)preview.get("project_id")).longValue();
+        try{
+            log.info("[diagram] refresh stale preview without recharge previewId={} from={} to={}",previewId,preview.get("renderer_version"),RENDERER_VERSION);
+            JsonNode rendered=renderLegacy(dsl);String svg=rendered.path("svg").asText();validateSvg(svg);
+            byte[] svgBytes=svg.getBytes(StandardCharsets.UTF_8);
+            byte[] jsonBytes=objectMapper.writerWithDefaultPrettyPrinter().writeValueAsBytes(Map.of("dsl",dsl,"diagramType",String.valueOf(preview.get("diagram_type")),"structure",rendered.path("structure"),"layout",rendered.path("layout")));
+            byte[] pngBytes=export(dsl,"png").content();byte[] vsdxBytes=export(dsl,"vsdx").content();
+            Path directory=artifactRoot.resolve(String.valueOf(userId)).resolve(String.valueOf(projectId)).resolve(previewId).normalize();
+            if(!directory.startsWith(artifactRoot))throw new IllegalStateException("非法产物目录");Files.createDirectories(directory);
+            replaceFile(directory.resolve("diagram.svg"),svgBytes);replaceFile(directory.resolve("diagram.json"),jsonBytes);replaceFile(directory.resolve("diagram.png"),pngBytes);replaceFile(directory.resolve("diagram.vsdx"),vsdxBytes);
+            billing.refreshRenderer(previewId,userId,RENDERER_VERSION,svg);
+            billing.upsertReadyArtifact(previewId,"svg",directory.resolve("diagram.svg").toString(),svgBytes.length);
+            billing.upsertReadyArtifact(previewId,"json",directory.resolve("diagram.json").toString(),jsonBytes.length);
+            billing.upsertReadyArtifact(previewId,"png",directory.resolve("diagram.png").toString(),pngBytes.length);
+            billing.upsertReadyArtifact(previewId,"vsdx",directory.resolve("diagram.vsdx").toString(),vsdxBytes.length);
+            Map<String,Object> refreshed=billing.ownedPreview(previewId,userId);return previewResponse(refreshed,false,true,points.currentPoints(userId));
+        }catch(Exception error){throw error instanceof RuntimeException r?r:new IllegalStateException("旧预览升级失败",error);}
+    }
+
+    private static void replaceFile(Path target,byte[] content)throws java.io.IOException{
+        Path temporary=target.resolveSibling(target.getFileName()+".tmp-"+UUID.randomUUID().toString().replace("-",""));Files.write(temporary,content);
+        try{Files.move(temporary,target,StandardCopyOption.ATOMIC_MOVE,StandardCopyOption.REPLACE_EXISTING);}catch(java.nio.file.AtomicMoveNotSupportedException unsupported){Files.move(temporary,target,StandardCopyOption.REPLACE_EXISTING);}
     }
     public Map<String,Object> health() {
         Path path=resolveWorkerPath();
@@ -243,7 +302,7 @@ public class DiagramService {
         try{DocumentBuilderFactory f=DocumentBuilderFactory.newInstance();f.setFeature("http://apache.org/xml/features/disallow-doctype-decl",true);f.setExpandEntityReferences(false);var doc=f.newDocumentBuilder().parse(new ByteArrayInputStream(svg.getBytes(StandardCharsets.UTF_8)));var root=doc.getDocumentElement();if(!"svg".equalsIgnoreCase(root.getLocalName()==null?root.getNodeName():root.getLocalName()))throw new IllegalStateException("SVG根节点无效");boolean size=!root.getAttribute("viewBox").isBlank()||(!root.getAttribute("width").isBlank()&&!root.getAttribute("height").isBlank());if(!size)throw new IllegalStateException("SVG缺少有效viewBox或宽高");int shapes=0;for(String tag:List.of("rect","path","line","polyline","polygon","ellipse","circle","text"))shapes+=doc.getElementsByTagName(tag).getLength();if(shapes<2)throw new IllegalStateException("SVG没有有效图形节点");}catch(RuntimeException e){throw e;}catch(Exception e){throw new IllegalStateException("SVG解析失败",e);}
     }
     private Map<String,Object> previewResponse(Map<String,Object> preview,boolean charged,boolean reused,int balance){
-        String id=String.valueOf(preview.get("id"));Map<String,Object> out=new LinkedHashMap<>();out.put("ok",true);out.put("charged",charged);out.put("chargedPoints",charged?10:0);out.put("balance",balance);out.put("reused",reused);out.put("renderHash",preview.get("render_hash"));out.put("previewId",id);out.put("projectId",preview.get("project_id"));out.put("diagramType",preview.get("diagram_type"));out.put("svg",preview.get("svg_content"));out.put("downloadable",true);out.put("artifacts",billing.artifactStates(id));return out;
+        String id=String.valueOf(preview.get("id"));Map<String,Object> out=new LinkedHashMap<>();out.put("ok",true);out.put("charged",charged);out.put("chargedPoints",charged?10:0);out.put("balance",balance);out.put("reused",reused);out.put("renderHash",preview.get("render_hash"));out.put("previewId",id);out.put("projectId",preview.get("project_id"));out.put("diagramType",preview.get("diagram_type"));out.put("svg",preview.get("svg_content"));out.put("downloadable",true);Map<String,String> states=new LinkedHashMap<>(billing.artifactStates(id));for(String format:List.of("svg","json","png","vsdx"))states.putIfAbsent(format,"REGENERATE");if(!RENDERER_VERSION.equals(String.valueOf(preview.get("renderer_version"))))for(String format:List.of("svg","json","png","vsdx"))states.put(format,"REGENERATE");out.put("artifacts",states);return out;
     }
     private static void deleteTree(Path path){if(path==null||!Files.exists(path))return;try(var stream=Files.walk(path)){stream.sorted(java.util.Comparator.reverseOrder()).forEach(p->{try{Files.deleteIfExists(p);}catch(Exception ignored){}});}catch(Exception ignored){}}
     private static String cleanTitle(String s){String x=s==null?"未命名图形":s.trim();return x.isBlank()?"未命名图形":x.substring(0,Math.min(120,x.length()));}
