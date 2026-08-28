@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "quality-report.v1",
+  "presentationId": "ppt_health_001",
+  "status": "PASS",
+  "renderPlanHash": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+  "summary": {
+    "expectedSlides": 1,
+    "actualSlides": 1,
+    "errorCount": 0,
+    "warningCount": 1,
+    "infoCount": 0
+  },
+  "issues": [
+    {
+      "code": "PPT-QA-245",
+      "severity": "WARNING",
+      "stage": "RENDER_PLAN",
+      "slideId": "slide_06",
+      "elementId": "image",
+      "message": "图片有效分辨率偏低",
+      "metrics": { "effectivePpi": 93 }
+    }
+  ],
+  "artifacts": {
+    "pptx": "output/presentation.pptx",
+    "renderPlan": "output/render-plan.json",
+    "packageInspection": "output/package-inspection.json",
+    "previewDirectory": "output/preview"
+  }
+}

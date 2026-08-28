@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "quality-report.v1",
+  "presentationId": "ppt_health_001",
+  "status": "FAIL",
+  "renderPlanHash": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+  "summary": { "expectedSlides": 1, "actualSlides": 0, "errorCount": 1, "warningCount": 0, "infoCount": 0 },
+  "issues": [{
+    "code": "PPT-QA-999",
+    "severity": "ERROR",
+    "stage": "RENDER_PLAN",
+    "message": "未知错误码",
+    "metrics": {}
+  }],
+  "artifacts": {}
+}

@@ -1,0 +1,77 @@
+{
+  "schemaVersion": "render-plan.v1",
+  "presentationId": "ppt_health_001",
+  "sourceTreeHash": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "engine": {
+    "engineVersion": "1.0.0",
+    "themeId": "contract-example",
+    "themeVersion": "1.0.0",
+    "themeHash": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+    "layoutCatalogVersion": "1.0.0",
+    "layoutCatalogHash": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+    "fontProfileHash": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+  },
+  "slideSize": { "widthEmu": 12191695, "heightEmu": 6858000 },
+  "assets": [
+    {
+      "assetId": "figure_4_10",
+      "bundlePath": "assets/figure_4_10.png",
+      "sha256": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+      "mimeType": "image/png",
+      "widthPx": 1920,
+      "heightPx": 1080,
+      "assetKind": "SCREENSHOT",
+      "imageRole": "PROOF",
+      "mandatory": true
+    }
+  ],
+  "slides": [
+    {
+      "slideId": "slide_06",
+      "sourcePageId": "page_06",
+      "index": 1,
+      "pageType": "IMAGE",
+      "layoutId": "image-proof-screenshot-wide.v1",
+      "elements": [
+        {
+          "elementId": "title",
+          "elementType": "TEXT",
+          "xEmu": 566928,
+          "yEmu": 365760,
+          "widthEmu": 10332720,
+          "heightEmu": 566928,
+          "zIndex": 220,
+          "resolvedStyle": {
+            "fontFamily": "Microsoft YaHei",
+            "fontSizeHundredthPt": 2900,
+            "fontWeight": 700,
+            "textColor": "#1D2340",
+            "horizontalAlign": "LEFT",
+            "verticalAlign": "MIDDLE",
+            "lineSpacingPermille": 1150
+          },
+          "styleSource": { "component": "slideTitle", "themeToken": "typography.styles.slideTitle" },
+          "text": "AI健康评估结果展示"
+        },
+        {
+          "elementId": "image",
+          "elementType": "IMAGE",
+          "xEmu": 566928,
+          "yEmu": 1207008,
+          "widthEmu": 7452360,
+          "heightEmu": 4983480,
+          "zIndex": 240,
+          "resolvedStyle": {
+            "opacityPermille": 1000,
+            "borderColor": "#E1E5EF",
+            "borderWidthEmu": 9525,
+            "cornerRadiusEmu": 76200
+          },
+          "assetId": "figure_4_10",
+          "fitMode": "CONTAIN",
+          "cropAllowed": false
+        }
+      ]
+    }
+  ]
+}
