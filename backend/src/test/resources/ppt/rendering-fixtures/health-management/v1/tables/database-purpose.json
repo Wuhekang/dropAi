@@ -1,0 +1,1 @@
+{"columns":["业务表","业务用途"],"rows":[["user","用户账户管理"],["health_record","健康数据记录"],["assessment","AI评估结果"],["health_goal","健康目标管理"]],"tableId":"database-purpose","tableKind":"ENTITY_PURPOSE","title":"核心数据库表设计"}
