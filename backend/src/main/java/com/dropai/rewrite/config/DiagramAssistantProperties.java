@@ -12,6 +12,7 @@ import com.dropai.rewrite.service.diagram.DiagramIr.DiagramType;
 public class DiagramAssistantProperties {
     private String provider="doubao"; private String model="doubao-seed-2-1-turbo-260628";
     private String ollamaEndpoint="http://127.0.0.1:11434/api/chat"; private String ollamaModel="dropai-diagram-ir:first-wave";
+    private Duration ollamaTimeout=Duration.ofSeconds(5); private boolean ollamaFallbackEnabled=true;
     private String apiKey=""; private String endpoint="https://ark.cn-beijing.volces.com/api/v3/chat/completions";
     private boolean stream=true; private double temperature=.1; private Duration connectTimeout=Duration.ofSeconds(5);
     private Duration firstByteTimeout=Duration.ofSeconds(20); private Duration readIdleTimeout=Duration.ofSeconds(20); private Duration hardLimit=Duration.ofSeconds(90);
@@ -21,6 +22,7 @@ public class DiagramAssistantProperties {
     public int tokensFor(DiagramType type){return tokens.getOrDefault(type,defaultTokens);}
     public String getProvider(){return provider;} public void setProvider(String v){provider=v;} public String getModel(){return model;} public void setModel(String v){model=v;}
     public String getOllamaEndpoint(){return ollamaEndpoint;} public void setOllamaEndpoint(String v){ollamaEndpoint=v;} public String getOllamaModel(){return ollamaModel;} public void setOllamaModel(String v){ollamaModel=v;}
+    public Duration getOllamaTimeout(){return ollamaTimeout;} public void setOllamaTimeout(Duration v){ollamaTimeout=v;} public boolean isOllamaFallbackEnabled(){return ollamaFallbackEnabled;} public void setOllamaFallbackEnabled(boolean v){ollamaFallbackEnabled=v;}
     public String getApiKey(){return apiKey;} public void setApiKey(String v){apiKey=v;} public String getEndpoint(){return endpoint;} public void setEndpoint(String v){endpoint=v;}
     public boolean isStream(){return stream;} public void setStream(boolean v){stream=v;} public double getTemperature(){return temperature;} public void setTemperature(double v){temperature=v;}
     public Duration getConnectTimeout(){return connectTimeout;} public void setConnectTimeout(Duration v){connectTimeout=v;} public Duration getFirstByteTimeout(){return firstByteTimeout;} public void setFirstByteTimeout(Duration v){firstByteTimeout=v;}

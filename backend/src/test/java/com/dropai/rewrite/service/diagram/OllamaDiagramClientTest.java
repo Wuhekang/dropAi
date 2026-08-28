@@ -13,6 +13,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpResponse;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Flow;
 
@@ -43,6 +44,7 @@ class OllamaDiagramClientTest {
         ArgumentCaptor<HttpRequest> requestCaptor=ArgumentCaptor.forClass(HttpRequest.class);
         verify(http).send(requestCaptor.capture(),any(HttpResponse.BodyHandler.class));
         JsonNode request = mapper.readTree(readBody(requestCaptor.getValue()));
+        assertEquals(Duration.ofSeconds(5), requestCaptor.getValue().timeout().orElseThrow());
         assertEquals("dropai-diagram-ir:first-wave", request.path("model").asText());
         assertFalse(request.path("stream").asBoolean(true));
         assertEquals("json", request.path("format").asText());
