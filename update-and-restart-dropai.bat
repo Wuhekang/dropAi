@@ -4,8 +4,13 @@ chcp 65001 >nul
 
 set "ROOT_DIR=%~dp0"
 set "BACKEND_DIR=%ROOT_DIR%backend"
-set "TARGET_COMMIT=28b92976"
+set "TARGET_COMMIT=9956b14f"
 set "EXPECTED_GATEWAY=https://pay.dropai-demo.com/submit.php"
+set "WORD_FORMAT_PYTHON=python"
+
+call :load_word_python "%ROOT_DIR%.env"
+call :load_word_python "%BACKEND_DIR%\.env"
+if "%WORD_FORMAT_PYTHON%"=="" set "WORD_FORMAT_PYTHON=python"
 
 echo ========================================
 echo  DropAI update, build and restart
@@ -90,8 +95,9 @@ git merge-base --is-ancestor %TARGET_COMMIT% HEAD >nul 2>nul || (
   goto :fail
 )
 
-echo [3/7] Installing diagram export dependencies...
+echo [3/7] Installing Python worker dependencies...
 python -m pip install --disable-pip-version-check --no-input -r "%ROOT_DIR%diagram-worker\requirements-web.txt" || goto :fail
+"%WORD_FORMAT_PYTHON%" -m pip install --disable-pip-version-check --no-input -r "%ROOT_DIR%document-format-tool\requirements-web.txt" || goto :fail
 
 echo [4/7] Verifying payment gateway...
 findstr /L /C:"%EXPECTED_GATEWAY%" "%ROOT_DIR%start-dropai-backend.bat" >nul || (
@@ -129,6 +135,14 @@ echo The payment-platform merchant uid 1000 must use keytype=0 (MD5),
 echo and its merchant key must match the runtime EPAY_KEY.
 echo.
 pause
+exit /b 0
+
+:load_word_python
+set "WORD_ENV_FILE=%~1"
+if not exist "%WORD_ENV_FILE%" exit /b 0
+for /f "usebackq eol=# tokens=1,* delims==" %%A in ("%WORD_ENV_FILE%") do (
+  if /i "%%A"=="WORD_FORMAT_PYTHON" set "WORD_FORMAT_PYTHON=%%B"
+)
 exit /b 0
 
 :restore_and_fail

@@ -1,0 +1,770 @@
+from __future__ import annotations
+
+from pathlib import Path
+import re
+
+from docx import Document
+from docx.enum.section import WD_ORIENT
+from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_ROW_HEIGHT_RULE
+from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
+from docx.shared import Cm, Mm, Pt
+
+from word_formatter.core.analyzer import DocumentAnalyzer
+from word_formatter.models.results import ChangeRecord, ProcessResult
+from word_formatter.models.rules import DocumentRules, ParagraphRule, TableRule
+
+
+ALIGNMENTS = {
+    "left": WD_ALIGN_PARAGRAPH.LEFT,
+    "center": WD_ALIGN_PARAGRAPH.CENTER,
+    "right": WD_ALIGN_PARAGRAPH.RIGHT,
+    "justify": WD_ALIGN_PARAGRAPH.JUSTIFY,
+}
+VERTICAL_ALIGNMENTS = {
+    "top": WD_CELL_VERTICAL_ALIGNMENT.TOP,
+    "center": WD_CELL_VERTICAL_ALIGNMENT.CENTER,
+    "bottom": WD_CELL_VERTICAL_ALIGNMENT.BOTTOM,
+}
+
+
+class DocumentProcessor:
+    """安全处理 DOCX：只保存到新文件，绝不覆盖原文件。"""
+
+    def process(
+        self,
+        source_path: str | Path,
+        rules: DocumentRules,
+        output_path: str | Path | None = None,
+    ) -> ProcessResult:
+        source = Path(source_path).resolve()
+        self._validate_source(source)
+        output = Path(output_path).resolve() if output_path else self.default_output_path(source)
+        if output == source:
+            raise ValueError("输出文件不能与原文件相同")
+        output.parent.mkdir(parents=True, exist_ok=True)
+        result = ProcessResult(source_path=source, output_path=output)
+        try:
+            document = Document(source)
+            content_start = self._main_content_start(document)
+            if content_start > 1:
+                result.warnings.append(
+                    f"已保留正文起点之前的 {content_start - 1} 个段落（封面、声明或目录），不套用正文格式。"
+                )
+            if rules.page_setup.enabled:
+                self._apply_page_setup(document, rules, result)
+            reference_paragraphs = self._reference_paragraphs(document, content_start)
+            if rules.figure_caption.enabled:
+                self._apply_figure_captions(
+                    document, rules.figure_caption, result, content_start
+                )
+            if rules.table_caption.enabled:
+                self._apply_table_captions(
+                    document, rules.table_caption, result, content_start
+                )
+            if rules.reference.enabled:
+                self._apply_references(reference_paragraphs, rules.reference, result)
+            if rules.normal_text.enabled:
+                self._apply_normal_text(
+                    document,
+                    rules.normal_text,
+                    result,
+                    excluded_elements={id(paragraph._p) for _, paragraph in reference_paragraphs},
+                    start_index=content_start,
+                )
+            self._apply_headings(document, rules, result, content_start)
+            if rules.table.enabled:
+                self._apply_tables(document, rules.table, result, content_start)
+            if rules.page_number.enabled:
+                self._apply_page_numbers(document, rules.page_number.settings, result)
+            if rules.normal_text.number_font != rules.normal_text.latin_font:
+                result.warnings.append(
+                    "python-docx 无法在不拆分文本运行块的情况下区分英文与数字字体；第一版数字字体暂按英文字体处理。"
+                )
+            if rules.table.number_font != rules.table.latin_font:
+                result.warnings.append(
+                    "表格中的数字字体暂按表格英文字体处理，以避免拆分文字运行块。"
+                )
+            self._request_field_update(document, result)
+            document.save(output)
+            result.save_log(output.with_suffix(".log.json"))
+            return result
+        except Exception as exc:
+            result.warnings.append(f"处理失败：{exc}")
+            result.save_log(output.with_suffix(".failed.log.json"))
+            raise RuntimeError("文档处理失败，原文件未改动。") from exc
+
+    @staticmethod
+    def default_output_path(source: Path) -> Path:
+        return DocumentProcessor._unique_path(source.with_name(f"{source.stem}_格式修改完成.docx"))
+
+    @staticmethod
+    def _validate_source(source: Path) -> None:
+        if not source.is_file():
+            raise FileNotFoundError(f"找不到 Word 文件：{source}")
+        if source.suffix.lower() != ".docx":
+            raise ValueError("当前版本仅支持 .docx 文件")
+
+    @staticmethod
+    def _unique_path(path: Path) -> Path:
+        if not path.exists():
+            return path
+        for index in range(1, 1000):
+            candidate = path.with_name(f"{path.stem}_{index}{path.suffix}")
+            if not candidate.exists():
+                return candidate
+        raise FileExistsError(f"无法生成不重名文件：{path}")
+
+    @staticmethod
+    def _main_content_start(document) -> int:
+        """返回 1 基正文起始段落，保护封面、声明和目录的既有版式。"""
+        paragraphs = document.paragraphs
+        if not paragraphs:
+            return 1
+        toc_indexes = []
+        for index, paragraph in enumerate(paragraphs, start=1):
+            style = paragraph.style
+            identity = f"{style.style_id if style else ''} {style.name if style else ''}"
+            if re.search(r"(?:^|\s)TOC\s*\d+|目录\s*\d+", identity, re.IGNORECASE):
+                toc_indexes.append(index)
+        search_from = max(toc_indexes, default=0) + 1
+        for index in range(search_from, len(paragraphs) + 1):
+            paragraph = paragraphs[index - 1]
+            text = paragraph.text.strip()
+            if not text:
+                continue
+            if DocumentAnalyzer.recognized_heading_level(paragraph) is not None:
+                return index
+        # 没有标题结构的普通文档仍应从第一段开始处理。
+        return 1
+
+    @staticmethod
+    def _apply_page_setup(document, rules: DocumentRules, result: ProcessResult) -> None:
+        rule = rules.page_setup
+        for section_index, section in enumerate(document.sections, start=1):
+            old = (
+                f"{section.page_width.mm:.1f}×{section.page_height.mm:.1f} mm，"
+                f"边距 {section.top_margin.mm:.1f}/{section.bottom_margin.mm:.1f}/"
+                f"{section.left_margin.mm:.1f}/{section.right_margin.mm:.1f} mm"
+            )
+            section.orientation = WD_ORIENT.PORTRAIT
+            section.page_width = Mm(rule.width_mm)
+            section.page_height = Mm(rule.height_mm)
+            section.top_margin = Mm(rule.margin_top_mm)
+            section.bottom_margin = Mm(rule.margin_bottom_mm)
+            section.left_margin = Mm(rule.margin_left_mm)
+            section.right_margin = Mm(rule.margin_right_mm)
+            new = (
+                f"{rule.width_mm:g}×{rule.height_mm:g} mm，边距 "
+                f"{rule.margin_top_mm:g}/{rule.margin_bottom_mm:g}/"
+                f"{rule.margin_left_mm:g}/{rule.margin_right_mm:g} mm"
+            )
+            result.records.append(ChangeRecord(None, f"第 {section_index} 节页面设置", old, new, "启用页面设置规则"))
+
+    @classmethod
+    def _apply_normal_text(
+        cls,
+        document,
+        rule: ParagraphRule,
+        result: ProcessResult,
+        excluded_elements: set[int] | None = None,
+        start_index: int = 1,
+    ) -> None:
+        excluded_elements = excluded_elements or set()
+        for index, paragraph in enumerate(document.paragraphs, start=1):
+            if index < start_index:
+                continue
+            if id(paragraph._p) in excluded_elements:
+                continue
+            if not DocumentAnalyzer.is_normal_body(paragraph):
+                continue
+            before = cls._paragraph_summary(paragraph)
+            cls._format_paragraph(paragraph, rule)
+            after = cls._rule_summary(rule)
+            result.records.append(
+                ChangeRecord(index, "普通正文", before, after, "段落识别为非空普通正文并启用 normal_text 规则")
+            )
+
+    @classmethod
+    def _apply_headings(
+        cls, document, rules: DocumentRules, result: ProcessResult, start_index: int = 1
+    ) -> None:
+        heading_rules = {
+            1: rules.heading_1,
+            2: rules.heading_2,
+            3: rules.heading_3,
+            4: rules.heading_4,
+        }
+        for index, paragraph in enumerate(document.paragraphs, start=1):
+            if index < start_index:
+                continue
+            if (
+                DocumentAnalyzer.is_figure_caption(paragraph)
+                or DocumentAnalyzer.is_table_caption(paragraph)
+            ):
+                continue
+            level = DocumentAnalyzer.recognized_heading_level(paragraph)
+            if level is None:
+                continue
+            rule = heading_rules[level]
+            if not rule.enabled:
+                continue
+            before = cls._paragraph_summary(paragraph)
+            cls._format_paragraph(paragraph, rule)
+            recognition = (
+                f"明确的 Heading {level}/标题 {level} 内置样式"
+                if DocumentAnalyzer.heading_level(paragraph) == level
+                else "编号结构与加粗等标题特征的保守识别"
+            )
+            result.records.append(
+                ChangeRecord(
+                    index,
+                    f"{level} 级标题",
+                    before,
+                    cls._rule_summary(rule),
+                    f"段落通过{recognition}识别，并启用 heading_{level} 规则",
+                )
+            )
+
+    @classmethod
+    def _apply_figure_captions(
+        cls,
+        document,
+        rule: ParagraphRule,
+        result: ProcessResult,
+        start_index: int = 1,
+    ) -> None:
+        for index, paragraph in enumerate(document.paragraphs, start=1):
+            if index < start_index:
+                continue
+            if not DocumentAnalyzer.is_figure_caption(paragraph):
+                continue
+            before = cls._paragraph_summary(paragraph)
+            cls._format_paragraph(paragraph, rule)
+            result.records.append(
+                ChangeRecord(
+                    index,
+                    "图名",
+                    before,
+                    cls._rule_summary(rule),
+                    "段落通过题注样式或“图/Figure + 编号 + 名称”结构识别，并启用 figure_caption 规则",
+                )
+            )
+
+    @classmethod
+    def _apply_table_captions(
+        cls,
+        document,
+        rule: ParagraphRule,
+        result: ProcessResult,
+        start_index: int = 1,
+    ) -> None:
+        for index, paragraph in enumerate(document.paragraphs, start=1):
+            if index < start_index:
+                continue
+            if not DocumentAnalyzer.is_table_caption(paragraph):
+                continue
+            before = cls._paragraph_summary(paragraph)
+            cls._format_paragraph(paragraph, rule)
+            # 表题必须与紧随其后的表格保持在同一页，避免“表题在上一页、
+            # 表格从下一页开始”的孤立题注。
+            cls._set_on_off_property(
+                paragraph._p.get_or_add_pPr(), "keepNext", True
+            )
+            result.records.append(
+                ChangeRecord(
+                    index,
+                    "表名",
+                    before,
+                    cls._rule_summary(rule),
+                    "段落通过题注样式或“表/Table + 编号 + 名称”结构识别，并启用 table_caption 规则",
+                )
+            )
+
+    @classmethod
+    def _apply_references(
+        cls,
+        reference_paragraphs: list[tuple[int, object]],
+        rule: ParagraphRule,
+        result: ProcessResult,
+    ) -> None:
+        for index, paragraph in reference_paragraphs:
+            before = cls._paragraph_summary(paragraph)
+            cls._format_paragraph(paragraph, rule)
+            result.records.append(
+                ChangeRecord(
+                    index,
+                    "参考文献条目",
+                    before,
+                    cls._rule_summary(rule),
+                    "段落位于“参考文献/References”标题之后、下一章节标题之前，并启用 reference 规则",
+                )
+            )
+
+    @staticmethod
+    def _reference_paragraphs(
+        document, start_index: int = 1
+    ) -> list[tuple[int, object]]:
+        """返回参考文献标题之后、下一明确章节标题之前的非空段落。"""
+        found_heading = False
+        references: list[tuple[int, object]] = []
+        for index, paragraph in enumerate(document.paragraphs, start=1):
+            if index < start_index:
+                continue
+            text = paragraph.text.strip()
+            if DocumentAnalyzer.is_reference_heading(paragraph):
+                found_heading = True
+                continue
+            if not found_heading or not text:
+                continue
+            if DocumentAnalyzer.is_special_section_heading(text):
+                found_heading = False
+                continue
+            level = DocumentAnalyzer.recognized_heading_level(paragraph)
+            if level is not None and not DocumentAnalyzer.is_reference_entry(paragraph):
+                found_heading = False
+                continue
+            references.append((index, paragraph))
+
+        return references
+
+    @classmethod
+    def _apply_tables(
+        cls,
+        document,
+        rule: TableRule,
+        result: ProcessResult,
+        start_index: int = 1,
+    ) -> None:
+        tables = cls._tables_in_scope(document, start_index)
+        for table_index, table in enumerate(tables, start=1):
+            cls._set_table_borders(table, rule)
+            cls._set_repeat_header_row(table, rule.repeat_header_row)
+            if rule.column_width_mm > 0:
+                table.autofit = False
+                for column in table.columns:
+                    column.width = Mm(rule.column_width_mm)
+            cell_count = 0
+            paragraph_count = 0
+            for row in table.rows:
+                if rule.row_height_mm > 0:
+                    row.height = Mm(rule.row_height_mm)
+                    row.height_rule = WD_ROW_HEIGHT_RULE.AT_LEAST
+                for cell in row.cells:
+                    cell_count += 1
+                    cell.vertical_alignment = VERTICAL_ALIGNMENTS[rule.vertical_alignment]
+                    if rule.column_width_mm > 0:
+                        cell.width = Mm(rule.column_width_mm)
+                    for paragraph in cell.paragraphs:
+                        paragraph_count += 1
+                        cls._format_paragraph(paragraph, rule)
+            if table.rows:
+                for cell in table.rows[0].cells:
+                    for paragraph in cell.paragraphs:
+                        for run in paragraph.runs:
+                            run.font.bold = rule.header_row_bold
+                        if rule.repeat_header_row:
+                            cls._set_on_off_property(
+                                paragraph._p.get_or_add_pPr(), "keepNext", True
+                            )
+            result.records.append(
+                ChangeRecord(
+                    None,
+                    f"第 {table_index} 个表格",
+                    f"{len(table.rows)} 行 × {len(table.columns)} 列",
+                    cls._table_rule_summary(rule),
+                    f"启用 table 规则，处理 {cell_count} 个单元格、{paragraph_count} 个段落",
+                )
+            )
+
+    @staticmethod
+    def _tables_in_scope(document, start_index: int):
+        """仅返回正文起点之后的顶层表格，避免破坏封面布局表。"""
+        if start_index <= 1 or not document.paragraphs:
+            return list(document.tables)
+        start_element = document.paragraphs[start_index - 1]._p
+        body_children = list(document.element.body.iterchildren())
+        try:
+            start_position = next(
+                index for index, child in enumerate(body_children) if child is start_element
+            )
+        except StopIteration:
+            return list(document.tables)
+        positions = {child: index for index, child in enumerate(body_children)}
+        return [
+            table
+            for table in document.tables
+            if positions.get(table._tbl, start_position) >= start_position
+        ]
+
+    @staticmethod
+    def _request_field_update(document, result: ProcessResult) -> None:
+        """让 Word/WPS 打开文件时更新目录页码、交叉引用和页码域。"""
+        has_fields = bool(document.element.findall(".//" + qn("w:fldChar")))
+        if not has_fields:
+            for section in document.sections:
+                # 访问 section.header/footer 会为原本没有页眉页脚的文件
+                # 隐式创建新部件和 relationship。这里只读取已存在的引用，
+                # 确保“检查是否有域”本身不会改变文档包结构。
+                references = [
+                    *section._sectPr.findall(qn("w:headerReference")),
+                    *section._sectPr.findall(qn("w:footerReference")),
+                ]
+                for reference in references:
+                    relationship_id = reference.get(qn("r:id"))
+                    part = document.part.related_parts.get(relationship_id)
+                    if part is not None and part.element.findall(
+                        ".//" + qn("w:fldChar")
+                    ):
+                        has_fields = True
+                        break
+                if has_fields:
+                    break
+        if not has_fields:
+            return
+        settings = document.settings.element
+        update = settings.find(qn("w:updateFields"))
+        if update is None:
+            update = OxmlElement("w:updateFields")
+            settings.append(update)
+        update.set(qn("w:val"), "true")
+        result.records.append(
+            ChangeRecord(
+                None,
+                "域更新设置",
+                "未强制更新",
+                "打开时自动更新",
+                "正文重新排版可能改变页码，保留原域并请求 Word/WPS 更新目录与页码",
+            )
+        )
+
+    @staticmethod
+    def _apply_page_numbers(document, settings: dict, result: ProcessResult) -> None:
+        """把原有旧式页码规范为标准 PAGE 域，并保持编号格式切换。"""
+        if not settings.get("normalize_existing", False):
+            return
+        field_sections: list[int] = []
+        for index, section in enumerate(document.sections):
+            for reference in section._sectPr.findall(qn("w:footerReference")):
+                if reference.get(qn("w:type"), "default") != "default":
+                    continue
+                relationship_id = reference.get(qn("r:id"))
+                part = document.part.related_parts.get(relationship_id)
+                if part is None:
+                    continue
+                instructions = part.element.findall(".//" + qn("w:instrText"))
+                if any(re.search(r"\bPAGE\b", item.text or "", re.I) for item in instructions):
+                    field_sections.append(index)
+                    break
+        if not field_sections:
+            return
+
+        first_numbered = min(field_sections)
+        previous_format: str | None = None
+        for index in range(first_numbered, len(document.sections)):
+            section = document.sections[index]
+            pg_num = section._sectPr.find(qn("w:pgNumType"))
+            if pg_num is None and index == first_numbered:
+                pg_num = OxmlElement("w:pgNumType")
+                pg_num.set(qn("w:fmt"), "decimal")
+                pg_num.set(qn("w:start"), "1")
+                section._sectPr.append(pg_num)
+
+            if pg_num is not None and pg_num.get(qn("w:fmt")):
+                current_format = pg_num.get(qn("w:fmt"))
+            elif pg_num is not None and pg_num.get(qn("w:start")) is not None:
+                current_format = "decimal"
+            else:
+                current_format = previous_format or "decimal"
+
+            # 同一种编号格式的后续节必须连续；仅格式发生变化（如 I → 1）
+            # 时保留显式 start。
+            if (
+                pg_num is not None
+                and index > first_numbered
+                and current_format == previous_format
+                and pg_num.get(qn("w:start")) is not None
+            ):
+                del pg_num.attrib[qn("w:start")]
+            previous_format = current_format
+
+            footer = section.footer
+            footer.is_linked_to_previous = False
+            for child in list(footer._element):
+                footer._element.remove(child)
+            paragraph = footer.add_paragraph()
+            paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            run = paragraph.add_run()
+            run.font.name = str(settings.get("font_name", "Times New Roman"))
+            run.font.size = Pt(float(settings.get("font_size_pt", 10.5)))
+            r_pr = run._element.get_or_add_rPr()
+            fonts = r_pr.get_or_add_rFonts()
+            fonts.set(qn("w:eastAsia"), "宋体")
+            for kind in ("begin", "separate"):
+                marker = OxmlElement("w:fldChar")
+                marker.set(qn("w:fldCharType"), kind)
+                run._r.append(marker)
+                if kind == "begin":
+                    instruction = OxmlElement("w:instrText")
+                    instruction.set(
+                        "{http://www.w3.org/XML/1998/namespace}space", "preserve"
+                    )
+                    instruction.text = " PAGE  \\* MERGEFORMAT "
+                    run._r.append(instruction)
+            text = OxmlElement("w:t")
+            text.text = "1"
+            run._r.append(text)
+            end = OxmlElement("w:fldChar")
+            end.set(qn("w:fldCharType"), "end")
+            run._r.append(end)
+
+        result.records.append(
+            ChangeRecord(
+                None,
+                "页码",
+                "旧式/不连续页码",
+                f"从第 {first_numbered + 1} 节起使用标准居中 PAGE 域并按格式连续编号",
+                "模板包含页码域，规范旧式文本框页码并保留罗马数字到阿拉伯数字的切换",
+            )
+        )
+
+    @classmethod
+    def _set_table_borders(cls, table, rule: TableRule) -> None:
+        cls._clear_cell_borders(table)
+        tbl_pr = table._tbl.tblPr
+        old = tbl_pr.find(qn("w:tblBorders"))
+        if old is not None:
+            tbl_pr.remove(old)
+        borders = OxmlElement("w:tblBorders")
+        tbl_pr.append(borders)
+
+        if rule.border_style == "grid":
+            for edge in ("top", "left", "bottom", "right", "insideH", "insideV"):
+                width = rule.outer_border_width_pt if edge in {"top", "left", "bottom", "right"} else rule.inner_border_width_pt
+                cls._append_border(borders, edge, "single", width, rule.border_color)
+        elif rule.border_style == "three_line":
+            cls._append_border(borders, "top", "single", rule.outer_border_width_pt, rule.border_color)
+            cls._append_border(borders, "bottom", "single", rule.outer_border_width_pt, rule.border_color)
+            for edge in ("left", "right", "insideH", "insideV"):
+                cls._append_border(borders, edge, "nil", 0, rule.border_color)
+            if table.rows:
+                for cell in table.rows[0].cells:
+                    cls._set_cell_bottom_border(cell, rule.inner_border_width_pt, rule.border_color)
+        else:
+            for edge in ("top", "left", "bottom", "right", "insideH", "insideV"):
+                cls._append_border(borders, edge, "nil", 0, rule.border_color)
+
+    @staticmethod
+    def _clear_cell_borders(table) -> None:
+        """清除会覆盖 tblBorders 的单元格级残留边框。"""
+        # python-docx 会为 row.cells 动态创建代理对象，代理对象的 id 可能在
+        # 遍历期间被 Python 复用，不能用 id(cell._tc) 去重。直接遍历物理
+        # OOXML 单元格，确保每一个 tcBorders 都被删除。
+        for borders in list(table._tbl.xpath(".//w:tcPr/w:tcBorders")):
+            parent = borders.getparent()
+            if parent is not None:
+                parent.remove(borders)
+        # 行级表格属性例外同样会覆盖表级边框，统一移除其中的边框定义。
+        for borders in list(table._tbl.xpath(".//w:tblPrEx/w:tblBorders")):
+            parent = borders.getparent()
+            if parent is not None:
+                parent.remove(borders)
+
+    @staticmethod
+    def _set_repeat_header_row(table, enabled: bool) -> None:
+        """规范跨页表格：仅首行作为重复表头。"""
+        rows = table._tbl.findall(qn("w:tr"))
+        for index, row in enumerate(rows):
+            tr_pr = row.find(qn("w:trPr"))
+            if tr_pr is None:
+                tr_pr = OxmlElement("w:trPr")
+                row.insert(0, tr_pr)
+            for existing in list(tr_pr.findall(qn("w:tblHeader"))):
+                tr_pr.remove(existing)
+            if enabled and index == 0:
+                header = OxmlElement("w:tblHeader")
+                header.set(qn("w:val"), "1")
+                tr_pr.append(header)
+
+    @staticmethod
+    def _append_border(parent, edge: str, value: str, width_pt: float, color: str) -> None:
+        element = OxmlElement(f"w:{edge}")
+        element.set(qn("w:val"), value)
+        if value != "nil":
+            element.set(qn("w:sz"), str(max(2, round(width_pt * 8))))
+            element.set(qn("w:space"), "0")
+            element.set(qn("w:color"), color.lstrip("#").upper())
+        parent.append(element)
+
+    @classmethod
+    def _set_cell_bottom_border(cls, cell, width_pt: float, color: str) -> None:
+        tc_pr = cell._tc.get_or_add_tcPr()
+        borders = tc_pr.find(qn("w:tcBorders"))
+        if borders is None:
+            borders = OxmlElement("w:tcBorders")
+            tc_pr.append(borders)
+        old = borders.find(qn("w:bottom"))
+        if old is not None:
+            borders.remove(old)
+        cls._append_border(borders, "bottom", "single", width_pt, color)
+
+    @staticmethod
+    def _format_paragraph(paragraph, rule: ParagraphRule) -> None:
+        paragraph.alignment = ALIGNMENTS[rule.alignment]
+        fmt = paragraph.paragraph_format
+        if rule.line_spacing_mode == "fixed":
+            fmt.line_spacing_rule = WD_LINE_SPACING.EXACTLY
+            fmt.line_spacing = Pt(rule.fixed_line_spacing_pt)
+        elif rule.line_spacing_mode == "at_least":
+            fmt.line_spacing_rule = WD_LINE_SPACING.AT_LEAST
+            fmt.line_spacing = Pt(rule.minimum_line_spacing_pt)
+        elif rule.line_spacing_mode == "multiple":
+            fmt.line_spacing = rule.multiple_line_spacing
+        else:
+            fmt.line_spacing_rule = {
+                "single": WD_LINE_SPACING.SINGLE,
+                "1.5": WD_LINE_SPACING.ONE_POINT_FIVE,
+                "double": WD_LINE_SPACING.DOUBLE,
+            }[rule.line_spacing_mode]
+        DocumentProcessor._set_wps_paragraph_units(paragraph, rule)
+        for run in paragraph.runs:
+            run.font.name = rule.latin_font
+            run.font.size = Pt(rule.font_size_pt)
+            run.font.bold = rule.bold
+            run.font.italic = rule.italic
+            run.font.underline = rule.underline
+            r_pr = run._element.get_or_add_rPr()
+            fonts = r_pr.get_or_add_rFonts()
+            fonts.set(qn("w:eastAsia"), rule.chinese_font)
+            fonts.set(qn("w:ascii"), rule.latin_font)
+            fonts.set(qn("w:hAnsi"), rule.latin_font)
+            spacing = r_pr.find(qn("w:spacing"))
+            if rule.character_spacing_mode == "standard" or rule.character_spacing_pt == 0:
+                if spacing is not None:
+                    r_pr.remove(spacing)
+            else:
+                if spacing is None:
+                    spacing = OxmlElement("w:spacing")
+                    r_pr.append(spacing)
+                sign = 1 if rule.character_spacing_mode == "expanded" else -1
+                spacing.set(qn("w:val"), str(round(sign * rule.character_spacing_pt * 20)))
+
+    @staticmethod
+    def _set_wps_paragraph_units(paragraph, rule: ParagraphRule) -> None:
+        """直接写入 WPS 会显示为“字符”和“行”的 OOXML 属性。"""
+        p_pr = paragraph._p.get_or_add_pPr()
+        ind = p_pr.find(qn("w:ind"))
+        if ind is None:
+            ind = OxmlElement("w:ind")
+            p_pr.append(ind)
+        for attr in ("firstLine", "hanging", "left", "right", "firstLineChars", "hangingChars", "leftChars", "rightChars"):
+            qualified = qn(f"w:{attr}")
+            if qualified in ind.attrib:
+                del ind.attrib[qualified]
+        ind.set(qn("w:left"), str(Cm(rule.left_indent_cm).twips))
+        ind.set(qn("w:right"), str(Cm(rule.right_indent_cm).twips))
+        if rule.special_indent_mode == "first_line":
+            ind.set(qn("w:firstLineChars"), str(round(rule.special_indent_chars * 100)))
+        elif rule.special_indent_mode == "hanging":
+            ind.set(qn("w:hangingChars"), str(round(rule.special_indent_chars * 100)))
+
+        spacing = p_pr.find(qn("w:spacing"))
+        if spacing is None:
+            spacing = OxmlElement("w:spacing")
+            p_pr.append(spacing)
+        for attr in ("before", "after", "beforeLines", "afterLines", "beforeAutospacing", "afterAutospacing"):
+            qualified = qn(f"w:{attr}")
+            if qualified in spacing.attrib:
+                del spacing.attrib[qualified]
+        if rule.space_before_unit == "line":
+            spacing.set(qn("w:beforeLines"), str(round(rule.space_before_lines * 100)))
+        else:
+            spacing.set(qn("w:before"), str(round(rule.space_before_pt * 20)))
+        if rule.space_after_unit == "line":
+            spacing.set(qn("w:afterLines"), str(round(rule.space_after_lines * 100)))
+        else:
+            spacing.set(qn("w:after"), str(round(rule.space_after_pt * 20)))
+
+        snap = p_pr.find(qn("w:snapToGrid"))
+        if snap is None:
+            snap = OxmlElement("w:snapToGrid")
+            p_pr.append(snap)
+        snap.set(qn("w:val"), "1" if rule.snap_to_grid else "0")
+        DocumentProcessor._set_on_off_property(p_pr, "adjustRightInd", rule.auto_adjust_right_indent)
+        DocumentProcessor._set_on_off_property(p_pr, "bidi", rule.direction == "rtl")
+        DocumentProcessor._set_on_off_property(p_pr, "widowControl", rule.widow_control)
+        DocumentProcessor._set_on_off_property(p_pr, "keepNext", rule.keep_with_next)
+        DocumentProcessor._set_on_off_property(p_pr, "keepLines", rule.keep_lines_together)
+        DocumentProcessor._set_on_off_property(p_pr, "pageBreakBefore", rule.page_break_before)
+        outline = p_pr.find(qn("w:outlineLvl"))
+        if outline is None:
+            outline = OxmlElement("w:outlineLvl")
+            p_pr.append(outline)
+        outline.set(qn("w:val"), str(max(0, min(rule.outline_level, 9))))
+
+    @staticmethod
+    def _set_on_off_property(p_pr, name: str, enabled: bool) -> None:
+        element = p_pr.find(qn(f"w:{name}"))
+        if element is None:
+            element = OxmlElement(f"w:{name}")
+            p_pr.append(element)
+        element.set(qn("w:val"), "1" if enabled else "0")
+
+    @staticmethod
+    def _paragraph_summary(paragraph) -> str:
+        fmt = paragraph.paragraph_format
+        first_run = next((run for run in paragraph.runs if run.text), None)
+        font = first_run.font if first_run else None
+        return (
+            f"样式={paragraph.style.name if paragraph.style else '无'}; "
+            f"字体={font.name if font else '继承'}; "
+            f"字号={font.size.pt if font and font.size else '继承'}; "
+            f"对齐={paragraph.alignment}; 首行缩进={fmt.first_line_indent}"
+        )
+
+    @staticmethod
+    def _rule_summary(rule: ParagraphRule) -> str:
+        spacing = {
+            "standard": "标准",
+            "expanded": f"加宽 {rule.character_spacing_pt:g}磅",
+            "condensed": f"紧缩 {rule.character_spacing_pt:g}磅",
+        }[rule.character_spacing_mode]
+        line = {
+            "single": "单倍行距",
+            "1.5": "1.5倍行距",
+            "double": "2倍行距",
+            "fixed": f"固定值 {rule.fixed_line_spacing_pt:g}磅",
+            "at_least": f"最小值 {rule.minimum_line_spacing_pt:g}磅",
+            "multiple": f"多倍行距 {rule.multiple_line_spacing:g}倍",
+        }[rule.line_spacing_mode]
+        before = f"{rule.space_before_lines:g}行" if rule.space_before_unit == "line" else f"{rule.space_before_pt:g}磅"
+        after = f"{rule.space_after_lines:g}行" if rule.space_after_unit == "line" else f"{rule.space_after_pt:g}磅"
+        return (
+            f"中文={rule.chinese_font}; 英文/数字={rule.latin_font}; "
+            f"字号={rule.font_size_name}（{rule.font_size_pt:g}磅）; 字距={spacing}; 对齐={rule.alignment}; "
+            f"首行缩进={rule.first_line_indent_chars:g}字符; 行距={line}; "
+            f"段前/段后={before}/{after}"
+        )
+
+    @staticmethod
+    def _table_rule_summary(rule: TableRule) -> str:
+        border = {"three_line": "三线表", "grid": "全框线", "none": "无框线"}[rule.border_style]
+        line = {
+            "single": "单倍行距",
+            "1.5": "1.5倍行距",
+            "double": "2倍行距",
+            "fixed": f"固定值 {rule.fixed_line_spacing_pt:g}磅",
+            "at_least": f"最小值 {rule.minimum_line_spacing_pt:g}磅",
+            "multiple": f"多倍行距 {rule.multiple_line_spacing:g}倍",
+        }[rule.line_spacing_mode]
+        before = f"{rule.space_before_lines:g}行" if rule.space_before_unit == "line" else f"{rule.space_before_pt:g}磅"
+        after = f"{rule.space_after_lines:g}行" if rule.space_after_unit == "line" else f"{rule.space_after_pt:g}磅"
+        row_height = f"{rule.row_height_mm:g}mm" if rule.row_height_mm > 0 else "保留/自动"
+        column_width = f"{rule.column_width_mm:g}mm" if rule.column_width_mm > 0 else "自动"
+        return (
+            f"{border}; 中文={rule.chinese_font}; 英文/数字={rule.latin_font}; "
+            f"字号={rule.font_size_name}（{rule.font_size_pt:g}磅）; 行距={line}; "
+            f"段前/段后={before}/{after}; 对齐={rule.alignment}/"
+            f"{rule.vertical_alignment}; 行高={row_height}; 列宽={column_width}"
+        )

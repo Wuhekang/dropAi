@@ -6,6 +6,10 @@ server:
       enabled: true
       force: true
 
+dokiai:
+  tomcat:
+    nio2-enabled: ${DOKIAI_TOMCAT_NIO2_ENABLED:false}
+
 spring:
   application:
     name: academic-rewrite-backend
@@ -97,3 +101,17 @@ reference:
     enabled: ${CROSSREF_SEARCH_ENABLED:false}
     mailto: ${CROSSREF_MAILTO:}
     api-token: ${CROSSREF_API_TOKEN:}
+
+word-format:
+  enabled: ${WORD_FORMAT_ENABLED:true}
+  python: ${WORD_FORMAT_PYTHON:python}
+  worker: ${WORD_FORMAT_WORKER:document-format-tool/format_cli.py}
+  data-dir: ${WORD_FORMAT_DATA_DIR:storage/word-format}
+  max-source-bytes: ${WORD_FORMAT_MAX_SOURCE_BYTES:104857600}
+  max-template-bytes: ${WORD_FORMAT_MAX_TEMPLATE_BYTES:31457280}
+  legacy-templates-enabled: ${WORD_FORMAT_LEGACY_TEMPLATES_ENABLED:}
+  max-expanded-bytes: ${WORD_FORMAT_MAX_EXPANDED_BYTES:1073741824}
+  max-instructions-chars: ${WORD_FORMAT_MAX_INSTRUCTIONS_CHARS:20000}
+  timeout-seconds: ${WORD_FORMAT_TIMEOUT_SECONDS:600}
+  max-concurrent: ${WORD_FORMAT_MAX_CONCURRENT:1}
+  queue-capacity: ${WORD_FORMAT_QUEUE_CAPACITY:20}

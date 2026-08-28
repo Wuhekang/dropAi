@@ -15,6 +15,10 @@ backend/.idea/
 /template-import/
 /dropai-demo/
 /diagram-worker/visual-baselines/
+/qa/
+/storage/word-format-preflight/
 
 *.log
+__pycache__/
+*.py[cod]
 .DS_Store

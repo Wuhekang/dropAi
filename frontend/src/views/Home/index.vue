@@ -279,9 +279,10 @@ const creationCards = [
   { title: '文献检索', copy: '快速定位高价值资料', icon: Search, tone: 'blue', route: '/literature' },
   { title: '文献分析', copy: '整理引用格式与摘要信息', icon: DataAnalysis, tone: 'green', route: '/literature' },
   { title: '学术优化', copy: '提升论文质量表达', icon: MagicStick, tone: 'gold', route: '/rewrite' },
+  { title: '论文格式智能修改', copy: '上传学校模板与论文，一键规范标题、图表与正文', icon: Document, tone: 'green', route: '/word-formatter' },
   { title: '机械设计', copy: '图片理解、结构方案与工程报告', icon: Cpu, tone: 'blue', route: '/mechanical-design' },
   { title: '图纸智能处理', copy: '识别图纸并分析机械结构', icon: Picture, tone: 'cyan', route: '/mechanical-design' },
-  { title: '流程图生成', copy: '生成 UML、ER、流程图', icon: Share, tone: 'violet', route: '/computer-generator' },
+  { title: '流程图生成', copy: '生成 UML、ER、流程图', icon: Share, tone: 'violet', route: '/drawing' },
   { title: 'PPT与答辩', copy: '生成展示材料', icon: VideoPlay, tone: 'coral', route: '/ppt-generator' }
 ]
 
@@ -1172,7 +1173,7 @@ button {
 
 .creation-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: clamp(13px, 1vw, 18px);
 }
 

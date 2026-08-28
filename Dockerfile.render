@@ -19,6 +19,10 @@ ENV TZ=Asia/Shanghai
 ENV SPRING_PROFILES_ACTIVE=demo
 ENV APP_DATA_DIR=/app/data
 ENV FREECAD_CMD=/usr/local/bin/freecadcmd
+ENV WORD_FORMAT_PYTHON=python
+ENV WORD_FORMAT_WORKER=/app/document-format-tool/format_cli.py
+ENV WORD_FORMAT_DATA_DIR=/app/storage/word-format
+ENV WORD_FORMAT_LEGACY_TEMPLATES_ENABLED=false
 ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=60.0"
 RUN apt-get update \
     && apt-get install -y --no-install-recommends openjdk-17-jre-headless fonts-noto-cjk fontconfig libgl1 libglib2.0-0 libxrender1 libxext6 ca-certificates bash freecad freecad-python3 \
@@ -30,9 +34,11 @@ RUN apt-get update \
     && /usr/local/bin/freecadcmd --version \
     && fc-cache -f -v \
     && rm -rf /var/lib/apt/lists/* \
-    && mkdir -p /app/data /app/storage/uploads /app/storage/outputs /app/storage/jobs
+    && mkdir -p /app/data /app/storage/uploads /app/storage/outputs /app/storage/jobs /app/storage/word-format
 COPY diagram-worker /app/diagram-worker
-RUN pip install --no-cache-dir -r /app/diagram-worker/requirements-web.txt
+COPY document-format-tool /app/document-format-tool
+RUN pip install --no-cache-dir -r /app/diagram-worker/requirements-web.txt \
+    && pip install --no-cache-dir -r /app/document-format-tool/requirements-web.txt
 COPY --from=backend-build /backend/target/*.jar /app/app.jar
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=3 \

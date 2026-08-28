@@ -7,6 +7,7 @@ work
 *.png
 *.log
 *.sql
+!backend/src/main/resources/*.sql
 
 frontend/.idea
 frontend/.npm-cache
@@ -20,6 +21,10 @@ backend/storage
 backend/target
 backend/work
 backend/*.log
+
+document-format-tool/tests
+**/__pycache__
+**/*.py[cod]
 
 **/.DS_Store
 **/Thumbs.db

@@ -101,7 +101,10 @@ request.interceptors.response.use(
     logApiError(error)
     if (error.response?.status === 401 && !error.config?.skipAuthRedirect) {
       clearAuthSession()
-      if (window.location.pathname !== '/login') window.location.href = '/login'
+      if (window.location.pathname !== '/login') {
+        const returnTo = `${window.location.pathname}${window.location.search}${window.location.hash}`
+        window.location.href = `/login?redirect=${encodeURIComponent(returnTo)}`
+      }
     }
     const responseData = error.response?.data
     const blobMessage = responseData instanceof Blob && responseData.type?.includes('json')
@@ -680,6 +683,30 @@ export function getWritingPreview(id) {
 
 export function getWritingFiles(id) {
   return request.get(`/writing/projects/${id}/files`)
+}
+
+export function createWordFormatJob({ template, source, instructions = '', useDoubao = false }, onUploadProgress) {
+  const form = new FormData()
+  form.append('template', template?.raw || template)
+  form.append('source', source?.raw || source)
+  if (String(instructions || '').trim()) form.append('instructions', String(instructions).trim())
+  form.append('useDoubao', String(Boolean(useDoubao)))
+  return request.post('/word-format/jobs', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 600000,
+    onUploadProgress
+  })
+}
+
+export function getWordFormatJob(id) {
+  return request.get(`/word-format/jobs/${id}`)
+}
+
+export function downloadWordFormatResult(id) {
+  return request.get(`/word-format/jobs/${id}/download`, {
+    responseType: 'blob',
+    timeout: 300000
+  })
 }
 
 export function createPptProject(data) { return request.post('/ppt/projects', data) }

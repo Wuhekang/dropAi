@@ -25,6 +25,8 @@ if not exist "%BACKEND_DIR%\" (
   exit /b 1
 )
 
+cd /d "%ROOT_DIR%"
+
 where java >nul 2>nul
 if errorlevel 1 (
   echo [ERROR] Java is not available in PATH.
@@ -81,6 +83,13 @@ set "DOUBAO_ENDPOINT=https://ark.cn-beijing.volces.com/api/v3/chat/completions"
 set "DOUBAO_DOCUMENT_CONCURRENCY=8"
 set "DOUBAO_MAX_RETRIES=2"
 
+set "WORD_FORMAT_ENABLED=true"
+set "WORD_FORMAT_PYTHON=python"
+set "WORD_FORMAT_WORKER=%ROOT_DIR%document-format-tool\format_cli.py"
+set "WORD_FORMAT_DATA_DIR=%BACKEND_DIR%\storage\word-format"
+set "WORD_FORMAT_LEGACY_TEMPLATES_ENABLED=true"
+set "DOKIAI_TOMCAT_NIO2_ENABLED=false"
+
 set "MATRIX_API_KEY="
 set "MATRIX_MODEL=claude-opus-4-7"
 set "MATRIX_DESIGN_ENABLED=true"
@@ -98,6 +107,20 @@ set "JAVA_OPTS=-Xms512m -Xmx1024m -Dfile.encoding=UTF-8 -Duser.timezone=Asia/Sha
 
 call :load_env "%ENV_FILE%"
 call :load_env "%BACKEND_ENV_FILE%"
+
+if "%WORD_FORMAT_ENABLED%"=="" set "WORD_FORMAT_ENABLED=true"
+if "%WORD_FORMAT_PYTHON%"=="" set "WORD_FORMAT_PYTHON=python"
+if "%WORD_FORMAT_WORKER%"=="" set "WORD_FORMAT_WORKER=%ROOT_DIR%document-format-tool\format_cli.py"
+if "%WORD_FORMAT_DATA_DIR%"=="" set "WORD_FORMAT_DATA_DIR=%BACKEND_DIR%\storage\word-format"
+if "%WORD_FORMAT_LEGACY_TEMPLATES_ENABLED%"=="" set "WORD_FORMAT_LEGACY_TEMPLATES_ENABLED=true"
+
+if /i "%WORD_FORMAT_ENABLED%"=="true" (
+  call :verify_word_formatter
+  if errorlevel 1 (
+    pause
+    exit /b 1
+  )
+)
 
 if "%DOUBAO_API_KEY%"=="" (
   echo [ERROR] DOUBAO_API_KEY is empty.
@@ -132,6 +155,9 @@ echo   DOUBAO_TEXT_MODEL=%DOUBAO_TEXT_MODEL%
 echo   DOUBAO_MECHANICAL_VISION_MODEL=%DOUBAO_MECHANICAL_VISION_MODEL%
 echo   DOUBAO_ENDPOINT=%DOUBAO_ENDPOINT%
 echo   DOUBAO_DOCUMENT_CONCURRENCY=%DOUBAO_DOCUMENT_CONCURRENCY%
+echo   WORD_FORMAT_ENABLED=%WORD_FORMAT_ENABLED%
+echo   WORD_FORMAT_WORKER=%WORD_FORMAT_WORKER%
+echo   WORD_FORMAT_LEGACY_TEMPLATES_ENABLED=%WORD_FORMAT_LEGACY_TEMPLATES_ENABLED%
 echo   MATRIX_DESIGN_ENABLED=%MATRIX_DESIGN_ENABLED%
 echo   EPAY_GATEWAY=%EPAY_GATEWAY%
 echo   EPAY_PID=%EPAY_PID%
@@ -151,6 +177,28 @@ echo  DropAI Backend Stopped, exit code %EXIT_CODE%
 echo ========================================
 pause
 exit /b %EXIT_CODE%
+
+:verify_word_formatter
+if exist "%WORD_FORMAT_WORKER%" goto :word_worker_found
+if exist "%BACKEND_DIR%\%WORD_FORMAT_WORKER%" goto :word_worker_found
+echo [ERROR] Word formatter not found: %WORD_FORMAT_WORKER%
+exit /b 1
+
+:word_worker_found
+"%WORD_FORMAT_PYTHON%" "%ROOT_DIR%document-format-tool\runtime_check.py" >nul 2>nul
+if errorlevel 1 (
+  echo [ERROR] Word formatter Python runtime is incomplete: %WORD_FORMAT_PYTHON%
+  echo Run: "%WORD_FORMAT_PYTHON%" -m pip install -r "%ROOT_DIR%document-format-tool\requirements-web.txt"
+  exit /b 1
+)
+if /i not "%WORD_FORMAT_LEGACY_TEMPLATES_ENABLED%"=="true" exit /b 0
+"%WORD_FORMAT_PYTHON%" "%ROOT_DIR%document-format-tool\runtime_check.py" --legacy >nul 2>nul
+if errorlevel 1 (
+  echo [ERROR] Legacy .doc/.dotx templates are enabled, but Microsoft Word COM is unavailable.
+  echo Install desktop Microsoft Word, or set WORD_FORMAT_LEGACY_TEMPLATES_ENABLED=false.
+  exit /b 1
+)
+exit /b 0
 
 :load_env
 set "FILE=%~1"

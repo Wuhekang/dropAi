@@ -17,6 +17,7 @@ import WritingGenerationV2 from '../views/WritingGenerationV2/index.vue'
 import WritingExportV2 from '../views/WritingExportV2/index.vue'
 import WritingMaterialsV2 from '../views/WritingMaterialsV2/index.vue'
 import PptGenerator from '../views/PptGenerator/index.vue'
+import WordFormatter from '../views/WordFormatter/index.vue'
 import SchoolStatistics from '../views/SchoolStatistics/index.vue'
 import DiagramStudio from '../views/Diagram/index.vue'
 import MechanicalDesign from '../views/MechanicalDesign/index.vue'
@@ -82,6 +83,11 @@ const router = createRouter({
       component: PptGenerator
     },
     {
+      path: '/word-formatter',
+      name: 'WordFormatter',
+      component: WordFormatter
+    },
+    {
       path: '/writing-generator',
       redirect: '/writing'
     },
@@ -144,9 +150,15 @@ const router = createRouter({
 
 router.beforeEach((to) => {
   const loggedIn = isAuthenticated()
-  if (!['/', '/login'].includes(to.path) && !loggedIn) return '/login'
-  if (to.path === '/login' && loggedIn) return '/dashboard'
   const role = getAuthRole()?.toUpperCase()
+  if (!['/', '/login'].includes(to.path) && !loggedIn) {
+    return { path: '/login', query: { redirect: to.fullPath } }
+  }
+  if (to.path === '/login' && loggedIn) {
+    const redirect = typeof to.query.redirect === 'string' ? to.query.redirect : ''
+    if (role !== 'SCHOOL_VIEWER' && redirect.startsWith('/') && !redirect.startsWith('//')) return redirect
+    return role === 'SCHOOL_VIEWER' ? '/school-statistics' : '/dashboard'
+  }
   if (role === 'SCHOOL_VIEWER' && to.path !== '/school-statistics') return '/school-statistics'
   if (to.path === '/school-statistics' && role !== 'SCHOOL_VIEWER') return '/dashboard'
   if (to.path === '/points-admin' && getAuthRole()?.toLowerCase() !== 'admin') {

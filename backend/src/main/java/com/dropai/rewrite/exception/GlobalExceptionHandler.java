@@ -8,6 +8,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -26,6 +27,15 @@ public class GlobalExceptionHandler {
                 .map(error -> error.getField() + ": " + error.getDefaultMessage())
                 .orElse("请求参数校验失败");
         return buildResponse(HttpStatus.BAD_REQUEST, message, request, exception);
+    }
+
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<Map<String, Object>> handleUploadTooLarge(MaxUploadSizeExceededException exception,
+                                                                    HttpServletRequest request) {
+        return buildResponse(HttpStatus.PAYLOAD_TOO_LARGE,
+                "上传文件或请求总大小超过服务器限制，请缩小文件后重试",
+                request,
+                exception);
     }
 
     @ExceptionHandler(Exception.class)
