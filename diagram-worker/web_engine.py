@@ -20,6 +20,7 @@ sys.path.insert(0, str(ROOT))
 
 from diagram_core.registry import CANONICAL, DISPLAY, PLUGIN_REGISTRY, detect_header
 from diagram_core.typography import FONT_FAMILY, line_height, text_units, wrap_text
+from diagram_core.vsdx_export import svg_to_vsdx
 from diagram_plugins.legacy import register_plugins
 
 MAX_DSL = 100_000
@@ -90,29 +91,6 @@ def svg_to_png(svg, scale=2.0):
                 draw.text((x,y),text,font=font,fill=paint(a.get("fill"),"#111827"))
     output=io.BytesIO();image.save(output,"PNG",optimize=True);return output.getvalue()
 
-def png_to_vsdx(png, title="ThesisDiagram"):
-    """Create a portable VSDX package containing the watermark-free PNG."""
-    from PIL import Image
-    with Image.open(io.BytesIO(png)) as image: px_w,px_h=image.size
-    image_w=14.0;image_h=image_w*px_h/max(px_w,1);page_w,page_h=image_w+.5,image_h+.5;safe=html.escape(title or "ThesisDiagram")
-    entries={
-      "[Content_Types].xml":'''<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Override PartName="/visio/document.xml" ContentType="application/vnd.ms-visio.drawing.main+xml"/><Override PartName="/visio/pages/pages.xml" ContentType="application/vnd.ms-visio.pages+xml"/><Override PartName="/visio/pages/page1.xml" ContentType="application/vnd.ms-visio.page+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/><Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/></Types>''',
-      "_rels/.rels":'''<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.microsoft.com/visio/2010/relationships/document" Target="visio/document.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/></Relationships>''',
-      "docProps/core.xml":f'''<?xml version="1.0" encoding="UTF-8"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>{safe}</dc:title><dc:creator>DropAI ThesisDiagram</dc:creator></cp:coreProperties>''',
-      "docProps/app.xml":'''<?xml version="1.0" encoding="UTF-8"?><Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>Microsoft Visio</Application><AppVersion>16.0000</AppVersion></Properties>''',
-      "visio/document.xml":'''<?xml version="1.0" encoding="UTF-8"?><VisioDocument xmlns="http://schemas.microsoft.com/office/visio/2012/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><DocumentSettings/><Colors/><StyleSheets/><DocumentSheet NameU="TheDoc" Name="TheDoc" ID="0"/></VisioDocument>''',
-      "visio/_rels/document.xml.rels":'''<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.microsoft.com/visio/2010/relationships/pages" Target="pages/pages.xml"/></Relationships>''',
-      "visio/pages/pages.xml":f'''<?xml version="1.0" encoding="UTF-8"?><Pages xmlns="http://schemas.microsoft.com/office/visio/2012/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><Page ID="0" NameU="{safe}" Name="{safe}" ViewCenterX="{page_w/2:.4f}" ViewCenterY="{page_h/2:.4f}"><PageSheet><Cell N="PageWidth" V="{page_w:.4f}"/><Cell N="PageHeight" V="{page_h:.4f}"/></PageSheet><Rel r:id="rId1"/></Page></Pages>''',
-      "visio/pages/_rels/pages.xml.rels":'''<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.microsoft.com/visio/2010/relationships/page" Target="page1.xml"/></Relationships>''',
-      "visio/pages/page1.xml":f'''<?xml version="1.0" encoding="UTF-8"?><PageContents xmlns="http://schemas.microsoft.com/office/visio/2012/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><Shapes><Shape ID="1" NameU="{safe}" Name="{safe}" Type="Foreign" LineStyle="0" FillStyle="0" TextStyle="0"><Cell N="PinX" V="{page_w/2:.4f}"/><Cell N="PinY" V="{page_h/2:.4f}"/><Cell N="Width" V="{image_w:.4f}"/><Cell N="Height" V="{image_h:.4f}"/><Cell N="LocPinX" V="{image_w/2:.4f}" F="Width*0.5"/><Cell N="LocPinY" V="{image_h/2:.4f}" F="Height*0.5"/><Cell N="Angle" V="0"/><ForeignData ForeignType="Bitmap" CompressionType="PNG"><Rel r:id="rId1"/></ForeignData></Shape></Shapes></PageContents>''',
-      "visio/pages/_rels/page1.xml.rels":'''<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image1.png"/></Relationships>''',
-      "visio/media/image1.png":png,
-    }
-    output=io.BytesIO()
-    with zipfile.ZipFile(output,"w",zipfile.ZIP_DEFLATED) as package:
-        for name,data in entries.items(): package.writestr(name,data.encode("utf-8") if isinstance(data,str) else data)
-    return output.getvalue()
-
 class SvgCanvas:
     def __init__(self):
         self.items = []
@@ -157,6 +135,18 @@ class SvgCanvas:
 
     def create_rectangle(self, x1, y1, x2, y2, **options):
         item = self._id((x1,y1,x2,y2)); css=html.escape(str(options.get("svg_class",""))); self.items.append(f'<rect class="{css}" x="{x1}" y="{y1}" width="{x2-x1}" height="{y2-y1}" rx="3" vector-effect="non-scaling-stroke" {self._style(options,"white")}/>'); return item
+
+    def create_terminator(self, x1, y1, x2, y2, **options):
+        """Create the standard flowchart start/end capsule without changing oval semantics."""
+        item = self._id((x1,y1,x2,y2))
+        width, height = x2-x1, y2-y1
+        radius = max(0, min(abs(width)/2, abs(height)/2))
+        self.items.append(
+            f'<rect class="td-flow-terminator" data-shape="terminator" '
+            f'x="{x1}" y="{y1}" width="{width}" height="{height}" rx="{radius}" '
+            f'vector-effect="non-scaling-stroke" {self._style(options,"white")}/>'
+        )
+        return item
 
     def create_oval(self, x1, y1, x2, y2, **options):
         item = self._id((x1,y1,x2,y2)); self.items.append(f'<ellipse cx="{(x1+x2)/2}" cy="{(y1+y2)/2}" rx="{(x2-x1)/2}" ry="{(y2-y1)/2}" {self._style(options,"white")}/>'); return item
@@ -253,7 +243,7 @@ def execute(payload):
         if kind=="json": data=json.dumps({"dsl":dsl,"diagramType":result["diagramType"],"structure":result["structure"],"layout":result["layout"]},ensure_ascii=False,indent=2).encode()
         elif kind=="svg": data=svg.encode()
         elif kind=="png": data=svg_to_png(svg,scale=2)
-        elif kind=="vsdx": data=png_to_vsdx(svg_to_png(svg,scale=2),result.get("title") or "ThesisDiagram")
+        elif kind=="vsdx": data=svg_to_vsdx(svg,result.get("title") or "ThesisDiagram")
         else: raise ValueError("不支持的导出格式")
         result={"success":True,"format":kind,"data":base64.b64encode(data).decode(),"fileName":f'diagram.{kind}'}
     trace(14,"response_sent",header.canonical_header,node_count)
@@ -267,6 +257,6 @@ def main():
 if __name__ == "__main__":
     if "--self-test" in sys.argv:
         sample='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 120"><rect x="10" y="10" width="300" height="100" fill="#fff" stroke="#111827"/><text x="160" y="60" text-anchor="middle" font-size="24" font-weight="600" fill="#111827"><tspan x="160" dy="0">PNG与VSDX导出自检</tspan></text></svg>'
-        png=svg_to_png(sample);vsdx=png_to_vsdx(png,"导出自检")
+        png=svg_to_png(sample);vsdx=svg_to_vsdx(sample,"导出自检")
         print(json.dumps({"success":png.startswith(b"\x89PNG") and vsdx.startswith(b"PK"),"pngBytes":len(png),"vsdxBytes":len(vsdx),"font":_font_path(False)},ensure_ascii=False))
     else: main()

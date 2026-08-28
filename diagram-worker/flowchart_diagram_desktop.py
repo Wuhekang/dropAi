@@ -217,7 +217,10 @@ class App(OfflineDiagramApp):
    b=l.node_bounds[n.id];x,y=b.center_x,b.center_y
    if n.type in ("branch","merge"):c.create_oval(x-5,y-5,x+5,y+5,fill="black",outline="black");continue
    if n.type=="decision":c.create_polygon(x,y-b.height/2,x+b.width/2,y,x,y+b.height/2,x-b.width/2,y,fill="white",outline="black")
-   elif n.type in ("start","end"):c.create_oval(x-b.width/2,y-b.height/2,x+b.width/2,y+b.height/2,fill="white")
+   elif n.type in ("start","end"):
+    terminator=getattr(c,"create_terminator",None)
+    if terminator:terminator(x-b.width/2,y-b.height/2,x+b.width/2,y+b.height/2,fill="white")
+    else:c.create_oval(x-b.width/2,y-b.height/2,x+b.width/2,y+b.height/2,fill="white")
    elif n.type in ("input","output"):c.create_polygon(x-b.width/2+15,y-b.height/2,x+b.width/2,y-b.height/2,x+b.width/2-15,y+b.height/2,x-b.width/2,y+b.height/2,fill="white",outline="black")
    else:c.create_rectangle(x-b.width/2,y-b.height/2,x+b.width/2,y+b.height/2,fill="white")
    c.create_text(x,y,text=n.text,font=(FONT,MEDIUM_FONT if n.type=="decision" else NODE_FONT),max_units=8)

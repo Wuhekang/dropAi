@@ -51,6 +51,32 @@ class SemanticIrLiteAdapterTest {
         assertEquals(DiagramType.ER_DIAGRAM,codec.parse(dsl).diagramType());
     }
 
+    @Test void promotesBinaryContradictoryBranchesToDecision(){
+        String json="{\"type\":\"FLOWCHART\",\"nodes\":[{\"kind\":\"start\",\"text\":\"开始\"},{\"kind\":\"process\",\"text\":\"区域是否有人\"},{\"kind\":\"process\",\"text\":\"开灯\"},{\"kind\":\"process\",\"text\":\"关灯\"}],\"relations\":[{\"from\":\"开始\",\"to\":\"区域是否有人\",\"kind\":\"flow\"},{\"from\":\"区域是否有人\",\"to\":\"开灯\",\"kind\":\"flow\",\"label\":\"有人\"},{\"from\":\"区域是否有人\",\"to\":\"关灯\",\"kind\":\"flow\",\"label\":\"无人\"}]}";
+        FlowchartIr ir=(FlowchartIr)adapter.adapt(DiagramType.FLOWCHART,json,"照明流程");
+        assertEquals(FlowNodeKind.DECISION,ir.nodes().stream().filter(n->n.text().equals("区域是否有人")).findFirst().orElseThrow().kind());
+    }
+
+    @Test void buildsIndependentDualZoneLightingSemanticsFromFullSource(){
+        String source="自动控制程序首先判断区域是否有人。若讲台区无人，则讲台区进入关闭计时或直接保持关闭；检测到有人后再读取当前环境光照等级。如果光照不足，讲台区LED开启；若光照明显不足，输出较高PWM占空比；若接近目标照明条件，则降低PWM占空比；若自然光已经较充足，则关闭或维持最低输出。学生区采用相同判断方法，但使用独立的人员状态和PWM变量。";
+        String json="{\"type\":\"FLOWCHART\",\"nodes\":[{\"kind\":\"start\",\"text\":\"开始\"},{\"kind\":\"end\",\"text\":\"结束\"}],\"relations\":[{\"from\":\"开始\",\"to\":\"结束\",\"kind\":\"flow\"}]}";
+        FlowchartIr ir=(FlowchartIr)adapter.adapt(DiagramType.FLOWCHART,json,"控制流程",source);
+        assertEquals(10,ir.nodes().size());assertEquals(3,ir.nodes().stream().filter(n->n.kind()==FlowNodeKind.DECISION).count());
+        assertTrue(ir.edges().stream().anyMatch(e->e.from().equals("N9")&&e.to().equals("N10")&&e.label().equals("是")));
+        assertTrue(ir.edges().stream().anyMatch(e->e.from().equals("N9")&&e.to().equals("N2")&&e.label().equals("否")));
+        String dsl=codec.compile(new DiagramRuleEngine().normalize(ir));
+        assertTrue(dsl.contains("按光照调学生PWM"));assertNotNull(codec.parse(dsl));
+    }
+
+    @Test void buildsPeriodicSchedulerWithFrequencyDecisionsAndLoop(){
+        String source="上电初始化完成后，主循环按照固定顺序执行采集、判断、输出、显示和通信。为了防止OLED刷新和Wi-Fi通信占用过多时间，可使用系统节拍进行周期调度，例如人体和按键保持较快扫描，光照数据适当降低读取频率，OLED与网络状态以更低频率更新。";
+        String json="{\"type\":\"FLOWCHART\",\"nodes\":[{\"kind\":\"start\",\"text\":\"开始\"},{\"kind\":\"end\",\"text\":\"结束\"}],\"relations\":[{\"from\":\"开始\",\"to\":\"结束\",\"kind\":\"flow\"}]}";
+        FlowchartIr ir=(FlowchartIr)adapter.adapt(DiagramType.FLOWCHART,json,"调度流程",source);
+        assertEquals(10,ir.nodes().size());assertEquals(3,ir.nodes().stream().filter(n->n.kind()==FlowNodeKind.DECISION).count());
+        assertTrue(ir.edges().stream().anyMatch(e->e.to().equals("N2")&&e.from().equals("N9")));
+        assertNotNull(codec.parse(codec.compile(new DiagramRuleEngine().normalize(ir))));
+    }
+
     @Test void capsAndDeduplicatesErAttributesFromLocalModel(){
         StringBuilder attributes=new StringBuilder();
         for(int i=0;i<12;i++){if(i>0)attributes.append(',');attributes.append("{\"name\":\"字段").append(i%9).append("\",\"type\":\"TEXT\"}");}
