@@ -20,7 +20,7 @@ public class DiagramPromptFactory {
             return new Prompt(SYSTEM,user,schema,SYSTEM.length()+user.length());
         }catch(Exception e){throw new DiagramGenerationException("DIAGRAM_IR_SCHEMA_INVALID","无法构建DiagramIR提示词");}}
     private String rules(DiagramType t){return switch(t){
-        case FLOWCHART->"先识别题目、控制对象、起止条件和主流程顺序；标题必须来自用户主题，禁止使用“业务流程”“系统流程”等泛标题；只画一个核心过程，不拆成多个子系统；普通节点从起点可达；decision必须是二元判断，且只能有两个标签不同的出口；三档及以上状态必须合并为一个处理节点，例如“按光照等级计算PWM”，不得从同一个decision拉出三条或四条分支；循环用回边；非end节点不得成为死节点；路径最终到end或回到循环。";
+        case FLOWCHART->"先识别题目、控制对象、起止条件和主流程顺序；标题必须来自用户主题，禁止使用“业务流程”“系统流程”等泛标题；只画一个核心过程，不拆成多个子系统；必须有且只有一个start，必须至少有一个end，所有从start可达的分支都必须能到达end；decision必须是二元判断，且只能有两个标签不同的出口；三档及以上状态必须合并为一个处理节点，例如“按光照等级计算PWM”，不得从同一个decision拉出三条或四条分支；持续循环必须增加“是否停止”二元判断，“否”回到采集节点，“是”进入end；非end节点不得成为死节点。";
         case ER_DIAGRAM->"识别实体、主外键、唯一和可空；识别1:1、1:N、M:N；明确SQL约束标记DECLARED且不得修改；仅引用真实表字段；推断标记INFERRED及confidence。";
         case FUNCTION_MODULE->"识别总功能及一二三级模块；使用单一父子层级；操作步骤不得当作模块。";
         case ARCHITECTURE->"识别层、组件、服务、数据库和外部系统；保留分层；区分依赖但不生成布局。";

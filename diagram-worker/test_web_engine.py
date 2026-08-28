@@ -22,6 +22,11 @@ class WebEngineTest(unittest.TestCase):
  def test_unreachable_code_normalized(self):
   dsl="@Flowchart\n标题：测试\n[节点]\nN1|start|开始\nN2|end|结束\nN3|process|孤立\n[连接]\nN1->N2"
   self.assertIn("FLOW_UNREACHABLE_NODE",[x["code"] for x in execute({"dsl":dsl})["issues"]])
+ def test_flowchart_without_end_is_invalid(self):
+  dsl="@Flowchart\n标题：光敏电阻调光控制流程\n[节点]\nN1|start|系统启动\nN2|process|初始化ADC与PWM\nN3|process|读ADC换算照度\n[连接]\nN1->N2\nN2->N3"
+  result=execute({"command":"validate","dsl":dsl})
+  self.assertFalse(result["valid"])
+  self.assertIn("FLOW_END_MISSING",[x["code"] for x in result["issues"]])
  def test_function_module_acceptance_and_wrapped_function(self):
   dsl="\ufeff@FunctionModule\r\n系统:个人健康管理系统\r\n\r\n模块：管理端\r\n功能：仪表盘统计，用户管理、健康知识管理；公告管理,健康数据查看;智能服务配置\r\n\r\n模块：用户端\r\n功能：首页健康概览，健康数据管理，运动记录，饮食记录，健康目\r\n标管理，智能健康评估，智能健康对话，个人中心"
   result=execute({"command":"render","dsl":dsl})

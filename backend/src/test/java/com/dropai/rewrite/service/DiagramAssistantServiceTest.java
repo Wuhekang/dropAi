@@ -4,12 +4,19 @@ import com.dropai.rewrite.config.DiagramAssistantProperties;
 import com.dropai.rewrite.service.diagram.*;
 import com.dropai.rewrite.service.diagram.DiagramIr.*;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 class DiagramAssistantServiceTest {
+    private static final String LIGHT_CONTROL_SOURCE="""
+            程序开始后首先执行系统初始化步骤。该步骤包括配置STM32的模数转换器ADC以连接光敏电阻信号输入引脚，设定参考电压和采样时间，同时初始化PWM输出引脚用于后续的灯光调档控制。初始化完成后，程序进入主循环，开始连续检测光照强度。
+            程序通过ADC读取光敏电阻的分压值并换算照度，再与上下限阈值比较。若不在预设范围内则关灯；若在预设范围内则按照度分档调整PWM。执行完成后结束本轮处理，不停止时回到照度采集，停止时进入结束节点。
+            """;
     @Test void flowchartIrIsNormalizedAndCompiledLocally() {
         var ir=new FlowchartIr("1.0",DiagramType.FLOWCHART,"订单流程",
                 List.of(new FlowNode("N1",FlowNodeKind.START,"开始"),new FlowNode("N2",FlowNodeKind.DECISION,"支付成功？"),new FlowNode("N3",FlowNodeKind.PROCESS,"发货"),new FlowNode("N4",FlowNodeKind.END,"结束")),
@@ -42,6 +49,49 @@ class DiagramAssistantServiceTest {
                         new Edge("E9","N6","N7","normal","",9)),List.of());
         var error=assertThrows(DiagramGenerationException.class,()->new DiagramRuleEngine().normalize(ir));
         assertTrue(error.getMessage().contains("最多只能有两个分支"));
+    }
+
+    @Test void missingFlowchartEndIsAddedAndAllTerminalBranchesAreConnected() {
+        var ir=new FlowchartIr("1.0",DiagramType.FLOWCHART,"光敏电阻调光控制流程",
+                List.of(new FlowNode("N1",FlowNodeKind.START,"系统启动"),new FlowNode("N2",FlowNodeKind.PROCESS,"初始化ADC与PWM"),
+                        new FlowNode("N3",FlowNodeKind.PROCESS,"读ADC换算照度"),new FlowNode("N4",FlowNodeKind.DECISION,"是否在预设范围"),
+                        new FlowNode("N5",FlowNodeKind.PROCESS,"关灯"),new FlowNode("N6",FlowNodeKind.PROCESS,"按照度分档调PWM")),
+                List.of(new Edge("E1","N1","N2","normal","",1),new Edge("E2","N2","N3","normal","",2),
+                        new Edge("E3","N3","N4","normal","",3),new Edge("E4","N4","N5","normal","否",4),
+                        new Edge("E5","N4","N6","normal","是",5)),List.of());
+        var normalized=(FlowchartIr)new DiagramRuleEngine().normalize(ir);
+        var end=normalized.nodes().stream().filter(n->n.kind()==FlowNodeKind.END).findFirst().orElseThrow();
+        assertEquals(7,normalized.nodes().size());
+        assertTrue(normalized.edges().stream().anyMatch(e->e.from().equals("N5")&&e.to().equals(end.id())));
+        assertTrue(normalized.edges().stream().anyMatch(e->e.from().equals("N6")&&e.to().equals(end.id())));
+        assertTrue(normalized.warnings().stream().anyMatch(w->w.code().equals("FLOW_END_ADDED")));
+        assertTrue(new DiagramDslCodec().compile(normalized).contains("|end|结束"));
+    }
+
+    @Test void endlessCycleWithoutExplicitStopExitIsRejected() {
+        var ir=new FlowchartIr("1.0",DiagramType.FLOWCHART,"无结束循环",
+                List.of(new FlowNode("N1",FlowNodeKind.START,"开始"),new FlowNode("N2",FlowNodeKind.PROCESS,"采集"),new FlowNode("N3",FlowNodeKind.PROCESS,"处理")),
+                List.of(new Edge("E1","N1","N2","normal","",1),new Edge("E2","N2","N3","normal","",2),new Edge("E3","N3","N2","normal","",3)),List.of());
+        var error=assertThrows(DiagramGenerationException.class,()->new DiagramRuleEngine().normalize(ir));
+        assertTrue(error.getMessage().contains("是否停止"));
+    }
+
+    @Test
+    @EnabledIfEnvironmentVariable(named="RUN_DIAGRAM_LIVE_TEST",matches="true")
+    void realDoubaoLightControlCaseAlwaysCompilesWithAnEndNode() {
+        var properties=new DiagramAssistantProperties();
+        properties.setApiKey(System.getenv("DOUBAO_API_KEY"));
+        properties.setTemperature(0);
+        var mapper=new ObjectMapper();
+        var client=new DoubaoDiagramClient(properties,mapper);
+        var summary=client.summarize(LIGHT_CONTROL_SOURCE,100).summary();
+        var prompt=new DiagramPromptFactory(new DiagramSchemaFactory(mapper),mapper).build(DiagramType.FLOWCHART,summary,null);
+        var model=client.generate(DiagramType.FLOWCHART,prompt,ignored->{});
+        FlowchartIr raw;
+        try{raw=mapper.readValue(model.json(),FlowchartIr.class);}catch(Exception e){throw new AssertionError(e);}
+        var normalized=(FlowchartIr)new DiagramRuleEngine().normalize(raw);
+        assertTrue(normalized.nodes().stream().anyMatch(n->n.kind()==FlowNodeKind.END));
+        assertTrue(new DiagramDslCodec().compile(normalized).contains("|end|"));
     }
 
     @Test void sqlRelationsAreResolvedLocallyIncludingUniqueAndCompositeKeys() {

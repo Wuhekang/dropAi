@@ -53,7 +53,38 @@ function canDownload(format){return Boolean(previewId.value&&normalized(dsl.valu
 function artifactTitle(format){const state=artifactStates.value?.[format];if(state==='UNAVAILABLE'||state==='REGENERATE')return `点击重新生成并下载${format.toUpperCase()}，不会重复扣积分`;return canDownload(format)?'':`请先成功生成当前代码的预览`}
 async function downloadNow(format){if(!canDownload(format)||downloadLoading.value[format]){ElMessage.warning(artifactTitle(format));return}downloadLoading.value={...downloadLoading.value,[format]:true};try{const name=`${safeFileName(validation.value?.title||'diagram')}.${format}`,ticket=await createDiagramDownloadTicket(previewId.value,format,name);if(!ticket?.url)throw new Error('服务器没有返回下载地址');previewStatus.value=`${format.toUpperCase()}文件已准备，正在下载`;window.location.assign(ticket.url);ElMessage.success(previewStatus.value)}catch(error){previewStatus.value=`${format.toUpperCase()}下载失败`;ElMessage.error(error?.message||previewStatus.value)}finally{downloadLoading.value={...downloadLoading.value,[format]:false}}} function fit(){zoom.value=1;pan.value={x:0,y:0}}
 async function sha256(value){const bytes=new TextEncoder().encode(String(value||'').replace(/\r\n/g,'\n')),hash=await crypto.subtle.digest('SHA-256',bytes);return Array.from(new Uint8Array(hash),x=>x.toString(16).padStart(2,'0')).join('')}
-async function sendAssistant(){if(aiLoading.value||(!assistantInput.value.trim()&&!pendingSqlText.value))return;const instruction=assistantInput.value.trim()||'根据SQL生成数据库ER图',snapshot=dsl.value,sqlSnapshot=pendingSqlText.value,requestedDiagramType=sqlSnapshot?'ER_DIAGRAM':(readHeader(snapshot).header||''),requestId=crypto.randomUUID(),generationId=crypto.randomUUID(),baseDslHash=await sha256(snapshot);messages.value.push({role:'user',text:instruction.length>300?`${instruction.slice(0,300)}……（共${instruction.length}字）`:instruction});assistantInput.value='';undoDsl.value=snapshot;aiLoading.value=true;generationLocked.value=true;assistantStage.value='analyzing';aiStage.value='正在理解需求…';const controller=new AbortController();aiController.value=controller;activeGeneration.value={requestId,generationId,baseDslHash,snapshot};dsl.value='';validation.value=null;const stageNames={accepted:'正在理解需求…',analyzing:'正在理解需求…',summarizing:'正在提炼绘图需求…',summarized:'正在生成代码…',model_delta:'正在生成代码…',normalizing:'正在拼装代码…',compiling:'正在拼装代码…',validating:'正在检查图形代码…',heartbeat:'正在处理，请稍候…'},stageStates={accepted:'analyzing',analyzing:'analyzing',summarizing:'analyzing',summarized:'generating',model_delta:'generating',normalizing:'assembling',compiling:'assembling',validating:'assembling'};try{const r=await streamDiagramAssistant({requestId,generationId,conversationId,baseDslHash,diagramType:requestedDiagramType,instruction,currentDsl:snapshot,sqlText:sqlSnapshot},{signal:controller.signal,onEvent:(event)=>{if(activeGeneration.value?.requestId!==requestId)return;if(stageNames[event])aiStage.value=stageNames[event];if(stageStates[event])assistantStage.value=stageStates[event]}});if(activeGeneration.value?.requestId!==requestId||r.requestId!==requestId||r.generationId!==generationId)throw Object.assign(new Error('旧生成结果已丢弃，原图已恢复。'),{code:'STALE_GENERATION_RESULT'});assistantStage.value='assembling';dsl.value=r.dsl;pendingSqlText.value='';markChanged();validation.value={valid:true,issues:[],title:''};messages.value.push({role:'assistant',text:`代码已更新（首段${r.metrics?.firstByteMs||0}ms，总耗时${r.metrics?.modelTotalMs||0}ms，模型调用${r.metrics?.modelCalls||0}次），未生成收费预览。`});tab.value='assistant';ElMessage.success('DiagramIR已在本地编译为完整DSL')}catch(error){assistantStage.value=controller.signal.aborted?'idle':'error';dsl.value=snapshot;validation.value=null;markChanged();messages.value.push({role:'assistant',text:controller.signal.aborted?'本次生成已取消，原代码已恢复。':`${error.code||'GENERATION_FAILED'}：${error.message||'生成失败，原代码已恢复。'}`});ElMessage.error(controller.signal.aborted?'生成已取消，原代码已恢复。':(error.message||'生成失败，原代码已恢复。'))}finally{if(activeGeneration.value?.requestId===requestId)activeGeneration.value=null;aiLoading.value=false;generationLocked.value=false;aiController.value=null}}
+function isExplicitDslEditInstruction(value){
+  const text=String(value||'').trim()
+  if(/^(?:检查并修复|增加节点|删除节点|修改名称|调整关系|补全流程)$/.test(text))return true
+  const action='(?:修改|调整|修复|补全|增加|添加|删除|移除|替换|重命名|改成|改为)'
+  const currentRef='(?:当前(?:图|流程图|DSL|代码|节点|关系)|现有(?:图|DSL|代码)|这张图|这个图|原图|原代码)'
+  if(new RegExp(`${action}.*${currentRef}|${currentRef}.*${action}`,'i').test(text))return true
+  const shortTarget='(?:节点|关系|分支|标题|名称|代码|DSL|N\\d+)'
+  return text.length<=100&&new RegExp(`^(?:请|帮我|麻烦)?\\s*(?:把|将)?\\s*(?:${action}.*${shortTarget}|${shortTarget}.{0,20}${action})`,'i').test(text)
+}
+async function sendAssistant(){
+  if(aiLoading.value||(!assistantInput.value.trim()&&!pendingSqlText.value))return
+  const instruction=assistantInput.value.trim()||'根据SQL生成数据库ER图'
+  const snapshot=dsl.value,sqlSnapshot=pendingSqlText.value
+  const requestedDiagramType=sqlSnapshot?'ER_DIAGRAM':(readHeader(snapshot).header||'')
+  const requestDsl=!sqlSnapshot&&isExplicitDslEditInstruction(instruction)?snapshot:''
+  const requestId=crypto.randomUUID(),generationId=crypto.randomUUID(),baseDslHash=await sha256(requestDsl)
+  messages.value.push({role:'user',text:instruction.length>300?`${instruction.slice(0,300)}……（共${instruction.length}字）`:instruction})
+  assistantInput.value='';undoDsl.value=snapshot;aiLoading.value=true;generationLocked.value=true;assistantStage.value='analyzing';aiStage.value='正在理解需求…'
+  const controller=new AbortController();aiController.value=controller;activeGeneration.value={requestId,generationId,baseDslHash,snapshot};validation.value=null
+  const stageNames={accepted:'正在理解需求…',analyzing:'正在理解需求…',summarizing:'正在提炼绘图需求…',summarized:'正在生成代码…',model_delta:'正在生成代码…',normalizing:'正在拼装代码…',compiling:'正在拼装代码…',validating:'正在检查图形代码…',heartbeat:'正在处理，请稍候…'}
+  const stageStates={accepted:'analyzing',analyzing:'analyzing',summarizing:'analyzing',summarized:'generating',model_delta:'generating',normalizing:'assembling',compiling:'assembling',validating:'assembling'}
+  try{
+    const r=await streamDiagramAssistant({requestId,generationId,conversationId,baseDslHash,diagramType:requestedDiagramType,instruction,currentDsl:requestDsl,sqlText:sqlSnapshot},{signal:controller.signal,onEvent:(event)=>{if(activeGeneration.value?.requestId!==requestId)return;if(stageNames[event])aiStage.value=stageNames[event];if(stageStates[event])assistantStage.value=stageStates[event]}})
+    if(activeGeneration.value?.requestId!==requestId||r.requestId!==requestId||r.generationId!==generationId)throw Object.assign(new Error('旧生成结果已丢弃，原图已恢复。'),{code:'STALE_GENERATION_RESULT'})
+    assistantStage.value='assembling';dsl.value=r.dsl;pendingSqlText.value='';markChanged();validation.value={valid:true,issues:[],title:''}
+    messages.value.push({role:'assistant',text:`代码已更新（首段${r.metrics?.firstByteMs||0}ms，总耗时${r.metrics?.modelTotalMs||0}ms，模型调用${r.metrics?.modelCalls||0}次），未生成收费预览。`});tab.value='assistant';ElMessage.success('DiagramIR已在本地编译为完整DSL')
+  }catch(error){
+    assistantStage.value=controller.signal.aborted?'idle':'error';dsl.value=snapshot;validation.value=null;markChanged()
+    messages.value.push({role:'assistant',text:controller.signal.aborted?'本次生成已取消，原代码已恢复。':`${error.code||'GENERATION_FAILED'}：${error.message||'生成失败，原代码已恢复。'}`})
+    ElMessage.error(controller.signal.aborted?'生成已取消，原代码已恢复。':(error.message||'生成失败，原代码已恢复。'))
+  }finally{if(activeGeneration.value?.requestId===requestId)activeGeneration.value=null;aiLoading.value=false;generationLocked.value=false;aiController.value=null}
+}
 function stopAssistant(){aiController.value?.abort()}
 function clearChat(){messages.value=[{role:'assistant',text:'对话已清空，当前DSL不会改变。'}]}
 function undoAi(){if(undoDsl.value===null)return;dsl.value=undoDsl.value;undoDsl.value=null;markChanged();check(false);ElMessage.success('已撤销上次AI修改')}

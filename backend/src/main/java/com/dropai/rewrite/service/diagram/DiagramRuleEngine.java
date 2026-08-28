@@ -9,7 +9,63 @@ import java.util.function.Function;
 public class DiagramRuleEngine {
     public DiagramIr normalize(DiagramIr ir){if(ir==null)throw invalid("模型未返回DiagramIR");if(ir instanceof FlowchartIr x)return new FlowchartRuleEngine().normalize(x);if(ir instanceof ErDiagramIr x)return new ErDiagramRuleEngine().normalize(x);if(ir instanceof FunctionModuleIr x)return new FunctionModuleRuleEngine().normalize(x);if(ir instanceof ArchitectureIr x)return new ArchitectureRuleEngine().normalize(x);if(ir instanceof UseCaseIr x)return new UseCaseRuleEngine().normalize(x);if(ir instanceof BlockDiagramIr x)return new BlockDiagramRuleEngine().normalize(x);if(ir instanceof SequenceDiagramIr x)return new SequenceDiagramRuleEngine().normalize(x);throw invalid("不支持的DiagramIR类型");}
     interface Rule<T extends DiagramIr>{T normalize(T value);}
-    static final class FlowchartRuleEngine implements Rule<FlowchartIr>{public FlowchartIr normalize(FlowchartIr x){List<FlowNode> nodes=unique(x.nodes(),FlowNode::id);if(nodes.isEmpty())throw invalid("流程图没有节点");Map<String,FlowNode> by=index(nodes,FlowNode::id);List<Edge> edges=edges(x.edges(),by.keySet());long starts=nodes.stream().filter(n->n.kind()==FlowNodeKind.START).count();if(starts!=1)throw invalid("流程图必须有且只有一个开始节点");Set<String> outgoing=new HashSet<>();Map<String,Set<String>> labels=new HashMap<>();Map<String,Integer> outCounts=new HashMap<>();for(Edge e:edges){outgoing.add(e.from());outCounts.merge(e.from(),1,Integer::sum);if(by.get(e.from()).kind()==FlowNodeKind.DECISION){if(blank(e.label()))throw invalid("判断节点的每个分支必须有标签");if(!labels.computeIfAbsent(e.from(),k->new HashSet<>()).add(e.label()))throw invalid("判断节点分支标签不能重复");}}for(FlowNode n:nodes){if(n.kind()==FlowNodeKind.DECISION){int count=outCounts.getOrDefault(n.id(),0);if(labels.getOrDefault(n.id(),Set.of()).size()<2)throw invalid("判断节点至少需要两个不同分支");if(count>2)throw invalid("判断节点最多只能有两个分支，三档及以上状态请合并为处理节点："+n.text());}if(n.kind()!=FlowNodeKind.END&&!outgoing.contains(n.id()))throw invalid("存在没有后续关系的节点："+n.text());}return new FlowchartIr("1.0",DiagramType.FLOWCHART,cleanTitle(x.title(),"流程图"),nodes,edges,warnings(x.warnings()));}}
+    static final class FlowchartRuleEngine implements Rule<FlowchartIr>{
+        public FlowchartIr normalize(FlowchartIr x){
+            List<FlowNode> nodes=new ArrayList<>(unique(x.nodes(),FlowNode::id));
+            if(nodes.isEmpty())throw invalid("流程图没有节点");
+            Map<String,FlowNode> by=index(nodes,FlowNode::id);
+            List<Edge> normalizedEdges=new ArrayList<>(edges(x.edges(),by.keySet()));
+            long starts=nodes.stream().filter(n->n.kind()==FlowNodeKind.START).count();
+            if(starts!=1)throw invalid("流程图必须有且只有一个开始节点");
+
+            List<Warning> normalizedWarnings=new ArrayList<>(warnings(x.warnings()));
+            if(nodes.stream().noneMatch(n->n.kind()==FlowNodeKind.END)){
+                Set<String> outgoing=normalizedEdges.stream().map(Edge::from).collect(java.util.stream.Collectors.toSet());
+                List<FlowNode> terminals=nodes.stream().filter(n->n.kind()!=FlowNodeKind.START&&!outgoing.contains(n.id())).toList();
+                if(terminals.isEmpty())throw invalid("流程图必须包含明确的结束节点；循环流程请增加“是否停止”判断及结束出口");
+                if(nodes.size()>=10)throw invalid("流程图缺少结束节点，且节点数已达上限，请合并次要步骤后重试");
+                String endId=nextEndId(by.keySet());
+                nodes.add(new FlowNode(endId,FlowNodeKind.END,"结束"));
+                int order=normalizedEdges.stream().map(Edge::order).filter(Objects::nonNull).max(Integer::compareTo).orElse(0);
+                for(FlowNode terminal:terminals)normalizedEdges.add(new Edge("e"+(++order),terminal.id(),endId,"normal","",order));
+                normalizedWarnings.add(new Warning("FLOW_END_ADDED","生成结果缺少结束节点，系统已将所有末端分支汇入结束。",1d));
+                by=index(nodes,FlowNode::id);
+            }
+
+            Set<String> outgoing=new HashSet<>(),incoming=new HashSet<>();
+            Map<String,Set<String>> labels=new HashMap<>();
+            Map<String,Integer> outCounts=new HashMap<>();
+            Map<String,List<String>> forward=new HashMap<>(),reverse=new HashMap<>();
+            for(FlowNode n:nodes){forward.put(n.id(),new ArrayList<>());reverse.put(n.id(),new ArrayList<>());}
+            for(Edge e:normalizedEdges){
+                outgoing.add(e.from());incoming.add(e.to());outCounts.merge(e.from(),1,Integer::sum);
+                forward.get(e.from()).add(e.to());reverse.get(e.to()).add(e.from());
+                if(by.get(e.from()).kind()==FlowNodeKind.DECISION){
+                    if(blank(e.label()))throw invalid("判断节点的每个分支必须有标签");
+                    if(!labels.computeIfAbsent(e.from(),k->new HashSet<>()).add(e.label()))throw invalid("判断节点分支标签不能重复");
+                }
+            }
+            FlowNode start=nodes.stream().filter(n->n.kind()==FlowNodeKind.START).findFirst().orElseThrow();
+            if(incoming.contains(start.id()))throw invalid("开始节点不能有入边");
+            for(FlowNode n:nodes){
+                if(n.kind()==FlowNodeKind.DECISION){
+                    int count=outCounts.getOrDefault(n.id(),0);
+                    if(labels.getOrDefault(n.id(),Set.of()).size()<2)throw invalid("判断节点至少需要两个不同分支");
+                    if(count>2)throw invalid("判断节点最多只能有两个分支，三档及以上状态请合并为处理节点："+n.text());
+                }
+                if(n.kind()==FlowNodeKind.END&&outgoing.contains(n.id()))throw invalid("结束节点不能有出边："+n.text());
+                if(n.kind()!=FlowNodeKind.END&&!outgoing.contains(n.id()))throw invalid("存在没有后续关系的节点："+n.text());
+            }
+            Set<String> reachable=walk(List.of(start.id()),forward);
+            if(reachable.size()!=nodes.size())throw invalid("流程图存在从开始节点无法到达的孤立步骤");
+            List<String> ends=nodes.stream().filter(n->n.kind()==FlowNodeKind.END).map(FlowNode::id).toList();
+            Set<String> canReachEnd=walk(ends,reverse);
+            for(FlowNode n:nodes)if(!canReachEnd.contains(n.id()))throw invalid("从节点“"+n.text()+"”无法到达任何结束节点");
+            return new FlowchartIr("1.0",DiagramType.FLOWCHART,cleanTitle(x.title(),"流程图"),nodes,normalizedEdges,normalizedWarnings);
+        }
+        private static String nextEndId(Set<String> ids){String id="END";int i=2;while(ids.contains(id))id="END_"+(i++);return id;}
+        private static Set<String> walk(Collection<String> roots,Map<String,List<String>> graph){Set<String> seen=new HashSet<>();ArrayDeque<String> queue=new ArrayDeque<>(roots);while(!queue.isEmpty()){String id=queue.removeFirst();if(!seen.add(id))continue;queue.addAll(graph.getOrDefault(id,List.of()));}return seen;}
+    }
     static final class ErDiagramRuleEngine implements Rule<ErDiagramIr>{public ErDiagramIr normalize(ErDiagramIr x){List<ErEntity> entities=unique(x.entities(),ErEntity::id);Map<String,ErEntity> by=index(entities,ErEntity::id);List<ErRelation> rels=new ArrayList<>();Set<String> seen=new HashSet<>();for(ErRelation r:safe(x.relations())){if(!by.containsKey(r.sourceEntityId())||!by.containsKey(r.targetEntityId()))throw invalid("ER关系引用不存在实体");String key=r.sourceEntityId()+">"+r.targetEntityId()+":"+r.name();if(seen.add(key))rels.add(new ErRelation(id(r.id(),"r",rels.size()+1),r.sourceEntityId(),nz(r.sourceField()),r.targetEntityId(),nz(r.targetField()),card(r.sourceCardinality()),card(r.targetCardinality()),blank(r.name())?"关联":r.name(),r.source()==null?RelationSource.USER:r.source(),r.confidence()==null?1:r.confidence()));}List<String> core=safe(x.coreEntityIds()).stream().filter(by::containsKey).distinct().toList();return new ErDiagramIr("1.0",DiagramType.ER_DIAGRAM,cleanTitle(x.title(),"ER图"),entities,rels,core,warnings(x.warnings()));}}
     static final class FunctionModuleRuleEngine implements Rule<FunctionModuleIr>{public FunctionModuleIr normalize(FunctionModuleIr x){List<ModuleNode> ms=unique(x.modules(),ModuleNode::id);Set<String> ids=new HashSet<>();ms.forEach(m->ids.add(m.id()));for(ModuleNode m:ms)if(m.parentId()!=null&&!ids.contains(m.parentId()))throw invalid("模块引用不存在的父模块");return new FunctionModuleIr("1.0",DiagramType.FUNCTION_MODULE,cleanTitle(x.title(),"功能模块图"),ms,warnings(x.warnings()));}}
     static final class ArchitectureRuleEngine implements Rule<ArchitectureIr>{public ArchitectureIr normalize(ArchitectureIr x){List<ArchitectureLayer> layers=unique(x.layers(),ArchitectureLayer::id);if(layers.size()<2)throw invalid("架构图至少需要两个层");return new ArchitectureIr("1.0",DiagramType.ARCHITECTURE,cleanTitle(x.title(),"系统架构图"),layers,List.of(),warnings(x.warnings()));}}

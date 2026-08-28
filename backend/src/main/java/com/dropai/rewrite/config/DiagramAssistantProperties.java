@@ -12,7 +12,7 @@ import com.dropai.rewrite.service.diagram.DiagramIr.DiagramType;
 public class DiagramAssistantProperties {
     private String provider="doubao"; private String model="doubao-seed-2-1-turbo-260628";
     private String apiKey=""; private String endpoint="https://ark.cn-beijing.volces.com/api/v3/chat/completions";
-    private boolean stream=true; private double temperature=.1; private Duration connectTimeout=Duration.ofSeconds(5);
+    private boolean stream=true; private double temperature=0; private Duration connectTimeout=Duration.ofSeconds(5);
     private Duration firstByteTimeout=Duration.ofSeconds(20); private Duration readIdleTimeout=Duration.ofSeconds(20); private Duration hardLimit=Duration.ofSeconds(90);
     private int defaultTokens=4096; private double sqlInferenceConfidenceThreshold=.85;
     private int summaryMaxChars=100; private int sourceMaxChars=50000;

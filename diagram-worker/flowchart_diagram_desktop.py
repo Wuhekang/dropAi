@@ -84,7 +84,7 @@ class App(OfflineDiagramApp):
    ins[e.target].append(e);outs[e.source].append(e)
   starts=[n for n in nodes if n.type=="start"];ends=[n for n in nodes if n.type=="end"]
   if not starts:issues.append(ParseIssue(1,"错误","NO_START","至少需要一个开始节点","","增加start节点。"))
-  if not ends:issues.append(ParseIssue(1,"警告","FLOW_END_MISSING","当前流程图没有结束节点，仍允许生成预览。","","建议增加 N99|end|结束，并将所有末端流程连接到N99。"))
+  if not ends:issues.append(ParseIssue(1,"错误","FLOW_END_MISSING","流程图必须包含至少一个结束节点。","","增加 N99|end|结束，并将所有末端流程连接到N99。"))
   for n in nodes:
    if n.type=="start" and ins[n.id]:issues.append(ParseIssue(n.source_line,"错误","START_IN","开始节点不能有入边",n.id,"删除指向开始节点的连接。"))
    if n.type=="end" and outs[n.id]:issues.append(ParseIssue(n.source_line,"错误","END_OUT","结束节点不能有出边",n.id,"删除结束节点的出边。"))

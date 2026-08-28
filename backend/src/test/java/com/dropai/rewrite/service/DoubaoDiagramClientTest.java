@@ -43,7 +43,7 @@ class DoubaoDiagramClientTest {
             var json=new ObjectMapper().readTree(requestBody.get());
             assertTrue(json.path("stream").asBoolean());
             assertEquals("disabled",json.path("thinking").path("type").asText());
-            assertEquals(.1,json.path("temperature").asDouble());
+            assertEquals(0,json.path("temperature").asDouble());
             assertEquals(4096,json.path("max_completion_tokens").asInt());
             assertEquals("json_object",json.path("response_format").path("type").asText());
             assertFalse(requestBody.get().contains("test-only-key"));
