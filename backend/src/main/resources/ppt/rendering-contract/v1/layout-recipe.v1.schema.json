@@ -1,0 +1,170 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dokiai.local/schemas/ppt/layout-recipe.v1.schema.json",
+  "title": "DokiAI PPT Layout Recipe Contract V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "layoutId", "layoutVersion", "supports", "slots", "constraints", "fallbacks"],
+  "properties": {
+    "schemaVersion": { "const": "layout-recipe.v1" },
+    "layoutId": { "$ref": "#/$defs/layoutId" },
+    "layoutVersion": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "supports": { "$ref": "#/$defs/supports" },
+    "slots": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "title": { "$ref": "#/$defs/slot" },
+        "subtitle": { "$ref": "#/$defs/slot" },
+        "metadata": { "$ref": "#/$defs/slot" },
+        "agenda": { "$ref": "#/$defs/slot" },
+        "body": { "$ref": "#/$defs/slot" },
+        "keyPoints": { "$ref": "#/$defs/slot" },
+        "image": { "$ref": "#/$defs/slot" },
+        "table": { "$ref": "#/$defs/slot" },
+        "caption": { "$ref": "#/$defs/slot" },
+        "conclusion": { "$ref": "#/$defs/slot" },
+        "footer": { "$ref": "#/$defs/slot" }
+      }
+    },
+    "constraints": { "$ref": "#/$defs/constraints" },
+    "fallbacks": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/layoutId" }
+    }
+  },
+  "$defs": {
+    "pageType": {
+      "enum": ["COVER", "AGENDA", "CONTENT", "IMAGE", "TABLE", "SUMMARY", "THANKS"]
+    },
+    "pagePurpose": {
+      "enum": ["BACKGROUND", "PROBLEM", "METHOD", "DESIGN", "DATABASE", "IMPLEMENTATION", "RESULT", "TEST", "SUMMARY"]
+    },
+    "contentType": {
+      "enum": ["NARRATIVE", "KEY_POINTS", "PROCESS", "COMPARISON", "ARCHITECTURE", "METRICS", "FIGURE", "TABULAR", "MIXED"]
+    },
+    "imageRole": {
+      "enum": ["INFORMATION", "PROOF", "EFFECT"]
+    },
+    "assetKind": {
+      "enum": ["SCREENSHOT", "DIAGRAM", "CHART", "PHOTO", "TECHNICAL_DRAWING", "DESIGN_RENDER", "TABLE_IMAGE", "LOGO"]
+    },
+    "tableKind": {
+      "enum": ["GENERIC", "ENTITY_PURPOSE", "TEST_RESULT", "METRIC_COMPARISON", "FEATURE_MATRIX"]
+    },
+    "layoutId": {
+      "enum": [
+        "cover-centered.v1",
+        "agenda-vertical-steps.v1",
+        "content-single-insight.v1",
+        "content-three-cards.v1",
+        "content-text-visual-split.v1",
+        "content-process-steps.v1",
+        "content-comparison-columns.v1",
+        "content-architecture-layers.v1",
+        "image-proof-screenshot-wide.v1",
+        "image-diagram-with-notes.v1",
+        "image-result-chart-with-finding.v1",
+        "image-effect-full-visual.v1",
+        "table-generic-compact.v1",
+        "table-entity-purpose-cards.v1",
+        "table-test-result-status.v1",
+        "summary-achievements.v1",
+        "summary-future.v1",
+        "thanks-centered.v1"
+      ]
+    },
+    "uniqueEnumArray": {
+      "type": "array",
+      "uniqueItems": true
+    },
+    "supports": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pageTypes", "pagePurposes", "contentTypes", "imageRoles", "assetKinds", "tableKinds", "assetCount"],
+      "properties": {
+        "pageTypes": {
+          "allOf": [
+            { "$ref": "#/$defs/uniqueEnumArray" },
+            { "minItems": 1 },
+            { "items": { "$ref": "#/$defs/pageType" } }
+          ]
+        },
+        "pagePurposes": {
+          "allOf": [
+            { "$ref": "#/$defs/uniqueEnumArray" },
+            { "items": { "$ref": "#/$defs/pagePurpose" } }
+          ]
+        },
+        "contentTypes": {
+          "allOf": [
+            { "$ref": "#/$defs/uniqueEnumArray" },
+            { "items": { "$ref": "#/$defs/contentType" } }
+          ]
+        },
+        "imageRoles": {
+          "allOf": [
+            { "$ref": "#/$defs/uniqueEnumArray" },
+            { "items": { "$ref": "#/$defs/imageRole" } }
+          ]
+        },
+        "assetKinds": {
+          "allOf": [
+            { "$ref": "#/$defs/uniqueEnumArray" },
+            { "items": { "$ref": "#/$defs/assetKind" } }
+          ]
+        },
+        "tableKinds": {
+          "allOf": [
+            { "$ref": "#/$defs/uniqueEnumArray" },
+            { "items": { "$ref": "#/$defs/tableKind" } }
+          ]
+        },
+        "assetCount": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["min", "max"],
+          "properties": {
+            "min": { "type": "integer", "minimum": 0 },
+            "max": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "slot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["gridColumn", "gridSpan", "topIn", "heightIn"],
+      "properties": {
+        "gridColumn": { "type": "integer", "minimum": 1, "maximum": 24 },
+        "gridSpan": { "type": "integer", "minimum": 1, "maximum": 24 },
+        "topIn": { "type": "number", "minimum": 0 },
+        "heightIn": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+    "constraints": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["titleMaxLines", "bodyMaxChars", "captionMaxChars", "imageFit", "cropAllowed", "minImageAreaRatio"],
+      "properties": {
+        "titleMaxLines": { "type": "integer", "minimum": 1, "maximum": 2 },
+        "bodyMaxChars": { "type": "integer", "minimum": 0 },
+        "captionMaxChars": { "type": "integer", "minimum": 0 },
+        "imageFit": { "enum": ["CONTAIN", "COVER"] },
+        "cropAllowed": { "type": "boolean" },
+        "minImageAreaRatio": { "type": "number", "minimum": 0, "maximum": 1 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "imageFit": { "const": "COVER" } }, "required": ["imageFit"] },
+          "then": { "properties": { "cropAllowed": { "const": true } } }
+        }
+      ]
+    }
+  }
+}

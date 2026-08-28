@@ -1,0 +1,158 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dokiai.local/schemas/ppt/quality-report.v1.schema.json",
+  "title": "DokiAI PPT Quality Report Contract V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "presentationId", "status", "renderPlanHash", "summary", "issues", "artifacts"],
+  "properties": {
+    "schemaVersion": { "const": "quality-report.v1" },
+    "presentationId": { "$ref": "#/$defs/id" },
+    "status": { "$ref": "#/$defs/qualityStatus" },
+    "renderPlanHash": { "$ref": "#/$defs/hash" },
+    "summary": { "$ref": "#/$defs/summary" },
+    "issues": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/issue" }
+    },
+    "artifacts": { "$ref": "#/$defs/artifacts" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "status": { "const": "PASS" } },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "summary": {
+            "properties": { "errorCount": { "const": 0 } },
+            "required": ["errorCount"]
+          },
+          "artifacts": {
+            "required": ["pptx", "renderPlan", "packageInspection", "previewDirectory"]
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "hash": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "bundlePath": {
+      "type": "string",
+      "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._/-]+$"
+    },
+    "qualityStatus": {
+      "enum": ["PASS", "FAIL"]
+    },
+    "qualitySeverity": {
+      "enum": ["INFO", "WARNING", "ERROR"]
+    },
+    "qualityStage": {
+      "enum": [
+        "PAGE_RENDERABILITY",
+        "THEME_RESOLUTION",
+        "LAYOUT_SELECTION",
+        "RENDER_PLAN",
+        "PPTX_PACKAGE",
+        "PREVIEW",
+        "QUALITY_GATE",
+        "DETERMINISM",
+        "EDITABILITY"
+      ]
+    },
+    "qualityCode": {
+      "enum": [
+        "PPT-RC-001",
+        "PPT-RC-002",
+        "PPT-RC-003",
+        "PPT-RC-004",
+        "PPT-RC-005",
+        "PPT-RC-006",
+        "PPT-QA-101",
+        "PPT-QA-102",
+        "PPT-QA-103",
+        "PPT-QA-104",
+        "PPT-QA-105",
+        "PPT-QA-106",
+        "PPT-QA-201",
+        "PPT-QA-202",
+        "PPT-QA-203",
+        "PPT-QA-204",
+        "PPT-QA-221",
+        "PPT-QA-222",
+        "PPT-QA-223",
+        "PPT-QA-241",
+        "PPT-QA-242",
+        "PPT-QA-243",
+        "PPT-QA-244",
+        "PPT-QA-245",
+        "PPT-QA-261",
+        "PPT-QA-301",
+        "PPT-QA-302",
+        "PPT-QA-401",
+        "PPT-QA-402",
+        "PPT-QA-403",
+        "PPT-QA-404",
+        "PPT-QA-405",
+        "PPT-QA-406",
+        "PPT-QA-501",
+        "PPT-QA-502",
+        "PPT-QA-601",
+        "PPT-QA-602",
+        "PPT-QA-701"
+      ]
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["expectedSlides", "actualSlides", "errorCount", "warningCount", "infoCount"],
+      "properties": {
+        "expectedSlides": { "type": "integer", "minimum": 0 },
+        "actualSlides": { "type": "integer", "minimum": 0 },
+        "errorCount": { "type": "integer", "minimum": 0 },
+        "warningCount": { "type": "integer", "minimum": 0 },
+        "infoCount": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "issue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "severity", "stage", "message", "metrics"],
+      "properties": {
+        "code": { "$ref": "#/$defs/qualityCode" },
+        "severity": { "$ref": "#/$defs/qualitySeverity" },
+        "stage": { "$ref": "#/$defs/qualityStage" },
+        "slideId": { "$ref": "#/$defs/id" },
+        "elementId": { "$ref": "#/$defs/id" },
+        "message": { "type": "string", "minLength": 1 },
+        "metrics": {
+          "type": "object",
+          "additionalProperties": false,
+          "patternProperties": {
+            "^[A-Za-z][A-Za-z0-9]*$": {
+              "type": ["string", "number", "integer", "boolean"]
+            }
+          }
+        }
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "pptx": { "$ref": "#/$defs/bundlePath" },
+        "renderPlan": { "$ref": "#/$defs/bundlePath" },
+        "packageInspection": { "$ref": "#/$defs/bundlePath" },
+        "previewDirectory": { "$ref": "#/$defs/bundlePath" }
+      }
+    }
+  }
+}

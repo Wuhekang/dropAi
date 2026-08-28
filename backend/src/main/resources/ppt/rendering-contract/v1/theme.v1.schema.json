@@ -1,0 +1,315 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dokiai.local/schemas/ppt/theme.v1.schema.json",
+  "title": "DokiAI PPT Theme Contract V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "themeId",
+    "themeVersion",
+    "inherits",
+    "slide",
+    "colors",
+    "typography",
+    "spacing",
+    "shape",
+    "shadow",
+    "components"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "theme.v1" },
+    "themeId": { "$ref": "#/$defs/id" },
+    "themeVersion": { "$ref": "#/$defs/semanticVersion" },
+    "inherits": {
+      "type": "array",
+      "maxItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9-]*@[0-9]+\\.[0-9]+\\.[0-9]+$"
+      }
+    },
+    "slide": { "$ref": "#/$defs/slide" },
+    "colors": { "$ref": "#/$defs/colors" },
+    "typography": { "$ref": "#/$defs/typography" },
+    "spacing": { "$ref": "#/$defs/spacing" },
+    "shape": { "$ref": "#/$defs/shape" },
+    "shadow": { "$ref": "#/$defs/shadow" },
+    "components": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "patternProperties": {
+        "^[a-z][A-Za-z0-9]*$": { "$ref": "#/$defs/componentStyle" }
+      }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$"
+    },
+    "tokenSegment": {
+      "type": "string",
+      "pattern": "^[a-z][A-Za-z0-9]*$"
+    },
+    "colorToken": {
+      "enum": [
+        "colors.surface.canvas",
+        "colors.surface.card",
+        "colors.surface.elevated",
+        "colors.surface.dark",
+        "colors.text.primary",
+        "colors.text.secondary",
+        "colors.text.inverse",
+        "colors.accent.primary",
+        "colors.accent.secondary",
+        "colors.accent.soft",
+        "colors.state.success",
+        "colors.state.warning",
+        "colors.state.danger",
+        "colors.state.info",
+        "colors.border.default",
+        "colors.border.strong"
+      ]
+    },
+    "radiusToken": {
+      "enum": ["shape.radiusPt.small", "shape.radiusPt.medium", "shape.radiusPt.large"]
+    },
+    "shadowToken": {
+      "enum": ["shadow.card"]
+    },
+    "typographyToken": {
+      "type": "string",
+      "pattern": "^typography\\.styles\\.[a-z][A-Za-z0-9]*$",
+      "description": "ThemeValidator in Commit 4 must verify that the referenced dynamic style key exists."
+    },
+    "semanticVersion": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "color": {
+      "type": "string",
+      "pattern": "^#[A-Fa-f0-9]{6}$"
+    },
+    "nonNegativeNumber": {
+      "type": "number",
+      "minimum": 0
+    },
+    "positiveNumber": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "slide": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ratio", "widthIn", "heightIn", "safeArea", "grid"],
+      "properties": {
+        "ratio": { "enum": ["16:9"] },
+        "widthIn": { "$ref": "#/$defs/positiveNumber" },
+        "heightIn": { "$ref": "#/$defs/positiveNumber" },
+        "safeArea": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["leftIn", "rightIn", "topIn", "bottomIn"],
+          "properties": {
+            "leftIn": { "$ref": "#/$defs/nonNegativeNumber" },
+            "rightIn": { "$ref": "#/$defs/nonNegativeNumber" },
+            "topIn": { "$ref": "#/$defs/nonNegativeNumber" },
+            "bottomIn": { "$ref": "#/$defs/nonNegativeNumber" }
+          }
+        },
+        "grid": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["columns", "gutterIn"],
+          "properties": {
+            "columns": { "type": "integer", "minimum": 1, "maximum": 24 },
+            "gutterIn": { "$ref": "#/$defs/nonNegativeNumber" }
+          }
+        }
+      }
+    },
+    "colors": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["surface", "text", "accent", "state", "border"],
+      "properties": {
+        "surface": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["canvas", "card", "elevated", "dark"],
+          "properties": {
+            "canvas": { "$ref": "#/$defs/color" },
+            "card": { "$ref": "#/$defs/color" },
+            "elevated": { "$ref": "#/$defs/color" },
+            "dark": { "$ref": "#/$defs/color" }
+          }
+        },
+        "text": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["primary", "secondary", "inverse"],
+          "properties": {
+            "primary": { "$ref": "#/$defs/color" },
+            "secondary": { "$ref": "#/$defs/color" },
+            "inverse": { "$ref": "#/$defs/color" }
+          }
+        },
+        "accent": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["primary", "secondary", "soft"],
+          "properties": {
+            "primary": { "$ref": "#/$defs/color" },
+            "secondary": { "$ref": "#/$defs/color" },
+            "soft": { "$ref": "#/$defs/color" }
+          }
+        },
+        "state": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["success", "warning", "danger", "info"],
+          "properties": {
+            "success": { "$ref": "#/$defs/color" },
+            "warning": { "$ref": "#/$defs/color" },
+            "danger": { "$ref": "#/$defs/color" },
+            "info": { "$ref": "#/$defs/color" }
+          }
+        },
+        "border": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["default", "strong"],
+          "properties": {
+            "default": { "$ref": "#/$defs/color" },
+            "strong": { "$ref": "#/$defs/color" }
+          }
+        }
+      }
+    },
+    "typography": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fontPolicy", "fontFamilies", "styles"],
+      "properties": {
+        "fontPolicy": { "enum": ["REQUIRE_EXACT", "ALLOW_DECLARED_FALLBACK"] },
+        "fontFamilies": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["display", "body"],
+          "properties": {
+            "display": { "$ref": "#/$defs/fontList" },
+            "body": { "$ref": "#/$defs/fontList" }
+          }
+        },
+        "styles": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": false,
+          "patternProperties": {
+            "^[a-z][A-Za-z0-9]*$": { "$ref": "#/$defs/textStyle" }
+          }
+        }
+      }
+    },
+    "fontList": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "textStyle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sizePt", "minSizePt", "weight"],
+      "properties": {
+        "sizePt": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Default font size. ThemeValidator in Commit 4 must enforce minSizePt <= sizePt."
+        },
+        "minSizePt": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Hard minimum font size; semantic validation must reject values greater than sizePt."
+        },
+        "weight": { "type": "integer", "minimum": 100, "maximum": 900, "multipleOf": 100 },
+        "maxLines": { "type": "integer", "minimum": 1 },
+        "lineSpacing": { "type": "number", "minimum": 1 }
+      }
+    },
+    "spacing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["xsPt", "smPt", "mdPt", "lgPt", "xlPt"],
+      "properties": {
+        "xsPt": { "$ref": "#/$defs/nonNegativeNumber" },
+        "smPt": { "$ref": "#/$defs/nonNegativeNumber" },
+        "mdPt": { "$ref": "#/$defs/nonNegativeNumber" },
+        "lgPt": { "$ref": "#/$defs/nonNegativeNumber" },
+        "xlPt": { "$ref": "#/$defs/nonNegativeNumber" }
+      }
+    },
+    "shape": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["radiusPt", "borderWidthPt"],
+      "properties": {
+        "radiusPt": { "$ref": "#/$defs/sizeScale" },
+        "borderWidthPt": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["thin", "normal"],
+          "properties": {
+            "thin": { "$ref": "#/$defs/nonNegativeNumber" },
+            "normal": { "$ref": "#/$defs/nonNegativeNumber" }
+          }
+        }
+      }
+    },
+    "sizeScale": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["small", "medium", "large"],
+      "properties": {
+        "small": { "$ref": "#/$defs/nonNegativeNumber" },
+        "medium": { "$ref": "#/$defs/nonNegativeNumber" },
+        "large": { "$ref": "#/$defs/nonNegativeNumber" }
+      }
+    },
+    "shadow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["card"],
+      "properties": {
+        "card": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["blurPt", "distancePt", "angleDeg", "opacity"],
+          "properties": {
+            "blurPt": { "$ref": "#/$defs/nonNegativeNumber" },
+            "distancePt": { "$ref": "#/$defs/nonNegativeNumber" },
+            "angleDeg": { "type": "number", "minimum": 0, "exclusiveMaximum": 360 },
+            "opacity": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        }
+      }
+    },
+    "componentStyle": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "fillToken": { "$ref": "#/$defs/colorToken" },
+        "textToken": { "$ref": "#/$defs/colorToken" },
+        "accentToken": { "$ref": "#/$defs/colorToken" },
+        "borderToken": { "$ref": "#/$defs/colorToken" },
+        "radiusToken": { "$ref": "#/$defs/radiusToken" },
+        "shadowToken": { "$ref": "#/$defs/shadowToken" },
+        "typographyToken": { "$ref": "#/$defs/typographyToken" }
+      }
+    }
+  }
+}
