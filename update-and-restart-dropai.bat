@@ -4,7 +4,7 @@ chcp 65001 >nul
 
 set "ROOT_DIR=%~dp0"
 set "BACKEND_DIR=%ROOT_DIR%backend"
-set "TARGET_COMMIT=9956b14f"
+set "TARGET_COMMIT=a17701ed65c46449735e13ff73a250fbc8a7434a"
 set "EXPECTED_GATEWAY=https://pay.dropai-demo.com/submit.php"
 set "WORD_FORMAT_ENABLED=true"
 set "WORD_FORMAT_PYTHON=python"
