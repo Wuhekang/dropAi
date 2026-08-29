@@ -1,15 +1,15 @@
 <template>
   <main class="literature-page">
     <header class="topbar"><button class="brand" @click="router.push('/dashboard')"><b>D</b><span>DokiAI<small>文字创作中心 V2</small></span></button><button class="back" @click="router.push('/dashboard')">返回工作台 ↗</button></header>
-    <section class="hero"><div class="eyebrow">— LITERATURE INTELLIGENCE</div><h1>从一个题目，找到<br><em>值得引用的文献。</em></h1><p>无需拆分关键词。输入你的研究题目，设置中英文文献数量，豆包将联网检索公开题录并整理为 GB/T 7714 格式。</p><div class="trust"><span>● 真实来源检索</span><span>● 中英文独立配额</span><span>● 自动生成引用</span></div></section>
+    <section class="hero"><div class="eyebrow">— LITERATURE INTELLIGENCE</div><h1>从一个题目，找到<br><em>值得引用的文献。</em></h1><p>无需拆分关键词。输入你的研究题目，设置中英文文献数量，Doki 将联网检索公开题录并整理为 GB/T 7714 格式。</p><div class="trust"><span>● 真实来源检索</span><span>● 中英文独立配额</span><span>● 自动生成引用</span></div></section>
     <section class="search-shell">
       <div class="panel-head"><div><span class="step">01</span><h2>开始检索</h2><p>只需填写以下三项</p></div><div class="price"><small>预计消耗</small><strong>{{ totalCount }}</strong> 积分</div></div>
       <div class="form-body">
         <label class="title-field"><span>题目名称 <b>必填</b></span><input v-model="form.title" maxlength="200" placeholder="例如：数字经济背景下中小企业创新能力提升路径研究" :disabled="searching" @keyup.enter="submit"><small>{{ form.title.length }}/200</small></label>
         <div class="count-row"><label><span>中文文献数量</span><div class="number-input"><button @click="adjust('chineseCount',-1)">−</button><input v-model.number="form.chineseCount" type="number" min="0" max="20"><button @click="adjust('chineseCount',1)">＋</button></div><small>优先检索中文期刊与公开题录</small></label><label><span>英文文献数量</span><div class="number-input"><button @click="adjust('englishCount',-1)">−</button><input v-model.number="form.englishCount" type="number" min="0" max="20"><button @click="adjust('englishCount',1)">＋</button></div><small>优先检索英文期刊与 DOI 页面</small></label></div>
-        <button class="primary" :disabled="!canSearch||searching" @click="submit"><span>{{ searching?'豆包正在检索中':'让豆包开始搜索' }}</span><i>{{ searching?'···':'→' }}</i></button><p class="tip">单次最多检索 20 篇 · 1 篇文献 = 1 积分 · 仅获取公开题录及摘要</p>
+        <button class="primary" :disabled="!canSearch||searching" @click="submit"><span>{{ searching?'Doki 正在检索中':'让 Doki 开始搜索' }}</span><i>{{ searching?'···':'→' }}</i></button><p class="tip">单次最多检索 20 篇 · 1 篇文献 = 1 积分 · 仅获取公开题录及摘要</p>
       </div>
-      <div v-if="searching" class="progress"><i></i><div><strong>正在连接公开学术来源</strong><span>豆包正在核验作者、年份、期刊与来源链接，请稍候…</span></div></div>
+      <div v-if="searching" class="progress"><i></i><div><strong>正在连接公开学术来源</strong><span>Doki 正在核验作者、年份、期刊与来源链接，请稍候…</span></div></div>
     </section>
     <section v-if="result" class="summary"><div><span>SEARCH COMPLETE</span><h2>共找到 {{ result.actualCount }} 篇文献</h2><p>中文目标 {{ result.chineseCount }} 篇 · 英文目标 {{ result.englishCount }} 篇 · 已扣除 {{ result.costPoints }} 积分</p></div><button @click="copyCitation">复制全部 GB/T 7714</button></section>
     <section v-if="items.length" class="results"><article v-for="item in items" :key="item.number"><header><b>[{{ item.number }}]</b><em>{{ item.language==='EN'?'ENGLISH':'中文' }} · {{ item.year||'年份未知' }}</em></header><h3>{{ item.title }}</h3><p class="meta">{{ item.authors||'作者未知' }} · {{ item.source||'来源未知' }}</p><p class="abstract">{{ item.abstractText||'暂无公开摘要。' }}</p><div class="citation"><span>GB/T 7714</span><p>{{ item.gbt7714 }}</p></div><footer><a v-if="item.url" :href="item.url" target="_blank">查看来源 ↗</a><button @click="copyOne(item)">复制引用</button></footer></article></section>

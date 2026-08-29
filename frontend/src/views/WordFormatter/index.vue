@@ -107,8 +107,8 @@
           </label>
           <div class="doubao-option">
             <div class="doubao-heading">
-              <i>豆</i>
-              <span><b>豆包理解补充要求</b><small>适合较复杂的自然语言规则</small></span>
+              <i>D</i>
+              <span><b>Doki 理解补充要求</b><small>适合较复杂的自然语言规则</small></span>
               <el-switch v-model="useDoubao" :disabled="!instructions.trim()" />
             </div>
             <ul>
