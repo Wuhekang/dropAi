@@ -77,7 +77,7 @@ public class DoubaoDiagramClient {
     private static String summaryTemplate(DiagramType type){return switch(type==null?DiagramType.FLOWCHART:type){
         case FLOWCHART->"主题=…；起点=…；主链=…；分支=…；循环/终点=…";
         case ER_DIAGRAM->"主题=…；实体=…；关键属性=…；关系=…；约束=…";
-        case FUNCTION_MODULE->"主题=…；根模块=…；一级模块=…；下级功能=…；层级=…";
+        case FUNCTION_MODULE->"主题=…；系统=…；直属模块=…；模块功能=…；归属=…";
         case ARCHITECTURE->"主题=…；入口=…；分层=…；组件=…；依赖=…";
         case USE_CASE->"主题=…；系统=…；参与者=…；用例=…；关系=…";
         case BLOCK_DIAGRAM->"主题=…；输入=…；核心块=…；连接=…；输出=…";
@@ -89,8 +89,10 @@ public class DoubaoDiagramClient {
         if(clauses.size()<2)return headTail(normalized,max);
         int count=Math.min(5,clauses.size());List<String> selected=new ArrayList<>(clauses.subList(0,Math.min(count,clauses.size())));
         String last=clauses.get(clauses.size()-1);if(clauses.size()>count&&!selected.contains(last))selected.set(selected.size()-1,last);
-        int available=Math.max(selected.size(),max-(selected.size()-1)),base=available/selected.size(),extra=available%selected.size();List<String> compact=new ArrayList<>();
-        for(int i=0;i<selected.size();i++)compact.add(headTail(selected.get(i),base+(i<extra?1:0)));
+        if(max<=selected.size()-1)return headTail(normalized,max);
+        int available=max-(selected.size()-1),remaining=available;int[] budgets=new int[selected.size()];
+        while(remaining>0){boolean assigned=false;for(int i=0;i<selected.size()&&remaining>0;i++){if(budgets[i]<selected.get(i).length()){budgets[i]++;remaining--;assigned=true;}}if(!assigned)break;}
+        List<String> compact=new ArrayList<>();for(int i=0;i<selected.size();i++)compact.add(headTail(selected.get(i),budgets[i]));
         return String.join("；",compact);
     }
     private static String headTail(String value,int max){if(value.length()<=max)return value;if(max<=1)return value.substring(0,Math.max(0,max));int remaining=max-1,head=Math.max(1,(remaining*2)/3),tail=Math.max(0,remaining-head);return value.substring(0,head)+"…"+(tail==0?"":value.substring(value.length()-tail));}
