@@ -6,11 +6,17 @@ set "ROOT_DIR=%~dp0"
 set "BACKEND_DIR=%ROOT_DIR%backend"
 set "TARGET_COMMIT=9956b14f"
 set "EXPECTED_GATEWAY=https://pay.dropai-demo.com/submit.php"
+set "WORD_FORMAT_ENABLED=true"
 set "WORD_FORMAT_PYTHON=python"
+set "WORD_FORMAT_WORKER=%ROOT_DIR%document-format-tool\format_cli.py"
+set "WORD_FORMAT_LEGACY_TEMPLATES_ENABLED=true"
 
-call :load_word_python "%ROOT_DIR%.env"
-call :load_word_python "%BACKEND_DIR%\.env"
+call :load_word_env "%ROOT_DIR%.env"
+call :load_word_env "%BACKEND_DIR%\.env"
+if "%WORD_FORMAT_ENABLED%"=="" set "WORD_FORMAT_ENABLED=true"
 if "%WORD_FORMAT_PYTHON%"=="" set "WORD_FORMAT_PYTHON=python"
+if "%WORD_FORMAT_WORKER%"=="" set "WORD_FORMAT_WORKER=%ROOT_DIR%document-format-tool\format_cli.py"
+if "%WORD_FORMAT_LEGACY_TEMPLATES_ENABLED%"=="" set "WORD_FORMAT_LEGACY_TEMPLATES_ENABLED=true"
 
 echo ========================================
 echo  DropAI update, build and restart
@@ -97,7 +103,13 @@ git merge-base --is-ancestor %TARGET_COMMIT% HEAD >nul 2>nul || (
 
 echo [3/7] Installing Python worker dependencies...
 python -m pip install --disable-pip-version-check --no-input -r "%ROOT_DIR%diagram-worker\requirements-web.txt" || goto :fail
-"%WORD_FORMAT_PYTHON%" -m pip install --disable-pip-version-check --no-input -r "%ROOT_DIR%document-format-tool\requirements-web.txt" || goto :fail
+if /i "%WORD_FORMAT_ENABLED%"=="true" (
+  call :resolve_word_formatter || goto :fail
+  "%WORD_FORMAT_PYTHON%" -m pip install --disable-pip-version-check --no-input -r "!WORD_FORMAT_REQUIREMENTS!" || goto :fail
+  call :preflight_word_formatter || goto :fail
+) else (
+  echo [INFO] Word formatter is disabled; skipping its dependency install and runtime check.
+)
 
 echo [4/7] Verifying payment gateway...
 findstr /L /C:"%EXPECTED_GATEWAY%" "%ROOT_DIR%start-dropai-backend.bat" >nul || (
@@ -137,11 +149,51 @@ echo.
 pause
 exit /b 0
 
-:load_word_python
+:load_word_env
 set "WORD_ENV_FILE=%~1"
 if not exist "%WORD_ENV_FILE%" exit /b 0
 for /f "usebackq eol=# tokens=1,* delims==" %%A in ("%WORD_ENV_FILE%") do (
+  if /i "%%A"=="WORD_FORMAT_ENABLED" set "WORD_FORMAT_ENABLED=%%B"
   if /i "%%A"=="WORD_FORMAT_PYTHON" set "WORD_FORMAT_PYTHON=%%B"
+  if /i "%%A"=="WORD_FORMAT_WORKER" set "WORD_FORMAT_WORKER=%%B"
+  if /i "%%A"=="WORD_FORMAT_LEGACY_TEMPLATES_ENABLED" set "WORD_FORMAT_LEGACY_TEMPLATES_ENABLED=%%B"
+)
+exit /b 0
+
+:resolve_word_formatter
+set "WORD_FORMAT_WORKER_PATH="
+if exist "%WORD_FORMAT_WORKER%" for %%I in ("%WORD_FORMAT_WORKER%") do set "WORD_FORMAT_WORKER_PATH=%%~fI"
+if not defined WORD_FORMAT_WORKER_PATH if exist "%ROOT_DIR%%WORD_FORMAT_WORKER%" for %%I in ("%ROOT_DIR%%WORD_FORMAT_WORKER%") do set "WORD_FORMAT_WORKER_PATH=%%~fI"
+if not defined WORD_FORMAT_WORKER_PATH if exist "%BACKEND_DIR%\%WORD_FORMAT_WORKER%" for %%I in ("%BACKEND_DIR%\%WORD_FORMAT_WORKER%") do set "WORD_FORMAT_WORKER_PATH=%%~fI"
+if not defined WORD_FORMAT_WORKER_PATH (
+  echo [ERROR] Word formatter not found: %WORD_FORMAT_WORKER%
+  exit /b 1
+)
+for %%I in ("%WORD_FORMAT_WORKER_PATH%") do set "WORD_FORMAT_TOOL_DIR=%%~dpI"
+set "WORD_FORMAT_RUNTIME_CHECK=%WORD_FORMAT_TOOL_DIR%runtime_check.py"
+set "WORD_FORMAT_REQUIREMENTS=%WORD_FORMAT_TOOL_DIR%requirements-web.txt"
+if not exist "%WORD_FORMAT_RUNTIME_CHECK%" (
+  echo [ERROR] Word formatter runtime check not found: %WORD_FORMAT_RUNTIME_CHECK%
+  exit /b 1
+)
+if not exist "%WORD_FORMAT_REQUIREMENTS%" (
+  echo [ERROR] Word formatter requirements not found: %WORD_FORMAT_REQUIREMENTS%
+  exit /b 1
+)
+exit /b 0
+
+:preflight_word_formatter
+"%WORD_FORMAT_PYTHON%" "%WORD_FORMAT_RUNTIME_CHECK%" >nul 2>nul
+if errorlevel 1 (
+  echo [ERROR] Word formatter runtime check failed with: %WORD_FORMAT_PYTHON%
+  exit /b 1
+)
+if /i not "%WORD_FORMAT_LEGACY_TEMPLATES_ENABLED%"=="true" exit /b 0
+"%WORD_FORMAT_PYTHON%" "%WORD_FORMAT_RUNTIME_CHECK%" --legacy >nul 2>nul
+if errorlevel 1 (
+  echo [ERROR] Legacy .doc/.dotx templates are enabled, but Microsoft Word COM is unavailable.
+  echo Install desktop Microsoft Word, or set WORD_FORMAT_LEGACY_TEMPLATES_ENABLED=false.
+  exit /b 1
 )
 exit /b 0
 

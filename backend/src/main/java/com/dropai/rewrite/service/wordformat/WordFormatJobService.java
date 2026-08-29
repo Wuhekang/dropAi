@@ -4,6 +4,8 @@ import com.dropai.rewrite.auth.AuthContext;
 import com.dropai.rewrite.config.WordFormatProperties;
 import com.dropai.rewrite.vo.WordFormatJobVO;
 import jakarta.annotation.PreDestroy;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -33,6 +35,7 @@ import java.util.zip.ZipFile;
 
 @Service
 public class WordFormatJobService {
+    private static final Logger log = LoggerFactory.getLogger(WordFormatJobService.class);
     private static final Set<String> TEMPLATE_EXTENSIONS = Set.of("doc", "docx", "dotx");
     private static final byte[] OLE_SIGNATURE = {
             (byte) 0xD0, (byte) 0xCF, 0x11, (byte) 0xE0,
@@ -84,7 +87,6 @@ public class WordFormatJobService {
         if (normalizedInstructions.length() > properties.maxInstructionsChars()) {
             throw new IllegalArgumentException("补充要求不能超过 " + properties.maxInstructionsChars() + " 个字符");
         }
-
         String jobId = UUID.randomUUID().toString().replace("-", "");
         Path jobDir = inside(dataRoot.resolve(String.valueOf(userId)).resolve(jobId));
         Path sourcePath = inside(jobDir.resolve("source.docx"));
@@ -101,6 +103,7 @@ public class WordFormatJobService {
         boolean slotTransferred = false;
 
         try {
+            verifyRuntimeBeforeAccepting(templateUpload, effectiveUseDoubao);
             try {
                 Files.createDirectories(jobDir);
                 copyUpload(source, sourcePath);
@@ -115,7 +118,11 @@ public class WordFormatJobService {
                 if (exception instanceof IllegalArgumentException illegalArgumentException) {
                     throw illegalArgumentException;
                 }
-                throw new IllegalStateException("上传文件保存失败：" + safeMessage(exception), exception);
+                log.error(
+                        "Unable to persist Word formatter uploads: jobId={}, userId={}, jobDirectory={}",
+                        jobId, userId, jobDir, exception
+                );
+                throw new IllegalStateException("上传文件保存失败，请重试");
             }
 
             String outputName = outputName(sourceUpload.displayName());
@@ -195,7 +202,24 @@ public class WordFormatJobService {
             job.success(Math.max(0, result.changedCount()), result.warnings(), result.templateNotes());
         } catch (Exception exception) {
             cleanupFailedArtifacts(job);
-            job.fail(sanitizeWorkerError(exception));
+            log.error(
+                    "Word formatter job failed: jobId={}, userId={}, jobDirectory={}",
+                    job.jobId, job.userId, job.jobDir, exception
+            );
+            job.fail(userFacingWorkerError(exception));
+        }
+    }
+
+    private void verifyRuntimeBeforeAccepting(Upload templateUpload, boolean requireDoubao) {
+        boolean legacyTemplate = Set.of("doc", "dotx").contains(templateUpload.extension());
+        try {
+            runner.verifyRuntime(legacyTemplate, requireDoubao);
+        } catch (Exception exception) {
+            log.error(
+                    "Word formatter runtime preflight rejected a submission: python={}, worker={}, legacy={}, doubao={}",
+                    properties.python(), properties.worker(), legacyTemplate, requireDoubao, exception
+            );
+            throw new IllegalStateException(WordFormatProcessRunner.RUNTIME_UNAVAILABLE_MESSAGE);
         }
     }
 
@@ -273,7 +297,8 @@ public class WordFormatJobService {
         } catch (IllegalArgumentException exception) {
             throw exception;
         } catch (Exception exception) {
-            throw new IllegalArgumentException("无法读取上传的 Word 文件：" + safeMessage(exception), exception);
+            log.error("Unable to validate uploaded Word file: path={}, template={}", path, template, exception);
+            throw new IllegalArgumentException("无法读取上传的 Word 文件，请确认文件完整后重试");
         }
     }
 
@@ -357,10 +382,11 @@ public class WordFormatJobService {
         }
     }
 
-    private String sanitizeWorkerError(Exception exception) {
-        String message = safeMessage(exception);
-        message = message.replace(dataRoot.toString(), "[任务目录]");
-        return message.length() <= 500 ? message : message.substring(0, 500) + "...";
+    private static String userFacingWorkerError(Exception exception) {
+        if (exception instanceof WordFormatProcessRunner.RuntimeUnavailableException) {
+            return WordFormatProcessRunner.RUNTIME_UNAVAILABLE_MESSAGE;
+        }
+        return WordFormatProcessRunner.PROCESS_FAILED_MESSAGE;
     }
 
     private static byte[] readHeader(Path path, int length) throws IOException {
@@ -423,15 +449,6 @@ public class WordFormatJobService {
     private static String humanSize(long bytes) {
         long megabytes = Math.max(1, bytes / (1024 * 1024));
         return megabytes + "MB";
-    }
-
-    private static String safeMessage(Throwable exception) {
-        Throwable current = exception;
-        while (current.getCause() != null && (current.getMessage() == null || current.getMessage().isBlank())) {
-            current = current.getCause();
-        }
-        String message = current.getMessage();
-        return message == null || message.isBlank() ? current.getClass().getSimpleName() : message;
     }
 
     @PreDestroy

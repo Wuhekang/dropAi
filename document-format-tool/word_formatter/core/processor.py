@@ -338,7 +338,16 @@ class DocumentProcessor:
         start_index: int = 1,
     ) -> None:
         tables = cls._tables_in_scope(document, start_index)
+        preserved_equation_tables = 0
         for table_index, table in enumerate(tables, start=1):
+            # Word commonly stores a displayed equation and its right-aligned
+            # number in a borderless 1x3 table.  It is a layout container, not
+            # a data table.  Applying the school's table rule here would expose
+            # the hidden grid and can also change the equation's line height.
+            # Preserve the entire table whenever it contains an OMML equation.
+            if cls._is_equation_layout_table(table):
+                preserved_equation_tables += 1
+                continue
             cls._set_table_borders(table, rule)
             cls._set_repeat_header_row(table, rule.repeat_header_row)
             if rule.column_width_mm > 0:
@@ -377,6 +386,15 @@ class DocumentProcessor:
                     f"启用 table 规则，处理 {cell_count} 个单元格、{paragraph_count} 个段落",
                 )
             )
+        if preserved_equation_tables:
+            result.warnings.append(
+                f"已识别并保留 {preserved_equation_tables} 个公式排版表，未套用普通数据表样式。"
+            )
+
+    @staticmethod
+    def _is_equation_layout_table(table) -> bool:
+        """识别包含 OMML 公式的排版表，避免把隐形布局框改成数据表。"""
+        return bool(table._tbl.xpath(".//m:oMath | .//m:oMathPara"))
 
     @staticmethod
     def _tables_in_scope(document, start_index: int):

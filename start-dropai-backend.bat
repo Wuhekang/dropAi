@@ -156,6 +156,7 @@ echo   DOUBAO_MECHANICAL_VISION_MODEL=%DOUBAO_MECHANICAL_VISION_MODEL%
 echo   DOUBAO_ENDPOINT=%DOUBAO_ENDPOINT%
 echo   DOUBAO_DOCUMENT_CONCURRENCY=%DOUBAO_DOCUMENT_CONCURRENCY%
 echo   WORD_FORMAT_ENABLED=%WORD_FORMAT_ENABLED%
+echo   WORD_FORMAT_PYTHON=%WORD_FORMAT_PYTHON%
 echo   WORD_FORMAT_WORKER=%WORD_FORMAT_WORKER%
 echo   WORD_FORMAT_LEGACY_TEMPLATES_ENABLED=%WORD_FORMAT_LEGACY_TEMPLATES_ENABLED%
 echo   MATRIX_DESIGN_ENABLED=%MATRIX_DESIGN_ENABLED%
@@ -179,20 +180,35 @@ pause
 exit /b %EXIT_CODE%
 
 :verify_word_formatter
-if exist "%WORD_FORMAT_WORKER%" goto :word_worker_found
-if exist "%BACKEND_DIR%\%WORD_FORMAT_WORKER%" goto :word_worker_found
+set "WORD_FORMAT_WORKER_PATH="
+if exist "%WORD_FORMAT_WORKER%" for %%I in ("%WORD_FORMAT_WORKER%") do set "WORD_FORMAT_WORKER_PATH=%%~fI"
+if not defined WORD_FORMAT_WORKER_PATH if exist "%ROOT_DIR%%WORD_FORMAT_WORKER%" for %%I in ("%ROOT_DIR%%WORD_FORMAT_WORKER%") do set "WORD_FORMAT_WORKER_PATH=%%~fI"
+if not defined WORD_FORMAT_WORKER_PATH if exist "%BACKEND_DIR%\%WORD_FORMAT_WORKER%" for %%I in ("%BACKEND_DIR%\%WORD_FORMAT_WORKER%") do set "WORD_FORMAT_WORKER_PATH=%%~fI"
+if defined WORD_FORMAT_WORKER_PATH goto :word_worker_found
 echo [ERROR] Word formatter not found: %WORD_FORMAT_WORKER%
 exit /b 1
 
 :word_worker_found
-"%WORD_FORMAT_PYTHON%" "%ROOT_DIR%document-format-tool\runtime_check.py" >nul 2>nul
+set "WORD_FORMAT_WORKER=%WORD_FORMAT_WORKER_PATH%"
+for %%I in ("%WORD_FORMAT_WORKER_PATH%") do set "WORD_FORMAT_TOOL_DIR=%%~dpI"
+set "WORD_FORMAT_RUNTIME_CHECK=%WORD_FORMAT_TOOL_DIR%runtime_check.py"
+set "WORD_FORMAT_REQUIREMENTS=%WORD_FORMAT_TOOL_DIR%requirements-web.txt"
+if not exist "%WORD_FORMAT_RUNTIME_CHECK%" (
+  echo [ERROR] Word formatter runtime check not found: %WORD_FORMAT_RUNTIME_CHECK%
+  exit /b 1
+)
+if not exist "%WORD_FORMAT_REQUIREMENTS%" (
+  echo [ERROR] Word formatter requirements not found: %WORD_FORMAT_REQUIREMENTS%
+  exit /b 1
+)
+"%WORD_FORMAT_PYTHON%" "%WORD_FORMAT_RUNTIME_CHECK%" >nul 2>nul
 if errorlevel 1 (
   echo [ERROR] Word formatter Python runtime is incomplete: %WORD_FORMAT_PYTHON%
-  echo Run: "%WORD_FORMAT_PYTHON%" -m pip install -r "%ROOT_DIR%document-format-tool\requirements-web.txt"
+  echo Run: "%WORD_FORMAT_PYTHON%" -m pip install -r "%WORD_FORMAT_REQUIREMENTS%"
   exit /b 1
 )
 if /i not "%WORD_FORMAT_LEGACY_TEMPLATES_ENABLED%"=="true" exit /b 0
-"%WORD_FORMAT_PYTHON%" "%ROOT_DIR%document-format-tool\runtime_check.py" --legacy >nul 2>nul
+"%WORD_FORMAT_PYTHON%" "%WORD_FORMAT_RUNTIME_CHECK%" --legacy >nul 2>nul
 if errorlevel 1 (
   echo [ERROR] Legacy .doc/.dotx templates are enabled, but Microsoft Word COM is unavailable.
   echo Install desktop Microsoft Word, or set WORD_FORMAT_LEGACY_TEMPLATES_ENABLED=false.
