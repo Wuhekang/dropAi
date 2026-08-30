@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "layout-recipe.v1",
+  "layoutId": "image-proof-screenshot-wide.v1",
+  "layoutVersion": "1.0.0",
+  "supports": {
+    "pageTypes": ["IMAGE"],
+    "pagePurposes": ["IMPLEMENTATION", "RESULT", "TEST"],
+    "contentTypes": ["FIGURE", "METRICS"],
+    "imageRoles": ["PROOF"],
+    "assetKinds": ["SCREENSHOT", "CHART"],
+    "tableKinds": [],
+    "assetCount": { "min": 1, "max": 1 }
+  },
+  "slots": {
+    "title": { "gridColumn": 1, "gridSpan": 12, "topIn": 0.4, "heightIn": 0.7 },
+    "image": { "gridColumn": 1, "gridSpan": 8, "topIn": 1.28, "heightIn": 5.45 },
+    "caption": { "gridColumn": 9, "gridSpan": 4, "topIn": 1.62, "heightIn": 3.3 },
+    "conclusion": { "gridColumn": 9, "gridSpan": 4, "topIn": 5.2, "heightIn": 1.1 },
+    "footer": { "gridColumn": 1, "gridSpan": 12, "topIn": 6.9, "heightIn": 0.2 }
+  },
+  "constraints": {
+    "titleMaxLines": 1,
+    "bodyMaxChars": 180,
+    "captionMaxChars": 90,
+    "imageFit": "CONTAIN",
+    "cropAllowed": false,
+    "minImageAreaRatio": 0.4
+  },
+  "fallbacks": []
+}

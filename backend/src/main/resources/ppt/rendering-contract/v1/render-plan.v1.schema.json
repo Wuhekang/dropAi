@@ -13,12 +13,14 @@
     "slideSize": { "$ref": "#/$defs/slideSize" },
     "assets": {
       "type": "array",
+      "maxItems": 500,
       "uniqueItems": true,
       "items": { "$ref": "#/$defs/asset" }
     },
     "slides": {
       "type": "array",
       "minItems": 1,
+      "maxItems": 200,
       "items": { "$ref": "#/$defs/slide" }
     }
   },
@@ -89,7 +91,8 @@
         "themeHash",
         "layoutCatalogVersion",
         "layoutCatalogHash",
-        "fontProfileHash"
+        "fontProfileHash",
+        "resolvedFontProfile"
       ],
       "properties": {
         "engineVersion": { "$ref": "#/$defs/semanticVersion" },
@@ -98,7 +101,50 @@
         "themeHash": { "$ref": "#/$defs/hash" },
         "layoutCatalogVersion": { "$ref": "#/$defs/semanticVersion" },
         "layoutCatalogHash": { "$ref": "#/$defs/hash" },
-        "fontProfileHash": { "$ref": "#/$defs/hash" }
+        "fontProfileHash": { "$ref": "#/$defs/hash" },
+        "resolvedFontProfile": { "$ref": "#/$defs/resolvedFontProfile" }
+      }
+    },
+    "resolvedFontProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profileId", "measurementEngineVersion", "faces"],
+      "properties": {
+        "profileId": { "$ref": "#/$defs/id" },
+        "measurementEngineVersion": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9.-]*$"
+        },
+        "faces": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/resolvedFontFace" }
+        }
+      }
+    },
+    "resolvedFontFace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fontFaceId",
+        "role",
+        "weight",
+        "selectedFamily",
+        "postScriptName",
+        "fontSource",
+        "fontFingerprint",
+        "fallbackApplied"
+      ],
+      "properties": {
+        "fontFaceId": { "$ref": "#/$defs/id" },
+        "role": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+        "weight": { "type": "integer", "minimum": 100, "maximum": 900, "multipleOf": 100 },
+        "selectedFamily": { "type": "string", "minLength": 1 },
+        "postScriptName": { "type": "string", "minLength": 1 },
+        "fontSource": { "enum": ["SYSTEM", "BUNDLED", "PROVIDED"] },
+        "fontFingerprint": { "$ref": "#/$defs/hash" },
+        "fallbackApplied": { "type": "boolean" }
       }
     },
     "slideSize": {
@@ -142,6 +188,7 @@
         "elements": {
           "type": "array",
           "minItems": 1,
+          "maxItems": 256,
           "items": { "$ref": "#/$defs/element" }
         }
       }
@@ -173,15 +220,39 @@
     "textResolvedStyle": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["fontFamily", "fontSizeHundredthPt", "fontWeight", "textColor", "horizontalAlign", "verticalAlign", "lineSpacingPermille"],
+      "required": [
+        "fontFaceId",
+        "fontFamily",
+        "fontSizeHundredthPt",
+        "fontWeight",
+        "textColor",
+        "horizontalAlign",
+        "verticalAlign",
+        "lineSpacingPermille",
+        "lineHeightEmu",
+        "paragraphSpaceBeforeEmu",
+        "paragraphSpaceAfterEmu",
+        "marginLeftEmu",
+        "marginRightEmu",
+        "marginTopEmu",
+        "marginBottomEmu"
+      ],
       "properties": {
+        "fontFaceId": { "$ref": "#/$defs/id" },
         "fontFamily": { "type": "string", "minLength": 1 },
         "fontSizeHundredthPt": { "type": "integer", "minimum": 1 },
         "fontWeight": { "type": "integer", "minimum": 100, "maximum": 900, "multipleOf": 100 },
         "textColor": { "$ref": "#/$defs/color" },
         "horizontalAlign": { "enum": ["LEFT", "CENTER", "RIGHT"] },
         "verticalAlign": { "enum": ["TOP", "MIDDLE", "BOTTOM"] },
-        "lineSpacingPermille": { "type": "integer", "minimum": 1000 }
+        "lineSpacingPermille": { "type": "integer", "minimum": 1000 },
+        "lineHeightEmu": { "type": "integer", "minimum": 1 },
+        "paragraphSpaceBeforeEmu": { "type": "integer", "minimum": 0 },
+        "paragraphSpaceAfterEmu": { "type": "integer", "minimum": 0 },
+        "marginLeftEmu": { "type": "integer", "minimum": 0 },
+        "marginRightEmu": { "type": "integer", "minimum": 0 },
+        "marginTopEmu": { "type": "integer", "minimum": 0 },
+        "marginBottomEmu": { "type": "integer", "minimum": 0 }
       }
     },
     "imageResolvedStyle": {
@@ -192,7 +263,8 @@
         "opacityPermille": { "type": "integer", "minimum": 0, "maximum": 1000 },
         "borderColor": { "$ref": "#/$defs/color" },
         "borderWidthEmu": { "type": "integer", "minimum": 0 },
-        "cornerRadiusEmu": { "type": "integer", "minimum": 0 }
+        "cornerRadiusEmu": { "type": "integer", "minimum": 0 },
+        "shadow": { "$ref": "#/$defs/shadowResolvedStyle" }
       }
     },
     "shapeResolvedStyle": {
@@ -204,14 +276,51 @@
         "borderColor": { "$ref": "#/$defs/color" },
         "borderWidthEmu": { "type": "integer", "minimum": 0 },
         "cornerRadiusEmu": { "type": "integer", "minimum": 0 },
-        "opacityPermille": { "type": "integer", "minimum": 0, "maximum": 1000 }
+        "opacityPermille": { "type": "integer", "minimum": 0, "maximum": 1000 },
+        "shadow": { "$ref": "#/$defs/shadowResolvedStyle" }
+      }
+    },
+    "shadowResolvedStyle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["color", "opacityPermille", "blurRadiusEmu", "distanceEmu", "angleThousandthDegree"],
+      "properties": {
+        "color": { "$ref": "#/$defs/color" },
+        "opacityPermille": { "type": "integer", "minimum": 0, "maximum": 1000 },
+        "blurRadiusEmu": { "type": "integer", "minimum": 0 },
+        "distanceEmu": { "type": "integer", "minimum": 0 },
+        "angleThousandthDegree": { "type": "integer", "minimum": 0, "maximum": 359999 }
       }
     },
     "tableResolvedStyle": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["fontFamily", "fontSizeHundredthPt", "fontWeight", "textColor", "headerFillColor", "bodyFillColor", "borderColor", "borderWidthEmu"],
+      "required": [
+        "headerFontFaceId",
+        "headerFontWeight",
+        "bodyFontFaceId",
+        "bodyFontWeight",
+        "fontFamily",
+        "fontSizeHundredthPt",
+        "fontWeight",
+        "textColor",
+        "headerFillColor",
+        "bodyFillColor",
+        "borderColor",
+        "borderWidthEmu",
+        "lineSpacingPermille",
+        "paragraphSpaceBeforeEmu",
+        "paragraphSpaceAfterEmu",
+        "cellMarginLeftEmu",
+        "cellMarginRightEmu",
+        "cellMarginTopEmu",
+        "cellMarginBottomEmu"
+      ],
       "properties": {
+        "headerFontFaceId": { "$ref": "#/$defs/id" },
+        "headerFontWeight": { "type": "integer", "minimum": 100, "maximum": 900, "multipleOf": 100 },
+        "bodyFontFaceId": { "$ref": "#/$defs/id" },
+        "bodyFontWeight": { "type": "integer", "minimum": 100, "maximum": 900, "multipleOf": 100 },
         "fontFamily": { "type": "string", "minLength": 1 },
         "fontSizeHundredthPt": { "type": "integer", "minimum": 1 },
         "fontWeight": { "type": "integer", "minimum": 100, "maximum": 900, "multipleOf": 100 },
@@ -219,7 +328,14 @@
         "headerFillColor": { "$ref": "#/$defs/color" },
         "bodyFillColor": { "$ref": "#/$defs/color" },
         "borderColor": { "$ref": "#/$defs/color" },
-        "borderWidthEmu": { "type": "integer", "minimum": 0 }
+        "borderWidthEmu": { "type": "integer", "minimum": 0 },
+        "lineSpacingPermille": { "type": "integer", "minimum": 1000 },
+        "paragraphSpaceBeforeEmu": { "type": "integer", "minimum": 0 },
+        "paragraphSpaceAfterEmu": { "type": "integer", "minimum": 0 },
+        "cellMarginLeftEmu": { "type": "integer", "minimum": 0 },
+        "cellMarginRightEmu": { "type": "integer", "minimum": 0 },
+        "cellMarginTopEmu": { "type": "integer", "minimum": 0 },
+        "cellMarginBottomEmu": { "type": "integer", "minimum": 0 }
       }
     },
     "connectorResolvedStyle": {
@@ -246,10 +362,13 @@
         { "$ref": "#/$defs/elementBase" },
         {
           "type": "object",
-          "required": ["text"],
+          "required": ["text", "lineCount", "requiredWidthEmu", "requiredHeightEmu"],
           "properties": {
             "elementType": { "const": "TEXT" },
             "text": { "type": "string", "minLength": 1 },
+            "lineCount": { "type": "integer", "minimum": 1 },
+            "requiredWidthEmu": { "type": "integer", "minimum": 0 },
+            "requiredHeightEmu": { "type": "integer", "minimum": 1 },
             "resolvedStyle": { "$ref": "#/$defs/textResolvedStyle" }
           }
         }
@@ -339,8 +458,25 @@
               "minItems": 1,
               "maxItems": 7,
               "items": { "$ref": "#/$defs/tableRow" }
+            },
+            "statusCells": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 7,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/tableStatusCell" }
             }
-          }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": { "tableKind": { "const": "TEST_RESULT" } },
+                "required": ["tableKind"]
+              },
+              "then": { "required": ["statusCells"] },
+              "else": { "not": { "required": ["statusCells"] } }
+            }
+          ]
         }
       ],
       "unevaluatedProperties": false
@@ -366,6 +502,32 @@
           "maxItems": 5,
           "items": { "type": "string" }
         }
+      }
+    },
+    "tableStatusCell": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rowIndex",
+        "columnIndex",
+        "text",
+        "fillColor",
+        "textColor",
+        "fontFaceId",
+        "fontWeight",
+        "horizontalAlign",
+        "verticalAlign"
+      ],
+      "properties": {
+        "rowIndex": { "type": "integer", "minimum": 0, "maximum": 6 },
+        "columnIndex": { "type": "integer", "minimum": 0, "maximum": 4 },
+        "text": { "type": "string", "minLength": 1 },
+        "fillColor": { "$ref": "#/$defs/color" },
+        "textColor": { "$ref": "#/$defs/color" },
+        "fontFaceId": { "$ref": "#/$defs/id" },
+        "fontWeight": { "type": "integer", "minimum": 100, "maximum": 900, "multipleOf": 100 },
+        "horizontalAlign": { "enum": ["LEFT", "CENTER", "RIGHT"] },
+        "verticalAlign": { "enum": ["TOP", "MIDDLE", "BOTTOM"] }
       }
     },
     "connectorElement": {

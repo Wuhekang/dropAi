@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "layout-recipe.v1",
+  "layoutId": "agenda-vertical-steps.v1",
+  "layoutVersion": "1.0.0",
+  "supports": {
+    "pageTypes": ["AGENDA"],
+    "pagePurposes": ["METHOD"],
+    "contentTypes": ["KEY_POINTS"],
+    "imageRoles": [],
+    "assetKinds": [],
+    "tableKinds": [],
+    "assetCount": { "min": 0, "max": 0 }
+  },
+  "slots": {
+    "title": { "gridColumn": 1, "gridSpan": 12, "topIn": 0.4, "heightIn": 0.7 },
+    "agenda": { "gridColumn": 2, "gridSpan": 10, "topIn": 1.4, "heightIn": 4.95 },
+    "footer": { "gridColumn": 1, "gridSpan": 12, "topIn": 6.85, "heightIn": 0.25 }
+  },
+  "constraints": {
+    "titleMaxLines": 1,
+    "bodyMaxChars": 220,
+    "captionMaxChars": 0,
+    "imageFit": "CONTAIN",
+    "cropAllowed": false,
+    "minImageAreaRatio": 0,
+    "allowedContainedTextComponents": ["keyPointCard"]
+  },
+  "fallbacks": []
+}

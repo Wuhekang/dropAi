@@ -9,7 +9,63 @@
     "themeHash": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
     "layoutCatalogVersion": "1.0.0",
     "layoutCatalogHash": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
-    "fontProfileHash": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+    "fontProfileHash": "sha256:e1fbd48ec21c484f93193ddc80fc8702196282cb6b203e430364ab2d1d66c609",
+    "resolvedFontProfile": {
+      "profileId": "cjk-academic-v1",
+      "measurementEngineVersion": "text-metrics-v1",
+      "faces": [
+        {
+          "fontFaceId": "body-400",
+          "role": "body",
+          "weight": 400,
+          "selectedFamily": "Microsoft YaHei",
+          "postScriptName": "MicrosoftYaHei-400",
+          "fontSource": "PROVIDED",
+          "fontFingerprint": "sha256:a777ee7323796aa3dbdf3afa2c767af4e8f32050eb50f2732e0e6c2deb2787e0",
+          "fallbackApplied": false
+        },
+        {
+          "fontFaceId": "body-500",
+          "role": "body",
+          "weight": 500,
+          "selectedFamily": "Microsoft YaHei",
+          "postScriptName": "MicrosoftYaHei-500",
+          "fontSource": "PROVIDED",
+          "fontFingerprint": "sha256:6635618fee9c3afb84b15f2d0ae759f12f4c99862326db2bfc9cc5448c4e27d4",
+          "fallbackApplied": false
+        },
+        {
+          "fontFaceId": "body-600",
+          "role": "body",
+          "weight": 600,
+          "selectedFamily": "Microsoft YaHei",
+          "postScriptName": "MicrosoftYaHei-600",
+          "fontSource": "PROVIDED",
+          "fontFingerprint": "sha256:382db2becf1b480de9fdf42bcb2c203bbe84a30bfa8b48bf62cfbc895fd3fdd3",
+          "fallbackApplied": false
+        },
+        {
+          "fontFaceId": "body-700",
+          "role": "body",
+          "weight": 700,
+          "selectedFamily": "Microsoft YaHei",
+          "postScriptName": "MicrosoftYaHei-700",
+          "fontSource": "PROVIDED",
+          "fontFingerprint": "sha256:9f1949970b582249144b2e02d86889f6999cfb26d97bebd436a1d2f0d934c855",
+          "fallbackApplied": false
+        },
+        {
+          "fontFaceId": "display-700",
+          "role": "display",
+          "weight": 700,
+          "selectedFamily": "Microsoft YaHei",
+          "postScriptName": "MicrosoftYaHei-700",
+          "fontSource": "PROVIDED",
+          "fontFingerprint": "sha256:9f1949970b582249144b2e02d86889f6999cfb26d97bebd436a1d2f0d934c855",
+          "fallbackApplied": false
+        }
+      ]
+    }
   },
   "slideSize": { "widthEmu": 12191695, "heightEmu": 6858000 },
   "assets": [
@@ -42,16 +98,27 @@
           "heightEmu": 566928,
           "zIndex": 220,
           "resolvedStyle": {
+            "fontFaceId": "display-700",
             "fontFamily": "Microsoft YaHei",
             "fontSizeHundredthPt": 2900,
             "fontWeight": 700,
             "textColor": "#1D2340",
             "horizontalAlign": "LEFT",
             "verticalAlign": "MIDDLE",
-            "lineSpacingPermille": 1150
+            "lineSpacingPermille": 1150,
+            "lineHeightEmu": 423545,
+            "paragraphSpaceBeforeEmu": 0,
+            "paragraphSpaceAfterEmu": 0,
+            "marginLeftEmu": 0,
+            "marginRightEmu": 0,
+            "marginTopEmu": 0,
+            "marginBottomEmu": 0
           },
           "styleSource": { "component": "slideTitle", "themeToken": "typography.styles.slideTitle" },
-          "text": "AI健康评估结果展示"
+          "text": "AI健康评估结果展示",
+          "lineCount": 1,
+          "requiredWidthEmu": 3351530,
+          "requiredHeightEmu": 368300
         },
         {
           "elementId": "image",
@@ -59,7 +126,7 @@
           "xEmu": 566928,
           "yEmu": 1207008,
           "widthEmu": 7452360,
-          "heightEmu": 4983480,
+          "heightEmu": 4191953,
           "zIndex": 240,
           "resolvedStyle": {
             "opacityPermille": 1000,
@@ -67,6 +134,7 @@
             "borderWidthEmu": 9525,
             "cornerRadiusEmu": 76200
           },
+          "styleSource": { "component": "imageFrame", "themeToken": "components.imageFrame" },
           "assetId": "figure_4_10",
           "fitMode": "CONTAIN",
           "cropAllowed": false
