@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "layout-recipe.v1",
+  "layoutId": "table-entity-purpose-cards.v1",
+  "layoutVersion": "1.0.0",
+  "supports": {
+    "pageTypes": ["TABLE"],
+    "pagePurposes": ["DATABASE"],
+    "contentTypes": ["TABULAR"],
+    "imageRoles": [],
+    "assetKinds": [],
+    "tableKinds": ["ENTITY_PURPOSE"],
+    "assetCount": { "min": 0, "max": 0 }
+  },
+  "slots": {
+    "title": { "gridColumn": 1, "gridSpan": 12, "topIn": 0.4, "heightIn": 0.7 },
+    "table": { "gridColumn": 1, "gridSpan": 12, "topIn": 1.5, "heightIn": 4.45 },
+    "conclusion": { "gridColumn": 2, "gridSpan": 10, "topIn": 6.12, "heightIn": 0.68 },
+    "footer": { "gridColumn": 1, "gridSpan": 12, "topIn": 6.9, "heightIn": 0.2 }
+  },
+  "constraints": {
+    "titleMaxLines": 1,
+    "bodyMaxChars": 260,
+    "captionMaxChars": 0,
+    "imageFit": "CONTAIN",
+    "cropAllowed": false,
+    "minImageAreaRatio": 0
+  },
+  "fallbacks": ["table-generic-compact.v1"]
+}

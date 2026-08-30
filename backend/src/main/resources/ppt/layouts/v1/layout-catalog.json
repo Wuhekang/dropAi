@@ -1,0 +1,24 @@
+{
+  "catalogId": "academic-layouts-v1",
+  "catalogVersion": "1.0.0",
+  "layouts": [
+    { "layoutId": "cover-centered.v1", "resource": "ppt/layouts/v1/cover-centered.v1.json" },
+    { "layoutId": "agenda-vertical-steps.v1", "resource": "ppt/layouts/v1/agenda-vertical-steps.v1.json" },
+    { "layoutId": "content-single-insight.v1", "resource": "ppt/layouts/v1/content-single-insight.v1.json" },
+    { "layoutId": "content-three-cards.v1", "resource": "ppt/layouts/v1/content-three-cards.v1.json" },
+    { "layoutId": "content-text-visual-split.v1", "resource": "ppt/layouts/v1/content-text-visual-split.v1.json" },
+    { "layoutId": "content-process-steps.v1", "resource": "ppt/layouts/v1/content-process-steps.v1.json" },
+    { "layoutId": "content-comparison-columns.v1", "resource": "ppt/layouts/v1/content-comparison-columns.v1.json" },
+    { "layoutId": "content-architecture-layers.v1", "resource": "ppt/layouts/v1/content-architecture-layers.v1.json" },
+    { "layoutId": "image-proof-screenshot-wide.v1", "resource": "ppt/layouts/v1/image-proof-screenshot-wide.v1.json" },
+    { "layoutId": "image-diagram-with-notes.v1", "resource": "ppt/layouts/v1/image-diagram-with-notes.v1.json" },
+    { "layoutId": "image-result-chart-with-finding.v1", "resource": "ppt/layouts/v1/image-result-chart-with-finding.v1.json" },
+    { "layoutId": "image-effect-full-visual.v1", "resource": "ppt/layouts/v1/image-effect-full-visual.v1.json" },
+    { "layoutId": "table-generic-compact.v1", "resource": "ppt/layouts/v1/table-generic-compact.v1.json" },
+    { "layoutId": "table-entity-purpose-cards.v1", "resource": "ppt/layouts/v1/table-entity-purpose-cards.v1.json" },
+    { "layoutId": "table-test-result-status.v1", "resource": "ppt/layouts/v1/table-test-result-status.v1.json" },
+    { "layoutId": "summary-achievements.v1", "resource": "ppt/layouts/v1/summary-achievements.v1.json" },
+    { "layoutId": "summary-future.v1", "resource": "ppt/layouts/v1/summary-future.v1.json" },
+    { "layoutId": "thanks-centered.v1", "resource": "ppt/layouts/v1/thanks-centered.v1.json" }
+  ]
+}
