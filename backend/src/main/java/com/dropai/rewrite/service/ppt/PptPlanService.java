@@ -6,6 +6,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.dropai.rewrite.service.ppt.rendering.bundle.v1.StagedRenderPlanBundle;
+import com.dropai.rewrite.service.ppt.rendering.bundle.v1.RenderPlanBundleTransaction;
+import com.dropai.rewrite.service.ppt.rendering.production.v1.ProductionRenderPlanCoordinator;
+import com.dropai.rewrite.service.ppt.rendering.production.v1.ProductionRenderPlanRequest;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -20,14 +24,14 @@ public class PptPlanService {
     private final ObjectMapper mapper;
     private final PptTextValidator validator;
     private final PptContentPlanner contentPlanner;
-    private final PptContentPlannerV2InputAdapter inputAdapter;private final PptContentPlannerV2 plannerV2;private final PptContentSanitizerV1 sanitizer;private final PptOutlinePlannerV1 outlinePlanner;private final PptOutlineValidatorV1 outlineValidator;
+    private final PptContentPlannerV2InputAdapter inputAdapter;private final PptContentPlannerV2 plannerV2;private final PptContentSanitizerV1 sanitizer;private final PptOutlinePlannerV1 outlinePlanner;private final PptOutlineValidatorV1 outlineValidator;private final ProductionRenderPlanCoordinator renderPlanCoordinator;
 
-    public PptPlanService(JdbcTemplate jdbc, ObjectMapper mapper, PptTextValidator validator, PptContentPlanner contentPlanner,PptContentPlannerV2InputAdapter inputAdapter,PptContentPlannerV2 plannerV2,PptContentSanitizerV1 sanitizer,PptOutlinePlannerV1 outlinePlanner,PptOutlineValidatorV1 outlineValidator) {
+    public PptPlanService(JdbcTemplate jdbc, ObjectMapper mapper, PptTextValidator validator, PptContentPlanner contentPlanner,PptContentPlannerV2InputAdapter inputAdapter,PptContentPlannerV2 plannerV2,PptContentSanitizerV1 sanitizer,PptOutlinePlannerV1 outlinePlanner,PptOutlineValidatorV1 outlineValidator,ProductionRenderPlanCoordinator renderPlanCoordinator) {
         this.jdbc = jdbc;
         this.mapper = mapper;
         this.validator = validator;
         this.contentPlanner = contentPlanner;
-        this.inputAdapter=inputAdapter;this.plannerV2=plannerV2;this.sanitizer=sanitizer;this.outlinePlanner=outlinePlanner;this.outlineValidator=outlineValidator;
+        this.inputAdapter=inputAdapter;this.plannerV2=plannerV2;this.sanitizer=sanitizer;this.outlinePlanner=outlinePlanner;this.outlineValidator=outlineValidator;this.renderPlanCoordinator=renderPlanCoordinator;
     }
 
     @Transactional
@@ -74,8 +78,166 @@ public class PptPlanService {
         return detail(projectId, userId);
     }
 
-    private Map<String,Object> createV2(String projectId,Long userId,Map<String,Object> project){Map<String,Object> analysis=readJson(string(project.get("analysis_json")));List<Map<String,Object>> storedAssets=jdbc.queryForList("SELECT * FROM ppt_asset WHERE project_id=? ORDER BY source_page,source_position,id",projectId);List<PptDocumentParser.Asset> parsedAssets=new ArrayList<>();for(var a:storedAssets){String path=string(a.get("file_path"));if(!path.isBlank())parsedAssets.add(new PptDocumentParser.Asset(java.nio.file.Path.of(path),integer(a.get("source_page"),0),string(a.get("source_position")),string(a.get("caption")),integer(a.get("width"),0),integer(a.get("height"),0)));}List<String> headings=stringList(analysis.get("headings")),blocks=stringList(analysis.get("blocks"));var document=new PptDocumentParser.ParsedDocument(string(analysis.get("documentTitle")),headings,blocks,parsedAssets,integer(analysis.get("tableCount"),0),integer(analysis.get("characterCount"),0),integer(analysis.get("imageCount"),parsedAssets.size()),integer(analysis.get("filteredAssetCount"),0));var input=inputAdapter.fromParsedDocument(document,"computer");Map<String,String> metadata=new LinkedHashMap<>(input.metadata());put(metadata,"title",project.get("topic"));put(metadata,"englishTitle",project.get("english_topic"));put(metadata,"presenter",project.get("presenter"));put(metadata,"major",project.get("major"));put(metadata,"advisor",project.get("advisor"));put(metadata,"studentNumber",project.get("student_number"));input=new PptContentPlannerV2.PlannerInput(metadata,input.chapters(),input.assets(),input.tables(),input.majorType());var planned=sanitizer.sanitize(plannerV2.plan(input));List<PptContentPlannerV2.CandidatePage> candidates=planned.chapters().stream().flatMap(c->c.candidatePages().stream()).toList();int max=Math.max(8,integer(project.get("target_slide_count"),16)-3);var outline=outlinePlanner.plan(new PptOutlinePlannerV1.OutlineRequest(candidates,max));var validated=outlineValidator.validate(new PptOutlineValidatorV1.ValidationRequest(metadata,outline));outlineValidator.requireValid(validated);Map<String,String> assetIdByPath=new LinkedHashMap<>();for(var a:storedAssets)assetIdByPath.put(java.nio.file.Path.of(string(a.get("file_path"))).toAbsolutePath().normalize().toString(),string(a.get("id")));Map<String,String> figurePath=new LinkedHashMap<>();for(var a:input.assets())figurePath.put(string(a.get("id")),java.nio.file.Path.of(string(a.get("path"))).toAbsolutePath().normalize().toString());List<Map<String,Object>> sections=outline(projectId);jdbc.update("DELETE FROM ppt_slide WHERE project_id=?",projectId);int order=0,sectionCursor=0;for(var page:validated.slideTree()){if(List.of("COVER","AGENDA","THANKS").contains(page.pageType()))continue;String sectionId=sections.isEmpty()?null:string(sections.get(Math.min(sectionCursor,sections.size()-1)).get("id"));if(order>0&&order%Math.max(1,max/Math.max(1,sections.size()))==0)sectionCursor++;List<String> boxes=new ArrayList<>(page.keyPoints());if(!page.description().isBlank())boxes.add(page.description());List<String> assetIds=new ArrayList<>();if("IMAGE".equals(page.pageType())&&page.sourceRefs()!=null){String path=figurePath.get(page.sourceRefs().figureId());String assetId=assetIdByPath.get(path);if(assetId!=null)assetIds.add(assetId);}jdbc.update("INSERT INTO ppt_slide(id,project_id,section_id,slide_order,slide_type,title,body_boxes_json,asset_ids_json,speaker_notes,layout_type,validation_status,chapter_title,content_summary,template_type) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",UUID.randomUUID().toString(),projectId,sectionId,++order,page.pageType(),page.title(),json(boxes),json(assetIds),"",page.pageType(),"VALID",page.sourceChapter(),page.description(),page.pageType().toLowerCase());}jdbc.update("DELETE FROM ppt_page_task WHERE project_id=?",projectId);for(Map<String,Object> slide:jdbc.queryForList("SELECT id FROM ppt_slide WHERE project_id=? ORDER BY slide_order",projectId))jdbc.update("INSERT INTO ppt_page_task(id,project_id,slide_plan_id,status,progress,retry_count) VALUES(?,?,?,'WAITING',0,0)",UUID.randomUUID().toString(),projectId,slide.get("id"));jdbc.update("UPDATE ppt_project SET status='PLANNED',current_stage='PPT方案待确认',progress=55,updated_at=? WHERE id=? AND user_id=?",LocalDateTime.now(),projectId,userId);return detail(projectId,userId);}
+    private Map<String, Object> createV2(
+            String projectId,
+            Long userId,
+            Map<String, Object> project
+    ) {
+        Map<String, Object> analysis = readJson(string(project.get("analysis_json")));
+        List<Map<String, Object>> storedAssets = jdbc.queryForList(
+                "SELECT * FROM ppt_asset WHERE project_id=? ORDER BY source_page,source_position,id",
+                projectId);
+        List<PptDocumentParser.Asset> parsedAssets = new ArrayList<>();
+        for (var asset : storedAssets) {
+            String path = string(asset.get("file_path"));
+            if (!path.isBlank()) {
+                parsedAssets.add(new PptDocumentParser.Asset(
+                        java.nio.file.Path.of(path),
+                        integer(asset.get("source_page"), 0),
+                        string(asset.get("source_position")),
+                        string(asset.get("caption")),
+                        integer(asset.get("width"), 0),
+                        integer(asset.get("height"), 0)));
+            }
+        }
+
+        List<String> headings = stringList(analysis.get("headings"));
+        List<String> blocks = stringList(analysis.get("blocks"));
+        var document = new PptDocumentParser.ParsedDocument(
+                string(analysis.get("documentTitle")),
+                headings,
+                blocks,
+                parsedAssets,
+                integer(analysis.get("tableCount"), 0),
+                integer(analysis.get("characterCount"), 0),
+                integer(analysis.get("imageCount"), parsedAssets.size()),
+                integer(analysis.get("filteredAssetCount"), 0));
+        var input = inputAdapter.fromParsedDocument(document, "computer");
+
+        Map<String, String> metadata = new LinkedHashMap<>(input.metadata());
+        put(metadata, "title", project.get("topic"));
+        put(metadata, "englishTitle", project.get("english_topic"));
+        put(metadata, "presenter", project.get("presenter"));
+        put(metadata, "major", project.get("major"));
+        put(metadata, "advisor", project.get("advisor"));
+        put(metadata, "studentNumber", project.get("student_number"));
+        extractRenderingMetadata(metadata, blocks);
+        input = new PptContentPlannerV2.PlannerInput(
+                metadata,
+                input.chapters(),
+                input.assets(),
+                input.tables(),
+                input.majorType());
+
+        var planned = sanitizer.sanitize(plannerV2.plan(input));
+        List<PptContentPlannerV2.CandidatePage> candidates = planned.chapters().stream()
+                .flatMap(chapter -> chapter.candidatePages().stream())
+                .toList();
+        int max = Math.max(8, integer(project.get("target_slide_count"), 16) - 3);
+        var outline = outlinePlanner.plan(new PptOutlinePlannerV1.OutlineRequest(candidates, max));
+        var validated = outlineValidator.validate(
+                new PptOutlineValidatorV1.ValidationRequest(metadata, outline));
+        outlineValidator.requireValid(validated);
+        ProductionRenderPlanRequest renderPlanRequest = new ProductionRenderPlanRequest(
+                projectId, metadata, blocks, validated, input);
+
+        Map<String, String> assetIdByPath = new LinkedHashMap<>();
+        for (var asset : storedAssets) {
+            String path = string(asset.get("file_path"));
+            if (!path.isBlank()) {
+                assetIdByPath.put(
+                        java.nio.file.Path.of(path).toAbsolutePath().normalize().toString(),
+                        string(asset.get("id")));
+            }
+        }
+        Map<String, String> figurePath = new LinkedHashMap<>();
+        for (var asset : input.assets()) {
+            figurePath.put(
+                    string(asset.get("id")),
+                    java.nio.file.Path.of(string(asset.get("path")))
+                            .toAbsolutePath().normalize().toString());
+        }
+
+        List<Map<String, Object>> sections = outline(projectId);
+        jdbc.update("DELETE FROM ppt_slide WHERE project_id=?", projectId);
+        int order = 0;
+        int sectionCursor = 0;
+        for (var page : validated.slideTree()) {
+            if (List.of("COVER", "AGENDA", "THANKS").contains(page.pageType())) {
+                continue;
+            }
+            String sectionId = sections.isEmpty()
+                    ? null
+                    : string(sections.get(Math.min(sectionCursor, sections.size() - 1)).get("id"));
+            if (order > 0 && order % Math.max(1, max / Math.max(1, sections.size())) == 0) {
+                sectionCursor++;
+            }
+            List<String> boxes = new ArrayList<>(page.keyPoints());
+            if (!page.description().isBlank()) {
+                boxes.add(page.description());
+            }
+            List<String> assetIds = new ArrayList<>();
+            if ("IMAGE".equals(page.pageType()) && page.sourceRefs() != null) {
+                String path = figurePath.get(page.sourceRefs().figureId());
+                String assetId = assetIdByPath.get(path);
+                if (assetId != null) {
+                    assetIds.add(assetId);
+                }
+            }
+            jdbc.update(
+                    "INSERT INTO ppt_slide(id,project_id,section_id,slide_order,slide_type,title,body_boxes_json,asset_ids_json,speaker_notes,layout_type,validation_status,chapter_title,content_summary,template_type) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    UUID.randomUUID().toString(), projectId, sectionId, ++order,
+                    page.pageType(), page.title(), json(boxes), json(assetIds), "",
+                    page.pageType(), "VALID", page.sourceChapter(), page.description(),
+                    page.pageType().toLowerCase());
+        }
+        jdbc.update("DELETE FROM ppt_page_task WHERE project_id=?", projectId);
+        for (Map<String, Object> slide : jdbc.queryForList(
+                "SELECT id FROM ppt_slide WHERE project_id=? ORDER BY slide_order", projectId)) {
+            jdbc.update(
+                    "INSERT INTO ppt_page_task(id,project_id,slide_plan_id,status,progress,retry_count) VALUES(?,?,?,'WAITING',0,0)",
+                    UUID.randomUUID().toString(), projectId, slide.get("id"));
+        }
+        jdbc.update(
+                "UPDATE ppt_project SET status='PLANNED',current_stage='PPT方案待确认',progress=55,updated_at=? WHERE id=? AND user_id=?",
+                LocalDateTime.now(), projectId, userId);
+
+        Map<String, Object> result = detail(projectId, userId);
+
+        // Stage complete bytes while the transaction is active. The current pointer is switched
+        // only by afterCommit, and rollback removes the unpublished revision.
+        java.nio.file.Path bundle = java.nio.file.Path.of("storage", "ppt")
+                .toAbsolutePath().normalize()
+                .resolve(String.valueOf(userId))
+                .resolve(projectId)
+                .resolve("rendering-v1");
+        RenderPlanBundleTransaction.requireActive();
+        StagedRenderPlanBundle stagedRenderPlanBundle = renderPlanCoordinator.prepareAndStage(
+                bundle, renderPlanRequest);
+        RenderPlanBundleTransaction.register(renderPlanCoordinator, stagedRenderPlanBundle);
+
+        result.put("renderPlanHash", stagedRenderPlanBundle.renderPlanHash());
+        result.put("renderPlanAssetCount", stagedRenderPlanBundle.assetCount());
+        return result;
+    }
     private void put(Map<String,String> target,String key,Object value){String text=string(value);if(!text.isBlank())target.put(key,text);}
+    private void extractRenderingMetadata(Map<String,String> metadata,List<String> blocks){
+        putUniqueLabeledMetadata(metadata,"institution",blocks,
+                "(?:学校|院校|学院)[：:\\s]+([\\u4e00-\\u9fa5A-Za-z0-9·（）()]{2,40}?)(?=\\s*(?:专业|学生|学号|指导教师|教师|日期|$))");
+        putUniqueLabeledMetadata(metadata,"date",blocks,
+                "(?:答辩日期|完成日期|日期)[：:\\s]+(20\\d{2}年\\s*\\d{1,2}月(?:\\s*\\d{1,2}日)?)");
+    }
+    private void putUniqueLabeledMetadata(Map<String,String> metadata,String key,List<String> blocks,String regex){
+        if(metadata.containsKey(key))return;
+        java.util.LinkedHashSet<String> matches=new java.util.LinkedHashSet<>();
+        var pattern=java.util.regex.Pattern.compile(regex);
+        for(String raw:blocks){
+            var matcher=pattern.matcher(PptDocumentParser.clean(raw));
+            while(matcher.find())matches.add(matcher.group(1).replaceAll("\\s+"," ").trim());
+        }
+        if(matches.size()==1)metadata.put(key,matches.iterator().next());
+        else if(matches.size()>1)throw new IllegalStateException("PPT Rendering V1 metadata is ambiguous: "+key);
+    }
 
     @Transactional
     public Map<String, Object> save(String projectId, List<Map<String, Object>> pages) {
@@ -93,7 +255,7 @@ public class PptPlanService {
                     text(page, "layoutType", "KEYWORDS"), checked.status(), text(page, "chapterTitle", ""),
                     text(page, "contentSummary", String.join("；", checked.bodyBoxes())), text(page, "templateType", "content"), id, projectId);
         }
-        jdbc.update("UPDATE ppt_project SET current_stage='PPT方案已确认',updated_at=? WHERE id=? AND user_id=?", LocalDateTime.now(), projectId, userId);
+        jdbc.update("UPDATE ppt_project SET status='OUTLINE_READY',current_stage='PPT方案已修改，等待重新规划',progress=38,updated_at=? WHERE id=? AND user_id=?", LocalDateTime.now(), projectId, userId);
         return detail(projectId, userId);
     }
 

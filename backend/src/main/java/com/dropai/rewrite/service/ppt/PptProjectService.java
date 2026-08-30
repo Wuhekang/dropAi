@@ -1,11 +1,18 @@
 package com.dropai.rewrite.service.ppt;
 
 import com.dropai.rewrite.auth.AuthContext;
-import com.dropai.rewrite.service.PointService;
 import com.dropai.rewrite.config.PptProperties;
+import com.dropai.rewrite.service.PointService;
+import com.dropai.rewrite.service.ppt.rendering.bundle.v1.LoadedRenderPlanBundle;
+import com.dropai.rewrite.service.ppt.rendering.bundle.v1.RenderPlanBundleException;
+import com.dropai.rewrite.service.ppt.rendering.bundle.v1.RenderPlanBundleLoader;
+import com.dropai.rewrite.service.ppt.rendering.production.v1.ProductionRenderPlanCoordinator;
+import com.dropai.rewrite.service.ppt.rendering.production.v1.ProductionPresentationAdapter;
+import com.dropai.rewrite.service.ppt.rendering.renderer.v1.RenderedPptx;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.core.io.FileSystemResource;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -16,19 +23,21 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 
 @Service
 public class PptProjectService {
     public static final String FEATURE_CODE="PPT_GENERATE";
-    private final JdbcTemplate jdbc; private final ObjectMapper mapper; private final PptDocumentParser parser; private final SourceDocumentPrecheckService precheck; private final PptAiService ai; private final PptTextValidator validator; private final PptxGenerator generator; private final PointService points; private final PptProperties properties; private final PptTemplateService templates; private final PptGenerationSkillService generationSkill; private final PptEngineV1Service engine; private final PptProductionTreeAdapter productionTree; private final PptContentPlannerV2InputAdapter inputAdapter;
-    private final Path root=Path.of("storage","ppt").toAbsolutePath().normalize();
-    public PptProjectService(JdbcTemplate jdbc,ObjectMapper mapper,PptDocumentParser parser,SourceDocumentPrecheckService precheck,PptAiService ai,PptTextValidator validator,PptxGenerator generator,PointService points,PptProperties properties,PptTemplateService templates,PptGenerationSkillService generationSkill,PptEngineV1Service engine,PptProductionTreeAdapter productionTree,PptContentPlannerV2InputAdapter inputAdapter){this.jdbc=jdbc;this.mapper=mapper;this.parser=parser;this.precheck=precheck;this.ai=ai;this.validator=validator;this.generator=generator;this.points=points;this.properties=properties;this.templates=templates;this.generationSkill=generationSkill;this.engine=engine;this.productionTree=productionTree;this.inputAdapter=inputAdapter;}
+    private final JdbcTemplate jdbc; private final ObjectMapper mapper; private final PptDocumentParser parser; private final SourceDocumentPrecheckService precheck; private final PptAiService ai; private final PptTextValidator validator; private final PointService points; private final PptProperties properties; private final PptGenerationSkillService generationSkill; private final PptEngineV1Service engine; private final ProductionRenderPlanCoordinator renderPlans; private final PptContentPlannerV2InputAdapter inputAdapter; private final RenderPlanBundleLoader bundleLoader;
+    private final Path root;
+    @Autowired
+    public PptProjectService(JdbcTemplate jdbc,ObjectMapper mapper,PptDocumentParser parser,SourceDocumentPrecheckService precheck,PptAiService ai,PptTextValidator validator,PointService points,PptProperties properties,PptGenerationSkillService generationSkill,PptEngineV1Service engine,ProductionRenderPlanCoordinator renderPlans,PptContentPlannerV2InputAdapter inputAdapter){this(jdbc,mapper,parser,precheck,ai,validator,points,properties,generationSkill,engine,renderPlans,inputAdapter,new RenderPlanBundleLoader(),Path.of("storage","ppt"));}
+    PptProjectService(JdbcTemplate jdbc,ObjectMapper mapper,PptDocumentParser parser,SourceDocumentPrecheckService precheck,PptAiService ai,PptTextValidator validator,PointService points,PptProperties properties,PptGenerationSkillService generationSkill,PptEngineV1Service engine,ProductionRenderPlanCoordinator renderPlans,PptContentPlannerV2InputAdapter inputAdapter,RenderPlanBundleLoader bundleLoader,Path root){this.jdbc=jdbc;this.mapper=mapper;this.parser=parser;this.precheck=precheck;this.ai=ai;this.validator=validator;this.points=points;this.properties=properties;this.generationSkill=generationSkill;this.engine=engine;this.renderPlans=renderPlans;this.inputAdapter=inputAdapter;this.bundleLoader=bundleLoader;this.root=root.toAbsolutePath().normalize();}
 
     @Transactional public Map<String,Object> create(Map<String,Object> input){
         Long userId=AuthContext.requireUserId();String id=UUID.randomUUID().toString();String topic=text(input,"topic","");int target=integer(input.get("targetSlideCount"),16);target=Math.max(8,Math.min(properties.maxSlides(),target));LocalDateTime now=LocalDateTime.now();
@@ -56,7 +65,7 @@ public class PptProjectService {
         jdbc.update("UPDATE ppt_project SET status='OUTLINE_READY',current_stage=?,progress=38,updated_at=? WHERE id=? AND user_id=?","目录已生成（"+result.providerStatus()+"）",LocalDateTime.now(),id,userId);Map<String,Object> out=detail(id,userId);out.put("providerInvoked",result.providerInvoked());out.put("providerStatus",result.providerStatus());return out;
     }
     @Transactional public Map<String,Object> saveOutline(String id,List<Map<String,Object>> items){
-        Long userId=AuthContext.requireUserId();project(id,userId);if(items==null||items.size()<2||items.size()>5)throw new IllegalArgumentException("一级目录必须为2至5项");List<Map<String,Object>> before=outline(id);jdbc.update("DELETE FROM ppt_outline WHERE project_id=?",id);int order=0;for(Map<String,Object> item:items){String title=validator.compact(text(item,"title",""),20);if(title.isBlank())throw new IllegalArgumentException("目录名称不能为空");String itemId=text(item,"id",UUID.randomUUID().toString());jdbc.update("INSERT INTO ppt_outline(id,project_id,section_order,title,description,target_slides) VALUES(?,?,?,?,?,?)",itemId,id,++order,title,text(item,"description",""),Math.max(1,Math.min(2,integer(item.get("targetSlides"),2))));}Map<String,Object> result=detail(id,userId);result.putAll(outlineImpact(before,items,id));return result;
+        Long userId=AuthContext.requireUserId();project(id,userId);if(items==null||items.size()<2||items.size()>5)throw new IllegalArgumentException("一级目录必须为2至5项");List<Map<String,Object>> before=outline(id);jdbc.update("DELETE FROM ppt_outline WHERE project_id=?",id);int order=0;for(Map<String,Object> item:items){String title=validator.compact(text(item,"title",""),20);if(title.isBlank())throw new IllegalArgumentException("目录名称不能为空");String itemId=text(item,"id",UUID.randomUUID().toString());jdbc.update("INSERT INTO ppt_outline(id,project_id,section_order,title,description,target_slides) VALUES(?,?,?,?,?,?)",itemId,id,++order,title,text(item,"description",""),Math.max(1,Math.min(2,integer(item.get("targetSlides"),2))));}jdbc.update("UPDATE ppt_project SET status='OUTLINE_READY',current_stage='目录已修改，等待重新规划',progress=38,updated_at=? WHERE id=? AND user_id=?",LocalDateTime.now(),id,userId);Map<String,Object> result=detail(id,userId);result.putAll(outlineImpact(before,items,id));return result;
     }
     @Transactional public Map<String,Object> plan(String id){
         generationSkill.requireManifest();
@@ -65,28 +74,84 @@ public class PptProjectService {
         jdbc.update("DELETE FROM ppt_page_task WHERE project_id=?",id);for(Map<String,Object> slide:slides(id))jdbc.update("INSERT INTO ppt_page_task(id,project_id,slide_plan_id,status,progress,retry_count) VALUES(?,?,?,'WAITING',0,0)",UUID.randomUUID().toString(),id,slide.get("id"));
         jdbc.update("UPDATE ppt_project SET status='PLANNED',current_stage='幻灯片规划完成',progress=55,updated_at=? WHERE id=? AND user_id=?",LocalDateTime.now(),id,userId);return detail(id,userId);
     }
-    @Transactional public Map<String,Object> updateSlide(String id,String slideId,Map<String,Object> input){Long userId=AuthContext.requireUserId();project(id,userId);PptTextValidator.ValidationResult checked=validator.validateSlideTextLimits(text(input,"title","内容概览"),stringList(input.get("bodyBoxes")));jdbc.update("UPDATE ppt_slide SET title=?,body_boxes_json=?,layout_type=?,validation_status=? WHERE id=? AND project_id=?",checked.title(),json(checked.bodyBoxes()),text(input,"layoutType","KEYWORDS"),checked.status(),slideId,id);return detail(id,userId);}
+    @Transactional public Map<String,Object> updateSlide(String id,String slideId,Map<String,Object> input){Long userId=AuthContext.requireUserId();project(id,userId);PptTextValidator.ValidationResult checked=validator.validateSlideTextLimits(text(input,"title","内容概览"),stringList(input.get("bodyBoxes")));jdbc.update("UPDATE ppt_slide SET title=?,body_boxes_json=?,layout_type=?,validation_status=? WHERE id=? AND project_id=?",checked.title(),json(checked.bodyBoxes()),text(input,"layoutType","KEYWORDS"),checked.status(),slideId,id);jdbc.update("UPDATE ppt_project SET status='OUTLINE_READY',current_stage='页面内容已修改，等待重新规划',progress=38,output_path=NULL,updated_at=? WHERE id=? AND user_id=?",LocalDateTime.now(),id,userId);return detail(id,userId);}
     public Map<String,Object> regenerateSlide(String id,String slideId){Long userId=AuthContext.requireUserId();project(id,userId);Map<String,Object> s=jdbc.queryForMap("SELECT * FROM ppt_slide WHERE id=? AND project_id=?",slideId,id);return updateSlide(id,slideId,Map.of("title",s.get("title"),"bodyBoxes",summarize(string(s.get("speaker_notes"))),"layoutType",s.get("layout_type")));}
 
-    @Transactional public Map<String,Object> generate(String id)throws Exception{
-        Long userId=AuthContext.requireUserId();Map<String,Object> p=project(id,userId);if(slides(id).isEmpty())plan(id);String taskId=UUID.randomUUID().toString();LocalDateTime now=LocalDateTime.now();jdbc.update("INSERT INTO ppt_generation_task(id,project_id,user_id,status,progress,current_stage,created_at,updated_at) VALUES(?,?,?,'RUNNING',60,'生成可编辑PPTX',?,?)",taskId,id,userId,now,now);
-        try{return points.chargeAfterSuccess(FEATURE_CODE,"PPT智能生成："+string(p.get("topic")),()->{try{return generateCharged(id,userId,taskId);}catch(Exception e){throw new IllegalStateException(e.getMessage(),e);}});}catch(RuntimeException e){jdbc.update("UPDATE ppt_project SET status='FAILED',error_message=?,updated_at=? WHERE id=?",safeError(e),LocalDateTime.now(),id);jdbc.update("UPDATE ppt_generation_task SET status='FAILED',error_message=?,updated_at=? WHERE id=?",safeError(e),LocalDateTime.now(),taskId);throw e;}
-    }
-    private Map<String,Object> generateCharged(String id,Long userId,String taskId)throws Exception{
+    public Map<String,Object> generate(String id){
+        Long userId=AuthContext.requireUserId();
+        Map<String,Object> project=project(id,userId);
         generationSkill.requireManifest();
-        if(engine!=null)return generateChargedV1(id,userId,taskId);
-        Map<String,Object> p=project(id,userId);List<Map<String,Object>> sections=outline(id);List<Map<String,Object>> allSlides=slides(id);List<Map<String,Object>> assets=jdbc.queryForList("SELECT * FROM ppt_asset WHERE project_id=?",id);Map<String,Path> assetPaths=new LinkedHashMap<>();for(Map<String,Object>a:assets)assetPaths.put(string(a.get("id")),Path.of(string(a.get("file_path"))));List<PptxGenerator.SectionSpec> specs=new ArrayList<>();
-        for(Map<String,Object> section:sections){String sid=string(section.get("id"));List<PptxGenerator.SlideSpec> ss=new ArrayList<>();for(Map<String,Object>s:allSlides)if(sid.equals(string(s.get("section_id")))){List<String> ids=stringList(readJson(string(s.get("asset_ids_json"))));Path asset=ids.isEmpty()?null:assetPaths.get(ids.get(0));ss.add(new PptxGenerator.SlideSpec(string(s.get("title")),stringList(readJson(string(s.get("body_boxes_json")))),string(s.get("speaker_notes")),asset,string(s.get("layout_type"))));}specs.add(new PptxGenerator.SectionSpec(sid,string(section.get("title")),ss));}
-        List<Map<String,Object>> pageTasks=jdbc.queryForList("SELECT id,slide_plan_id FROM ppt_page_task WHERE project_id=? ORDER BY id",id);int completed=0;for(Map<String,Object> pageTask:pageTasks){String pageTaskId=string(pageTask.get("id"));jdbc.update("UPDATE ppt_page_task SET status='PLANNING',progress=20,started_at=? WHERE id=?",LocalDateTime.now(),pageTaskId);jdbc.update("UPDATE ppt_page_task SET status='RENDERING',progress=60 WHERE id=?",pageTaskId);completed++;int pct=55+(int)Math.round(completed*35.0/Math.max(1,pageTasks.size()));jdbc.update("UPDATE ppt_project SET current_stage=?,progress=?,updated_at=? WHERE id=? AND user_id=?","正在制作第"+completed+"页",pct,LocalDateTime.now(),id,userId);}
-        Path dir=inside(root.resolve(userId.toString()).resolve(id).resolve("outputs"));String filename=safeFileName(string(p.get("topic")))+".pptx";Path output=inside(dir.resolve(filename));PptxGenerator.DeckSpec deck=new PptxGenerator.DeckSpec(string(p.get("topic")),englishTopic(p),string(p.get("presenter")),string(p.get("major")),string(p.get("advisor")),string(p.get("student_number")),specs,futureItems(p));PptxGenerator.TemplateProfile template=templates.selectedProfile(p);PptxGenerator.GenerationResult result=generator.generate(deck,output,template);jdbc.update("UPDATE ppt_page_task SET status='VALIDATING',progress=90 WHERE project_id=? AND status='RENDERING'",id);jdbc.update("UPDATE ppt_page_task SET status='SUCCESS',progress=100,completed_at=? WHERE project_id=? AND status='VALIDATING'",LocalDateTime.now(),id);List<Map<String,Object>> assetLog=new ArrayList<>();for(Map<String,Object> asset:assets){Map<String,Object> item=new LinkedHashMap<>();item.put("id",asset.get("id"));item.put("chapter","");item.put("page",asset.get("source_page"));item.put("type",asset.get("source_type"));item.put("description",asset.get("caption"));item.put("path",asset.get("file_path"));assetLog.add(item);}List<Map<String,Object>> slideLog=new ArrayList<>();int page=1;slideLog.add(logSlide(page++,"cover","",List.of()));slideLog.add(logSlide(page++,"catalog","",List.of()));for(PptxGenerator.SectionSpec section:specs){slideLog.add(logSlide(page++,"section",section.title(),List.of()));for(PptxGenerator.SlideSpec content:section.slides()){List<String> linked=content.assetPath()==null?List.of():List.of(content.assetPath().toString());slideLog.add(logSlide(page++,linked.isEmpty()?"text_content":"image_content",section.title(),linked));}}slideLog.add(logSlide(page++,"future","",List.of()));slideLog.add(logSlide(page,"thanks","",List.of()));Map<String,Object> templateLog=new LinkedHashMap<>();templateLog.put("name",template.displayName());templateLog.put("style",template.style());templateLog.put("sourcePath",template.sourcePath());templateLog.put("priorityReason",template.sourcePath()==null?"系统模板":"用户模板库");templateLog.put("mappingLog",output.resolveSibling(output.getFileName().toString().replaceFirst("\\.pptx$","-template-mapping.json")).toString());generationSkill.writeLog(output,readAnalysis(p),assetLog,slideLog,templateLog,result.validationStatus(),result.autoFixes());
-        jdbc.update("UPDATE ppt_project SET status='SUCCESS',current_stage='生成完成',progress=100,output_path=?,error_message=NULL,updated_at=? WHERE id=? AND user_id=?",output.toString(),LocalDateTime.now(),id,userId);jdbc.update("UPDATE ppt_generation_task SET status='SUCCESS',progress=100,current_stage='生成完成',updated_at=? WHERE id=?",LocalDateTime.now(),taskId);Map<String,Object> out=detail(id,userId);out.put("validationStatus",result.validationStatus());out.put("autoFixes",result.autoFixes());return out;
+        if(!List.of("PLANNED","SUCCESS","FAILED").contains(string(project.get("status")))){
+            throw new IllegalStateException("RenderPlan 未准备好或已因项目内容变更而失效，请先重新生成PPT方案");
+        }
+        Path bundleDirectory=inside(root.resolve(userId.toString()).resolve(id).resolve("rendering-v1"));
+        if(!Files.isDirectory(bundleDirectory)||!Files.isRegularFile(bundleDirectory.resolve("current"))){
+            throw new IllegalStateException("RenderPlan 未准备好或不存在，请先重新生成PPT方案");
+        }
+        LoadedRenderPlanBundle bundle;
+        try{
+            bundle=bundleLoader.load(bundleDirectory,renderPlans.runtimeExpectations());
+        }catch(RenderPlanBundleException exception){
+            throw new IllegalStateException("RenderPlan 未准备好或不存在，请先重新生成PPT方案："+exception.getMessage(),exception);
+        }
+        String plannedProject=bundle.renderPlan().document().path("presentationId").asText();
+        if(!ProductionPresentationAdapter.belongsToProject(plannedProject,id)){
+            throw new IllegalStateException("RenderPlan 与当前PPT项目不匹配，请重新生成PPT方案");
+        }
+        String taskId=UUID.randomUUID().toString();LocalDateTime now=LocalDateTime.now();
+        AtomicReference<Path> generatedOutput=new AtomicReference<>();
+        boolean claimed=false;
+        try{
+            int claim=jdbc.update("UPDATE ppt_project SET status='GENERATING',current_stage='PureRenderer 正在执行冻结计划',progress=60,output_path=NULL,error_message=NULL,updated_at=? WHERE id=? AND user_id=? AND status=?",now,id,userId,string(project.get("status")));
+            if(claim!=1)throw new IllegalStateException("PPT生成任务已被其他请求领取，请稍后查看进度");
+            claimed=true;
+            jdbc.update("INSERT INTO ppt_generation_task(id,project_id,user_id,status,progress,current_stage,created_at,updated_at) VALUES(?,?,?,'RUNNING',60,'加载冻结渲染计划',?,?)",taskId,id,userId,now,now);
+            return points.chargeAfterSuccess(FEATURE_CODE,"PPT智能生成："+string(project.get("topic")),()->{
+                try{
+                    List<Map<String,Object>> pageTasks=jdbc.queryForList("SELECT id FROM ppt_page_task WHERE project_id=? ORDER BY id",id);
+                    int completed=0;
+                    for(Map<String,Object> pageTask:pageTasks){
+                        String pageTaskId=string(pageTask.get("id"));
+                        jdbc.update("UPDATE ppt_page_task SET status='RENDERING',progress=60,started_at=? WHERE id=?",LocalDateTime.now(),pageTaskId);
+                        completed++;
+                        int progress=60+(int)Math.round(completed*25.0/Math.max(1,pageTasks.size()));
+                        jdbc.update("UPDATE ppt_project SET status='GENERATING',current_stage='PureRenderer 正在执行冻结计划',progress=?,updated_at=? WHERE id=? AND user_id=?",progress,LocalDateTime.now(),id,userId);
+                    }
+                    Path output=inside(root.resolve(userId.toString()).resolve(id).resolve("outputs").resolve(taskId+".pptx"));
+                    RenderedPptx rendered=engine.generate(bundle.renderPlan(),bundle.assetResolver(),output);
+                    generatedOutput.set(output);
+                    int expectedSlides=bundle.renderPlan().document().path("slides").size();
+                    if(!bundle.renderPlanHash().equals(rendered.renderPlanHash()))throw new IllegalStateException("PureRenderer 返回的 RenderPlan 哈希不一致");
+                    if(expectedSlides!=rendered.slideCount())throw new IllegalStateException("PureRenderer 输出页数与冻结 RenderPlan 不一致");
+                    jdbc.update("UPDATE ppt_page_task SET status='SUCCESS',progress=100,completed_at=? WHERE project_id=?",LocalDateTime.now(),id);
+                    jdbc.update("UPDATE ppt_project SET status='SUCCESS',current_stage='生成完成',progress=100,output_path=?,error_message=NULL,updated_at=? WHERE id=? AND user_id=?",output.toString(),LocalDateTime.now(),id,userId);
+                    jdbc.update("UPDATE ppt_generation_task SET status='SUCCESS',progress=100,current_stage='生成完成',updated_at=? WHERE id=?",LocalDateTime.now(),taskId);
+                    Map<String,Object> result=detail(id,userId);
+                    result.put("validationStatus","VALID");result.put("autoFixes",List.of());result.put("renderPlanHash",rendered.renderPlanHash());result.put("rendererVersion",rendered.rendererVersion());result.put("slideCount",rendered.slideCount());result.put("writtenBytes",rendered.writtenBytes());result.put("assetCount",bundle.assetCount());
+                    return result;
+                }catch(java.io.IOException exception){
+                    throw new IllegalStateException("PureRenderer 生成PPTX失败："+exception.getMessage(),exception);
+                }
+            });
+        }catch(RuntimeException exception){
+            Path incompleteOutput=generatedOutput.get();
+            if(incompleteOutput!=null){
+                try{Files.deleteIfExists(incompleteOutput);}catch(java.io.IOException cleanupFailure){exception.addSuppressed(cleanupFailure);}
+            }
+            String error=safeError(exception);
+            if(claimed){
+                jdbc.update("UPDATE ppt_project SET status='FAILED',current_stage='生成失败',progress=0,output_path=NULL,error_message=?,updated_at=? WHERE id=? AND user_id=? AND status='GENERATING'",error,LocalDateTime.now(),id,userId);
+                jdbc.update("UPDATE ppt_page_task SET status='FAILED',progress=0,error_message=?,completed_at=? WHERE project_id=? AND status<>'SUCCESS'",error,LocalDateTime.now(),id);
+                jdbc.update("UPDATE ppt_generation_task SET status='FAILED',current_stage='生成失败',error_message=?,updated_at=? WHERE id=?",error,LocalDateTime.now(),taskId);
+            }
+            throw exception;
+        }
     }
-    private Map<String,Object> generateChargedV1(String id,Long userId,String taskId)throws Exception{Map<String,Object> p=project(id,userId);List<Map<String,Object>> sections=outline(id),allSlides=slides(id);List<Map<String,Object>> assets=jdbc.queryForList("SELECT * FROM ppt_asset WHERE project_id=?",id);List<Map<String,Object>> pageTasks=jdbc.queryForList("SELECT id FROM ppt_page_task WHERE project_id=? ORDER BY id",id);int completed=0;for(Map<String,Object> task:pageTasks){String pageTaskId=string(task.get("id"));jdbc.update("UPDATE ppt_page_task SET status='RENDERING',progress=60,started_at=? WHERE id=?",LocalDateTime.now(),pageTaskId);completed++;int pct=55+(int)Math.round(completed*30.0/Math.max(1,pageTasks.size()));jdbc.update("UPDATE ppt_project SET current_stage='正在生成PPT',progress=?,updated_at=? WHERE id=? AND user_id=?",pct,LocalDateTime.now(),id,userId);}Path dir=inside(root.resolve(userId.toString()).resolve(id).resolve("outputs"));Path output=inside(dir.resolve(safeFileName(string(p.get("topic")))+".pptx"));Path report=inside(dir.resolve("render-report.json"));var result=engine.generate(productionTree.adapt(p,sections,allSlides,assets),output,report);jdbc.update("UPDATE ppt_page_task SET status='SUCCESS',progress=100,completed_at=? WHERE project_id=?",LocalDateTime.now(),id);jdbc.update("UPDATE ppt_project SET status='SUCCESS',current_stage='生成完成',progress=100,output_path=?,error_message=NULL,updated_at=? WHERE id=? AND user_id=?",output.toString(),LocalDateTime.now(),id,userId);jdbc.update("UPDATE ppt_generation_task SET status='SUCCESS',progress=100,current_stage='生成完成',updated_at=? WHERE id=?",LocalDateTime.now(),taskId);Map<String,Object> out=detail(id,userId);out.put("validationStatus",result.report().valid()?"VALID":"INVALID");out.put("autoFixes",List.of());out.put("renderReport",report.toString());return out;}
-    public Map<String,Object> progress(String id){Long userId=AuthContext.requireUserId();Map<String,Object> p=project(id,userId);List<Map<String,Object>> tasks=jdbc.queryForList("SELECT status,progress,current_stage,error_message,updated_at FROM ppt_generation_task WHERE project_id=? ORDER BY created_at DESC",id);p.put("task",tasks.isEmpty()?null:tasks.get(0));Map<String,Object> counts=jdbc.queryForMap("SELECT COUNT(*) total_pages,SUM(CASE WHEN status='SUCCESS' THEN 1 ELSE 0 END) completed_pages,SUM(CASE WHEN status='FAILED' THEN 1 ELSE 0 END) failed_pages FROM ppt_page_task WHERE project_id=?",id);p.putAll(counts);p.put("downloadable","SUCCESS".equals(string(p.get("status"))));return p;}
+    public Map<String,Object> progress(String id){Long userId=AuthContext.requireUserId();Map<String,Object> p=project(id,userId);List<Map<String,Object>> tasks=jdbc.queryForList("SELECT status,progress,current_stage,error_message,updated_at FROM ppt_generation_task WHERE project_id=? ORDER BY created_at DESC",id);p.put("task",tasks.isEmpty()?null:tasks.get(0));Map<String,Object> counts=jdbc.queryForMap("SELECT COUNT(*) total_pages,SUM(CASE WHEN status='SUCCESS' THEN 1 ELSE 0 END) completed_pages,SUM(CASE WHEN status='FAILED' THEN 1 ELSE 0 END) failed_pages FROM ppt_page_task WHERE project_id=?",id);p.putAll(counts);p.put("downloadable",publishedOutput(p,userId,id)!=null);return p;}
     public Map<String,Object> analysis(String id){Long userId=AuthContext.requireUserId();Map<String,Object> p=project(id,userId);Map<String,Object> out=new LinkedHashMap<>(readAnalysis(p));out.put("fileName",p.get("source_file_name"));out.put("generationMode","串行逐页生成");return out;}
     public List<Map<String,Object>> pages(String id){Long userId=AuthContext.requireUserId();project(id,userId);return jdbc.queryForList("SELECT s.id,s.section_id AS outline_item_id,s.slide_order,s.slide_type AS page_role,s.title,COALESCE(t.status,s.validation_status) AS status,COALESCE(t.retry_count,0) retry_count FROM ppt_slide s LEFT JOIN ppt_page_task t ON t.slide_plan_id=s.id WHERE s.project_id=? ORDER BY s.slide_order",id);}
     @Transactional public Map<String,Object> retryPage(String id,String pageId){Long userId=AuthContext.requireUserId();project(id,userId);int changed=jdbc.update("UPDATE ppt_page_task SET status='WAITING',progress=0,retry_count=retry_count+1,error_message=NULL,started_at=NULL,completed_at=NULL WHERE project_id=? AND slide_plan_id=? AND status='FAILED' AND retry_count<?",id,pageId,properties.maxRetries());if(changed==0)throw new IllegalArgumentException("页面不是失败状态或已达到最大重试次数");Map<String,Object> out=new LinkedHashMap<>();out.put("pageId",pageId);out.put("status","WAITING");out.put("queuedPageIds",List.of(pageId));return out;}
-    public FileSystemResource download(String id){Map<String,Object> p=project(id,AuthContext.requireUserId());Path path=requiredPath(p.get("output_path"));if(!Files.isRegularFile(path))throw new IllegalStateException("PPTX尚未生成");return new FileSystemResource(path);}
+    public FileSystemResource download(String id){Long userId=AuthContext.requireUserId();Map<String,Object> p=project(id,userId);Path path=publishedOutput(p,userId,id);if(path==null)throw new IllegalStateException("PPTX尚未发布");return new FileSystemResource(path);}
     public String downloadName(String id){Map<String,Object>p=project(id,AuthContext.requireUserId());return safeFileName(string(p.get("topic")))+".pptx";}
 
     private Map<String,Object> detail(String id,Long userId){Map<String,Object> p=project(id,userId);p.put("outline",outline(id));p.put("slides",slides(id));p.put("assets",jdbc.queryForList("SELECT id,source_type,source_page,caption,width,height FROM ppt_asset WHERE project_id=? ORDER BY source_page,id",id));return p;}
@@ -95,7 +160,6 @@ public class PptProjectService {
     private List<Map<String,Object>> slides(String id){return jdbc.queryForList("SELECT * FROM ppt_slide WHERE project_id=? ORDER BY slide_order",id);}
     private PptDocumentParser.ParsedDocument document(Map<String,Object> p){Map<String,Object>a=readAnalysis(p);return new PptDocumentParser.ParsedDocument(text(a,"documentTitle",string(p.get("topic"))),stringList(a.get("headings")),stringList(a.get("blocks")),List.of(),integer(a.get("tableCount"),0),integer(a.get("characterCount"),0));}
     private Map<String,Object> readAnalysis(Map<String,Object>p){Object v=readJson(string(p.get("analysis_json")));return v instanceof Map<?,?>m?mapper.convertValue(m,new TypeReference<>(){}):new LinkedHashMap<>();}
-    private Map<String,Object> logSlide(int page,String type,String chapter,List<String> assetIds){Map<String,Object> item=new LinkedHashMap<>();item.put("outputPage",page);item.put("pageType",type);item.put("chapter",chapter);item.put("assetIds",assetIds);return item;}
     private Map<String,Object> outlineImpact(List<Map<String,Object>> before,List<Map<String,Object>> after,String projectId){
         Map<String,String> oldTitles=new LinkedHashMap<>();for(Map<String,Object> item:before)oldTitles.put(string(item.get("id")),string(item.get("title")));
         List<String> affected=new ArrayList<>(),removed=new ArrayList<>(),queued=new ArrayList<>();
@@ -107,15 +171,24 @@ public class PptProjectService {
     private String json(Object value){try{return mapper.writeValueAsString(value);}catch(Exception e){throw new IllegalStateException("JSON处理失败",e);}}
     private List<String> summarize(String source){String clean=PptDocumentParser.clean(source).replaceFirst("^\\[第\\d+页]\\s*","");List<String>out=new ArrayList<>();for(String part:clean.split("[。！？；;.!?\\n]+")){part=part.trim();if(part.length()<2)continue;out.add(validator.compact(part,20));if(out.size()==4)break;}if(out.isEmpty())out.add("依据源文档提炼");return out;}
     private String firstPhrase(String source){List<String>s=summarize(source);return s.isEmpty()?"内容概览":s.get(0);}
-    private String englishTopic(Map<String,Object>p){String e=string(p.get("english_topic"));if(!e.isBlank())return e;return "Academic Presentation: "+string(p.get("topic"));}
-    private List<String> futureItems(Map<String,Object>p){String full=String.join(" ",stringList(readAnalysis(p).get("blocks")));List<String>out=new ArrayList<>();for(String part:full.split("[。！？；]"))if(part.contains("未来")||part.contains("展望")||part.contains("不足")||part.contains("优化")){out.add(validator.compact(part,20));if(out.size()==4)break;}return out;}
     private Path requiredPath(Object value){String s=string(value);if(s.isBlank())throw new IllegalStateException("请先上传并解析文档");return inside(Path.of(s));}
+    private Path publishedOutput(Map<String,Object> project,Long userId,String projectId){
+        if(!"SUCCESS".equals(string(project.get("status"))))return null;
+        String raw=string(project.get("output_path"));if(raw.isBlank())return null;
+        Path output=inside(Path.of(raw));
+        Path outputRoot=inside(root.resolve(userId.toString()).resolve(projectId).resolve("outputs"));
+        if(!output.startsWith(outputRoot)||!Files.isRegularFile(output,java.nio.file.LinkOption.NOFOLLOW_LINKS))return null;
+        try{
+            Path realRoot=outputRoot.toRealPath();Path realOutput=output.toRealPath();
+            return realOutput.startsWith(realRoot)?realOutput:null;
+        }catch(java.io.IOException exception){return null;}
+    }
     private Path inside(Path p){Path n=p.toAbsolutePath().normalize();if(!n.startsWith(root))throw new IllegalArgumentException("非法文件路径");return n;}
     private String safeFileName(String n){String s=n==null?"":n.replaceAll("[\\\\/:*?\"<>|\\r\\n]","_").trim();return s.isBlank()?"未命名学术答辩":s;}
     private String extension(String n){int dot=n.lastIndexOf('.');return dot<0?"":n.substring(dot+1).toLowerCase(Locale.ROOT);}
-    private String safeError(Exception e){String m=e.getMessage();return m==null?"生成失败":m.substring(0,Math.min(500,m.length()));}
     private String text(Map<String,Object>m,String k,String d){String v=string(m==null?null:m.get(k));return v.isBlank()?d:v;}
     private String string(Object v){return v==null?"":String.valueOf(v);}
+    private String safeError(Throwable error){String message=error==null?"":string(error.getMessage()).replaceAll("[\\r\\n]+"," ").trim();return message.isBlank()?"PPT生成失败":message.substring(0,Math.min(500,message.length()));}
     private int integer(Object v,int d){try{return v instanceof Number n?n.intValue():Integer.parseInt(string(v));}catch(Exception e){return d;}}
     private List<String> stringList(Object value){if(value instanceof List<?>l)return l.stream().map(this::string).filter(x->!x.isBlank()).toList();return List.of();}
 }
