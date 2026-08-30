@@ -25,6 +25,8 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+      args:
+        DOKIAI_GIT_COMMIT: ${DOKIAI_GIT_COMMIT:?DOKIAI_GIT_COMMIT must be a full Git commit hash}
     restart: unless-stopped
     depends_on:
       mysql:
@@ -36,6 +38,8 @@ services:
       DOUBAO_API_KEY: ${DOUBAO_API_KEY}
       DOUBAO_MODEL: ${DOUBAO_MODEL:-doubao-seed-2-0-lite-260428}
       DOUBAO_ENDPOINT: ${DOUBAO_ENDPOINT:-https://ark.cn-beijing.volces.com/api/v3/chat/completions}
+      DOKIAI_PPT_FONT_FILES: ${DOKIAI_PPT_FONT_FILES:-400=/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc,500=/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc,600=/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc,700=/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc}
+      DOKIAI_GIT_COMMIT: ${DOKIAI_GIT_COMMIT:?DOKIAI_GIT_COMMIT must be a full Git commit hash}
       TZ: Asia/Shanghai
     volumes:
       - backend-storage:/app/storage
