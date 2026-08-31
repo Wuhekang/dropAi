@@ -30,7 +30,13 @@ from word_formatter.core.processor import DocumentProcessor
 from word_formatter.core.rule_parser import NaturalLanguageRuleParser
 from word_formatter.core.template_extractor import TemplateRuleExtractor
 from word_formatter.core.word_converter import WordConversionError, WordDocumentConverter
-from word_formatter.models.rules import DocumentRules, ParagraphRule, TableRule
+from word_formatter.models.rules import (
+    LOCKED_TABLE_POLICY_NOTE,
+    DocumentRules,
+    ParagraphRule,
+    TableRule,
+    enforce_locked_table_policy,
+)
 
 
 MAX_SOURCE_BYTES = 100 * 1024 * 1024
@@ -323,6 +329,8 @@ def run_job(args: argparse.Namespace) -> dict[str, Any]:
                 instruction_notes = NaturalLanguageRuleParser().apply(instructions, rules)
         else:
             emit_progress(current_progress, "applying_rules", "未提供附加要求，直接采用模板识别规则")
+        enforce_locked_table_policy(rules)
+        instruction_notes.append(LOCKED_TABLE_POLICY_NOTE)
         rule_summary = _rule_summary(rules)
 
         current_progress = 42

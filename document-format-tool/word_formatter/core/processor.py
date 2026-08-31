@@ -5,15 +5,25 @@ import re
 
 from docx import Document
 from docx.enum.section import WD_ORIENT
-from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_ROW_HEIGHT_RULE
+from docx.enum.table import (
+    WD_CELL_VERTICAL_ALIGNMENT,
+    WD_ROW_HEIGHT_RULE,
+    WD_TABLE_ALIGNMENT,
+)
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Mm, Pt
+from docx.table import Table
 
 from word_formatter.core.analyzer import DocumentAnalyzer
 from word_formatter.models.results import ChangeRecord, ProcessResult
-from word_formatter.models.rules import DocumentRules, ParagraphRule, TableRule
+from word_formatter.models.rules import (
+    DocumentRules,
+    ParagraphRule,
+    TableRule,
+    enforce_locked_table_policy,
+)
 
 
 ALIGNMENTS = {
@@ -46,6 +56,10 @@ class DocumentProcessor:
         output.parent.mkdir(parents=True, exist_ok=True)
         result = ProcessResult(source_path=source, output_path=output)
         try:
+            # CLI callers already apply this policy before reporting their rule
+            # summary. Enforce it again here so direct/library callers cannot
+            # bypass the fixed table contract.
+            enforce_locked_table_policy(rules)
             document = Document(source)
             content_start = self._main_content_start(document)
             if content_start > 1:
@@ -337,17 +351,24 @@ class DocumentProcessor:
         result: ProcessResult,
         start_index: int = 1,
     ) -> None:
-        tables = cls._tables_in_scope(document, start_index)
+        top_level_tables = cls._tables_in_scope(document, start_index)
+        tables = list(cls._iter_table_tree(top_level_tables))
         preserved_equation_tables = 0
         for table_index, table in enumerate(tables, start=1):
             # Word commonly stores a displayed equation and its right-aligned
             # number in a borderless 1x3 table.  It is a layout container, not
             # a data table.  Applying the school's table rule here would expose
             # the hidden grid and can also change the equation's line height.
-            # Preserve the entire table whenever it contains an OMML equation.
+            # Preserve only the recognized single-row equation layout; a real
+            # data table may legitimately contain OMML in one of its cells.
             if cls._is_equation_layout_table(table):
                 preserved_equation_tables += 1
                 continue
+            table.alignment = WD_TABLE_ALIGNMENT.CENTER
+            for floating_property in ("tblInd", "tblpPr"):
+                element = table._tbl.tblPr.find(qn(f"w:{floating_property}"))
+                if element is not None:
+                    table._tbl.tblPr.remove(element)
             cls._set_table_borders(table, rule)
             cls._set_repeat_header_row(table, rule.repeat_header_row)
             if rule.column_width_mm > 0:
@@ -377,6 +398,13 @@ class DocumentProcessor:
                             cls._set_on_off_property(
                                 paragraph._p.get_or_add_pPr(), "keepNext", True
                             )
+            cls._set_table_cell_vertical_alignment(table, rule.vertical_alignment)
+            # python-docx's paragraph/run collections do not expose every item
+            # nested in hyperlinks or content controls. Apply the locked
+            # properties directly to every paragraph/run owned by this table as
+            # a final defense against style inheritance.
+            cls._enforce_table_paragraph_properties(table)
+            cls._enforce_table_run_properties(table, rule)
             result.records.append(
                 ChangeRecord(
                     None,
@@ -393,28 +421,135 @@ class DocumentProcessor:
 
     @staticmethod
     def _is_equation_layout_table(table) -> bool:
-        """识别包含 OMML 公式的排版表，避免把隐形布局框改成数据表。"""
-        return bool(table._tbl.xpath(".//m:oMath | .//m:oMathPara"))
+        """识别经典的“空白 | 公式 | 编号”三栏排版表。"""
+
+        if not table._tbl.xpath(".//m:oMath | .//m:oMathPara"):
+            return False
+        rows = DocumentProcessor._owned_table_elements(table, "tr")
+        if len(rows) != 1:
+            return False
+        cells = DocumentProcessor._cells_owned_by_row(table, rows[0])
+        if len(cells) != 3:
+            return False
+        formula_cells = [
+            index
+            for index, cell in enumerate(cells)
+            if cell.xpath(".//m:oMath | .//m:oMathPara")
+        ]
+        if formula_cells != [1]:
+            return False
+        visible_text = [
+            "".join(
+                node.text or ""
+                for node in cell.xpath(
+                    ".//w:t[not(ancestor::m:oMath) and not(ancestor::m:oMathPara)]"
+                )
+            ).strip()
+            for cell in cells
+        ]
+        if visible_text[0] or visible_text[1]:
+            return False
+        number = visible_text[2]
+        if not number:
+            return True
+        return bool(
+            re.fullmatch(
+                r"(?:公式|式)?\s*[（(]?\s*\d+(?:\s*[.．\-—－]\s*\d+)*\s*[)）]?",
+                number,
+            )
+        )
 
     @staticmethod
     def _tables_in_scope(document, start_index: int):
-        """仅返回正文起点之后的顶层表格，避免破坏封面布局表。"""
-        if start_index <= 1 or not document.paragraphs:
-            return list(document.tables)
-        start_element = document.paragraphs[start_index - 1]._p
+        """返回正文起点后的顶层表格，包括内容控件包裹的表格。"""
+
         body_children = list(document.element.body.iterchildren())
-        try:
-            start_position = next(
-                index for index, child in enumerate(body_children) if child is start_element
+        start_position = 0
+        if start_index > 1 and document.paragraphs:
+            start_element = document.paragraphs[start_index - 1]._p
+            try:
+                start_position = next(
+                    index
+                    for index, child in enumerate(body_children)
+                    if child is start_element
+                )
+            except StopIteration:
+                start_position = 0
+
+        tables = []
+        for child in body_children[start_position:]:
+            for element in child.iter(qn("w:tbl")):
+                owner_table = next(
+                    (
+                        ancestor
+                        for ancestor in element.iterancestors()
+                        if ancestor.tag == qn("w:tbl")
+                    ),
+                    None,
+                )
+                if owner_table is None:
+                    tables.append(Table(element, document))
+        return tables
+
+    @classmethod
+    def _iter_table_tree(cls, top_level_tables):
+        """Yield each table once, including content-control nested tables."""
+
+        seen_tables = set()
+
+        def visit(table):
+            if table._tbl in seen_tables:
+                return
+            seen_tables.add(table._tbl)
+            yield table
+            for element in table._tbl.xpath(".//w:tbl"):
+                owner_table = next(
+                    (
+                        ancestor
+                        for ancestor in element.iterancestors()
+                        if ancestor.tag == qn("w:tbl")
+                    ),
+                    None,
+                )
+                if owner_table is table._tbl:
+                    yield from visit(Table(element, table._parent))
+
+        for top_level in top_level_tables:
+            yield from visit(top_level)
+
+    @staticmethod
+    def _owned_table_elements(table, local_name: str):
+        """Return descendants whose nearest table ancestor is ``table``."""
+
+        elements = []
+        for element in table._tbl.iterdescendants(qn(f"w:{local_name}")):
+            owner_table = next(
+                (
+                    ancestor
+                    for ancestor in element.iterancestors()
+                    if ancestor.tag == qn("w:tbl")
+                ),
+                None,
             )
-        except StopIteration:
-            return list(document.tables)
-        positions = {child: index for index, child in enumerate(body_children)}
-        return [
-            table
-            for table in document.tables
-            if positions.get(table._tbl, start_position) >= start_position
-        ]
+            if owner_table is table._tbl:
+                elements.append(element)
+        return elements
+
+    @classmethod
+    def _cells_owned_by_row(cls, table, row):
+        cells = []
+        for cell in cls._owned_table_elements(table, "tc"):
+            owner_row = next(
+                (
+                    ancestor
+                    for ancestor in cell.iterancestors()
+                    if ancestor.tag == qn("w:tr")
+                ),
+                None,
+            )
+            if owner_row is row:
+                cells.append(cell)
+        return cells
 
     @staticmethod
     def _request_field_update(document, result: ProcessResult) -> None:
@@ -566,33 +701,40 @@ class DocumentProcessor:
             cls._append_border(borders, "bottom", "single", rule.outer_border_width_pt, rule.border_color)
             for edge in ("left", "right", "insideH", "insideV"):
                 cls._append_border(borders, edge, "nil", 0, rule.border_color)
-            if table.rows:
-                for cell in table.rows[0].cells:
+            rows = cls._owned_table_elements(table, "tr")
+            if len(rows) > 1:
+                for cell in cls._cells_owned_by_row(table, rows[0]):
                     cls._set_cell_bottom_border(cell, rule.inner_border_width_pt, rule.border_color)
         else:
             for edge in ("top", "left", "bottom", "right", "insideH", "insideV"):
                 cls._append_border(borders, edge, "nil", 0, rule.border_color)
 
-    @staticmethod
-    def _clear_cell_borders(table) -> None:
+    @classmethod
+    def _clear_cell_borders(cls, table) -> None:
         """清除会覆盖 tblBorders 的单元格级残留边框。"""
         # python-docx 会为 row.cells 动态创建代理对象，代理对象的 id 可能在
         # 遍历期间被 Python 复用，不能用 id(cell._tc) 去重。直接遍历物理
         # OOXML 单元格，确保每一个 tcBorders 都被删除。
-        for borders in list(table._tbl.xpath(".//w:tcPr/w:tcBorders")):
-            parent = borders.getparent()
-            if parent is not None:
-                parent.remove(borders)
+        for cell in cls._owned_table_elements(table, "tc"):
+            tc_pr = cell.find(qn("w:tcPr"))
+            borders = None if tc_pr is None else tc_pr.find(qn("w:tcBorders"))
+            if borders is not None:
+                tc_pr.remove(borders)
         # 行级表格属性例外同样会覆盖表级边框，统一移除其中的边框定义。
-        for borders in list(table._tbl.xpath(".//w:tblPrEx/w:tblBorders")):
-            parent = borders.getparent()
-            if parent is not None:
-                parent.remove(borders)
+        for row in cls._owned_table_elements(table, "tr"):
+            row_exception = row.find(qn("w:tblPrEx"))
+            borders = (
+                None
+                if row_exception is None
+                else row_exception.find(qn("w:tblBorders"))
+            )
+            if borders is not None:
+                row_exception.remove(borders)
 
-    @staticmethod
-    def _set_repeat_header_row(table, enabled: bool) -> None:
+    @classmethod
+    def _set_repeat_header_row(cls, table, enabled: bool) -> None:
         """规范跨页表格：仅首行作为重复表头。"""
-        rows = table._tbl.findall(qn("w:tr"))
+        rows = cls._owned_table_elements(table, "tr")
         for index, row in enumerate(rows):
             tr_pr = row.find(qn("w:trPr"))
             if tr_pr is None:
@@ -617,7 +759,8 @@ class DocumentProcessor:
 
     @classmethod
     def _set_cell_bottom_border(cls, cell, width_pt: float, color: str) -> None:
-        tc_pr = cell._tc.get_or_add_tcPr()
+        physical_cell = getattr(cell, "_tc", cell)
+        tc_pr = physical_cell.get_or_add_tcPr()
         borders = tc_pr.find(qn("w:tcBorders"))
         if borders is None:
             borders = OxmlElement("w:tcBorders")
@@ -626,6 +769,90 @@ class DocumentProcessor:
         if old is not None:
             borders.remove(old)
         cls._append_border(borders, "bottom", "single", width_pt, color)
+
+    @classmethod
+    def _set_table_cell_vertical_alignment(cls, table, alignment: str) -> None:
+        for cell in cls._owned_table_elements(table, "tc"):
+            tc_pr = cell.get_or_add_tcPr()
+            vertical = tc_pr.get_or_add_vAlign()
+            vertical.set(qn("w:val"), alignment)
+
+    @staticmethod
+    def _enforce_table_paragraph_properties(table) -> None:
+        for paragraph in table._tbl.xpath(".//w:p"):
+            owner_table = next(
+                (
+                    ancestor
+                    for ancestor in paragraph.iterancestors()
+                    if ancestor.tag == qn("w:tbl")
+                ),
+                None,
+            )
+            if owner_table is not table._tbl:
+                continue
+            p_pr = paragraph.find(qn("w:pPr"))
+            if p_pr is None:
+                p_pr = OxmlElement("w:pPr")
+                paragraph.insert(0, p_pr)
+            p_pr.get_or_add_jc().set(qn("w:val"), "center")
+            indent = p_pr.get_or_add_ind()
+            for name in (
+                "left",
+                "right",
+                "leftChars",
+                "rightChars",
+                "firstLine",
+                "firstLineChars",
+                "hanging",
+                "hangingChars",
+            ):
+                indent.set(qn(f"w:{name}"), "0")
+
+    @staticmethod
+    def _enforce_table_run_properties(table, rule: TableRule) -> None:
+        half_points = str(round(rule.font_size_pt * 2))
+        for run in table._tbl.xpath(".//w:r"):
+            owner_table = next(
+                (
+                    ancestor
+                    for ancestor in run.iterancestors()
+                    if ancestor.tag == qn("w:tbl")
+                ),
+                None,
+            )
+            if owner_table is not table._tbl:
+                continue
+            r_pr = run.find(qn("w:rPr"))
+            if r_pr is None:
+                r_pr = OxmlElement("w:rPr")
+                run.insert(0, r_pr)
+
+            fonts = r_pr.get_or_add_rFonts()
+            fonts.set(qn("w:eastAsia"), rule.chinese_font)
+            fonts.set(qn("w:ascii"), rule.latin_font)
+            fonts.set(qn("w:hAnsi"), rule.latin_font)
+            fonts.set(qn("w:cs"), rule.latin_font)
+            for theme_attribute in (
+                "asciiTheme",
+                "hAnsiTheme",
+                "eastAsiaTheme",
+                "cstheme",
+            ):
+                qualified = qn(f"w:{theme_attribute}")
+                if qualified in fonts.attrib:
+                    del fonts.attrib[qualified]
+
+            size = r_pr.get_or_add_sz()
+            size.set(qn("w:val"), half_points)
+            complex_size = r_pr.find(qn("w:szCs"))
+            if complex_size is None:
+                complex_size = OxmlElement("w:szCs")
+                r_pr.insert(r_pr.index(size) + 1, complex_size)
+            complex_size.set(qn("w:val"), half_points)
+
+            for getter in (r_pr.get_or_add_b, r_pr.get_or_add_bCs):
+                bold = getter()
+                bold.set(qn("w:val"), "0")
 
     @staticmethod
     def _format_paragraph(paragraph, rule: ParagraphRule) -> None:
@@ -686,6 +913,14 @@ class DocumentProcessor:
             ind.set(qn("w:firstLineChars"), str(round(rule.special_indent_chars * 100)))
         elif rule.special_indent_mode == "hanging":
             ind.set(qn("w:hangingChars"), str(round(rule.special_indent_chars * 100)))
+        else:
+            # Explicit zeroes are required. Merely omitting these properties
+            # allows a paragraph to inherit a first-line or hanging indent from
+            # Normal or a custom table style.
+            ind.set(qn("w:firstLine"), "0")
+            ind.set(qn("w:firstLineChars"), "0")
+            ind.set(qn("w:hanging"), "0")
+            ind.set(qn("w:hangingChars"), "0")
 
         spacing = p_pr.find(qn("w:spacing"))
         if spacing is None:

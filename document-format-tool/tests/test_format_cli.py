@@ -121,7 +121,8 @@ class FormatCliTests(unittest.TestCase):
             build_source(source)
             build_template(template)
             instructions.write_text(
-                "正文宋体小四、1.5倍行距；表格五号、全框线、居中。",
+                "正文宋体小四、1.5倍行距；表格仿宋二号、全框线、左对齐、"
+                "首行缩进2字符。",
                 encoding="utf-8",
             )
             source_before = file_hash(source)
@@ -146,12 +147,81 @@ class FormatCliTests(unittest.TestCase):
             self.assertGreater(payload["changedCount"], 0)
             self.assertTrue(payload["integrity"]["passed"])
             self.assertEqual(payload["analysis"]["tableCount"], 1)
-            self.assertEqual(payload["ruleSummary"]["table"]["borderStyle"], "grid")
+            table_rule = payload["ruleSummary"]["table"]
+            self.assertEqual(table_rule["borderStyle"], "three_line")
+            self.assertEqual(table_rule["chineseFont"], "宋体")
+            self.assertEqual(table_rule["latinFont"], "宋体")
+            self.assertEqual(table_rule["fontSizeName"], "小四")
+            self.assertEqual(table_rule["fontSizePt"], 12.0)
+            self.assertFalse(table_rule["bold"])
+            self.assertEqual(table_rule["alignment"], "center")
+            self.assertEqual(table_rule["firstLineIndentChars"], 0.0)
+            self.assertEqual(table_rule["verticalAlignment"], "center")
+            self.assertFalse(table_rule["headerRowBold"])
+            self.assertTrue(
+                any("系统固定规范" in note for note in payload["instructionNotes"])
+            )
             self.assertIsNone(payload["error"])
             self.assertTrue(output.is_file())
             self.assertEqual(visible_text(output), text_before)
             self.assertEqual(file_hash(source), source_before)
             self.assertEqual(file_hash(template), template_before)
+
+    def test_doubao_result_cannot_override_locked_table_policy(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="dokiai_format_cli_") as directory:
+            root = Path(directory)
+            source = root / "source.docx"
+            template = root / "template.docx"
+            output = root / "result.docx"
+            result_json = root / "result.json"
+            instructions = root / "instructions.txt"
+            build_source(source)
+            build_template(template)
+            instructions.write_text("请修改表格格式。", encoding="utf-8")
+
+            def fake_doubao_parse(parser, requirement, rules):
+                self.assertTrue(requirement)
+                rules.table.enabled = False
+                rules.table.border_style = "grid"
+                rules.table.chinese_font = "仿宋"
+                rules.table.latin_font = "Arial"
+                rules.table.number_font = "Arial"
+                rules.table.font_size_name = "二号"
+                rules.table.font_size_pt = 22.0
+                rules.table.bold = True
+                rules.table.header_row_bold = True
+                rules.table.alignment = "left"
+                rules.table.special_indent_mode = "first_line"
+                rules.table.special_indent_chars = 2.0
+                rules.table.first_line_indent_chars = 2.0
+                return rules, ["模拟豆包返回冲突表格规则"]
+
+            args = Namespace(
+                source=str(source),
+                template=str(template),
+                output=str(output),
+                result_json=str(result_json),
+                instructions_file=str(instructions),
+                use_doubao=True,
+            )
+            with patch.object(
+                format_cli.DoubaoRuleParser, "parse", new=fake_doubao_parse
+            ):
+                payload = run_job(args)
+
+            table_rule = payload["ruleSummary"]["table"]
+            self.assertTrue(table_rule["enabled"])
+            self.assertEqual(table_rule["borderStyle"], "three_line")
+            self.assertEqual(table_rule["chineseFont"], "宋体")
+            self.assertEqual(table_rule["latinFont"], "宋体")
+            self.assertEqual(table_rule["fontSizeName"], "小四")
+            self.assertEqual(table_rule["fontSizePt"], 12.0)
+            self.assertFalse(table_rule["bold"])
+            self.assertFalse(table_rule["headerRowBold"])
+            self.assertEqual(table_rule["alignment"], "center")
+            self.assertEqual(table_rule["firstLineIndentChars"], 0.0)
+            self.assertTrue(payload["integrity"]["passed"])
+            self.assertTrue(output.is_file())
 
     def test_existing_output_is_never_overwritten_and_failure_json_is_written(self) -> None:
         with tempfile.TemporaryDirectory(prefix="dokiai_format_cli_") as directory:

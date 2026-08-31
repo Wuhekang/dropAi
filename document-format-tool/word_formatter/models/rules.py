@@ -239,3 +239,44 @@ class DocumentRules:
         if not isinstance(data, dict):
             raise ValueError("格式方案必须是 JSON 对象")
         return cls.from_dict(data)
+
+
+LOCKED_TABLE_POLICY_NOTE = (
+    "正文数据表采用系统固定规范：黑色三线表（外框 1.5 磅、表头线 0.75 磅），"
+    "表格及单元格内容居中，宋体小四，段落零缩进且全部不加粗；"
+    "模板和附加自然语言要求不能覆盖这些设置。"
+)
+
+
+def enforce_locked_table_policy(rules: DocumentRules) -> DocumentRules:
+    """Apply the non-overridable formatting contract for body data tables.
+
+    Template extraction and both instruction parsers intentionally remain able
+    to describe arbitrary table examples. This final, idempotent pass is the
+    policy boundary that prevents those inputs from changing the product's
+    fixed table contract.
+    """
+
+    table = rules.table
+    table.enabled = True
+    table.chinese_font = "宋体"
+    table.latin_font = "宋体"
+    table.number_font = "宋体"
+    table.font_size_name = "小四"
+    table.font_size_pt = 12.0
+    table.bold = False
+    table.alignment = "center"
+    table.left_indent_cm = 0.0
+    table.right_indent_cm = 0.0
+    table.left_indent_chars = 0.0
+    table.right_indent_chars = 0.0
+    table.first_line_indent_chars = 0.0
+    table.special_indent_mode = "none"
+    table.special_indent_chars = 0.0
+    table.border_style = "three_line"
+    table.border_color = "000000"
+    table.outer_border_width_pt = 1.5
+    table.inner_border_width_pt = 0.75
+    table.vertical_alignment = "center"
+    table.header_row_bold = False
+    return rules

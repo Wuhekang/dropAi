@@ -104,6 +104,7 @@
               maxlength="1000"
               placeholder="例如：一级标题保持居中，所有图名放在图片下方；未填写时完全以学校模板为准。"
             ></textarea>
+            <small class="locked-table-note"><i>固定</i> 正文数据表始终使用三线表、宋体小四、居中、零缩进且不加粗，模板或补充要求均不会覆盖。</small>
           </label>
           <div class="doubao-option">
             <div class="doubao-heading">
@@ -784,6 +785,8 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 .instruction-field > span small { float: right; color: #9b91b1; }
 .instruction-field textarea { min-height: 142px; padding: 14px; resize: vertical; border: 1px solid #e0daef; border-radius: 14px; outline: none; color: var(--ink); background: #ffffffbf; line-height: 1.65; }
 .instruction-field textarea:focus { border-color: #9887e7; box-shadow: 0 0 0 4px #7159ef0c; }
+.locked-table-note { color: #687286; font-size: 9px; line-height: 1.6; }
+.locked-table-note i { margin-right: 4px; padding: 2px 6px; border-radius: 999px; color: #18745a; background: #dcf5e9; font-style: normal; font-weight: 700; }
 .doubao-option { padding: 17px; border-radius: 16px; background: linear-gradient(135deg, #f1edff, #f4f9ff); }
 .doubao-heading { display: flex; align-items: center; gap: 11px; }
 .doubao-heading > i { display: grid; place-items: center; flex: 0 0 38px; height: 38px; border-radius: 12px; color: #fff; background: linear-gradient(145deg, var(--violet), var(--pink)); font-style: normal; font-weight: 800; }
