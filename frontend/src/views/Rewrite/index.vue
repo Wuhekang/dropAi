@@ -81,6 +81,22 @@
             <dd>{{ documentPrecheck.ready ? `${documentPrecheck.currentPoints} 积分` : '--' }}</dd>
           </div>
         </dl>
+
+        <div v-if="docMode !== 'rewrite'" class="platform-selector">
+          <div class="platform-selector-copy">
+            <span>平台</span>
+            <strong>{{ activePlatformOption.label }}</strong>
+            <small>{{ activePlatformOption.description }}</small>
+          </div>
+          <label>
+            <span class="sr-only">选择平台</span>
+            <select v-model="docPlatform" :disabled="docBusy">
+              <option v-for="item in platformOptions" :key="item.value" :value="item.value">
+                {{ item.label }}
+              </option>
+            </select>
+          </label>
+        </div>
       </div>
 
       <aside class="document-process">
@@ -89,7 +105,7 @@
             <span class="mini-label">TASK STATUS</span>
             <h2>双降任务状态</h2>
           </div>
-          <span class="model-badge"><i></i> 模型已连接</span>
+          <span class="model-badge"><i></i> {{ documentProviderBadge }}</span>
         </div>
 
         <div class="process-card">
@@ -232,7 +248,8 @@ import {
   logout,
   precheckDocument,
   submitRewrite,
-  uploadDocument
+  uploadDocument,
+  uploadExternalDocument
 } from '../../api/rewrite'
 
 const router = useRouter()
@@ -243,7 +260,21 @@ const modes = [
   { value: 'double', label: '双降 · 推荐', apiMode: 'double', featureCode: 'DOCUMENT_DOUBLE' }
 ]
 
+const platformOptions = [
+  {
+    value: 'GENERAL',
+    label: 'dropai原生降ai（可处理维普知网）',
+    description: '默认沿用现有降 AI 原则、积分规则与文档处理链。'
+  },
+  {
+    value: 'DAYA',
+    label: '大雅',
+    description: '豆包按大雅报告片段口径重组正文，并专项打碎第一、第二、第三等列举结构。'
+  }
+]
+
 const docMode = ref('double')
+const docPlatform = ref('GENERAL')
 const selectedDocument = ref(null)
 const fileInput = ref(null)
 const dragging = ref(false)
@@ -256,7 +287,7 @@ const notifiedJobIds = new Set()
 const toastCache = new Map()
 const documentJobs = ref([])
 const documentPrecheck = reactive({ ready: false, requestId: '', charCount: 0, costPoints: 0, currentPoints: 0, canProcess: false })
-const documentJob = reactive({ jobId: '', fileName: '', status: '', message: '', downloadUrl: '', modeName: '', charCount: 0, totalParagraphs: 0, processedParagraphs: 0 })
+const documentJob = reactive({ jobId: '', fileName: '', status: '', message: '', downloadUrl: '', modeName: '', platform: '', platformName: '', charCount: 0, totalParagraphs: 0, processedParagraphs: 0 })
 
 const textMode = ref('double')
 const originalText = ref('')
@@ -275,6 +306,9 @@ const pageSize = 10
 
 const activeDocMode = computed(() => modes.find(item => item.value === docMode.value) || modes[0])
 const activeTextMode = computed(() => modes.find(item => item.value === textMode.value) || modes[0])
+const activePlatformOption = computed(() => platformOptions.find(item => item.value === docPlatform.value) || platformOptions[0])
+const externalDocumentPlatform = computed(() => docMode.value !== 'rewrite' && docPlatform.value !== 'GENERAL')
+const documentProviderBadge = computed(() => externalDocumentPlatform.value ? `${activePlatformOption.value.label}适配` : '模型已连接')
 const documentProcessing = computed(() => ['PENDING', 'RUNNING'].includes(documentJob.status))
 const docBusy = computed(() => documentPrechecking.value || documentUploading.value || documentProcessing.value)
 const documentCostText = computed(() => documentPrecheck.costPoints > 0 ? `${documentPrecheck.costPoints} 积分` : '免费')
@@ -310,7 +344,10 @@ const paragraphProgressText = computed(() => {
   if (documentPrecheck.charCount) return '等待处理'
   return '-'
 })
-const concurrencyText = computed(() => (documentProcessing.value || documentJob.status === 'SUCCESS') ? '32' : '-')
+const concurrencyText = computed(() => {
+  if (!documentProcessing.value && documentJob.status !== 'SUCCESS') return '-'
+  return externalDocumentPlatform.value ? '分批串行' : '32'
+})
 const downloadStateText = computed(() => {
   if (documentJob.status === 'SUCCESS') return '文档已生成'
   if (documentJob.status === 'FAILED') return '生成失败'
@@ -401,7 +438,9 @@ async function submitDocument() {
   resetDocumentJob()
   setDocProgress(10, '正在拆分文本段落...')
   try {
-    const job = await uploadDocument(selectedDocument.value, activeDocMode.value.apiMode, 'GENERAL', documentPrecheck.requestId)
+    const job = externalDocumentPlatform.value
+      ? await uploadExternalDocument(selectedDocument.value, activeDocMode.value.apiMode, docPlatform.value, documentPrecheck.requestId)
+      : await uploadDocument(selectedDocument.value, activeDocMode.value.apiMode, 'GENERAL', documentPrecheck.requestId)
     setDocumentJob(job)
     upsertDocumentJob(job)
     setDocProgress(jobProgress(job), documentStepText.value)
@@ -478,7 +517,7 @@ function resetDocumentPrecheck(keepRequestId = true) {
 }
 
 function resetDocumentJob() {
-  Object.assign(documentJob, { jobId: '', fileName: '', status: '', message: '', downloadUrl: '', modeName: '', charCount: 0, totalParagraphs: 0, processedParagraphs: 0 })
+  Object.assign(documentJob, { jobId: '', fileName: '', status: '', message: '', downloadUrl: '', modeName: '', platform: '', platformName: '', charCount: 0, totalParagraphs: 0, processedParagraphs: 0 })
 }
 
 async function startDocumentPolling(jobId) {
@@ -599,7 +638,8 @@ function modeLabelFromMode(mode = '') {
 }
 
 function documentModeLabel(item = {}) {
-  return item.modeName || modeLabelFromMode(item.mode)
+  const mode = item.modeName || modeLabelFromMode(item.mode)
+  return item.platform && item.platform !== 'GENERAL' && item.platformName ? `${mode} · ${item.platformName}` : mode
 }
 
 function statusText(status) {
@@ -899,6 +939,80 @@ onBeforeUnmount(stopDocumentPolling)
   font-weight: 720;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.platform-selector {
+  display: grid;
+  grid-template-columns: 1fr;
+  align-items: center;
+  gap: 18px;
+  margin-top: 14px;
+  padding: 16px 18px;
+  border: 1px solid rgba(108, 99, 255, 0.16);
+  border-radius: 16px;
+  background: linear-gradient(135deg, rgba(108, 99, 255, 0.06), rgba(255, 85, 176, 0.045));
+}
+
+.platform-selector-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.platform-selector-copy > span {
+  color: var(--label-clear);
+  font-size: 12px;
+  font-weight: 760;
+  letter-spacing: 0.06em;
+}
+
+.platform-selector-copy strong {
+  color: var(--title-strong);
+  font-size: 16px;
+}
+
+.platform-selector-copy small {
+  color: var(--copy-clear);
+  line-height: 1.55;
+}
+
+.platform-selector label,
+.platform-selector select {
+  width: 100%;
+}
+
+.platform-selector select {
+  min-height: 48px;
+  padding: 0 42px 0 14px;
+  border: 1px solid rgba(108, 99, 255, 0.22);
+  border-radius: 12px;
+  color: var(--title-strong);
+  font: inherit;
+  font-weight: 680;
+  background: rgba(255, 255, 255, 0.92);
+  cursor: pointer;
+}
+
+.platform-selector select:focus {
+  border-color: rgba(108, 99, 255, 0.7);
+  outline: 3px solid rgba(108, 99, 255, 0.1);
+}
+
+.platform-selector select:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .progress-line {

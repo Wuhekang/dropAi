@@ -292,6 +292,18 @@ export function uploadDocument(file, mode, platform = 'GENERAL', requestId = '')
   })
 }
 
+export function uploadExternalDocument(file, mode, platform, requestId = '') {
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('mode', mode)
+  formData.append('platform', platform)
+  if (requestId) formData.append('requestId', requestId)
+  return request.post('/document/rewrite/external/upload', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 120000
+  })
+}
+
 export function getDocumentJob(jobId, includeParagraphs = false) {
   return request.get(`/document/rewrite/job/${jobId}`, {
     params: { includeParagraphs }
