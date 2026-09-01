@@ -430,23 +430,23 @@ public class ReferenceSearchService {
         int timeoutSeconds = Math.max(1, Math.min(20, properties.getReferenceSearch().getTimeoutSeconds()));
         long deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(timeoutSeconds);
         int currentYear = Year.now().getValue();
-        int configuredMax = Math.max(1, Math.min(30, properties.getReferenceSearch().getMaxResults()));
+        int configuredMax = Math.max(1, Math.min(50, properties.getReferenceSearch().getMaxResults()));
         List<SearchBranch> branches = new ArrayList<>();
         if (zhTarget > 0) {
-            int searchMax = Math.min(configuredMax, Math.max(zhTarget * 4, zhTarget + 12));
+            int searchMax = Math.min(configuredMax, Math.max(zhTarget * 5, zhTarget + 20));
             ReferenceSearchQuery zhQuery = new ReferenceSearchQuery(
                     "literature_" + WritingJdbc.id("zh"), normalizedTitle, "",
-                    List.of(normalizedTitle), List.of(), currentYear - 10, currentYear,
+                    List.of(normalizedTitle), List.of(), currentYear - 50, currentYear,
                     searchMax, zhTarget, 0);
             zhQuery = zhQuery.withProviderKeywords(topicMatcher.providerQuery(zhQuery));
             branches.add(new SearchBranch("ZH", zhTarget, zhQuery,
                     topicMatcher.hasReliablePlan(zhQuery, "ZH")));
         }
         if (enTarget > 0) {
-            int searchMax = Math.min(configuredMax, Math.max(enTarget * 4, enTarget + 12));
+            int searchMax = Math.min(configuredMax, Math.max(enTarget * 5, enTarget + 20));
             ReferenceSearchQuery enQuery = new ReferenceSearchQuery(
                     "literature_" + WritingJdbc.id("en"), normalizedTitle, "",
-                    List.of(normalizedTitle), List.of(), currentYear - 10, currentYear,
+                    List.of(normalizedTitle), List.of(), currentYear - 50, currentYear,
                     searchMax, 0, enTarget);
             String providerKeywords = topicMatcher.providerQuery(enQuery);
             boolean needsPlanning = topicMatcher.needsEnglishPlanning(enQuery);
@@ -472,7 +472,8 @@ public class ReferenceSearchService {
                     Map.entry("authors", String.join("; ", candidate.authors() == null ? List.of() : candidate.authors())),
                     Map.entry("year", candidate.year() == null ? "" : candidate.year()),
                     Map.entry("source", blank(candidate.container())), Map.entry("abstractText", blank(candidate.abstractText())),
-                    Map.entry("url", blank(candidate.url())), Map.entry("language", languageOf(candidate)),
+                    Map.entry("url", blank(candidate.url())), Map.entry("doi", blank(candidate.doi())),
+                    Map.entry("language", languageOf(candidate)),
                     Map.entry("gbt7714", formatter.format(index, candidate, "GBT_7714_2025"))));
             index++;
         }
@@ -487,7 +488,7 @@ public class ReferenceSearchService {
         response.put("status", searchResult.warnings().isEmpty() ? "SUCCESS" : "PARTIAL");
         response.put("partial", !searchResult.warnings().isEmpty());
         response.put("warnings", searchResult.warnings());
-        response.put("searchMode", "PARALLEL_MULTI_PROVIDER_RELEVANCE_GATED");
+        response.put("searchMode", "PARALLEL_MULTI_PROVIDER_RANKED_FILL");
         response.put("providersTried", searchResult.providersTried());
         response.put("providerOutcomes", searchResult.providerOutcomes());
         response.put("timedOut", searchResult.timedOut());
@@ -565,15 +566,18 @@ public class ReferenceSearchService {
         outcomes.sort(Comparator.comparingInt(ProviderSearchOutcome::providerIndex)
                 .thenComparing(ProviderSearchOutcome::language));
         List<ReferenceCandidate> selected = new ArrayList<>();
-        Set<String> selectedKeys = new LinkedHashSet<>();
-        List<String> warnings = new ArrayList<>();
-        int actualChineseCount = addBranchSelection("ZH", branches, outcomes, selected, selectedKeys, warnings);
-        int actualEnglishCount = addBranchSelection("EN", branches, outcomes, selected, selectedKeys, warnings);
-        if (selected.isEmpty()) {
+        CandidateIdentitySet selectedKeys = new CandidateIdentitySet();
+        int actualChineseCount = addBranchSelection("ZH", branches, outcomes, selected, selectedKeys);
+        int actualEnglishCount = addBranchSelection("EN", branches, outcomes, selected, selectedKeys);
+        int expectedChineseCount = branchTarget(branches, "ZH");
+        int expectedEnglishCount = branchTarget(branches, "EN");
+        if (actualChineseCount != expectedChineseCount || actualEnglishCount != expectedEnglishCount) {
+            String progress = "中文 " + actualChineseCount + "/" + expectedChineseCount
+                    + "，英文 " + actualEnglishCount + "/" + expectedEnglishCount;
             if (timedOut) {
-                throw new IllegalStateException("公开学术来源响应超时，请稍后重试或缩小检索范围");
+                throw new IllegalStateException("20 秒内未凑齐目标文献（" + progress + "），本次不返回结果且不扣费");
             }
-            throw new IllegalStateException("暂未检索到符合条件的公开文献，请尝试补充或调整题目关键词");
+            throw new IllegalStateException("未凑齐目标文献（" + progress + "），本次不返回结果且不扣费");
         }
 
         List<Map<String, Object>> publicOutcomes = outcomes.stream().map(outcome -> Map.<String, Object>of(
@@ -588,7 +592,7 @@ public class ReferenceSearchService {
         )).toList();
         int providersTried = (int) tasks.stream().map(task -> task.provider().providerCode()).distinct().count();
         return new ParallelSearchResult(selected, actualChineseCount, actualEnglishCount,
-                List.copyOf(warnings), publicOutcomes, timedOut, providersTried);
+                List.of(), publicOutcomes, timedOut, providersTried);
     }
 
     private String plannerProviderKeywords(LiteratureEnglishQueryPlanner.Plan plan) {
@@ -652,10 +656,9 @@ public class ReferenceSearchService {
                         .filter(Objects::nonNull)
                         .filter(ReferenceCandidate::basicallyVerified)
                         .filter(candidate -> task.branch().language().equals(languageOf(candidate)))
-                        .filter(candidate -> topicMatcher.isRelevant(task.branch().query(), candidate, task.branch().language()))
-                        .sorted(Comparator.comparingDouble((ReferenceCandidate candidate) ->
-                                topicMatcher.score(task.branch().query(), candidate, task.branch().language())).reversed()
-                                .thenComparing(candidate -> blank(candidate.title())))
+                        .filter(candidate -> withinYear(candidate, task.branch().query()))
+                        .filter(this::hasPublicSource)
+                        .sorted(candidateRanking(task.branch()))
                         .toList();
                 insertSearchLog(task.branch().query().projectId(), task.provider().providerCode(), task.branch().language(),
                         task.branch().query().providerKeywords(), rawFound.size(), safeFound.size(),
@@ -685,15 +688,15 @@ public class ReferenceSearchService {
         List<ProviderSearchOutcome> orderedOutcomes = new ArrayList<>(outcomes);
         orderedOutcomes.sort(Comparator.comparingInt(ProviderSearchOutcome::providerIndex)
                 .thenComparing(ProviderSearchOutcome::language));
-        Set<String> selectedKeys = new LinkedHashSet<>();
+        CandidateIdentitySet selectedKeys = new CandidateIdentitySet();
         for (SearchBranch branch : branches) {
-            List<ReferenceCandidate> candidates = relevantCandidates(branch, orderedOutcomes.stream()
+            List<CandidateGroup> candidates = rankedCandidateGroups(branch, orderedOutcomes.stream()
                     .filter(outcome -> branch.language().equals(outcome.language()))
                     .flatMap(outcome -> outcome.candidates().stream())
                     .toList());
             int count = 0;
-            for (ReferenceCandidate candidate : candidates) {
-                if (selectedKeys.add(candidateKey(candidate))) count++;
+            for (CandidateGroup candidate : candidates) {
+                if (selectedKeys.add(candidate)) count++;
                 if (count >= branch.target()) break;
             }
             if (count < branch.target()) return false;
@@ -703,50 +706,63 @@ public class ReferenceSearchService {
 
     private int addBranchSelection(String language, List<SearchBranch> branches,
                                    List<ProviderSearchOutcome> outcomes, List<ReferenceCandidate> selected,
-                                   Set<String> selectedKeys, List<String> warnings) {
+                                   CandidateIdentitySet selectedKeys) {
         SearchBranch branch = branches.stream().filter(item -> language.equals(item.language())).findFirst().orElse(null);
         if (branch == null) return 0;
-        List<ReferenceCandidate> candidates = relevantCandidates(branch, outcomes.stream()
+        List<CandidateGroup> candidates = rankedCandidateGroups(branch, outcomes.stream()
                 .filter(outcome -> language.equals(outcome.language()))
                 .flatMap(outcome -> outcome.candidates().stream())
                 .toList());
         List<ReferenceCandidate> branchSelected = new ArrayList<>();
-        for (ReferenceCandidate candidate : candidates) {
-            if (selectedKeys.add(candidateKey(candidate))) branchSelected.add(candidate);
+        for (CandidateGroup candidate : candidates) {
+            if (selectedKeys.add(candidate)) branchSelected.add(candidate.candidate());
             if (branchSelected.size() >= branch.target()) break;
         }
         selected.addAll(branchSelected);
-        if (branchSelected.size() < branch.target()) {
-            String languageName = "ZH".equals(language) ? "中文" : "英文";
-            int rejected = outcomes.stream().filter(outcome -> language.equals(outcome.language()))
-                    .mapToInt(ProviderSearchOutcome::rejectedCount).sum();
-            String rejectedText = rejected > 0 ? "；另已剔除 " + rejected + " 篇与题目无关或语言不符的候选" : "";
-            if (branchSelected.isEmpty()) {
-                if (!branch.queryAvailable() || !topicMatcher.hasReliablePlan(branch.query(), language)) {
-                    warnings.add(languageName + "分支无法从题目生成可靠检索词，本次不返回也不扣费");
-                } else {
-                    warnings.add(languageName + "来源暂未返回与题目相关的可用结果，本次不对该部分扣费" + rejectedText);
-                }
-            } else {
-                warnings.add(languageName + "文献仅检索到 " + branchSelected.size() + "/" + branch.target()
-                        + " 篇，已按实际数量计费" + rejectedText);
-            }
-        }
         return branchSelected.size();
     }
 
-    private List<ReferenceCandidate> relevantCandidates(SearchBranch branch, List<ReferenceCandidate> candidates) {
-        Map<String, ReferenceCandidate> unique = new LinkedHashMap<>();
-        candidates.stream()
+    private List<CandidateGroup> rankedCandidateGroups(SearchBranch branch, List<ReferenceCandidate> candidates) {
+        List<ReferenceCandidate> ranked = candidates.stream()
                 .filter(Objects::nonNull)
                 .filter(ReferenceCandidate::basicallyVerified)
                 .filter(candidate -> branch.language().equals(languageOf(candidate)))
-                .filter(candidate -> topicMatcher.isRelevant(branch.query(), candidate, branch.language()))
-                .sorted(Comparator.comparingDouble((ReferenceCandidate candidate) ->
-                        topicMatcher.score(branch.query(), candidate, branch.language())).reversed()
-                        .thenComparing(candidate -> blank(candidate.title())))
-                .forEach(candidate -> unique.putIfAbsent(candidateKey(candidate), candidate));
-        return new ArrayList<>(unique.values());
+                .filter(candidate -> withinYear(candidate, branch.query()))
+                .filter(this::hasPublicSource)
+                .sorted(candidateRanking(branch))
+                .toList();
+        return groupCandidates(ranked);
+    }
+
+    private Comparator<ReferenceCandidate> candidateRanking(SearchBranch branch) {
+        return Comparator
+                .comparing((ReferenceCandidate candidate) ->
+                        topicMatcher.isRelevant(branch.query(), candidate, branch.language())).reversed()
+                .thenComparing(Comparator.comparingDouble((ReferenceCandidate candidate) ->
+                        topicMatcher.rankingScore(branch.query(), candidate, branch.language())).reversed())
+                .thenComparing(candidate -> blank(candidate.title()));
+    }
+
+    private boolean withinYear(ReferenceCandidate candidate, ReferenceSearchQuery query) {
+        if (candidate.year() == null) return false;
+        if (query.yearStart() > 0 && candidate.year() < query.yearStart()) return false;
+        return query.yearEnd() <= 0 || candidate.year() <= query.yearEnd();
+    }
+
+    private boolean hasPublicSource(ReferenceCandidate candidate) {
+        try {
+            java.net.URI uri = java.net.URI.create(blank(candidate.url()).trim());
+            String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
+            return ("http".equals(scheme) || "https".equals(scheme))
+                    && uri.getHost() != null && !uri.getHost().isBlank();
+        } catch (RuntimeException ignored) {
+            return false;
+        }
+    }
+
+    private int branchTarget(List<SearchBranch> branches, String language) {
+        return branches.stream().filter(branch -> language.equals(branch.language()))
+                .mapToInt(SearchBranch::target).findFirst().orElse(0);
     }
 
     private record SearchBranch(String language, int target, ReferenceSearchQuery query, boolean queryAvailable) {
@@ -804,20 +820,85 @@ public class ReferenceSearchService {
     }
 
     private List<ReferenceCandidate> dedupe(List<ReferenceCandidate> candidates) {
-        Map<String, ReferenceCandidate> map = new LinkedHashMap<>();
-        for (ReferenceCandidate candidate : candidates) {
-            String key = candidateKey(candidate);
-            ReferenceCandidate previous = map.get(key);
-            if (previous == null || candidate.relevanceScore() > previous.relevanceScore()) map.put(key, candidate);
-        }
-        return new ArrayList<>(map.values());
+        List<ReferenceCandidate> ranked = candidates.stream()
+                .filter(Objects::nonNull)
+                .sorted(Comparator.comparingDouble(ReferenceCandidate::relevanceScore).reversed())
+                .toList();
+        return groupCandidates(ranked).stream().map(CandidateGroup::candidate).toList();
     }
 
-    private String candidateKey(ReferenceCandidate candidate) {
-        String normalizedDoi = normalizeDoi(candidate.doi());
-        return !normalizedDoi.isBlank()
-                ? "doi:" + normalizedDoi
-                : "title:" + normalize(candidate.title()) + ":" + candidate.year();
+    private List<CandidateGroup> groupCandidates(List<ReferenceCandidate> ordered) {
+        if (ordered.isEmpty()) return List.of();
+        int[] parents = new int[ordered.size()];
+        Map<String, Integer> doiOwners = new LinkedHashMap<>();
+        Map<String, Integer> titleYearOwners = new LinkedHashMap<>();
+        for (int index = 0; index < ordered.size(); index++) {
+            parents[index] = index;
+            ReferenceCandidate candidate = ordered.get(index);
+            String doi = normalizeDoi(candidate.doi());
+            String titleYear = titleYearKey(candidate);
+            if (!doi.isBlank()) linkIdentity(doiOwners, doi, index, parents);
+            linkIdentity(titleYearOwners, titleYear, index, parents);
+        }
+
+        Map<Integer, ReferenceCandidate> representatives = new LinkedHashMap<>();
+        Map<Integer, Set<String>> componentDois = new LinkedHashMap<>();
+        Map<Integer, Set<String>> componentTitleYears = new LinkedHashMap<>();
+        for (int index = 0; index < ordered.size(); index++) {
+            ReferenceCandidate candidate = ordered.get(index);
+            int root = findRoot(parents, index);
+            representatives.putIfAbsent(root, candidate);
+            String doi = normalizeDoi(candidate.doi());
+            if (!doi.isBlank()) componentDois.computeIfAbsent(root, ignored -> new LinkedHashSet<>()).add(doi);
+            componentTitleYears.computeIfAbsent(root, ignored -> new LinkedHashSet<>()).add(titleYearKey(candidate));
+        }
+        return representatives.entrySet().stream()
+                .map(entry -> new CandidateGroup(entry.getValue(),
+                        Set.copyOf(componentDois.getOrDefault(entry.getKey(), Set.of())),
+                        Set.copyOf(componentTitleYears.getOrDefault(entry.getKey(), Set.of()))))
+                .toList();
+    }
+
+    private void linkIdentity(Map<String, Integer> owners, String identity, int index, int[] parents) {
+        Integer owner = owners.putIfAbsent(identity, index);
+        if (owner != null) union(parents, owner, index);
+    }
+
+    private int findRoot(int[] parents, int index) {
+        int root = index;
+        while (parents[root] != root) root = parents[root];
+        while (parents[index] != index) {
+            int next = parents[index];
+            parents[index] = root;
+            index = next;
+        }
+        return root;
+    }
+
+    private void union(int[] parents, int left, int right) {
+        int leftRoot = findRoot(parents, left);
+        int rightRoot = findRoot(parents, right);
+        if (leftRoot != rightRoot) parents[rightRoot] = leftRoot;
+    }
+
+    private String titleYearKey(ReferenceCandidate candidate) {
+        return normalize(candidate.title()) + ":" + candidate.year();
+    }
+
+    private final class CandidateIdentitySet {
+        private final Set<String> dois = new LinkedHashSet<>();
+        private final Set<String> titleYears = new LinkedHashSet<>();
+
+        private boolean add(CandidateGroup candidate) {
+            boolean duplicate = candidate.dois().stream().anyMatch(dois::contains)
+                    || candidate.titleYears().stream().anyMatch(titleYears::contains);
+            dois.addAll(candidate.dois());
+            titleYears.addAll(candidate.titleYears());
+            return !duplicate;
+        }
+    }
+
+    private record CandidateGroup(ReferenceCandidate candidate, Set<String> dois, Set<String> titleYears) {
     }
 
     private String normalizeDoi(String doi) {

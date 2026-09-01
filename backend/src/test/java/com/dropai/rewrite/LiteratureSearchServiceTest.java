@@ -49,56 +49,139 @@ class LiteratureSearchServiceTest {
     }
 
     @Test
-    void chargesOnlyForReferencesActuallyReturned() {
+    void chargesOnlyAfterAllRequestedLanguageQuotasAndItemsAreComplete() {
         when(pointService.featureCostPoints(PointService.LITERATURE_SEARCH)).thenReturn(2);
-        when(referenceSearchService.standaloneSearch("数字经济", 6, 4)).thenReturn(Map.of(
-                "actualCount", 3,
-                "requestedCount", 10,
-                "items", List.of(Map.of("title", "A"), Map.of("title", "B"), Map.of("title", "C"))));
+        when(referenceSearchService.standaloneSearch("数字经济", 10, 5)).thenReturn(Map.of(
+                "actualCount", 15,
+                "actualChineseCount", 10,
+                "actualEnglishCount", 5,
+                "requestedCount", 15,
+                "items", items(10, 5)));
 
         Map<String, Object> result = service.search(Map.of(
                 "title", "数字经济",
-                "chineseCount", 6,
-                "englishCount", 4));
+                "chineseCount", 10,
+                "englishCount", 5));
 
-        assertEquals(6, result.get("costPoints"));
+        assertEquals(30, result.get("costPoints"));
         assertEquals(2, result.get("unitCostPoints"));
         assertTrue((Boolean) result.get("charged"));
-        verify(pointService).ensureEnoughCustom(42L, 20);
+        verify(pointService).ensureEnoughCustom(42L, 30);
         verify(pointService).deductCustom(eq(42L), nullable(String.class), eq(PointService.LITERATURE_SEARCH),
-                eq("文献搜索（每篇）"), eq(6), contains("实际返回 3 篇"));
+                eq("文献搜索（每篇）"), eq(30), contains("完整返回 15 篇"));
     }
 
     @Test
     void doesNotDeductPointsWhenSearchFails() {
         when(pointService.featureCostPoints(PointService.LITERATURE_SEARCH)).thenReturn(1);
-        when(referenceSearchService.standaloneSearch("数字经济", 5, 5))
+        when(referenceSearchService.standaloneSearch("数字经济", 10, 5))
                 .thenThrow(new IllegalStateException("所有公开来源暂时不可用"));
 
         assertThrows(IllegalStateException.class, () -> service.search(Map.of(
                 "title", "数字经济",
-                "chineseCount", 5,
+                "chineseCount", 10,
                 "englishCount", 5)));
 
         verify(pointService, never()).deductCustom(anyLong(), nullable(String.class), anyString(), anyString(), anyInt(), anyString());
     }
 
     @Test
-    void doesNotDeductPointsWhenNoReferenceIsReturned() {
+    void rejectsMismatchedItemLanguagesDefensivelyAndDoesNotDeductPoints() {
         when(pointService.featureCostPoints(PointService.LITERATURE_SEARCH)).thenReturn(1);
-        when(referenceSearchService.standaloneSearch("数字经济", 5, 5)).thenReturn(Map.of(
-                "actualCount", 0,
-                "requestedCount", 10,
-                "items", List.of()));
+        when(referenceSearchService.standaloneSearch("数字经济", 10, 5)).thenReturn(Map.of(
+                "actualCount", 15,
+                "actualChineseCount", 10,
+                "actualEnglishCount", 5,
+                "requestedCount", 15,
+                "items", items(9, 6)));
+
+        IllegalStateException exception = assertThrows(IllegalStateException.class, () -> service.search(Map.of(
+                "title", "数字经济",
+                "chineseCount", 10,
+                "englishCount", 5)));
+
+        assertTrue(exception.getMessage().contains("不扣费"));
+        verify(pointService).ensureEnoughCustom(42L, 15);
+        verify(pointService, never()).deductCustom(anyLong(), nullable(String.class), anyString(), anyString(), anyInt(), anyString());
+    }
+
+    @Test
+    void rejectsDuplicateItemsDefensivelyAndDoesNotDeductPoints() {
+        when(pointService.featureCostPoints(PointService.LITERATURE_SEARCH)).thenReturn(1);
+        java.util.ArrayList<Map<String, Object>> duplicatedItems = new java.util.ArrayList<>(items(10, 5));
+        duplicatedItems.set(1, duplicatedItems.get(0));
+        when(referenceSearchService.standaloneSearch("数字经济", 10, 5)).thenReturn(Map.of(
+                "actualCount", 15,
+                "actualChineseCount", 10,
+                "actualEnglishCount", 5,
+                "requestedCount", 15,
+                "items", duplicatedItems));
+
+        IllegalStateException exception = assertThrows(IllegalStateException.class, () -> service.search(Map.of(
+                "title", "数字经济", "chineseCount", 10, "englishCount", 5)));
+
+        assertTrue(exception.getMessage().contains("不扣费"));
+        verify(pointService, never()).deductCustom(anyLong(), nullable(String.class), anyString(), anyString(), anyInt(), anyString());
+    }
+
+    @Test
+    void allowsDifferentPapersToShareTheSamePublicPortalUrl() {
+        when(pointService.featureCostPoints(PointService.LITERATURE_SEARCH)).thenReturn(1);
+        List<Map<String, Object>> sharedPortalItems = items(10, 5).stream().map(item -> {
+            Map<String, Object> copy = new java.util.LinkedHashMap<>(item);
+            copy.put("url", "https://example.test/journal");
+            return copy;
+        }).toList();
+        when(referenceSearchService.standaloneSearch("数字经济", 10, 5)).thenReturn(Map.of(
+                "actualCount", 15,
+                "actualChineseCount", 10,
+                "actualEnglishCount", 5,
+                "requestedCount", 15,
+                "items", sharedPortalItems));
 
         Map<String, Object> result = service.search(Map.of(
-                "title", "数字经济",
-                "chineseCount", 5,
-                "englishCount", 5));
+                "title", "数字经济", "chineseCount", 10, "englishCount", 5));
 
-        assertEquals(0, result.get("costPoints"));
-        assertEquals(false, result.get("charged"));
-        verify(pointService).ensureEnoughCustom(42L, 10);
+        assertEquals(15, result.get("actualCount"));
+        verify(pointService).deductCustom(eq(42L), nullable(String.class), eq(PointService.LITERATURE_SEARCH),
+                eq("文献搜索（每篇）"), eq(15), contains("完整返回 15 篇"));
+    }
+
+    @Test
+    void defaultsToTenChineseAndFiveEnglishReferences() {
+        when(pointService.featureCostPoints(PointService.LITERATURE_SEARCH)).thenReturn(1);
+        when(referenceSearchService.standaloneSearch("数字经济", 10, 5)).thenReturn(Map.of(
+                "actualCount", 15, "actualChineseCount", 10, "actualEnglishCount", 5,
+                "items", items(10, 5)));
+
+        service.search(Map.of("title", "数字经济"));
+
+        verify(referenceSearchService).standaloneSearch("数字经济", 10, 5);
+        verify(pointService).ensureEnoughCustom(42L, 15);
+    }
+
+    @Test
+    void rejectsRequestedTotalsBelowFifteen() {
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () -> service.search(Map.of(
+                "title", "数字经济", "chineseCount", 9, "englishCount", 5)));
+
+        assertTrue(exception.getMessage().contains("至少搜索 15 篇"));
+        verify(referenceSearchService, never()).standaloneSearch(anyString(), anyInt(), anyInt());
         verify(pointService, never()).deductCustom(anyLong(), nullable(String.class), anyString(), anyString(), anyInt(), anyString());
+    }
+
+    private List<Map<String, Object>> items(int chineseCount, int englishCount) {
+        java.util.ArrayList<Map<String, Object>> result = new java.util.ArrayList<>();
+        java.util.stream.IntStream.range(0, chineseCount)
+                .mapToObj(index -> Map.<String, Object>of(
+                        "title", "中文 " + index, "year", 2025, "language", "ZH",
+                        "url", "https://example.test/zh/" + index))
+                .forEach(result::add);
+        java.util.stream.IntStream.range(0, englishCount)
+                .mapToObj(index -> Map.<String, Object>of(
+                        "title", "English " + index, "year", 2025, "language", "EN",
+                        "url", "https://example.test/en/" + index))
+                .forEach(result::add);
+        return result;
     }
 }

@@ -205,6 +205,20 @@ public final class LiteratureTopicMatcher {
         return chineseScore(query, details);
     }
 
+    /**
+     * A non-gating local score used only to rank safe fallback candidates. Unlike {@link #score},
+     * this method preserves partial topic coverage instead of collapsing every below-threshold
+     * candidate to zero.
+     */
+    public double rankingScore(ReferenceSearchQuery query, ReferenceCandidate candidate, String language) {
+        if (candidate == null) return 0;
+        String details = String.join(" ", value(candidate.title()), value(candidate.abstractText()),
+                value(candidate.sourceSnippet()));
+        return "EN".equalsIgnoreCase(language)
+                ? englishRankingScore(query, details)
+                : chineseRankingScore(query, details);
+    }
+
     private double englishScore(ReferenceSearchQuery query, String candidateText) {
         String haystack = normalizeEnglish(candidateText);
         List<ConceptGroup> groups = query.hasProviderKeywordsOverride() && needsEnglishPlanning(query)
@@ -230,6 +244,25 @@ public final class LiteratureTopicMatcher {
         return matched < required ? 0 : Math.min(1.0, (double) matched / terms.size());
     }
 
+    private double englishRankingScore(ReferenceSearchQuery query, String candidateText) {
+        String haystack = normalizeEnglish(candidateText);
+        List<ConceptGroup> groups = query.hasProviderKeywordsOverride() && needsEnglishPlanning(query)
+                ? List.of()
+                : englishGroups(query);
+        if (!groups.isEmpty()) {
+            boolean mainMatched = matchesEnglishGroup(haystack, groups.get(0));
+            if (groups.size() == 1) return mainMatched ? 1.0 : 0;
+            long secondaryMatches = groups.stream().skip(1)
+                    .filter(group -> matchesEnglishGroup(haystack, group)).count();
+            return (mainMatched ? 0.60 : 0)
+                    + 0.40 * ((double) secondaryMatches / (groups.size() - 1));
+        }
+        List<String> terms = englishTerms(englishRelevanceSource(query));
+        if (terms.isEmpty()) return 0;
+        long matched = terms.stream().filter(term -> containsPhrase(haystack, term)).count();
+        return Math.min(1.0, (double) matched / terms.size());
+    }
+
     private double chineseScore(ReferenceSearchQuery query, String candidateText) {
         String haystack = normalizeChinese(candidateText);
         if (haystack.isBlank()) return 0;
@@ -250,6 +283,24 @@ public final class LiteratureTopicMatcher {
         long matched = grams.stream().filter(haystack::contains).count();
         double coverage = (double) matched / grams.size();
         return matched >= Math.min(2, grams.size()) && coverage >= 0.45 ? coverage : 0;
+    }
+
+    private double chineseRankingScore(ReferenceSearchQuery query, String candidateText) {
+        String haystack = normalizeChinese(candidateText);
+        if (haystack.isBlank()) return 0;
+        List<String> concepts = chineseConcepts(query);
+        if (!concepts.isEmpty()) {
+            boolean mainMatched = haystack.contains(concepts.get(0));
+            if (concepts.size() == 1) return mainMatched ? 1.0 : 0;
+            long secondaryMatches = concepts.stream().skip(1).filter(haystack::contains).count();
+            return (mainMatched ? 0.60 : 0)
+                    + 0.40 * ((double) secondaryMatches / (concepts.size() - 1));
+        }
+        String topic = normalizeChinese(cleanChineseTopic(query.title()));
+        Set<String> grams = bigrams(topic);
+        if (grams.isEmpty()) return 0;
+        long matched = grams.stream().filter(haystack::contains).count();
+        return Math.min(1.0, (double) matched / grams.size());
     }
 
     private double threshold(ReferenceSearchQuery query, String language) {

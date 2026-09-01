@@ -134,7 +134,7 @@ public class OpenAlexReferenceSearchProvider implements ReferenceSearchProvider 
 
     private int overfetchLimit(int requested) {
         int safeRequested = Math.max(1, requested);
-        return Math.min(50, Math.max(safeRequested * 2, safeRequested + 5));
+        return Math.min(75, Math.max(safeRequested * 2, safeRequested + 5));
     }
 
     private boolean containsHan(String value) {

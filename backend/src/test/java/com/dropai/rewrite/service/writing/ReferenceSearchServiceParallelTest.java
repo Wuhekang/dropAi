@@ -89,7 +89,7 @@ class ReferenceSearchServiceParallelTest {
     }
 
     @Test
-    void returnsPartialWithWarningWhenChineseFailsAndEnglishSucceeds() {
+    void failsWholeSearchWhenAnyLanguageBranchCannotMeetItsQuota() {
         WritingGenerationProperties properties = properties("doubao_web,openalex,crossref", true);
         Function<ReferenceSearchQuery, List<ReferenceCandidate>> behavior = query -> {
             if ("ZH".equals(language(query))) throw new IllegalStateException("ZH source unavailable");
@@ -100,14 +100,12 @@ class ReferenceSearchServiceParallelTest {
                 fake("openalex", behavior),
                 fake("crossref", behavior)));
 
-        Map<String, Object> result = service.standaloneSearch("数字经济", 2, 1);
+        IllegalStateException exception = assertThrows(IllegalStateException.class,
+                () -> service.standaloneSearch("数字经济", 2, 1));
 
-        assertEquals("PARTIAL", result.get("status"));
-        assertEquals(true, result.get("partial"));
-        assertEquals(1, result.get("actualCount"));
-        assertEquals(0, result.get("actualChineseCount"));
-        assertEquals(1, result.get("actualEnglishCount"));
-        assertTrue(strings(result, "warnings").stream().anyMatch(warning -> warning.contains("中文来源")));
+        assertTrue(exception.getMessage().contains("中文 0/2"));
+        assertTrue(exception.getMessage().contains("英文 1/1"));
+        assertTrue(exception.getMessage().contains("不返回结果且不扣费"));
     }
 
     @Test
@@ -306,6 +304,30 @@ class ReferenceSearchServiceParallelTest {
     }
 
     @Test
+    void doiAndTitleYearIdentityRulesWaitForARealReplacementBeforeCompletingQuota() {
+        WritingGenerationProperties properties = properties("fast,slow", false);
+        FakeProvider fast = fake("fast", query -> List.of(
+                candidate("ZH", "数字经济共同文献", "fast"),
+                candidateWithDoi("ZH", "数字经济共同文献", "fast", "10.1000/shared"),
+                candidateWithDoi("ZH", "数字经济A题名变体", "fast", "10.1000/shared")));
+        FakeProvider slow = fake("slow", query -> {
+            try {
+                Thread.sleep(150L);
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+            }
+            return List.of(candidate("ZH", "数字经济替补文献", "slow"));
+        });
+        ReferenceSearchService service = service(properties, List.of(fast, slow));
+
+        Map<String, Object> result = service.standaloneSearch("数字经济", 2, 0);
+
+        assertEquals(2, result.get("actualChineseCount"));
+        assertTrue(items(result).stream()
+                .anyMatch(item -> String.valueOf(item.get("title")).contains("替补文献")));
+    }
+
+    @Test
     void reportsFriendlyErrorWhenEveryProviderReturnsEmpty() {
         WritingGenerationProperties properties = properties("doubao_web,openalex,crossref", true);
         Function<ReferenceSearchQuery, List<ReferenceCandidate>> empty = query -> List.of();
@@ -317,48 +339,74 @@ class ReferenceSearchServiceParallelTest {
         IllegalStateException exception = assertThrows(IllegalStateException.class,
                 () -> service.standaloneSearch("数字经济", 2, 1));
 
-        assertEquals("暂未检索到符合条件的公开文献，请尝试补充或调整题目关键词", exception.getMessage());
+        assertTrue(exception.getMessage().contains("中文 0/2"));
+        assertTrue(exception.getMessage().contains("英文 0/1"));
+        assertTrue(exception.getMessage().contains("不扣费"));
     }
 
     @Test
-    void waitsForRelevantProviderInsteadOfLettingFastGarbageFillQuota() {
-        WritingGenerationProperties properties = properties("fast,slow", false);
-        FakeProvider fast = fake("fast", query -> "EN".equals(language(query))
+    void fillsQuotaWithSafeLowRelevanceCandidatesButKeepsRelevantResultsFirst() {
+        WritingGenerationProperties properties = properties("public", false);
+        FakeProvider provider = fake("public", query -> "EN".equals(language(query))
                 ? List.of(
-                rawCandidate("The study of Joss paper offerings", "EN", "fast"),
-                rawCandidate("HPV E5 and E6 cell death evasion", "EN", "fast"))
-                : List.of(rawCandidate("短视频用户行为研究", "ZH", "fast")));
+                rawCandidate("The study of Joss paper offerings", "EN", "public"),
+                candidate("EN", "Relevant English Result", "public"))
+                : List.of(
+                rawCandidate("短视频用户行为研究", "ZH", "public"),
+                candidate("ZH", "相关中文结果", "public")));
+        ReferenceSearchService service = service(properties, List.of(provider));
+
+        Map<String, Object> result = service.standaloneSearch("数字经济", 2, 2);
+        List<Map<String, Object>> items = items(result);
+
+        assertEquals(4, result.get("actualCount"));
+        assertEquals(2, result.get("actualChineseCount"));
+        assertEquals(2, result.get("actualEnglishCount"));
+        assertTrue(String.valueOf(items.get(0).get("title")).contains("数字经济"));
+        assertTrue(String.valueOf(items.get(2).get("title")).toLowerCase().contains("digital economy"));
+        assertEquals(false, result.get("partial"));
+        assertEquals("SUCCESS", result.get("status"));
+    }
+
+    @Test
+    void returnsImmediatelyWhenFastVerifiedLowRelevanceCandidatesFillBothQuotas() {
+        WritingGenerationProperties properties = properties("fast,slow", false);
+        properties.getReferenceSearch().setTimeoutSeconds(2);
+        FakeProvider fast = fake("fast", query -> List.of(rawCandidate(
+                "ZH".equals(language(query)) ? "短视频用户行为研究" : "The study of Joss paper offerings",
+                language(query), "fast")));
         FakeProvider slow = fake("slow", query -> {
             try {
-                Thread.sleep(150L);
+                Thread.sleep(5_000L);
+                return List.of();
             } catch (InterruptedException exception) {
                 Thread.currentThread().interrupt();
+                throw new IllegalStateException("slow provider interrupted", exception);
             }
-            return List.of(candidate(language(query), "Relevant Result", "slow"));
         });
         ReferenceSearchService service = service(properties, List.of(fast, slow));
 
+        long started = System.nanoTime();
         Map<String, Object> result = service.standaloneSearch("数字经济", 1, 1);
+        long elapsedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
 
         assertEquals(2, result.get("actualCount"));
-        assertTrue(items(result).stream().allMatch(item -> String.valueOf(item.get("title")).contains("数字经济")
-                || String.valueOf(item.get("title")).toLowerCase().contains("digital economy")));
+        assertTrue(elapsedMillis < 1_500L,
+                "complete low-relevance quota unnecessarily waited for slow provider: " + elapsedMillis + "ms");
     }
 
     @Test
-    void failsEnglishBranchClosedWhenNoReliableTranslationExists() {
+    void failsWholeSearchWhenEnglishQueryCannotBeBuilt() {
         WritingGenerationProperties properties = properties("public", false);
         ReferenceSearchService service = service(properties, List.of(fake("public", query -> List.of(
                 rawCandidate("甲骨文字形流变考述", "ZH", "public"),
                 rawCandidate("Oracle bone script evolution", "EN", "public")))));
 
-        Map<String, Object> result = service.standaloneSearch("甲骨文字形流变考", 1, 1);
+        IllegalStateException exception = assertThrows(IllegalStateException.class,
+                () -> service.standaloneSearch("甲骨文字形流变考", 1, 1));
 
-        assertEquals(1, result.get("actualCount"));
-        assertEquals(1, result.get("actualChineseCount"));
-        assertEquals(0, result.get("actualEnglishCount"));
-        assertTrue(strings(result, "warnings").stream().anyMatch(warning -> warning.contains("英文分支")
-                && warning.contains("不扣费")));
+        assertTrue(exception.getMessage().contains("英文 0/1"));
+        assertTrue(exception.getMessage().contains("不扣费"));
     }
 
     @Test
@@ -380,7 +428,8 @@ class ReferenceSearchServiceParallelTest {
                 () -> service.standaloneSearch("数字经济", 1, 1));
         long elapsedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
 
-        assertEquals("公开学术来源响应超时，请稍后重试或缩小检索范围", exception.getMessage());
+        assertTrue(exception.getMessage().contains("未凑齐目标文献"));
+        assertTrue(exception.getMessage().contains("不扣费"));
         assertTrue(elapsedMillis < 2_500L, "global deadline took " + elapsedMillis + "ms");
     }
 
