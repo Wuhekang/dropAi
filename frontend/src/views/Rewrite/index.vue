@@ -346,7 +346,7 @@ const paragraphProgressText = computed(() => {
 })
 const concurrencyText = computed(() => {
   if (!documentProcessing.value && documentJob.status !== 'SUCCESS') return '-'
-  return externalDocumentPlatform.value ? '分批串行' : '32'
+  return '32'
 })
 const downloadStateText = computed(() => {
   if (documentJob.status === 'SUCCESS') return '文档已生成'

@@ -1,5 +1,7 @@
 package com.dropai.rewrite.external;
 
+import jakarta.annotation.PreDestroy;
+
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.apache.poi.xwpf.usermodel.XWPFParagraph;
 import org.apache.poi.xwpf.usermodel.XWPFRun;
@@ -19,6 +21,13 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletionService;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorCompletionService;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
 
@@ -30,23 +39,35 @@ import java.util.regex.Pattern;
 public class PlatformDoubaoDocumentProcessor {
     static final int DAYA_MAX_BATCH_PARAGRAPHS = 4;
     static final int DAYA_MAX_BATCH_CHARACTERS = 1800;
-    private static final int MIN_PARAGRAPH_CHARACTERS = 24;
+    static final int DAYA_MAX_CONCURRENCY = 32;
+    private static final int MIN_PARAGRAPH_CHARACTERS = 8;
     private static final Pattern BODY_HEADING = Pattern.compile(
-            "^(?:第[一二三四五六七八九十百]+章(?:\\s+.*)?|[1-9][0-9]*(?:[.．][0-9]+){0,3}[、.．\\s]+.{1,80})$");
+            "^(?:引言|绪论|前言|正文|Introduction|第[一二三四五六七八九十百]+章.*"
+                    + "|[一二三四五六七八九十]+、.{1,80}"
+                    + "|[1-9][0-9]?(?:[.．][0-9]+){0,3}[、.．\\s]+.{1,80})$",
+            Pattern.CASE_INSENSITIVE);
     private static final Pattern ANY_NUMBERED_HEADING = Pattern.compile(
             "^(?:第[一二三四五六七八九十百]+[章节篇].*|[一二三四五六七八九十]+、.{1,80}|[0-9]+(?:[.．][0-9]+){0,4}[、.．\\s]+.{1,100})$");
     private static final Pattern CATALOG_LINE = Pattern.compile("^.+[.·•…]{2,}\\s*[0-9０-９]+\\s*$");
+    private static final Pattern MANUAL_CATALOG_LINE = Pattern.compile(
+            "^.+(?:[.·•…]{2,}|\\s+)\\s*[0-9０-９]+\\s*$");
     private static final Pattern REFERENCE_LINE = Pattern.compile("^\\s*\\[[0-9０-９]+].*$");
     private static final Pattern CAPTION_LINE = Pattern.compile(
             "^(?:图|表|公式)\\s*[0-9０-９]+(?:[.．\\-—][0-9０-９]+)*(?:\\s+.*)?$");
+    private static final String TRAILING_NUMBER_PREFIX =
+            "(?:第(?:[一二三四五六七八九十百]+|[0-9０-９]+)章"
+                    + "|[0-9０-９]+(?:[.．][0-9０-９]+)*[、.．]?)?";
 
     private final PlatformDoubaoRewriteGateway gateway;
     private final PlatformDocumentTextProtector protector;
+    private final ExecutorService dayaBatchExecutor;
 
     public PlatformDoubaoDocumentProcessor(PlatformDoubaoRewriteGateway gateway,
                                            PlatformDocumentTextProtector protector) {
         this.gateway = gateway;
         this.protector = protector;
+        this.dayaBatchExecutor = Executors.newFixedThreadPool(
+                DAYA_MAX_CONCURRENCY, dayaThreadFactory());
     }
 
     public boolean configured() {
@@ -69,50 +90,30 @@ public class PlatformDoubaoDocumentProcessor {
             List<Batch> batches = batches(targets);
             AtomicInteger tokenSequence = new AtomicInteger();
             AtomicInteger styleSequence = new AtomicInteger();
+            List<PreparedBatch> preparedBatches = new ArrayList<>();
+            for (int batchIndex = 0; batchIndex < batches.size(); batchIndex++) {
+                preparedBatches.add(prepareBatch(
+                        batchIndex, batches.get(batchIndex), tokenSequence, styleSequence));
+            }
+
+            BatchResult[] completedBatches = rewriteBatchesConcurrently(
+                    preparedBatches, targets.size(), platform, mode, progress);
             int processed = 0;
             int rewritten = 0;
             int failed = 0;
             List<String> failureMessages = new ArrayList<>();
-
-            for (int batchIndex = 0; batchIndex < batches.size(); batchIndex++) {
-                Batch batch = batches.get(batchIndex);
-                Map<String, PlatformDocumentTextProtector.ProtectedText> protectedById = new LinkedHashMap<>();
-                Map<String, StyledParagraph> styledById = new LinkedHashMap<>();
-                List<PlatformDoubaoRewriteGateway.Segment> segments = new ArrayList<>();
-                for (Target target : batch.targets()) {
-                    StyledParagraph styledParagraph = styledParagraphFor(target, styleSequence);
-                    PlatformDocumentTextProtector.ProtectedText protectedText =
-                            protector.protect(styledParagraph.modelText(), tokenSequence);
-                    styledById.put(target.id(), styledParagraph);
-                    protectedById.put(target.id(), protectedText);
-                    segments.add(new PlatformDoubaoRewriteGateway.Segment(
-                            target.id(), protectedText.text(), target.context()));
+            for (BatchResult batchResult : completedBatches) {
+                processed += batchResult.targetCount();
+                rewritten += batchResult.rewrites().size();
+                failed += batchResult.failed();
+                for (String message : batchResult.failureMessages()) {
+                    if (failureMessages.size() >= 3) break;
+                    failureMessages.add(message);
                 }
-
-                try {
-                    Map<String, String> responses = gateway.rewriteBatch(segments, platform, mode);
-                    for (Target target : batch.targets()) {
-                        try {
-                            String protectedStylesRestored = protectedById.get(target.id())
-                                    .validateAndRestore(responses.get(target.id()));
-                            StyledRestore restored = styledById.get(target.id()).restore(protectedStylesRestored);
-                            validateCandidate(target.originalText(), restored.text());
-                            if (target.originalText().equals(restored.text())) continue;
-                            replaceParagraphText(target.paragraph(), restored);
-                            removeMergedListStructure(target);
-                            rewritten++;
-                        } catch (RuntimeException validationFailure) {
-                            failed++;
-                            if (failureMessages.size() < 3) failureMessages.add(compact(validationFailure.getMessage()));
-                        }
-                    }
-                } catch (RuntimeException batchFailure) {
-                    failed += batch.targets().size();
-                    if (failureMessages.size() < 3) failureMessages.add(compact(batchFailure.getMessage()));
+                for (ParagraphRewrite rewrite : batchResult.rewrites()) {
+                    replaceParagraphText(rewrite.target().paragraph(), rewrite.restored());
+                    removeMergedListStructure(rewrite.target());
                 }
-                processed += batch.targets().size();
-                progress.update(targets.size(), processed, rewritten,
-                        platform.remoteName() + " Skill 处理中：" + (batchIndex + 1) + "/" + batches.size() + " 批");
             }
 
             if (rewritten == 0) {
@@ -128,6 +129,125 @@ public class PlatformDoubaoDocumentProcessor {
         }
     }
 
+    private PreparedBatch prepareBatch(int index, Batch batch,
+                                       AtomicInteger tokenSequence,
+                                       AtomicInteger styleSequence) {
+        Map<String, PlatformDocumentTextProtector.ProtectedText> protectedById = new LinkedHashMap<>();
+        Map<String, StyledParagraph> styledById = new LinkedHashMap<>();
+        List<PlatformDoubaoRewriteGateway.Segment> segments = new ArrayList<>();
+        for (Target target : batch.targets()) {
+            StyledParagraph styledParagraph = styledParagraphFor(target, styleSequence);
+            PlatformDocumentTextProtector.ProtectedText protectedText =
+                    protector.protect(styledParagraph.modelText(), tokenSequence);
+            styledById.put(target.id(), styledParagraph);
+            protectedById.put(target.id(), protectedText);
+            segments.add(new PlatformDoubaoRewriteGateway.Segment(
+                    target.id(), protectedText.text(), target.context()));
+        }
+        return new PreparedBatch(index, batch, Map.copyOf(protectedById),
+                Map.copyOf(styledById), List.copyOf(segments));
+    }
+
+    private BatchResult[] rewriteBatchesConcurrently(
+            List<PreparedBatch> batches, int totalTargets,
+            XuejiePlatform platform, XuejieRewriteMode mode,
+            ProgressListener progress) {
+        CompletionService<BatchResult> completionService =
+                new ExecutorCompletionService<>(dayaBatchExecutor);
+        List<Future<BatchResult>> futures = new ArrayList<>();
+        int submitted = Math.min(DAYA_MAX_CONCURRENCY, batches.size());
+        for (int index = 0; index < submitted; index++) {
+            PreparedBatch batch = batches.get(index);
+            futures.add(completionService.submit(
+                    () -> rewritePreparedBatch(batch, platform, mode)));
+        }
+
+        BatchResult[] results = new BatchResult[batches.size()];
+        int processed = 0;
+        int rewritten = 0;
+        try {
+            for (int completed = 0; completed < batches.size(); completed++) {
+                BatchResult result = completedBatch(completionService);
+                results[result.index()] = result;
+                processed += result.targetCount();
+                rewritten += result.rewrites().size();
+                if (submitted < batches.size()) {
+                    PreparedBatch next = batches.get(submitted++);
+                    futures.add(completionService.submit(
+                            () -> rewritePreparedBatch(next, platform, mode)));
+                }
+                progress.update(totalTargets, processed, rewritten,
+                        platform.remoteName() + " Skill 32 路并发处理中："
+                                + processed + "/" + totalTargets + " 段");
+            }
+        } catch (RuntimeException | Error failure) {
+            futures.forEach(future -> future.cancel(true));
+            throw failure;
+        }
+        return results;
+    }
+
+    private BatchResult completedBatch(CompletionService<BatchResult> completionService) {
+        try {
+            Future<BatchResult> future = completionService.take();
+            return future.get();
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("大雅并发处理被中断", exception);
+        } catch (ExecutionException exception) {
+            Throwable cause = exception.getCause();
+            if (cause instanceof RuntimeException runtimeException) throw runtimeException;
+            throw new IllegalStateException("大雅并发处理失败", cause);
+        }
+    }
+
+    private BatchResult rewritePreparedBatch(PreparedBatch prepared,
+                                             XuejiePlatform platform,
+                                             XuejieRewriteMode mode) {
+        Batch batch = prepared.batch();
+        List<ParagraphRewrite> rewrites = new ArrayList<>();
+        List<String> failures = new ArrayList<>();
+        int failed = 0;
+        try {
+            Map<String, String> responses = gateway.rewriteBatch(prepared.segments(), platform, mode);
+            for (Target target : batch.targets()) {
+                try {
+                    String protectedStylesRestored = prepared.protectedById().get(target.id())
+                            .validateAndRestore(responses.get(target.id()));
+                    StyledRestore restored = prepared.styledById().get(target.id())
+                            .restore(protectedStylesRestored);
+                    validateCandidate(target.originalText(), restored.text());
+                    if (!target.originalText().equals(restored.text())) {
+                        rewrites.add(new ParagraphRewrite(target, restored));
+                    }
+                } catch (RuntimeException validationFailure) {
+                    failed++;
+                    if (failures.size() < 3) failures.add(compact(validationFailure.getMessage()));
+                }
+            }
+        } catch (RuntimeException batchFailure) {
+            failed = batch.targets().size();
+            failures.add(compact(batchFailure.getMessage()));
+        }
+        return new BatchResult(prepared.index(), batch.targets().size(),
+                List.copyOf(rewrites), failed, List.copyOf(failures));
+    }
+
+    @PreDestroy
+    void shutdownDayaBatchExecutor() {
+        dayaBatchExecutor.shutdownNow();
+    }
+
+    private ThreadFactory dayaThreadFactory() {
+        AtomicInteger sequence = new AtomicInteger();
+        return runnable -> {
+            Thread thread = new Thread(runnable,
+                    "daya-document-batch-" + sequence.incrementAndGet());
+            thread.setDaemon(true);
+            return thread;
+        };
+    }
+
     /**
      * The supplied Daya reports include Chinese and English abstracts in their chapter detail.
      * Select both abstracts and the body while keeping keywords, the catalog, references and
@@ -138,6 +258,16 @@ public class PlatformDoubaoDocumentProcessor {
         List<Target> targets = new ArrayList<>();
         DayaSection section = DayaSection.SKIP;
         String context = "正文";
+        boolean hasAbstractBoundary = paragraphs.stream()
+                .map(XWPFParagraph::getText)
+                .map(this::normalize)
+                .anyMatch(this::isAbstractTitle);
+        boolean hasCatalogBoundary = paragraphs.stream()
+                .map(XWPFParagraph::getText)
+                .map(this::normalize)
+                .anyMatch(this::isCatalogTitle);
+        boolean boundaryReached = !hasAbstractBoundary && !hasCatalogBoundary;
+        boolean catalogActive = false;
         boolean bodyStarted = false;
 
         for (int index = 0; index < paragraphs.size(); index++) {
@@ -146,21 +276,39 @@ public class PlatformDoubaoDocumentProcessor {
             String compactText = text.replaceAll("\\s+", "");
 
             if (isChineseAbstractTitle(text)) {
+                boundaryReached = true;
+                catalogActive = false;
                 section = DayaSection.INCLUDE;
                 context = "中文摘要";
                 continue;
             }
             if (isEnglishAbstractTitle(text)) {
+                boundaryReached = true;
+                catalogActive = false;
                 section = DayaSection.INCLUDE;
                 context = "英文摘要";
                 continue;
             }
-            if (isKeywordLine(text) || isCatalogTitle(text)) {
+            if (isCatalogTitle(text)) {
+                boundaryReached = true;
+                catalogActive = true;
                 section = DayaSection.SKIP;
                 continue;
             }
-            if (isReferenceTitle(text)) break;
+            if (!boundaryReached) continue;
+            if (isKeywordLine(text)) {
+                section = DayaSection.SKIP;
+                continue;
+            }
+            if (isReferenceTitle(text)) {
+                if (catalogActive || isCatalogStyle(paragraph)) continue;
+                if (bodyStarted) break;
+                section = DayaSection.SKIP;
+                continue;
+            }
             if (isAcknowledgementsTitle(text) || isProtectedTrailingTitle(compactText)) {
+                if (catalogActive || isCatalogStyle(paragraph)) continue;
+                if (bodyStarted) break;
                 section = DayaSection.SKIP;
                 continue;
             }
@@ -174,12 +322,19 @@ public class PlatformDoubaoDocumentProcessor {
                     continue;
                 }
             }
-            if (BODY_HEADING.matcher(text).matches() && !isCatalogStyle(paragraph)) {
+            if (catalogActive
+                    && (isCatalogStyle(paragraph)
+                    || (!isHeadingStyle(paragraph) && MANUAL_CATALOG_LINE.matcher(text).matches()))) {
+                continue;
+            }
+            if (isDayaBodyStartTitle(paragraph, text) && !isCatalogStyle(paragraph)) {
                 bodyStarted = true;
+                catalogActive = false;
                 section = DayaSection.INCLUDE;
                 context = text;
                 continue;
             }
+            if (catalogActive) continue;
             if (bodyStarted && isHeadingStyle(paragraph)) {
                 context = text.isBlank() ? context : text;
                 continue;
@@ -193,6 +348,16 @@ public class PlatformDoubaoDocumentProcessor {
             }
         }
         return targets;
+    }
+
+    private boolean isDayaBodyStartTitle(XWPFParagraph paragraph, String text) {
+        if (BODY_HEADING.matcher(text).matches()) return true;
+        return isHeadingStyle(paragraph)
+                && !isAbstractTitle(text)
+                && !isCatalogTitle(text)
+                && !isReferenceTitle(text)
+                && !isAcknowledgementsTitle(text)
+                && !isProtectedTrailingTitle(text.replaceAll("\\s+", ""));
     }
 
     private boolean isDayaCandidate(XWPFParagraph paragraph, String text) {
@@ -360,19 +525,25 @@ public class PlatformDoubaoDocumentProcessor {
 
     private boolean isTrailingSection(String text) {
         String compact = text.replaceAll("\\s+", "");
-        return compact.matches("^(参考文献|致谢|附录(?:[A-Z一二三四五六七八九十])?|声明|原创性声明|学位论文原创性声明).*$");
+        return isReferenceTitle(text) || isAcknowledgementsTitle(text)
+                || isProtectedTrailingTitle(compact);
     }
 
     private boolean isReferenceTitle(String text) {
-        return text.replaceAll("\\s+", "").matches("^参考文献.*$");
+        String compact = text.replaceAll("\\s+", "");
+        return compact.matches("^" + TRAILING_NUMBER_PREFIX + "参考文献[:：]?$")
+                || compact.matches("(?i)^" + TRAILING_NUMBER_PREFIX + "references[:：]?$");
     }
 
     private boolean isAcknowledgementsTitle(String text) {
-        return text.replaceAll("\\s+", "").equals("致谢");
+        String compact = text.replaceAll("\\s+", "");
+        return compact.matches("^" + TRAILING_NUMBER_PREFIX + "致谢[:：]?$");
     }
 
     private boolean isProtectedTrailingTitle(String compactText) {
-        return compactText.matches("^(附录(?:[A-Z一二三四五六七八九十])?|声明|原创性声明|学位论文原创性声明).*$");
+        return compactText.matches("^" + TRAILING_NUMBER_PREFIX
+                + "(附录(?:[A-Z一二三四五六七八九十])?|作者简介|"
+                + "声明|原创性声明|学位论文原创性声明|评阅意见|学术评价).*$");
     }
 
     private List<Batch> batches(List<Target> targets) {
@@ -403,7 +574,7 @@ public class PlatformDoubaoDocumentProcessor {
         double maximumRatio = 1.15;
         int minimumLength = dayaEnumeration
                 ? Math.max(8, DayaEnumerationRules.itemCount(original) * 4)
-                : Math.max(12, (int) Math.floor(originalLength * 0.70));
+                : Math.max(6, (int) Math.floor(originalLength * 0.70));
         if (rewrittenLength < minimumLength
                 || rewrittenLength > Math.ceil(originalLength * maximumRatio)) {
             throw new IllegalStateException(dayaEnumeration
@@ -573,6 +744,22 @@ public class PlatformDoubaoDocumentProcessor {
     }
 
     private record Batch(List<Target> targets) { }
+
+    private record PreparedBatch(
+            int index,
+            Batch batch,
+            Map<String, PlatformDocumentTextProtector.ProtectedText> protectedById,
+            Map<String, StyledParagraph> styledById,
+            List<PlatformDoubaoRewriteGateway.Segment> segments) { }
+
+    private record ParagraphRewrite(Target target, StyledRestore restored) { }
+
+    private record BatchResult(
+            int index,
+            int targetCount,
+            List<ParagraphRewrite> rewrites,
+            int failed,
+            List<String> failureMessages) { }
 
     private enum DayaSection {
         INCLUDE,

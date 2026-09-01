@@ -2,6 +2,7 @@ package com.dropai.rewrite.external;
 
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.apache.poi.xwpf.usermodel.VerticalAlign;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -10,9 +11,14 @@ import java.io.OutputStream;
 import java.math.BigInteger;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -23,6 +29,12 @@ import static org.mockito.Mockito.when;
 class PlatformDoubaoDocumentProcessorTest {
     @TempDir
     Path temporaryDirectory;
+    private final List<PlatformDoubaoDocumentProcessor> processors = new ArrayList<>();
+
+    @AfterEach
+    void shutdownProcessors() {
+        processors.forEach(PlatformDoubaoDocumentProcessor::shutdownDayaBatchExecutor);
+    }
 
     @Test
     void rewritesOnlyBodyNaturalLanguageAndPreservesDocumentStructure() throws Exception {
@@ -41,8 +53,7 @@ class PlatformDoubaoDocumentProcessorTest {
                     return rewritten;
                 });
 
-        PlatformDoubaoDocumentProcessor processor = new PlatformDoubaoDocumentProcessor(
-                gateway, new PlatformDocumentTextProtector());
+        PlatformDoubaoDocumentProcessor processor = processor(gateway);
         PlatformDoubaoDocumentProcessor.ProcessingResult result = processor.process(
                 source, output, XuejiePlatform.DAYA, XuejieRewriteMode.HUMANIZE, null);
 
@@ -76,8 +87,7 @@ class PlatformDoubaoDocumentProcessorTest {
         Path source = temporaryDirectory.resolve("daya-scope-source.docx");
         writeDayaScopeFixture(source);
         PlatformDoubaoRewriteGateway gateway = mock(PlatformDoubaoRewriteGateway.class);
-        PlatformDoubaoDocumentProcessor processor = new PlatformDoubaoDocumentProcessor(
-                gateway, new PlatformDocumentTextProtector());
+        PlatformDoubaoDocumentProcessor processor = processor(gateway);
 
         try (InputStream stream = Files.newInputStream(source);
              XWPFDocument document = new XWPFDocument(stream)) {
@@ -90,7 +100,7 @@ class PlatformDoubaoDocumentProcessorTest {
                             "正文自然语言段落描述系统的实际操作、数据变化与已有结果，长度满足处理条件。"
                     );
             assertThat(targets).extracting(PlatformDoubaoDocumentProcessor.Target::context)
-                    .containsExactly("中文摘要", "英文摘要", "第一章 绪论");
+                    .containsExactly("中文摘要", "英文摘要", "绪论");
         }
     }
 
@@ -109,8 +119,7 @@ class PlatformDoubaoDocumentProcessorTest {
                     rewritten.put(segments.get(1).id(), segments.get(1).text().replace("同样包含", "同时包含"));
                     return rewritten;
                 });
-        PlatformDoubaoDocumentProcessor processor = new PlatformDoubaoDocumentProcessor(
-                gateway, new PlatformDocumentTextProtector());
+        PlatformDoubaoDocumentProcessor processor = processor(gateway);
 
         PlatformDoubaoDocumentProcessor.ProcessingResult result = processor.process(
                 source, output, XuejiePlatform.DAYA, XuejieRewriteMode.HUMANIZE, null);
@@ -128,7 +137,7 @@ class PlatformDoubaoDocumentProcessorTest {
         writeContextBatchFixture(source);
         PlatformDoubaoRewriteGateway gateway = mock(PlatformDoubaoRewriteGateway.class);
         when(gateway.configured()).thenReturn(true);
-        List<List<PlatformDoubaoRewriteGateway.Segment>> observed = new java.util.ArrayList<>();
+        List<List<PlatformDoubaoRewriteGateway.Segment>> observed = new CopyOnWriteArrayList<>();
         when(gateway.rewriteBatch(anyList(), eq(XuejiePlatform.DAYA), eq(XuejieRewriteMode.HUMANIZE)))
                 .thenAnswer(invocation -> {
                     List<PlatformDoubaoRewriteGateway.Segment> segments = List.copyOf(invocation.getArgument(0));
@@ -138,8 +147,7 @@ class PlatformDoubaoDocumentProcessorTest {
                             segment.text().replace("记录已经存在", "记录现有")));
                     return rewritten;
                 });
-        PlatformDoubaoDocumentProcessor processor = new PlatformDoubaoDocumentProcessor(
-                gateway, new PlatformDocumentTextProtector());
+        PlatformDoubaoDocumentProcessor processor = processor(gateway);
 
         processor.process(source, output, XuejiePlatform.DAYA, XuejieRewriteMode.HUMANIZE, null);
 
@@ -155,11 +163,56 @@ class PlatformDoubaoDocumentProcessorTest {
     }
 
     @Test
+    void dayaRunsAtMostThirtyTwoBatchesConcurrentlyAndWritesAllResults() throws Exception {
+        Path source = temporaryDirectory.resolve("daya-concurrent-source.docx");
+        Path output = temporaryDirectory.resolve("daya-concurrent-result.docx");
+        writeConcurrentFixture(source, 33);
+        PlatformDoubaoRewriteGateway gateway = mock(PlatformDoubaoRewriteGateway.class);
+        when(gateway.configured()).thenReturn(true);
+        CountDownLatch firstWaveStarted = new CountDownLatch(
+                PlatformDoubaoDocumentProcessor.DAYA_MAX_CONCURRENCY);
+        AtomicInteger active = new AtomicInteger();
+        AtomicInteger maximumActive = new AtomicInteger();
+        when(gateway.rewriteBatch(anyList(), eq(XuejiePlatform.DAYA), eq(XuejieRewriteMode.HUMANIZE)))
+                .thenAnswer(invocation -> {
+                    int current = active.incrementAndGet();
+                    maximumActive.accumulateAndGet(current, Math::max);
+                    firstWaveStarted.countDown();
+                    try {
+                        assertThat(firstWaveStarted.await(5, TimeUnit.SECONDS)).isTrue();
+                        List<PlatformDoubaoRewriteGateway.Segment> segments = invocation.getArgument(0);
+                        Map<String, String> rewritten = new LinkedHashMap<>();
+                        segments.forEach(segment -> rewritten.put(segment.id(),
+                                segment.text().replaceFirst("记录", "载明")));
+                        return rewritten;
+                    } finally {
+                        active.decrementAndGet();
+                    }
+                });
+        PlatformDoubaoDocumentProcessor processor = processor(gateway);
+
+        PlatformDoubaoDocumentProcessor.ProcessingResult result = processor.process(
+                source, output, XuejiePlatform.DAYA, XuejieRewriteMode.HUMANIZE, null);
+
+        assertThat(maximumActive).hasValue(PlatformDoubaoDocumentProcessor.DAYA_MAX_CONCURRENCY);
+        assertThat(result.totalParagraphs()).isEqualTo(33);
+        assertThat(result.processedParagraphs()).isEqualTo(33);
+        assertThat(result.rewrittenParagraphs()).isEqualTo(33);
+        assertThat(result.failedParagraphs()).isZero();
+        try (InputStream stream = Files.newInputStream(output);
+             XWPFDocument document = new XWPFDocument(stream)) {
+            assertThat(document.getParagraphs().stream()
+                    .filter(paragraph -> paragraph.getText().contains("载明项目现场事实")))
+                    .hasSize(33);
+        }
+    }
+
+    @Test
     void dayaCollectsManualArabicListItemsAsOneEnumerationInsteadOfHeadings() throws Exception {
         Path source = temporaryDirectory.resolve("daya-manual-list.docx");
         writeDayaListFixture(source, false);
-        PlatformDoubaoDocumentProcessor processor = new PlatformDoubaoDocumentProcessor(
-                mock(PlatformDoubaoRewriteGateway.class), new PlatformDocumentTextProtector());
+        PlatformDoubaoDocumentProcessor processor = processor(
+                mock(PlatformDoubaoRewriteGateway.class));
 
         try (InputStream stream = Files.newInputStream(source);
              XWPFDocument document = new XWPFDocument(stream)) {
@@ -179,8 +232,8 @@ class PlatformDoubaoDocumentProcessorTest {
     void dayaCollectsManualChineseListItemsAsOneEnumeration() throws Exception {
         Path source = temporaryDirectory.resolve("daya-chinese-list.docx");
         writeDayaChineseListFixture(source);
-        PlatformDoubaoDocumentProcessor processor = new PlatformDoubaoDocumentProcessor(
-                mock(PlatformDoubaoRewriteGateway.class), new PlatformDocumentTextProtector());
+        PlatformDoubaoDocumentProcessor processor = processor(
+                mock(PlatformDoubaoRewriteGateway.class));
 
         try (InputStream stream = Files.newInputStream(source);
              XWPFDocument document = new XWPFDocument(stream)) {
@@ -209,8 +262,7 @@ class PlatformDoubaoDocumentProcessorTest {
                     return Map.of(segments.get(0).id(),
                             "责任主体已经明确。现场台账每天核验。处置结果当天留痕。");
                 });
-        PlatformDoubaoDocumentProcessor processor = new PlatformDoubaoDocumentProcessor(
-                gateway, new PlatformDocumentTextProtector());
+        PlatformDoubaoDocumentProcessor processor = processor(gateway);
 
         PlatformDoubaoDocumentProcessor.ProcessingResult result = processor.process(
                 source, output, XuejiePlatform.DAYA, XuejieRewriteMode.HUMANIZE, null);
@@ -251,13 +303,20 @@ class PlatformDoubaoDocumentProcessorTest {
             complexRun.addBreak();
             complexRun.setText("下一行仍是原文。");
             document.createTable(1, 1).getRow(0).getCell(0).setText("表格原文");
-            document.createParagraph().createRun().setText("参考文献");
+            document.createParagraph().createRun().setText("5 参考文献");
             document.createParagraph().createRun().setText("[1] 原始参考文献，2025。");
             document.createParagraph().createRun().setText("致谢之后的内容不能改写。");
             try (OutputStream stream = Files.newOutputStream(path)) {
                 document.write(stream);
             }
         }
+    }
+
+    private PlatformDoubaoDocumentProcessor processor(PlatformDoubaoRewriteGateway gateway) {
+        PlatformDoubaoDocumentProcessor processor = new PlatformDoubaoDocumentProcessor(
+                gateway, new PlatformDocumentTextProtector());
+        processors.add(processor);
+        return processor;
     }
 
     private void writeDayaScopeFixture(Path path) throws Exception {
@@ -279,17 +338,28 @@ class PlatformDoubaoDocumentProcessorTest {
             var catalogHeading = document.createParagraph();
             catalogHeading.setStyle("TOC1");
             catalogHeading.createRun().setText("第一章 绪论1");
+            var catalogReferences = document.createParagraph();
+            catalogReferences.setStyle("TOC1");
+            catalogReferences.createRun().setText("参考文献 33");
+            document.createParagraph().createRun().setText("1 绪论 7");
+            document.createParagraph().createRun().setText("5 参考文献 33");
             var heading = document.createParagraph();
             heading.setStyle("Heading1");
-            heading.createRun().setText("第一章 绪论");
+            heading.createRun().setText("绪论");
             document.createParagraph().createRun().setText(
                     "正文自然语言段落描述系统的实际操作、数据变化与已有结果，长度满足处理条件。");
-            document.createParagraph().createRun().setText("参考文献");
-            document.createParagraph().createRun().setText(
-                    "[1] 参考文献中的中文说明即使很长也不能提交给模型处理，必须保持原样。");
             document.createParagraph().createRun().setText("致    谢");
             document.createParagraph().createRun().setText(
                     "导师在选题与结构梳理阶段提供了原稿已经记载的帮助，这段致谢只重组已有事实。");
+            document.createParagraph().createRun().setText("附录A");
+            var appendixHeading = document.createParagraph();
+            appendixHeading.setStyle("Heading1");
+            appendixHeading.createRun().setText("调查问卷");
+            document.createParagraph().createRun().setText(
+                    "附录中的长段文字即使位于普通标题之后也不能重新进入大雅处理范围，必须保持原样。");
+            document.createParagraph().createRun().setText("参考文献");
+            document.createParagraph().createRun().setText(
+                    "[1] 参考文献中的中文说明即使很长也不能提交给模型处理，必须保持原样。");
             document.createParagraph().createRun().setText("原创性声明");
             document.createParagraph().createRun().setText(
                     "声明之后的中文内容即使长度满足要求也属于受保护范围，不能提交给模型处理。");
@@ -310,6 +380,9 @@ class PlatformDoubaoDocumentProcessorTest {
                     "第一段正文包含足够多的中文事实，用于确认模型返回原文时不会被统计成已改写段落。");
             document.createParagraph().createRun().setText(
                     "第二段正文同样包含足够多的中文事实，用于确认真正发生变化时才增加改写计数。");
+            document.createParagraph().createRun().setText("第6章 致谢");
+            document.createParagraph().createRun().setText(
+                    "编号致谢之后的自然语言即使长度满足条件，也必须保持原文且不得提交模型处理。");
             try (OutputStream stream = Files.newOutputStream(path)) {
                 document.write(stream);
             }
@@ -333,6 +406,28 @@ class PlatformDoubaoDocumentProcessorTest {
             for (int index = 1; index <= 2; index++) {
                 document.createParagraph().createRun().setText(
                         "本节第" + index + "段说明另一组既有事实和测试结果，用于验证批次不会跨越章节上下文。");
+            }
+            try (OutputStream stream = Files.newOutputStream(path)) {
+                document.write(stream);
+            }
+        }
+    }
+
+    private void writeConcurrentFixture(Path path, int paragraphCount) throws Exception {
+        try (XWPFDocument document = new XWPFDocument()) {
+            document.createParagraph().createRun().setText("摘要");
+            document.createParagraph().createRun().setText("关键词：并发测试");
+            document.createParagraph().createRun().setText("目录");
+            var catalogReferences = document.createParagraph();
+            catalogReferences.setStyle("TOC1");
+            catalogReferences.createRun().setText("参考文献 33");
+            var heading = document.createParagraph();
+            heading.setStyle("Heading1");
+            heading.createRun().setText("绪论");
+            for (int index = 1; index <= paragraphCount; index++) {
+                String sentence = "项目第" + index
+                        + "段记录项目现场事实和既有数据，用于验证大雅批次确实并发处理且文档仍按原顺序写回。";
+                document.createParagraph().createRun().setText(sentence.repeat(24));
             }
             try (OutputStream stream = Files.newOutputStream(path)) {
                 document.write(stream);
