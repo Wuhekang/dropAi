@@ -7,6 +7,7 @@ import com.dropai.rewrite.mapper.PointTransactionMapper;
 import com.dropai.rewrite.mapper.SchoolMapper;
 import com.dropai.rewrite.mapper.UserAccountMapper;
 import com.dropai.rewrite.service.SchoolService;
+import com.dropai.rewrite.service.AccountSecurityService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -33,7 +34,7 @@ class SchoolViewerStatisticsTest {
         when(jdbc.queryForObject(contains("recharge_order"),eq(BigDecimal.class),eq(7L))).thenReturn(new BigDecimal("3.00"));
         when(jdbc.queryForObject(contains("SCHOOL_GIFT_OUT"),eq(Long.class),eq(1L))).thenReturn(120L);
         AuthContext.setUserId(7L);
-        var stats=new SchoolService(schools,users,jdbc,mock(PointTransactionMapper.class)).viewerStats("30d");
+        var stats=new SchoolService(schools,users,jdbc,mock(PointTransactionMapper.class),mock(AccountSecurityService.class)).viewerStats("30d");
 
         assertEquals(120L,stats.get("studentGiftPoints"));
         assertTrue(stats.containsKey("giftTrend"));

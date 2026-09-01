@@ -1,37 +1,300 @@
 <template>
   <main class="admin-page">
-    <aside class="admin-sidebar"><button class="brand" @click="router.push('/dashboard')"><i>D</i><span><b>Dokiai</b><small>ADMIN CENTER</small></span></button><div class="admin-label"><small>ADMIN WORKSPACE</small><strong>管理控制台</strong></div><nav><button v-for="item in navItems" :key="item.key" :class="{active:activeTab===item.key}" @click="selectTab(item.key)"><i>{{ item.icon }}</i>{{ item.label }}<em v-if="item.key==='reviews'&&pendingOrders">{{ pendingOrders }}</em></button></nav><div class="admin-user"><i>{{ username.slice(0,1) }}</i><span><b>{{ username }}</b><small>超级管理员</small></span></div><button class="back" @click="router.push('/dashboard')">← 返回用户工作台</button></aside>
+    <aside class="admin-sidebar">
+      <button class="brand" @click="router.push('/dashboard')"><i>D</i><span><b>Dokiai</b><small>ADMIN CENTER</small></span></button>
+      <div class="admin-label"><small>ADMIN WORKSPACE</small><strong>管理控制台</strong></div>
+      <nav><button v-for="item in navItems" :key="item.key" :class="{active:activeTab===item.key}" @click="selectTab(item.key)"><i>{{ item.icon }}</i>{{ item.label }}</button></nav>
+      <div class="admin-user"><i>{{ username.slice(0,1) }}</i><span><b>{{ username }}</b><small>超级管理员</small></span></div>
+      <button class="password-entry" type="button" @click="passwordVisible=true">⚿ 修改密码</button>
+      <button class="back" @click="router.push('/dashboard')">← 返回用户工作台</button>
+    </aside>
     <section class="admin-content"><header class="page-head"><div><span>DOKIAI ADMIN CENTER</span><h1>{{ currentMeta.title }}</h1><p>{{ currentMeta.description }}</p></div><button class="outline" @click="refresh">↻ 刷新数据</button></header>
 
-      <template v-if="activeTab==='overview'"><section class="overview-hero"><div><small>PLATFORM OVERVIEW</small><h2>Dokiai 月度运行概览</h2><p>每个自然月独立累计，历史月份不会清除。</p></div><div class="month-switch"><button v-for="item in monthOptions" :key="item.value" :class="{active:financeMonth===item.value}" @click="changeFinanceMonth(item.value)">{{ item.label }}</button></div></section><div class="metrics finance-metrics"><article><span>用户充值金额</span><strong>¥{{ money(finance.userRechargeAmount) }}</strong><small>当月普通用户实际支付</small></article><article><span>学校充值金额</span><strong>¥{{ money(finance.schoolRechargeAmount) }}</strong><small>当月学校账户实际支付</small></article><article><span>操作积分合计</span><strong>{{ Number(finance.operationPointsTotal||0).toLocaleString('zh-CN') }}</strong><small>充值所得积分 + 管理员手动调整</small></article><article><span>人工调整统计价值</span><strong>¥{{ money(finance.adjustedStatisticalValue) }}</strong><small>充值金额已合并人工积分调整</small></article></div><section class="panel"><header><small>MONTHLY FINANCIAL TABLE</small><h2>{{ finance.month }} 月度统计表</h2></header><div class="finance-table"><article><span>用户充值</span><b>¥{{ money(finance.userRechargeAmount) }}</b></article><article><span>学校充值</span><b>¥{{ money(finance.schoolRechargeAmount) }}</b></article><article class="total-row"><span>操作积分合计</span><strong>{{ Number(finance.operationPointsTotal||0).toLocaleString('zh-CN') }}</strong></article><article class="total-row"><span>人工调整统计价值</span><strong>¥{{ money(finance.adjustedStatisticalValue) }}</strong></article></div></section><section class="panel overview-list"><header><small>RECENT USERS</small><h2>最近注册用户</h2></header><UserTable :items="users.slice(0,5)" @detail="openUser" @adjust="openAdjust" /></section></template>
+      <template v-if="activeTab==='overview'"><section class="overview-hero"><div><small>PLATFORM OVERVIEW</small><h2>Dokiai 月度运行概览</h2><p>每个自然月独立累计，历史月份不会清除。</p></div><div class="month-switch"><button v-for="item in monthOptions" :key="item.value" :class="{active:financeMonth===item.value}" @click="changeFinanceMonth(item.value)">{{ item.label }}</button></div></section><div class="metrics finance-metrics"><article><span>用户充值金额</span><strong>¥{{ money(finance.userRechargeAmount) }}</strong><small>当月普通用户实际支付</small></article><article><span>学校充值金额</span><strong>¥{{ money(finance.schoolRechargeAmount) }}</strong><small>当月学校账户实际支付</small></article><article><span>操作积分合计</span><strong>{{ Number(finance.operationPointsTotal||0).toLocaleString('zh-CN') }}</strong><small>充值所得积分 + 管理员手动调整</small></article><article><span>人工调整统计价值</span><strong>¥{{ money(finance.adjustedStatisticalValue) }}</strong><small>充值金额已合并人工积分调整</small></article></div><section class="panel"><header><small>MONTHLY FINANCIAL TABLE</small><h2>{{ finance.month }} 月度统计表</h2></header><div class="finance-table"><article><span>用户充值</span><b>¥{{ money(finance.userRechargeAmount) }}</b></article><article><span>学校充值</span><b>¥{{ money(finance.schoolRechargeAmount) }}</b></article><article class="total-row"><span>操作积分合计</span><strong>{{ Number(finance.operationPointsTotal||0).toLocaleString('zh-CN') }}</strong></article><article class="total-row"><span>人工调整统计价值</span><strong>¥{{ money(finance.adjustedStatisticalValue) }}</strong></article></div></section><section class="panel overview-list"><header><small>RECENT USERS</small><h2>最近注册用户</h2></header><UserTable :items="users.slice(0,5)" @detail="openUser" @adjust="openAdjust" @reset="openAdminReset" @school="openSchoolChange" /></section></template>
 
-      <section v-else-if="activeTab==='users'" class="panel"><div class="section-head"><div><small>USER MANAGEMENT</small><h2>用户管理</h2><p>查看账户身份、积分余额与账户状态。</p></div><label class="search">⌕ <input v-model="userKeyword" placeholder="搜索手机号或用户 ID"></label></div><UserTable :items="filteredUsers" @detail="openUser" @adjust="openAdjust" /></section>
+      <section v-else-if="activeTab==='users'" class="panel"><div class="section-head"><div><small>USER MANAGEMENT</small><h2>用户管理</h2><p>查看账户身份、积分余额与账户状态。</p></div><label class="search">⌕ <input v-model="userKeyword" placeholder="搜索手机号或用户 ID"></label></div><UserTable :items="filteredUsers" @detail="openUser" @adjust="openAdjust" @reset="openAdminReset" @school="openSchoolChange" /></section>
 
       <SchoolAdmin v-else-if="activeTab==='schools'" style="min-height:0;padding:0;background:transparent" />
 
-      <template v-else-if="activeTab==='points'"><div class="metrics"><article><span>平台积分余额</span><strong>{{ totalPoints }}</strong><small>全部用户合计</small></article><article><span>累计发放</span><strong>{{ totalGranted }}</strong><small>历史获得积分</small></article><article><span>累计消费</span><strong>{{ totalUsed }}</strong><small>历史服务消耗</small></article></div><div class="subtabs"><button :class="{active:pointsTab==='accounts'}" @click="pointsTab='accounts'">用户积分管理</button><button :class="{active:pointsTab==='packages'}" @click="pointsTab='packages'">充值套餐</button><button :class="{active:pointsTab==='orders'}" @click="pointsTab='orders'">订单查询</button></div><section v-if="pointsTab==='accounts'" class="panel"><div class="section-head"><div><small>POINTS MANAGEMENT</small><h2>账户积分管理</h2><p>查询用户、调整积分并查看完整流水。</p></div><label class="search">⌕ <input v-model="userKeyword" placeholder="搜索手机号或用户 ID"></label></div><UserTable :items="filteredUsers" @detail="openUser" @adjust="openAdjust" /></section><section v-else-if="pointsTab==='packages'" class="panel"><div class="section-head"><div><small>RECHARGE PACKAGES</small><h2>充值套餐配置</h2><p>普通用户固定比例：2 元 = 10 积分。</p></div><em class="ratio">2 : 10</em></div><div class="package-grid"><article v-for="plan in plans" :key="plan.planId"><small>{{ plan.planId }}</small><strong>¥{{ plan.amount }}</strong><span>{{ plan.points }} 积分</span><em>{{ plan.recommended?'推荐套餐':'标准套餐' }}</em></article></div></section><section v-else class="panel"><div class="section-head"><div><small>ORDER QUERY</small><h2>充值订单查询</h2><p>支付结果自动同步，页面仅用于查询。</p></div><label class="search">⌕ <input v-model="orderKeyword" placeholder="订单号、手机号"></label></div><div class="query-table"><header><span>订单号</span><span>用户</span><span>金额</span><span>积分</span><span>支付状态</span><span>时间</span></header><article v-for="row in filteredOrders" :key="row.orderNo"><code>{{ row.orderNo }}</code><span>{{ row.phone }}</span><span>¥{{ row.amount }}</span><strong>{{ row.points }}</strong><em :class="paymentState(row.status).className">{{ paymentState(row.status).label }}</em><time>{{ formatTime(row.paidAt||row.createdAt) }}</time></article><div v-if="!filteredOrders.length" class="empty">暂无符合条件的订单</div></div></section></template>
+      <template v-else-if="activeTab==='points'"><div class="metrics"><article><span>平台积分余额</span><strong>{{ totalPoints }}</strong><small>全部用户合计</small></article><article><span>累计发放</span><strong>{{ totalGranted }}</strong><small>历史获得积分</small></article><article><span>累计消费</span><strong>{{ totalUsed }}</strong><small>历史服务消耗</small></article></div><div class="subtabs"><button :class="{active:pointsTab==='accounts'}" @click="pointsTab='accounts'">用户积分管理</button><button :class="{active:pointsTab==='packages'}" @click="pointsTab='packages'">充值套餐</button><button :class="{active:pointsTab==='orders'}" @click="pointsTab='orders'">订单查询</button></div><section v-if="pointsTab==='accounts'" class="panel"><div class="section-head"><div><small>POINTS MANAGEMENT</small><h2>账户积分管理</h2><p>查询用户、调整积分并查看完整流水。</p></div><label class="search">⌕ <input v-model="userKeyword" placeholder="搜索手机号或用户 ID"></label></div><UserTable :items="filteredUsers" @detail="openUser" @adjust="openAdjust" @reset="openAdminReset" @school="openSchoolChange" /></section><section v-else-if="pointsTab==='packages'" class="panel"><div class="section-head"><div><small>RECHARGE PACKAGES</small><h2>充值套餐配置</h2><p>普通用户固定比例：2 元 = 10 积分。</p></div><em class="ratio">2 : 10</em></div><div class="package-grid"><article v-for="plan in plans" :key="plan.planId"><small>{{ plan.planId }}</small><strong>¥{{ plan.amount }}</strong><span>{{ plan.points }} 积分</span><em>{{ plan.recommended?'推荐套餐':'标准套餐' }}</em></article></div></section><section v-else class="panel"><div class="section-head"><div><small>ORDER QUERY</small><h2>充值订单查询</h2><p>支付结果自动同步，页面仅用于查询。</p></div><label class="search">⌕ <input v-model="orderKeyword" placeholder="订单号、手机号"></label></div><div class="query-table"><header><span>订单号</span><span>用户</span><span>金额</span><span>积分</span><span>支付状态</span><span>时间</span></header><article v-for="row in filteredOrders" :key="row.orderNo"><code>{{ row.orderNo }}</code><span>{{ row.phone }}</span><span>¥{{ row.amount }}</span><strong>{{ row.points }}</strong><em :class="paymentState(row.status).className">{{ paymentState(row.status).label }}</em><time>{{ formatTime(row.paidAt||row.createdAt) }}</time></article><div v-if="!filteredOrders.length" class="empty">暂无符合条件的订单</div></div></section></template>
 
       <section v-else-if="activeTab==='pricing'" class="panel"><div class="section-head"><div><small>FEATURE PRICING</small><h2>功能价格配置</h2><p>修改后对后续生成请求生效。</p></div></div><div class="pricing-grid"><article v-for="row in pricing" :key="row.featureCode"><span>{{ row.featureCode }}</span><h3>{{ displayFeatureName(row) }}</h3><label>消耗积分<input v-model.number="row.costPoints" type="number" min="0" step="10"></label><footer><label class="switch"><input v-model="row.enabled" type="checkbox"><i></i>{{ row.enabled?'已启用':'已停用' }}</label><button @click="savePrice(row)">保存</button></footer></article></div><div v-if="!pricing.length" class="empty">暂无功能价格配置</div></section>
 
       <section v-else class="panel settings"><small>SYSTEM SETTINGS</small><h2>系统设置</h2><article><div><b>管理员权限保护</b><span>所有 Admin API 均在服务端校验管理员角色。</span></div><em>已启用</em></article><article><div><b>积分流水记录</b><span>每次人工调整均记录数量、原因与备注。</span></div><em>已启用</em></article><article><div><b>用户端隔离</b><span>后台入口不进入普通用户导航。</span></div><em>已启用</em></article></section>
     </section>
 
-    <div v-if="detailVisible" class="mask" @click="detailVisible=false"></div><aside v-if="detailVisible" class="user-drawer"><header><div><small>USER DETAILS</small><h2>用户详情</h2></div><button @click="detailVisible=false">×</button></header><div v-if="selectedUser" class="user-profile"><i>{{ selectedUser.phone?.slice(0,1) }}</i><span><b>{{ selectedUser.phone }}</b><small>ID {{ selectedUser.id }} · {{ selectedUser.role }}</small></span><button @click="openAdjust(selectedUser)">调整积分</button></div><div class="detail-metrics"><span><small>当前积分</small><b>{{ selectedUser?.points??'--' }}</b></span><span><small>累计消费</small><b>{{ selectedUser?.usedPoints??'--' }}</b></span></div><section><small>POINTS TRANSACTIONS</small><h3>积分流水</h3><div class="transaction-list"><article v-for="item in userTransactions" :key="item.id"><span><b>{{ item.featureName||'积分变动' }}</b><small>{{ formatTime(item.createdAt) }} · {{ item.remark||'--' }}</small></span><strong :class="item.pointsChange>=0?'plus':'minus'">{{ item.pointsChange>=0?'+':'' }}{{ item.pointsChange }}</strong></article><div v-if="!userTransactions.length" class="empty">暂无积分流水</div></div></section></aside>
+    <div v-if="detailVisible" class="mask" @click="detailVisible=false"></div>
+    <aside v-if="detailVisible" class="user-drawer">
+      <header><div><small>USER DETAILS</small><h2>用户详情</h2></div><button @click="detailVisible=false">×</button></header>
+      <div v-if="selectedUser" class="user-profile">
+        <i>{{ selectedUser.phone?.slice(0,1) }}</i>
+        <span><b>{{ selectedUser.phone }}</b><small>ID {{ selectedUser.id }} · {{ selectedUser.role }}</small></span>
+        <div class="user-profile-actions">
+          <button @click="openAdjust(selectedUser)">调整积分</button>
+          <button v-if="canResetPassword(selectedUser)" @click="openAdminReset(selectedUser)">重置密码</button>
+          <button v-if="canChangeSchool(selectedUser)" @click="openSchoolChange(selectedUser)">修改学校</button>
+        </div>
+      </div>
+      <div class="detail-metrics"><span><small>当前积分</small><b>{{ selectedUser?.points??'--' }}</b></span><span><small>累计消费</small><b>{{ selectedUser?.usedPoints??'--' }}</b></span></div>
+      <section><small>POINTS TRANSACTIONS</small><h3>积分流水</h3><div class="transaction-list"><article v-for="item in userTransactions" :key="item.id"><span><b>{{ item.featureName||'积分变动' }}</b><small>{{ formatTime(item.createdAt) }} · {{ item.remark||'--' }}</small></span><strong :class="item.pointsChange>=0?'plus':'minus'">{{ item.pointsChange>=0?'+':'' }}{{ item.pointsChange }}</strong></article><div v-if="!userTransactions.length" class="empty">暂无积分流水</div></div></section>
+    </aside>
 
     <div v-if="adjustVisible" class="modal-mask"><section class="adjust-modal"><header><div><small>POINTS ADJUSTMENT</small><h2>调整用户积分</h2></div><button @click="adjustVisible=false">×</button></header><div class="target"><i>{{ adjustUser?.phone?.slice(0,1) }}</i><span><b>{{ adjustUser?.phone }}</b><small>当前积分 {{ adjustUser?.points }}</small></span></div><div class="type-tabs"><button :class="{active:adjustForm.type==='ADD'}" @click="adjustForm.type='ADD'">＋ 增加积分</button><button :class="{active:adjustForm.type==='DEDUCT'}" @click="adjustForm.type='DEDUCT'">− 扣除积分</button></div><label>积分数量 <input v-model.number="adjustForm.quantity" type="number" min="1" placeholder="请输入正整数"></label><label>调整原因 <input v-model="adjustForm.reason" maxlength="100" placeholder="必填，例如：活动奖励"></label><label>备注 <textarea v-model="adjustForm.remark" maxlength="300" placeholder="必填，记录本次调整的具体说明"></textarea></label><div class="preview"><span>调整后预计余额</span><strong>{{ adjustedPreview }}</strong></div><footer><button class="outline" @click="adjustVisible=false">取消</button><button class="primary" :disabled="adjusting" @click="submitAdjustment">{{ adjusting?'正在提交…':'确认调整' }}</button></footer></section></div>
+
+    <div v-if="resetVisible" class="modal-mask" @click.self="resetVisible=false">
+      <section class="adjust-modal management-modal">
+        <header><div><small>RESET USER PASSWORD</small><h2>重置用户密码</h2></div><button @click="resetVisible=false">×</button></header>
+        <div class="target"><i>{{ resetUser?.phone?.slice(0,1) }}</i><span><b>{{ resetUser?.phone }}</b><small>{{ roleName(resetUser?.role) }}</small></span></div>
+        <label>新临时密码 <input v-model="adminPasswordForm.password" type="password" maxlength="72" autocomplete="new-password" placeholder="6–72 位"></label>
+        <label>确认临时密码 <input v-model="adminPasswordForm.confirmPassword" type="password" maxlength="72" autocomplete="new-password" placeholder="再次输入临时密码"></label>
+        <p class="management-warning">重置后原密码立即失效，请通过安全方式将临时密码交付给用户。</p>
+        <footer><button class="outline" @click="resetVisible=false">取消</button><button class="primary" :disabled="managementSaving" @click="submitAdminReset">{{ managementSaving?'正在重置…':'确认重置' }}</button></footer>
+      </section>
+    </div>
+
+    <div v-if="schoolVisible" class="modal-mask" @click.self="schoolVisible=false">
+      <section class="adjust-modal management-modal">
+        <header><div><small>CHANGE USER SCHOOL</small><h2>修改所属学校</h2></div><button @click="schoolVisible=false">×</button></header>
+        <div class="target"><i>{{ schoolUser?.phone?.slice(0,1) }}</i><span><b>{{ schoolUser?.phone }}</b><small>当前：{{ schoolUser?.schoolName||'未绑定学校' }}</small></span></div>
+        <label>新所属学校
+          <select v-model.number="selectedSchoolId">
+            <option :value="0">未绑定学校</option>
+            <option v-for="school in enabledSchools" :key="school.id" :value="Number(school.id)">{{ school.schoolName }}（{{ school.schoolCode }}）</option>
+          </select>
+        </label>
+        <p class="management-warning">仅普通用户可调整学校；管理员与学校统计账号不会显示此操作。</p>
+        <footer><button class="outline" @click="schoolVisible=false">取消</button><button class="primary" :disabled="managementSaving" @click="submitSchoolChange">{{ managementSaving?'正在保存…':'确认修改' }}</button></footer>
+      </section>
+    </div>
+
+    <change-password-dialog v-model="passwordVisible" />
   </main>
 </template>
 
 <script setup>
-import { computed,defineComponent,h,onMounted,reactive,ref,watch } from 'vue';import { useRoute,useRouter } from 'vue-router';import { ElMessage } from 'element-plus';import SchoolAdmin from './SchoolAdmin/index.vue';import { adjustAdminUserPoints,getAdminFinancialSummary,getAdminRechargeOrders,getAdminUserDetail,getAdminUsers,getFeaturePricing,getPointAccount,getRechargePlans,updateFeaturePricing } from '../api/rewrite'
-const router=useRouter(),route=useRoute(),username=sessionStorage.getItem('dropai_username')||'管理员',allowedTabs=['overview','users','schools','points','pricing','settings'],activeTab=ref(allowedTabs.includes(String(route.query.tab))?String(route.query.tab):'overview'),pointsTab=ref('accounts'),users=ref([]),pricing=ref([]),orders=ref([]),plans=ref([]),finance=ref({}),financeMonth=ref(monthKey(new Date())),userKeyword=ref(''),orderKeyword=ref(''),detailVisible=ref(false),selectedUser=ref(null),userTransactions=ref([]),adjustVisible=ref(false),adjustUser=ref(null),adjusting=ref(false),adjustForm=reactive({type:'ADD',quantity:null,reason:'',remark:''})
-const navItems=[{key:'overview',label:'数据概览',icon:'⌂'},{key:'users',label:'用户管理',icon:'◎'},{key:'schools',label:'学校管理',icon:'▣'},{key:'points',label:'积分管理',icon:'✦'},{key:'pricing',label:'价格配置',icon:'◇'},{key:'settings',label:'系统设置',icon:'⚙'}],meta={overview:['数据概览','查看平台用户与积分运行状态。'],users:['用户管理','查询账户信息与积分使用情况。'],schools:['学校管理','管理学校渠道与学校统计账号。'],points:['积分管理','管理用户积分、充值套餐与订单查询。'],pricing:['价格配置','管理各项智能服务的积分价格。'],settings:['系统设置','查看后台安全与数据策略。']}
-const currentMeta=computed(()=>({title:meta[activeTab.value][0],description:meta[activeTab.value][1]})),filteredUsers=computed(()=>users.value.filter(x=>`${x.id} ${x.phone} ${x.schoolName||''} ${x.schoolCode||''} ${x.ownershipType||''}`.toLowerCase().includes(userKeyword.value.toLowerCase()))),filteredOrders=computed(()=>orders.value.filter(x=>`${x.orderNo} ${x.phone}`.toLowerCase().includes(orderKeyword.value.toLowerCase()))),totalPoints=computed(()=>users.value.reduce((s,x)=>s+Number(x.points||0),0)),totalGranted=computed(()=>users.value.reduce((s,x)=>s+Number(x.totalPoints||0),0)),totalUsed=computed(()=>users.value.reduce((s,x)=>s+Number(x.usedPoints||0),0)),adjustedPreview=computed(()=>Math.max(0,Number(adjustUser.value?.points||0)+(adjustForm.type==='ADD'?1:-1)*Number(adjustForm.quantity||0)))
-function monthKey(date){return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}`}const previousMonth=new Date();previousMonth.setMonth(previousMonth.getMonth()-1);const monthOptions=[{label:'本月',value:monthKey(new Date())},{label:'上月',value:monthKey(previousMonth)}]
-const UserTable=defineComponent({props:{items:{type:Array,default:()=>[]}},emits:['detail','adjust'],setup(props,{emit}){return()=>h('div',{class:'user-table'},[h('header',[h('span','用户 ID'),h('span','手机号'),h('span','所属学校 / 编号'),h('span','当前积分'),h('span','归属类型'),h('span','操作')]),...props.items.map(u=>h('article',{key:u.id},[h('code',`#${u.id}`),h('span',u.phone),h('span',u.schoolId?`${u.schoolName} / ${u.schoolCode}`:'未绑定学校'),h('strong',String(u.points??0)),h('em',{class:'active'},u.ownershipType||'普通用户'),h('div',[h('button',{onClick:()=>emit('detail',u)},'详情'),h('button',{class:'adjust',onClick:()=>emit('adjust',u)},'调整积分')])])),!props.items.length?h('div',{class:'empty'},'暂无用户数据'):null])}})
-function formatTime(v){return v?String(v).replace('T',' ').slice(0,16):'--'}function displayFeatureName(row){return({DOCUMENT_REWRITE:'标准优化',DOCUMENT_HUMANIZE:'AI痕迹优化',DOCUMENT_DOUBLE:'深度优化'})[row.featureCode]||row.featureName||row.featureCode}
-async function load(){const [u,p,o,packageList,f]=await Promise.all([getAdminUsers().catch(async()=>{const me=await getPointAccount();return[{id:'ME',phone:username,role:'ADMIN',status:'ACTIVE',...me}]}),getFeaturePricing(),getAdminRechargeOrders().catch(()=>[]),getRechargePlans(),getAdminFinancialSummary(financeMonth.value).catch(()=>({}))]);users.value=u||[];pricing.value=p||[];orders.value=o||[];plans.value=(packageList||[]).filter(x=>[10,20,100].includes(Number(x.amount)));finance.value=f||{}}async function changeFinanceMonth(value){financeMonth.value=value;finance.value=await getAdminFinancialSummary(value)||{}}const money=v=>Number(v||0).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2});function selectTab(tab){activeTab.value=tab;router.push({path:'/points-admin',query:tab==='overview'?{}:{tab}})}function refresh(){load()}async function openUser(user){selectedUser.value=user;detailVisible.value=true;try{const detail=await getAdminUserDetail(user.id);selectedUser.value=detail.account||user;userTransactions.value=detail.transactions||[]}catch{userTransactions.value=[]}}function openAdjust(user){adjustUser.value=user;adjustForm.type='ADD';adjustForm.quantity=null;adjustForm.reason='';adjustForm.remark='';adjustVisible.value=true}async function submitAdjustment(){if(!adjustForm.quantity||!adjustForm.reason.trim()||!adjustForm.remark.trim())return ElMessage.warning('请完整填写数量、原因和备注');adjusting.value=true;try{await adjustAdminUserPoints(adjustUser.value.id,{...adjustForm});ElMessage.success('用户积分已调整并记录流水');adjustVisible.value=false;await load()}finally{adjusting.value=false}}async function savePrice(row){await updateFeaturePricing(row.featureCode,{costPoints:row.costPoints,enabled:row.enabled});ElMessage.success('功能价格已更新')}function paymentState(status){const value=String(status||'').toLowerCase();if(['paid','approved'].includes(value))return{label:'支付成功',className:'success'};if(['refunded','refund'].includes(value))return{label:'退款',className:'refund'};return{label:'支付失败',className:'failed'}}
-watch(()=>route.query.tab,tab=>{activeTab.value=allowedTabs.includes(String(tab))?String(tab):'overview'})
+import { computed, defineComponent, h, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import ChangePasswordDialog from '../components/ChangePasswordDialog.vue'
+import SchoolAdmin from './SchoolAdmin/index.vue'
+import {
+  adjustAdminUserPoints,
+  getAdminFinancialSummary,
+  getAdminRechargeOrders,
+  getAdminUserDetail,
+  getAdminUsers,
+  getFeaturePricing,
+  getPointAccount,
+  getRechargePlans,
+  getSchools,
+  resetAdminUserPassword,
+  updateAdminUserSchool,
+  updateFeaturePricing
+} from '../api/rewrite'
+
+const router = useRouter()
+const route = useRoute()
+const username = sessionStorage.getItem('dropai_username') || '管理员'
+const allowedTabs = ['overview', 'users', 'schools', 'points', 'pricing', 'settings']
+const activeTab = ref(allowedTabs.includes(String(route.query.tab)) ? String(route.query.tab) : 'overview')
+const pointsTab = ref('accounts')
+const users = ref([])
+const schools = ref([])
+const pricing = ref([])
+const orders = ref([])
+const plans = ref([])
+const finance = ref({})
+const financeMonth = ref(monthKey(new Date()))
+const userKeyword = ref('')
+const orderKeyword = ref('')
+const passwordVisible = ref(false)
+const detailVisible = ref(false)
+const selectedUser = ref(null)
+const userTransactions = ref([])
+const adjustVisible = ref(false)
+const adjustUser = ref(null)
+const adjusting = ref(false)
+const adjustForm = reactive({ type: 'ADD', quantity: null, reason: '', remark: '' })
+const resetVisible = ref(false)
+const resetUser = ref(null)
+const schoolVisible = ref(false)
+const schoolUser = ref(null)
+const selectedSchoolId = ref(0)
+const managementSaving = ref(false)
+const adminPasswordForm = reactive({ password: '', confirmPassword: '' })
+
+const navItems = [
+  { key: 'overview', label: '数据概览', icon: '⌂' },
+  { key: 'users', label: '用户管理', icon: '◎' },
+  { key: 'schools', label: '学校管理', icon: '▣' },
+  { key: 'points', label: '积分管理', icon: '✦' },
+  { key: 'pricing', label: '价格配置', icon: '◇' },
+  { key: 'settings', label: '系统设置', icon: '⚙' }
+]
+const meta = {
+  overview: ['数据概览', '查看平台用户与积分运行状态。'],
+  users: ['用户管理', '查询账户信息与积分使用情况。'],
+  schools: ['学校管理', '管理学校渠道与学校统计账号。'],
+  points: ['积分管理', '管理用户积分、充值套餐与订单查询。'],
+  pricing: ['价格配置', '管理各项智能服务的积分价格。'],
+  settings: ['系统设置', '查看后台安全与数据策略。']
+}
+
+const currentMeta = computed(() => ({ title: meta[activeTab.value][0], description: meta[activeTab.value][1] }))
+const filteredUsers = computed(() => users.value.filter(item => `${item.id} ${item.phone} ${item.schoolName || ''} ${item.schoolCode || ''} ${item.ownershipType || ''}`.toLowerCase().includes(userKeyword.value.toLowerCase())))
+const filteredOrders = computed(() => orders.value.filter(item => `${item.orderNo} ${item.phone}`.toLowerCase().includes(orderKeyword.value.toLowerCase())))
+const enabledSchools = computed(() => schools.value.filter(item => item.enabled === true && !item.deletedAt))
+const totalPoints = computed(() => users.value.reduce((sum, item) => sum + Number(item.points || 0), 0))
+const totalGranted = computed(() => users.value.reduce((sum, item) => sum + Number(item.totalPoints || 0), 0))
+const totalUsed = computed(() => users.value.reduce((sum, item) => sum + Number(item.usedPoints || 0), 0))
+const adjustedPreview = computed(() => Math.max(0, Number(adjustUser.value?.points || 0) + (adjustForm.type === 'ADD' ? 1 : -1) * Number(adjustForm.quantity || 0)))
+
+function monthKey(date) { return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}` }
+const previousMonth = new Date()
+previousMonth.setMonth(previousMonth.getMonth() - 1)
+const monthOptions = [{ label: '本月', value: monthKey(new Date()) }, { label: '上月', value: monthKey(previousMonth) }]
+
+function normalizedRole(user) { return String(user?.role || '').toUpperCase() }
+function canResetPassword(user) { return Boolean(user?.id) && ['USER', 'SCHOOL_VIEWER'].includes(normalizedRole(user)) }
+function canChangeSchool(user) { return Boolean(user?.id) && normalizedRole(user) === 'USER' }
+function roleName(role) { return ({ USER: '普通用户', SCHOOL_VIEWER: '学校统计账号', ADMIN: '管理员' })[String(role || '').toUpperCase()] || role || '用户' }
+
+const UserTable = defineComponent({
+  props: { items: { type: Array, default: () => [] } },
+  emits: ['detail', 'adjust', 'reset', 'school'],
+  setup(props, { emit }) {
+    return () => h('div', { class: 'user-table' }, [
+      h('header', [h('span', '用户 ID'), h('span', '手机号'), h('span', '所属学校 / 编号'), h('span', '当前积分'), h('span', '归属类型'), h('span', '操作')]),
+      ...props.items.map(user => {
+        const actions = [
+          h('button', { onClick: () => emit('detail', user) }, '详情'),
+          h('button', { class: 'adjust', onClick: () => emit('adjust', user) }, '调整积分')
+        ]
+        if (canResetPassword(user)) actions.push(h('button', { onClick: () => emit('reset', user) }, '重置密码'))
+        if (canChangeSchool(user)) actions.push(h('button', { onClick: () => emit('school', user) }, '修改学校'))
+        return h('article', { key: user.id }, [
+          h('code', `#${user.id}`),
+          h('span', user.phone),
+          h('span', user.schoolId ? `${user.schoolName} / ${user.schoolCode}` : '未绑定学校'),
+          h('strong', String(user.points ?? 0)),
+          h('em', { class: 'active' }, user.ownershipType || roleName(user.role)),
+          h('div', actions)
+        ])
+      }),
+      !props.items.length ? h('div', { class: 'empty' }, '暂无用户数据') : null
+    ])
+  }
+})
+
+function formatTime(value) { return value ? String(value).replace('T', ' ').slice(0, 16) : '--' }
+function displayFeatureName(row) { return ({ DOCUMENT_REWRITE: '标准优化', DOCUMENT_HUMANIZE: 'AI痕迹优化', DOCUMENT_DOUBLE: '深度优化' })[row.featureCode] || row.featureName || row.featureCode }
+const money = value => Number(value || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+async function load() {
+  const [userList, priceList, orderList, packageList, financial, schoolList] = await Promise.all([
+    getAdminUsers().catch(async () => { const me = await getPointAccount(); return [{ id: 'ME', phone: username, role: 'ADMIN', status: 'ACTIVE', ...me }] }),
+    getFeaturePricing(),
+    getAdminRechargeOrders().catch(() => []),
+    getRechargePlans(),
+    getAdminFinancialSummary(financeMonth.value).catch(() => ({})),
+    getSchools().catch(() => [])
+  ])
+  users.value = userList || []
+  pricing.value = priceList || []
+  orders.value = orderList || []
+  plans.value = (packageList || []).filter(item => [10, 20, 100].includes(Number(item.amount)))
+  finance.value = financial || {}
+  schools.value = schoolList || []
+  if (selectedUser.value) selectedUser.value = users.value.find(item => String(item.id) === String(selectedUser.value.id)) || selectedUser.value
+}
+
+async function changeFinanceMonth(value) { financeMonth.value = value; finance.value = await getAdminFinancialSummary(value) || {} }
+function selectTab(tab) { activeTab.value = tab; router.push({ path: '/points-admin', query: tab === 'overview' ? {} : { tab } }) }
+function refresh() { load() }
+async function openUser(user) {
+  selectedUser.value = user
+  detailVisible.value = true
+  try {
+    const detail = await getAdminUserDetail(user.id)
+    selectedUser.value = detail.account || user
+    userTransactions.value = detail.transactions || []
+  } catch {
+    userTransactions.value = []
+  }
+}
+function openAdjust(user) {
+  adjustUser.value = user
+  adjustForm.type = 'ADD'
+  adjustForm.quantity = null
+  adjustForm.reason = ''
+  adjustForm.remark = ''
+  adjustVisible.value = true
+}
+async function submitAdjustment() {
+  if (!adjustForm.quantity || !adjustForm.reason.trim() || !adjustForm.remark.trim()) return ElMessage.warning('请完整填写数量、原因和备注')
+  adjusting.value = true
+  try {
+    await adjustAdminUserPoints(adjustUser.value.id, { ...adjustForm })
+    ElMessage.success('用户积分已调整并记录流水')
+    adjustVisible.value = false
+    await load()
+  } finally {
+    adjusting.value = false
+  }
+}
+function openAdminReset(user) {
+  if (!canResetPassword(user)) return ElMessage.warning('管理员本人请使用左下角“修改密码”进行安全验证')
+  resetUser.value = user
+  adminPasswordForm.password = ''
+  adminPasswordForm.confirmPassword = ''
+  resetVisible.value = true
+}
+async function submitAdminReset() {
+  if (!canResetPassword(resetUser.value)) return
+  if (adminPasswordForm.password.length < 6 || adminPasswordForm.password.length > 72) return ElMessage.warning('密码长度必须为 6–72 位')
+  if (adminPasswordForm.password !== adminPasswordForm.confirmPassword) return ElMessage.warning('两次输入的密码不一致')
+  await ElMessageBox.confirm(`确认重置账号 ${resetUser.value.phone} 的登录密码？`, '重置用户密码', { type: 'warning', confirmButtonText: '确认重置', cancelButtonText: '取消' })
+  managementSaving.value = true
+  try {
+    await resetAdminUserPassword(resetUser.value.id, adminPasswordForm.password)
+    ElMessage.success('用户密码已重置')
+    resetVisible.value = false
+  } finally {
+    managementSaving.value = false
+  }
+}
+function openSchoolChange(user) {
+  if (!canChangeSchool(user)) return ElMessage.warning('仅普通用户允许修改所属学校')
+  schoolUser.value = user
+  selectedSchoolId.value = Number(user.schoolId || 0)
+  schoolVisible.value = true
+}
+async function submitSchoolChange() {
+  if (!canChangeSchool(schoolUser.value)) return
+  const schoolId = Number(selectedSchoolId.value || 0)
+  const targetSchool = enabledSchools.value.find(item => Number(item.id) === schoolId)
+  if (schoolId > 0 && !targetSchool) return ElMessage.warning('仅可将用户调整到当前启用的学校')
+  const targetName = targetSchool ? `${targetSchool.schoolName}（${targetSchool.schoolCode}）` : '未绑定学校'
+  await ElMessageBox.confirm(`确认将账号 ${schoolUser.value.phone} 的所属学校修改为“${targetName}”？`, '修改所属学校', { type: 'warning', confirmButtonText: '确认修改', cancelButtonText: '取消' })
+  managementSaving.value = true
+  try {
+    await updateAdminUserSchool(schoolUser.value.id, schoolId)
+    ElMessage.success('用户所属学校已更新')
+    schoolVisible.value = false
+    await load()
+  } finally {
+    managementSaving.value = false
+  }
+}
+async function savePrice(row) { await updateFeaturePricing(row.featureCode, { costPoints: row.costPoints, enabled: row.enabled }); ElMessage.success('功能价格已更新') }
+function paymentState(status) {
+  const value = String(status || '').toLowerCase()
+  if (['paid', 'approved'].includes(value)) return { label: '支付成功', className: 'success' }
+  if (['refunded', 'refund'].includes(value)) return { label: '退款', className: 'refund' }
+  return { label: '支付失败', className: 'failed' }
+}
+
+watch(() => route.query.tab, tab => { activeTab.value = allowedTabs.includes(String(tab)) ? String(tab) : 'overview' })
 onMounted(load)
 </script>
 
@@ -39,6 +302,18 @@ onMounted(load)
 .admin-page{min-height:100vh;padding-left:260px;background:linear-gradient(45deg,#fbd7ea,#f8edf5 38%,#eef1f8 65%,#dcebff);color:#252936}.admin-sidebar{position:fixed;inset:18px auto 18px 18px;z-index:5;display:flex;flex-direction:column;width:205px;padding:17px;border:1px solid #e9e5f2;border-radius:22px;background:#ffffffeb;box-shadow:0 20px 60px #30395812}.brand{display:flex;align-items:center;gap:10px;border:0;background:none;text-align:left}.brand i{display:grid;place-items:center;width:40px;height:40px;border-radius:12px;background:linear-gradient(145deg,#4198ff,#7658ef 60%,#df66b7);color:#fff;font-style:normal;font-weight:900}.brand span,.admin-user span{display:grid}.brand small,.admin-user small{color:#979ead;font-size:8px}.admin-label{display:grid;gap:5px;padding:25px 8px 13px;border-bottom:1px solid #efedf5}.admin-label small,.page-head span,.panel small,.overview-hero small,.adjust-modal small,.user-drawer small{color:#6e4fff;font-size:8px;font-weight:800;letter-spacing:.14em}.admin-sidebar nav{display:grid;gap:4px;padding:13px 0}.admin-sidebar nav button{display:flex;align-items:center;gap:10px;padding:10px;border:0;border-radius:10px;background:none;color:#697287;text-align:left}.admin-sidebar nav button.active{background:linear-gradient(110deg,#eee9ff,#fff0f7);color:#6e4fff}.admin-sidebar nav i{width:22px;font-style:normal}.admin-sidebar nav em{margin-left:auto;padding:3px 6px;border-radius:99px;background:#ff5b9e;color:#fff;font-size:8px;font-style:normal}.admin-user{display:flex;align-items:center;gap:9px;margin-top:auto;padding:11px;border-radius:12px;background:#f6f3fb}.admin-user>i{display:grid;place-items:center;width:34px;height:34px;border-radius:10px;background:#6e4fff;color:#fff;font-style:normal}.back{padding:15px 6px 0;border:0;background:none;color:#6e4fff;text-align:left}.admin-content{max-width:1500px;margin:auto;padding:35px 34px 70px 0}.page-head,.section-head{display:flex;align-items:end;justify-content:space-between}.page-head h1{margin:8px 0 4px;font-size:40px}.page-head p,.section-head p{margin:0;color:#777e90}.outline{padding:9px 13px;border:1px solid #b9aaf3;border-radius:9px;background:#fff;color:#6e4fff}.overview-hero,.panel,.metrics article{border:1px solid #e7e3f0;border-radius:20px;background:#ffffffdf;box-shadow:0 16px 45px #45376812}.overview-hero{display:flex;align-items:center;justify-content:space-between;margin-top:20px;padding:28px;background:linear-gradient(135deg,#fff,#f5f1ff 60%,#fff2f8)}.overview-hero h2{margin:7px 0;font-size:28px}.overview-hero p{color:#7c8393}.overview-hero>i{display:grid;place-items:center;width:95px;height:80px;border-radius:22px;background:linear-gradient(135deg,#6e4fff,#ff55b0);color:#fff;font-size:28px;font-style:normal}.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:14px 0}.metrics article{display:grid;gap:5px;padding:18px}.metrics span,.metrics small{color:#9298a7;font-size:9px}.metrics strong{font-size:28px}.panel{margin-top:18px;padding:22px}.panel h2{margin:5px 0}.search{padding:9px 12px;border:1px solid #e4e0ed;border-radius:10px;background:#fff}.search input{border:0;outline:0}.user-table{margin-top:18px}.user-table>header,.user-table>article{display:grid;grid-template-columns:.7fr 1fr 1fr .8fr .6fr 1fr;align-items:center;gap:12px;padding:12px}.user-table>header{color:#9298a7;font-size:9px}.user-table>article{border-top:1px solid #efedf4}.user-table code{color:#6e4fff}.user-table strong{font-size:16px}.user-table em{justify-self:start;padding:5px 8px;border-radius:99px;background:#e8f4ef;color:#145b4d;font-size:8px;font-style:normal}.user-table article>div{display:flex;gap:6px}.user-table button,.order-table button{padding:7px 10px;border:1px solid #ddd8e9;border-radius:8px;background:#fff;color:#6655cd}.user-table .adjust{border-color:#ab97f3;background:#f5f1ff}.order-table{margin-top:18px}.order-table>header,.order-table>article{display:grid;grid-template-columns:1.3fr 1fr 1fr .7fr 1fr;align-items:center;gap:12px;padding:12px}.order-table>header{color:#949aa9;font-size:9px}.order-table>article{border-top:1px solid #efedf4}.order-table code{color:#6e4fff}.order-table em{font-style:normal}.order-table .danger{color:#d44e71}.order-table button:disabled{opacity:.35}.pricing-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:18px}.pricing-grid article{padding:18px;border:1px solid #ebe7f2;border-radius:15px;background:#faf9fd}.pricing-grid article>span{color:#6e4fff;font-size:8px}.pricing-grid h3{margin:6px 0 18px}.pricing-grid article>label{display:grid;gap:6px;color:#8c93a3;font-size:9px}.pricing-grid input[type=number]{padding:10px;border:1px solid #e1dce9;border-radius:9px}.pricing-grid footer{display:flex;justify-content:space-between;align-items:center;margin-top:14px}.pricing-grid footer button{padding:8px 12px;border:0;border-radius:8px;background:#6e4fff;color:#fff}.switch{display:flex!important;align-items:center;gap:7px}.switch input{display:none}.switch i{width:28px;height:16px;border-radius:99px;background:#ccc}.switch input:checked+i{background:#6e4fff}.settings article{display:flex;align-items:center;justify-content:space-between;padding:17px 0;border-top:1px solid #efedf4}.settings article div{display:grid}.settings article span,.settings article em{color:#9298a7;font-size:9px;font-style:normal}.empty{display:grid;place-items:center;min-height:130px;color:#989eac}.mask,.modal-mask{position:fixed;inset:0;z-index:15;background:#29234240}.user-drawer{position:fixed;inset:0 0 0 auto;z-index:20;width:min(430px,90vw);overflow:auto;padding:25px;background:#fff;box-shadow:-20px 0 60px #32284b26}.user-drawer>header,.adjust-modal>header{display:flex;justify-content:space-between}.user-drawer>header h2,.adjust-modal h2{margin:6px 0}.user-drawer>header button,.adjust-modal>header button{border:0;background:none;font-size:25px}.user-profile,.target{display:flex;align-items:center;gap:10px;margin:20px 0;padding:14px;border-radius:13px;background:#f7f4fc}.user-profile>i,.target>i{display:grid;place-items:center;width:42px;height:42px;border-radius:12px;background:#6e4fff;color:#fff;font-style:normal}.user-profile span,.target span{display:grid}.user-profile small,.target small{color:#9298a7}.user-profile button{margin-left:auto;border:0;background:none;color:#6e4fff}.detail-metrics{display:grid;grid-template-columns:1fr 1fr;gap:9px}.detail-metrics span{display:grid;padding:13px;border-radius:11px;background:#faf9fd}.detail-metrics small{color:#9298a7;letter-spacing:0}.user-drawer section{margin-top:24px}.transaction-list article{display:flex;justify-content:space-between;padding:11px;border-bottom:1px solid #efedf4}.transaction-list span{display:grid}.transaction-list small{color:#9298a7;letter-spacing:0}.transaction-list .plus{color:#145b4d}.transaction-list .minus{color:#d44e71}.modal-mask{z-index:30;display:grid;place-items:center}.adjust-modal{width:min(480px,calc(100% - 30px));padding:25px;border-radius:22px;background:#fff;box-shadow:0 25px 80px #32284b3d}.type-tabs{display:grid;grid-template-columns:1fr 1fr;gap:8px}.type-tabs button{padding:11px;border:1px solid #e2ddea;border-radius:10px;background:#fff}.type-tabs button.active{border-color:#8d78ea;background:#f4f0ff;color:#6e4fff}.adjust-modal>label{display:grid;gap:6px;margin-top:13px;color:#777e8e;font-size:10px}.adjust-modal>label input,.adjust-modal textarea{padding:10px;border:1px solid #ded9e8;border-radius:9px}.adjust-modal textarea{min-height:75px;resize:vertical}.preview{display:flex;justify-content:space-between;margin-top:14px;padding:12px;border-radius:10px;background:#f6f2ff}.preview strong{color:#6e4fff;font-size:20px}.adjust-modal>footer{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}.primary{padding:10px 15px;border:0;border-radius:9px;background:linear-gradient(135deg,#6e4fff,#ff55b0);color:#fff;font-weight:700}@media(max-width:1000px){.metrics,.pricing-grid{grid-template-columns:1fr 1fr}}@media(max-width:720px){.admin-page{padding:12px}.admin-sidebar{position:static;width:auto}.admin-content{padding-right:0}.metrics,.pricing-grid{grid-template-columns:1fr}.user-table{overflow:auto}.user-table>header,.user-table>article{min-width:800px}}
 :deep(.user-table){margin-top:18px}:deep(.user-table>header),:deep(.user-table>article){display:grid;grid-template-columns:.7fr 1fr 1fr .8fr .6fr 1fr;align-items:center;gap:12px;padding:12px}:deep(.user-table>header){color:#9298a7;font-size:9px}:deep(.user-table>article){border-top:1px solid #efedf4}:deep(.user-table code){color:#6e4fff}:deep(.user-table strong){font-size:16px}:deep(.user-table em){justify-self:start;padding:5px 8px;border-radius:99px;background:#e8f4ef;color:#145b4d;font-size:8px;font-style:normal}:deep(.user-table article>div){display:flex;gap:6px}:deep(.user-table button){padding:7px 10px;border:1px solid #ddd8e9;border-radius:8px;background:#fff;color:#6655cd}:deep(.user-table .adjust){border-color:#ab97f3;background:#f5f1ff}:deep(.user-table .empty){display:grid;place-items:center;min-height:130px;color:#989eac}
 .subtabs{display:flex;gap:6px;margin:18px 0 0}.subtabs button{padding:9px 14px;border:1px solid #e0dbea;border-radius:10px;background:#ffffffa8;color:#777e8f}.subtabs button.active{border-color:#917bea;background:#f2edff;color:#6e4fff}.ratio{padding:8px 13px;border-radius:99px;background:#eee9ff;color:#6e4fff;font-style:normal;font-weight:800}.package-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:18px}.package-grid article{display:grid;gap:6px;padding:21px;border:1px solid #e8e3f0;border-radius:16px;background:linear-gradient(145deg,#fff,#f8f5ff)}.package-grid article small{letter-spacing:.08em}.package-grid article strong{font-size:30px}.package-grid article span{color:#6e4fff}.package-grid article em{justify-self:start;padding:5px 8px;border-radius:99px;background:#eee9ff;color:#6e4fff;font-size:8px;font-style:normal}.query-table{margin-top:18px}.query-table>header,.query-table>article{display:grid;grid-template-columns:1.25fr 1fr .6fr .6fr .7fr 1fr;align-items:center;gap:12px;padding:12px}.query-table>header{color:#9298a7;font-size:9px}.query-table>article{border-top:1px solid #efedf4}.query-table code{color:#6e4fff}.query-table em{justify-self:start;padding:5px 8px;border-radius:99px;font-size:8px;font-style:normal}.query-table em.success{background:#e7f4ef;color:#145b4d}.query-table em.failed{background:#fff0f3;color:#d34d70}.query-table em.refund{background:#fff4df;color:#a36c16}
+</style>
+<style scoped>
+.password-entry{margin-top:8px;padding:9px 11px;border:1px solid #d9d1ee;border-radius:10px;background:#fff;color:#654fd2;text-align:left}
+.password-entry:hover,.password-entry:focus-visible{border-color:#8f78e7;background:#f4f0ff;outline:2px solid #cfc4fa;outline-offset:2px}
+.user-profile-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:5px;margin-left:auto}
+.user-profile-actions button{margin-left:0;padding:6px 8px;border:1px solid #ddd8e9;border-radius:8px;background:#fff}
+.management-modal select{width:100%;padding:10px;border:1px solid #ded9e8;border-radius:9px;background:#fff;color:#353947}
+.management-warning{margin:14px 0 0;padding:11px;border-radius:10px;background:#fff7e8;color:#9c651e;font-size:11px;line-height:1.6}
+:deep(.user-table){overflow-x:auto}
+:deep(.user-table>header),:deep(.user-table>article){min-width:1120px;grid-template-columns:.65fr .9fr 1.05fr .65fr .65fr 1.75fr}
+:deep(.user-table article>div){display:flex;flex-wrap:wrap}
+@media(max-width:720px){.password-entry{width:100%}.user-profile{align-items:flex-start;flex-wrap:wrap}.user-profile-actions{width:100%;margin-left:52px;justify-content:flex-start}}
 </style>
 <style scoped>
 .admin-content :deep(.page > header > button:first-child),.admin-content :deep(.page > header > div:first-of-type){display:none}.admin-content :deep(.page > header){justify-content:flex-end}.month-switch{display:flex;gap:7px}.month-switch button{padding:9px 14px;border:1px solid #dcd5eb;border-radius:9px;background:#fff;color:#777e90}.month-switch button.active{border-color:#8d78ea;background:#eee9ff;color:#654fd2}.finance-metrics{grid-template-columns:repeat(4,1fr)}.finance-table{display:grid;grid-template-columns:1fr 1fr;margin-top:16px;border:1px solid #ece8f2;border-radius:14px;overflow:hidden}.finance-table article{display:flex;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #efecf4}.finance-table article:nth-child(odd){border-right:1px solid #efecf4}.finance-table .minus{color:#d34d70}.finance-table .total-row{background:#f7f3ff;color:#5d4bc7}.finance-table .total-row strong{font-size:18px}@media(max-width:900px){.finance-metrics,.finance-table{grid-template-columns:1fr}.finance-table article:nth-child(odd){border-right:0}.month-switch{margin-top:12px}}

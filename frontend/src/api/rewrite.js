@@ -140,6 +140,10 @@ export async function logout() {
   }
 }
 
+export function changeMyPassword(data) {
+  return request.put('/account/password', data)
+}
+
 export function getPointAccount() {
   return request.get('/points/me')
 }
@@ -158,6 +162,10 @@ export function updateFeaturePricing(featureCode, data) {
 
 export function getRechargePlans() {
   return request.get('/recharge/plans')
+}
+
+export function getRechargePricing() {
+  return request.get('/recharge/pricing')
 }
 
 export function createRechargeOrder(data) {
@@ -191,16 +199,21 @@ export function getAdminRechargeOrders() {
 export function adjustAdminUserPoints(userId, data) {
   return request.post(`/admin/users/${userId}/points-adjust`, data)
 }
+export function resetAdminUserPassword(userId, password){return request.put(`/admin/users/${userId}/password`,{password})}
+export function updateAdminUserSchool(userId,schoolId){return request.put(`/admin/users/${userId}/school`,{schoolId})}
 export function getAdminFinancialSummary(month){return request.get('/admin/users/financial-summary',{params:{month}})}
 export function getSchools(){return request.get('/admin/schools')}
 export function createSchool(data){return request.post('/admin/schools',data)}
 export function updateSchool(id,data){return request.put(`/admin/schools/${id}`,data)}
+export function deleteSchool(id){return request.delete(`/admin/schools/${id}`)}
 export function setSchoolEnabled(id,enabled){return request.put(`/admin/schools/${id}/enabled`,{enabled})}
 export function createSchoolViewer(id,data){return request.post(`/admin/schools/${id}/viewers`,data)}
 export function updateSchoolViewer(id,data){return request.put(`/admin/school-viewers/${id}`,data)}
 export function getSchoolViewerStatistics(range='30d'){return request.get('/school-viewer/statistics',{params:{range}})}
 export function getSchoolStudents(){return request.get('/school-viewer/students')}
 export function giftSchoolStudentPoints(id,points){return request.post(`/school-viewer/students/${id}/gift`,{points})}
+export function deleteSchoolStudent(id,currentPassword){return request.delete(`/school-viewer/students/${id}`,{data:{currentPassword}})}
+export function updateSchoolStudentRechargePrice(studentRechargePricePer10){return request.put('/school-viewer/recharge-price',{studentRechargePricePer10})}
 
 export function mockPayRechargeOrder(orderNo) {
   return request.post(`/recharge/orders/${orderNo}/mock-pay`)
@@ -525,10 +538,6 @@ export function deleteWritingSection(id, sectionId) {
 
 export function reorderWritingSections(id, sectionIds) {
   return request.put(`/writing/projects/${id}/sections/reorder`, sectionIds)
-}
-
-export function getWritingProjectHistory() {
-  return request.get('/writing/projects/history')
 }
 
 export function addWritingChart(id, chapterId, data) {

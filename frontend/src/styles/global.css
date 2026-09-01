@@ -426,6 +426,34 @@ p {
   backdrop-filter: blur(20px);
 }
 
+/* Dialog actions must stay legible even when page-scoped button rules are more specific. */
+.el-dialog .el-button--primary,
+.el-message-box .el-button--primary {
+  color: #fff !important;
+  border-color: transparent !important;
+  background: var(--primary-gradient) !important;
+  box-shadow: 0 8px 20px rgba(108, 99, 255, 0.2);
+}
+
+.el-dialog .el-button:not(.el-button--primary),
+.el-message-box .el-button:not(.el-button--primary) {
+  color: #584bb5 !important;
+  border-color: rgba(108, 99, 255, 0.3) !important;
+  background: #fff !important;
+}
+
+.el-dialog .el-button:focus-visible,
+.el-message-box .el-button:focus-visible {
+  outline: 3px solid rgba(108, 99, 255, 0.25) !important;
+  outline-offset: 2px;
+}
+
+.el-message-box .el-button.danger-confirm-button {
+  color: #fff !important;
+  background: linear-gradient(135deg, #d94f6d, #b93453) !important;
+  box-shadow: 0 8px 20px rgba(185, 52, 83, 0.2);
+}
+
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;

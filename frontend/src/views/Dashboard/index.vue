@@ -8,8 +8,7 @@
       <nav class="workspace-nav">
         <small>工作空间</small>
         <button class="active" type="button"><i>⌂</i>工作台</button>
-        <button type="button" @click="router.push('/projects')"><i>□</i>我的项目</button>
-        <button type="button" @click="router.push('/projects')"><i>📁</i>历史项目</button>
+        <button type="button" @click="router.push({ path: '/account', query: { tab: 'projects' } })"><i>□</i>我的项目</button>
         <button type="button" @click="router.push('/points')"><i>✦</i>积分中心</button>
         <button type="button" @click="router.push('/account')"><i>◌</i>账户中心</button>
       </nav>
@@ -53,6 +52,7 @@
           </div>
           <button type="button" @click="goAccount">个人中心</button>
           <button type="button" @click="goAccount">账号设置</button>
+          <button type="button" @click="openPasswordDialog">修改密码</button>
           <button type="button" @click="router.push('/points')">会员权益</button>
           <button type="button" @click="router.push('/points')">积分记录</button>
           <button class="danger" type="button" @click="signOut">退出登录</button>
@@ -150,7 +150,7 @@
           </div>
           <div>
             <button type="button" :disabled="loading" @click="refreshDocuments">刷新</button>
-            <button type="button" @click="router.push('/projects')">查看全部 →</button>
+            <button type="button" @click="router.push({ path: '/account', query: { tab: 'projects' } })">查看全部 →</button>
           </div>
         </header>
 
@@ -172,6 +172,7 @@
     </section>
 
     <admin-notice-modal v-model="adminNoticeVisible" />
+    <change-password-dialog v-model="passwordVisible" />
   </main>
 </template>
 
@@ -179,6 +180,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import AdminNoticeModal from '../../components/AdminNoticeModal.vue'
+import ChangePasswordDialog from '../../components/ChangePasswordDialog.vue'
 import { getMyDocuments, getPointAccount, logout } from '../../api/rewrite'
 
 const router = useRouter()
@@ -189,6 +191,7 @@ const documents = ref([])
 const loading = ref(false)
 const pointsLoading = ref(false)
 const adminNoticeVisible = ref(false)
+const passwordVisible = ref(false)
 const userMenuOpen = ref(false)
 const pointAccount = ref({ points: null, totalPoints: null, usedPoints: null })
 
@@ -231,6 +234,11 @@ async function loadPoints() {
 function goAccount() {
   userMenuOpen.value = false
   router.push('/account')
+}
+
+function openPasswordDialog() {
+  userMenuOpen.value = false
+  passwordVisible.value = true
 }
 
 function continueProject(project) {

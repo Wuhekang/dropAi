@@ -29,11 +29,13 @@ import java.util.List;
 import java.util.Comparator;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 @Service
 public class RechargeService {
     private static final Logger log = LoggerFactory.getLogger(RechargeService.class);
+    private static final BigDecimal STANDARD_PRICE_PER_10 = new BigDecimal("2.00");
     private static final Map<String, Plan> PLANS = Map.of(
             "PLAN_10", new Plan("PLAN_10", 10, 50, false),
             "PLAN_20", new Plan("PLAN_20", 20, 100, true),
@@ -63,10 +65,27 @@ public class RechargeService {
     }
 
     public List<RechargePlanVO> plans() {
+        Pricing pricing = currentPricing();
         return PLANS.values().stream()
                 .sorted(Comparator.comparingInt(Plan::amount))
-                .map(plan -> new RechargePlanVO(plan.planId(), BigDecimal.valueOf(plan.amount()), plan.points(), plan.recommended()))
+                .map(plan -> {
+                    BigDecimal amount = BigDecimal.valueOf(plan.amount()).setScale(2);
+                    return new RechargePlanVO(plan.planId(), amount,
+                            calculateRechargePoints(amount, pricing.pricePer10()), plan.recommended());
+                })
                 .toList();
+    }
+
+    public Map<String, Object> pricing() {
+        Pricing pricing = currentPricing();
+        Map<String, Object> out = new java.util.LinkedHashMap<>();
+        out.put("pricePer10", pricing.pricePer10());
+        out.put("minAmount", pricing.minAmount());
+        out.put("maxAmount", pricing.maxAmount());
+        out.put("schoolPricing", pricing.schoolPricing());
+        out.put("schoolId", pricing.schoolId());
+        out.put("schoolName", pricing.schoolName());
+        return out;
     }
 
     @Transactional
@@ -75,18 +94,19 @@ public class RechargeService {
         if (dto.getUserId() != null && !dto.getUserId().equals(userId)) {
             throw new IllegalArgumentException("不能为其他用户创建充值订单");
         }
-        UserAccount user = userMapper.selectById(userId);
-        if (user == null) throw new IllegalArgumentException("用户不存在");
-        boolean schoolAccount = "SCHOOL_VIEWER".equalsIgnoreCase(user.getRole());
-        BigDecimal schoolPrice=schoolAccount?schoolRechargePrice(user):null;
-        BigDecimal amount = schoolAccount ? validateSchoolAmount(dto.getAmount(),schoolPrice) : validateAmount(dto.getAmount());
-        int points = calculateRechargePoints(amount, schoolPrice);
+        LockedRechargeAccount locked = lockRechargeAccount(userId);
+        UserAccount user = locked.user();
+        Pricing pricing = pricingFor(user, locked.school());
+        BigDecimal amount = pricing.schoolPricing()
+                ? validateSchoolAmount(dto.getAmount(), pricing.pricePer10(), pricing.maxAmount())
+                : validateAmount(dto.getAmount());
+        int points = calculateRechargePoints(amount, pricing.pricePer10());
         RechargeOrder order = new RechargeOrder();
         order.setUserId(userId);
         order.setSchoolId(user.getSchoolId() == null ? 0L : user.getSchoolId());
         order.setOrderNo("R" + System.currentTimeMillis() + UUID.randomUUID().toString().replace("-", "").substring(0, 4).toUpperCase());
         order.setAmount(amount);
-        order.setRechargePricePer10(schoolPrice);
+        order.setRechargePricePer10(pricing.pricePer10());
         order.setPoints(points);
         order.setStatus("pending");
         order.setPayMethod(normalizePayMethod(dto.getPayMethod()));
@@ -135,12 +155,20 @@ public class RechargeService {
         if (dto.getPayAmount() == null || dto.getPayAmount().compareTo(order.getAmount()) != 0) {
             throw new IllegalArgumentException("支付金额与订单金额不一致");
         }
+        String payAccountLast4 = normalizeLast4(dto.getPayAccountLast4());
+        LocalDateTime updatedAt = LocalDateTime.now();
+        int changed = orderMapper.confirmPending(order.getId(), userId, dto.getPayAmount(),
+                payAccountLast4, dto.getProofImage(), updatedAt);
+        if (changed != 1) {
+            RechargeOrder latest = loadOrderForUpdate(order.getId());
+            if (isCompleted(latest)) return RechargeOrderVO.of(latest);
+            throw new IllegalStateException("订单正在处理或状态不可提交支付确认");
+        }
         order.setPayAmount(dto.getPayAmount());
-        order.setPayAccountLast4(normalizeLast4(dto.getPayAccountLast4()));
+        order.setPayAccountLast4(payAccountLast4);
         order.setProofImage(dto.getProofImage());
         order.setStatus("waiting_review");
-        order.setUpdatedAt(LocalDateTime.now());
-        orderMapper.updateById(order);
+        order.setUpdatedAt(updatedAt);
         return RechargeOrderVO.of(order);
     }
 
@@ -154,6 +182,12 @@ public class RechargeService {
         if ("approved".equalsIgnoreCase(order.getStatus())) return RechargeOrderVO.of(order);
         if (!"waiting_review".equalsIgnoreCase(order.getStatus())) {
             throw new IllegalStateException("只有待审核订单可以审核");
+        }
+        if (orderMapper.claimPending(order.getId()) != 1) {
+            RechargeOrder latest = loadOrderForUpdate(order.getId());
+            if (isCompleted(latest) || (latest != null && "rejected".equalsIgnoreCase(latest.getStatus())
+                    && "rejected".equals(status))) return RechargeOrderVO.of(latest);
+            throw new IllegalStateException("订单正在处理或状态不可审核");
         }
         order.setStatus(status);
         order.setAuditedAt(LocalDateTime.now());
@@ -187,7 +221,10 @@ public class RechargeService {
             return "fail";
         }
         ensureTradeNumbersUnused(order.getId(), tradeNo, providerTradeNo);
-        if (orderMapper.claimPending(order.getId()) != 1) return "success";
+        if (orderMapper.claimPending(order.getId()) != 1) {
+            RechargeOrder latest = loadOrderForUpdate(order.getId());
+            return isCompleted(latest) ? "success" : "fail";
+        }
         Long transactionId = creditPoints(order);
         order.setStatus("paid"); order.setPayAmount(order.getAmount()); order.setThirdPartyTradeNo(tradeNo);
         order.setGatewayOrderNo(tradeNo); order.setProviderTradeNo(providerTradeNo);
@@ -214,7 +251,14 @@ public class RechargeService {
             if (!"paid".equalsIgnoreCase(order.getStatus()) && !"approved".equalsIgnoreCase(order.getStatus())) {
                 if (!pointsMatchAccountRate(order))
                     throw new IllegalStateException("本地订单积分计算不一致");
-                if (orderMapper.claimPending(order.getId()) != 1) throw new IllegalStateException("订单正在处理或状态不可补单");
+                if (orderMapper.claimPending(order.getId()) != 1) {
+                    RechargeOrder latest = loadOrderForUpdate(order.getId());
+                    if (isCompleted(latest)) {
+                        writeReconcile(orderNo, admin.getId(), cleanReason, "already_paid", "idempotent");
+                        return RechargeOrderVO.of(latest);
+                    }
+                    throw new IllegalStateException("订单正在处理或状态不可补单");
+                }
                 Long transactionId = creditPoints(order);
                 ensureTradeNumbersUnused(order.getId(), payment.gatewayOrderNo(), payment.providerTradeNo());
                 order.setStatus("paid"); order.setPayAmount(order.getAmount()); order.setThirdPartyTradeNo(payment.gatewayOrderNo());
@@ -257,7 +301,11 @@ public class RechargeService {
         if (!"pending".equalsIgnoreCase(order.getStatus())) {
             throw new IllegalStateException("\u8ba2\u5355\u72b6\u6001\u4e0d\u53ef\u652f\u4ed8");
         }
-
+        if (orderMapper.claimPending(order.getId()) != 1) {
+            RechargeOrder latest = loadOrderForUpdate(order.getId());
+            if (isCompleted(latest)) return RechargeOrderVO.of(latest);
+            throw new IllegalStateException("订单正在处理或状态不可支付");
+        }
         creditPoints(order);
         order.setStatus("paid");
         order.setPaidAt(LocalDateTime.now());
@@ -269,8 +317,13 @@ public class RechargeService {
     private Long creditPoints(RechargeOrder order) {
         Long userId = order.getUserId();
         UserAccount before = userMapper.selectById(userId);
+        if (before == null || before.getDeletedAt() != null || !Boolean.TRUE.equals(before.getAccountEnabled())) {
+            throw new IllegalStateException("充值账号不存在或已停用");
+        }
         int beforePoints = before.getPoints() == null ? 0 : before.getPoints();
-        userMapper.addPoints(userId, order.getPoints());
+        if (userMapper.addPoints(userId, order.getPoints()) != 1) {
+            throw new IllegalStateException("充值积分入账失败");
+        }
         UserAccount after = userMapper.selectById(userId);
         int afterPoints = after.getPoints() == null ? beforePoints + order.getPoints() : after.getPoints();
 
@@ -307,25 +360,122 @@ public class RechargeService {
 
     public BigDecimal validateSchoolAmount(BigDecimal amount) { return validateSchoolAmount(amount,new BigDecimal("0.30")); }
     public BigDecimal validateSchoolAmount(BigDecimal amount,BigDecimal pricePer10) {
+        return validateSchoolAmount(amount, pricePer10, new BigDecimal("100000.00"));
+    }
+
+    public BigDecimal validateSchoolAmount(BigDecimal amount, BigDecimal pricePer10, BigDecimal maxAmount) {
         if (amount == null) throw new IllegalArgumentException("充值金额不能为空");
-        if (amount.scale() > 2) throw new IllegalArgumentException("充值金额最多保留两位小数");
+        BigDecimal normalized = amount.stripTrailingZeros();
+        if (normalized.scale() > 2) throw new IllegalArgumentException("充值金额最多保留两位小数");
         if (amount.compareTo(pricePer10) < 0) throw new IllegalArgumentException("学校充值金额不能少于每10积分价格");
-        if (amount.compareTo(BigDecimal.valueOf(100000)) > 0) throw new IllegalArgumentException("学校充值金额不能超过100000元");
+        if (amount.compareTo(maxAmount) > 0) throw new IllegalArgumentException("学校充值金额不能超过" + maxAmount.stripTrailingZeros().toPlainString() + "元");
         return amount.setScale(2, RoundingMode.UNNECESSARY);
     }
 
     public int calculateRechargePoints(BigDecimal amount, boolean schoolAccount) { return calculateRechargePoints(amount,schoolAccount?new BigDecimal("0.30"):null); }
     public int calculateRechargePoints(BigDecimal amount, BigDecimal pricePer10) {
-        if (pricePer10==null) return amount.intValueExact() * 5;
-        return amount.multiply(BigDecimal.TEN).divide(pricePer10, 0, RoundingMode.DOWN).intValueExact();
+        BigDecimal snapshotPrice = pricePer10 == null ? STANDARD_PRICE_PER_10 : pricePer10;
+        return amount.multiply(BigDecimal.TEN).divide(snapshotPrice, 0, RoundingMode.DOWN).intValueExact();
     }
 
     private boolean pointsMatchAccountRate(RechargeOrder order) {
         if (order.getPoints() == null || order.getAmount() == null) return false;
+        if (order.getRechargePricePer10() == null) return order.getPoints() > 0;
         return order.getPoints() == calculateRechargePoints(order.getAmount(),order.getRechargePricePer10());
     }
 
-    private BigDecimal schoolRechargePrice(UserAccount user){School school=user.getSchoolId()==null?null:schoolMapper.selectById(user.getSchoolId());if(school==null||!Boolean.TRUE.equals(school.getEnabled()))throw new IllegalStateException("学校不存在或已停用");return school.getRechargePricePer10()==null?new BigDecimal("0.30"):school.getRechargePricePer10();}
+    private RechargeOrder loadOrderForUpdate(Long orderId) {
+        if (orderId == null) return null;
+        return orderMapper.selectOne(new LambdaQueryWrapper<RechargeOrder>()
+                .eq(RechargeOrder::getId, orderId)
+                .last("FOR UPDATE"));
+    }
+
+    private boolean isCompleted(RechargeOrder order) {
+        return order != null && ("paid".equalsIgnoreCase(order.getStatus())
+                || "approved".equalsIgnoreCase(order.getStatus()));
+    }
+
+    private Pricing currentPricing() {
+        UserAccount user = userMapper.selectById(AuthContext.requireUserId());
+        if (user == null || user.getDeletedAt() != null || !Boolean.TRUE.equals(user.getAccountEnabled()))
+            throw new IllegalArgumentException("用户不存在或已停用");
+        return pricingFor(user, false);
+    }
+
+    private Pricing pricingFor(UserAccount user, boolean lockSchool) {
+        Long schoolId = user.getSchoolId() == null ? 0L : user.getSchoolId();
+        boolean eligibleRole = "USER".equalsIgnoreCase(user.getRole()) || "SCHOOL_VIEWER".equalsIgnoreCase(user.getRole());
+        if (eligibleRole && schoolId > 0) {
+            School school = lockSchool
+                    ? schoolMapper.selectOne(new LambdaQueryWrapper<School>()
+                            .eq(School::getId, schoolId)
+                            .isNull(School::getDeletedAt)
+                            .last("FOR UPDATE"))
+                    : schoolMapper.selectById(schoolId);
+            return pricingFor(user, school);
+        }
+        return new Pricing(STANDARD_PRICE_PER_10, BigDecimal.ONE.setScale(2),
+                new BigDecimal("1000.00"), false, 0L, null);
+    }
+
+    private Pricing pricingFor(UserAccount user, School school) {
+        Long schoolId = user.getSchoolId() == null ? 0L : user.getSchoolId();
+        boolean eligibleRole = "USER".equalsIgnoreCase(user.getRole()) || "SCHOOL_VIEWER".equalsIgnoreCase(user.getRole());
+        if (eligibleRole && schoolId > 0) {
+            if (school == null || school.getDeletedAt() != null || !Boolean.TRUE.equals(school.getEnabled()))
+                throw new IllegalStateException("学校不存在或已停用");
+            BigDecimal schoolPrice = school.getRechargePricePer10() == null
+                    ? SchoolService.MIN_RECHARGE_PRICE : school.getRechargePricePer10();
+            if (schoolPrice.compareTo(SchoolService.MIN_RECHARGE_PRICE) < 0 || schoolPrice.stripTrailingZeros().scale() > 2)
+                throw new IllegalStateException("学校账户充值价格配置无效");
+            schoolPrice = schoolPrice.setScale(2, RoundingMode.UNNECESSARY);
+            boolean schoolViewer = "SCHOOL_VIEWER".equalsIgnoreCase(user.getRole());
+            BigDecimal price = schoolViewer ? schoolPrice : school.getStudentRechargePricePer10();
+            if (price == null) price = schoolPrice.max(SchoolService.MIN_RECHARGE_PRICE);
+            if (price.compareTo(schoolPrice.max(SchoolService.MIN_RECHARGE_PRICE)) < 0
+                    || price.compareTo(SchoolService.MAX_RECHARGE_PRICE) > 0
+                    || price.stripTrailingZeros().scale() > 2) {
+                throw new IllegalStateException("下级账号充值价格配置无效");
+            }
+            price = price.setScale(2, RoundingMode.UNNECESSARY);
+            BigDecimal max = schoolViewer
+                    ? new BigDecimal("100000.00") : new BigDecimal("1000.00");
+            return new Pricing(price.setScale(2), price.setScale(2), max, true, schoolId, school.getSchoolName());
+        }
+        return new Pricing(STANDARD_PRICE_PER_10, BigDecimal.ONE.setScale(2),
+                new BigDecimal("1000.00"), false, 0L, null);
+    }
+
+    private LockedRechargeAccount lockRechargeAccount(Long userId) {
+        UserAccount hint = userMapper.selectById(userId);
+        if (hint == null || hint.getDeletedAt() != null || !Boolean.TRUE.equals(hint.getAccountEnabled())) {
+            throw new IllegalArgumentException("用户不存在或已停用");
+        }
+        Long hintedSchoolId = normalizedSchoolId(hint.getSchoolId());
+        School lockedSchool = null;
+        if (hintedSchoolId > 0) {
+            lockedSchool = schoolMapper.selectOne(new LambdaQueryWrapper<School>()
+                    .eq(School::getId, hintedSchoolId)
+                    .isNull(School::getDeletedAt)
+                    .last("FOR UPDATE"));
+        }
+        UserAccount lockedUser = userMapper.selectOne(new LambdaQueryWrapper<UserAccount>()
+                .eq(UserAccount::getId, userId)
+                .isNull(UserAccount::getDeletedAt)
+                .last("FOR UPDATE"));
+        if (lockedUser == null || !Boolean.TRUE.equals(lockedUser.getAccountEnabled())) {
+            throw new IllegalArgumentException("用户不存在或已停用");
+        }
+        if (!Objects.equals(hintedSchoolId, normalizedSchoolId(lockedUser.getSchoolId()))) {
+            throw new IllegalStateException("账号学校归属已变化，请重试");
+        }
+        return new LockedRechargeAccount(lockedUser, lockedSchool);
+    }
+
+    private Long normalizedSchoolId(Long schoolId) {
+        return schoolId == null || schoolId <= 0 ? 0L : schoolId;
+    }
 
     private String normalizeLast4(String value) {
         String trimmed = trim(value);
@@ -373,5 +523,12 @@ public class RechargeService {
     }
 
     private record Plan(String planId, int amount, int points, boolean recommended) {
+    }
+
+    private record Pricing(BigDecimal pricePer10, BigDecimal minAmount, BigDecimal maxAmount,
+                           boolean schoolPricing, Long schoolId, String schoolName) {
+    }
+
+    private record LockedRechargeAccount(UserAccount user, School school) {
     }
 }

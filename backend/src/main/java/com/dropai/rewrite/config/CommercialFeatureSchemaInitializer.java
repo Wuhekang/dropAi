@@ -45,6 +45,7 @@ public class CommercialFeatureSchemaInitializer implements ApplicationRunner {
                   school_id BIGINT DEFAULT 0 NOT NULL,
                   order_no VARCHAR(64) NOT NULL UNIQUE,
                   amount DECIMAL(10,2) NOT NULL,
+                  recharge_price_per10 DECIMAL(10,2),
                   points INT NOT NULL,
                   status VARCHAR(20) NOT NULL,
                   pay_method VARCHAR(30),
@@ -67,6 +68,7 @@ public class CommercialFeatureSchemaInitializer implements ApplicationRunner {
                   school_id BIGINT NOT NULL DEFAULT 0,
                   order_no VARCHAR(64) NOT NULL UNIQUE,
                   amount DECIMAL(10,2) NOT NULL,
+                  recharge_price_per10 DECIMAL(10,2) NULL,
                   points INT NOT NULL,
                   status VARCHAR(20) NOT NULL DEFAULT 'pending',
                   pay_method VARCHAR(30) DEFAULT 'alipay_mock',
@@ -171,6 +173,7 @@ public class CommercialFeatureSchemaInitializer implements ApplicationRunner {
         ensureColumn(connection, "recharge_order", "audited_at", h2 ? "TIMESTAMP" : "DATETIME NULL");
         ensureColumn(connection, "recharge_order", "refund_amount", "DECIMAL(10,2) DEFAULT 0 NOT NULL");
         ensureColumn(connection, "recharge_order", "school_id", "BIGINT DEFAULT 0 NOT NULL");
+        ensureColumn(connection, "recharge_order", "recharge_price_per10", "DECIMAL(10,2)");
         ensureColumn(connection, "recharge_order", "third_party_trade_no", "VARCHAR(128)");
         ensureColumn(connection, "recharge_order", "gateway_order_no", "VARCHAR(128)");
         ensureColumn(connection, "recharge_order", "provider_trade_no", "VARCHAR(128)");

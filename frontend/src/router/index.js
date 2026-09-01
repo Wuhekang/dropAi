@@ -7,7 +7,6 @@ import ResultIndex from '../views/Result/index.vue'
 import PointsAdmin from '../views/PointsAdmin.vue'
 import RechargeIndex from '../views/Recharge/index.vue'
 import PointsCenter from '../views/PointsCenter/index.vue'
-import ProjectCenter from '../views/ProjectCenter/index.vue'
 import ComputerGenerator from '../views/ComputerGenerator/index.vue'
 import ReferenceSearch from '../views/ReferenceSearch/index.vue'
 import LiteratureCenter from '../views/LiteratureCenter/index.vue'
@@ -46,11 +45,6 @@ const router = createRouter({
       path: '/dashboard',
       name: 'Dashboard',
       component: DashboardIndex
-    },
-    {
-      path: '/projects',
-      name: 'ProjectCenter',
-      component: ProjectCenter
     },
     {
       path: '/rewrite',

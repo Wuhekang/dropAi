@@ -10,6 +10,7 @@ import com.dropai.rewrite.mapper.PointTransactionMapper;
 import com.dropai.rewrite.mapper.RechargeOrderMapper;
 import com.dropai.rewrite.mapper.UserAccountMapper;
 import com.dropai.rewrite.mapper.SchoolMapper;
+import com.dropai.rewrite.service.AccountSecurityService;
 import com.dropai.rewrite.vo.Result;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.http.HttpStatus;
@@ -33,14 +34,17 @@ public class AdminUserController {
     private final RechargeOrderMapper orderMapper;
     private final SchoolMapper schoolMapper;
     private final JdbcTemplate jdbc;
+    private final AccountSecurityService accountSecurityService;
 
     public AdminUserController(UserAccountMapper userMapper, PointTransactionMapper transactionMapper,
-                               RechargeOrderMapper orderMapper, SchoolMapper schoolMapper, JdbcTemplate jdbc) {
+                               RechargeOrderMapper orderMapper, SchoolMapper schoolMapper, JdbcTemplate jdbc,
+                               AccountSecurityService accountSecurityService) {
         this.userMapper = userMapper;
         this.transactionMapper = transactionMapper;
         this.orderMapper = orderMapper;
         this.schoolMapper = schoolMapper;
         this.jdbc = jdbc;
+        this.accountSecurityService = accountSecurityService;
     }
 
     @GetMapping("/financial-summary")
@@ -93,7 +97,9 @@ public class AdminUserController {
     public Result<List<Map<String, Object>>> users(@RequestParam(required = false) String school,
                                                    @RequestParam(required = false) String keyword) {
         requireAdmin();
-        return Result.success(userMapper.selectList(new LambdaQueryWrapper<UserAccount>().orderByDesc(UserAccount::getCreatedAt))
+        return Result.success(userMapper.selectList(new LambdaQueryWrapper<UserAccount>()
+                        .isNull(UserAccount::getDeletedAt)
+                        .orderByDesc(UserAccount::getCreatedAt))
                 .stream().map(this::userView)
                 .filter(v -> school == null || school.isBlank() || "all".equalsIgnoreCase(school)
                         || ("unbound".equalsIgnoreCase(school) && ((Number)v.get("schoolId")).longValue() == 0)
@@ -112,6 +118,51 @@ public class AdminUserController {
         result.put("account", userView(user));
         result.put("transactions", transactions);
         return Result.success(result);
+    }
+
+    @PutMapping("/{id}/password")
+    public Result<Boolean> resetPassword(@PathVariable Long id, @RequestBody PasswordReset request) {
+        requireAdmin();
+        UserAccount target = requireUser(id);
+        if (!"USER".equalsIgnoreCase(target.getRole())
+                && !"SCHOOL_VIEWER".equalsIgnoreCase(target.getRole())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "仅支持重置普通用户或学校账户密码");
+        }
+        accountSecurityService.resetPassword(target, request == null ? null : request.password());
+        return Result.success(true);
+    }
+
+    @PutMapping("/{id}/school")
+    @Transactional
+    public Result<Boolean> changeSchool(@PathVariable Long id, @RequestBody SchoolAssignment request) {
+        requireAdmin();
+        UserAccount target = requireUser(id);
+        if (!"USER".equalsIgnoreCase(target.getRole())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "仅普通用户可修改所属学校");
+        }
+        Long requestedSchoolId = request == null ? null : request.schoolId();
+        long schoolId = requestedSchoolId == null ? 0L : requestedSchoolId;
+        if (schoolId < 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "学校 ID 不正确");
+        }
+        if (schoolId > 0) {
+            School school = schoolMapper.selectOne(new LambdaQueryWrapper<School>()
+                    .eq(School::getId, schoolId)
+                    .isNull(School::getDeletedAt)
+                    .last("FOR UPDATE"));
+            if (school == null) {
+                throw new ResponseStatusException(HttpStatus.NOT_FOUND, "学校不存在");
+            }
+            if (!Boolean.TRUE.equals(school.getEnabled())) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "学校已停用，不能绑定用户");
+            }
+        }
+        if (userMapper.updateSchoolId(target.getId(), schoolId) != 1) {
+            throw new IllegalStateException("用户所属学校更新失败");
+        }
+        target.setSchoolId(schoolId);
+        accountSecurityService.invalidateSessions(target.getId());
+        return Result.success(true);
     }
 
     @PostMapping("/{id}/points-adjust")
@@ -152,7 +203,9 @@ public class AdminUserController {
     }
 
     private UserAccount requireUser(Long id) {
-        UserAccount user = userMapper.selectById(id);
+        UserAccount user = userMapper.selectOne(new LambdaQueryWrapper<UserAccount>()
+                .eq(UserAccount::getId, id)
+                .isNull(UserAccount::getDeletedAt));
         if (user == null) throw new IllegalArgumentException("用户不存在");
         return user;
     }
@@ -166,7 +219,9 @@ public class AdminUserController {
         view.put("phone", user.getPhone());
         view.put("role", user.getRole());
         long schoolId = user.getSchoolId() == null ? 0L : user.getSchoolId();
-        School school = schoolId == 0 ? null : schoolMapper.selectById(schoolId);
+        School school = schoolId == 0 ? null : schoolMapper.selectOne(new LambdaQueryWrapper<School>()
+                .eq(School::getId, schoolId)
+                .isNull(School::getDeletedAt));
         view.put("schoolId", schoolId);
         view.put("schoolName", school == null ? null : school.getSchoolName());
         view.put("schoolCode", school == null ? null : school.getSchoolCode());
@@ -176,9 +231,13 @@ public class AdminUserController {
         view.put("usedPoints", user.getUsedPoints());
         view.put("createdAt", user.getCreatedAt());
         view.put("updatedAt", user.getUpdatedAt());
-        view.put("status", "ACTIVE");
+        boolean enabled = !Boolean.FALSE.equals(user.getAccountEnabled());
+        view.put("accountEnabled", enabled);
+        view.put("status", enabled ? "ACTIVE" : "DISABLED");
         return view;
     }
 
     public record PointAdjustment(String type, Integer quantity, String reason, String remark) {}
+    public record PasswordReset(String password) {}
+    public record SchoolAssignment(Long schoolId) {}
 }

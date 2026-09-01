@@ -30,7 +30,8 @@ public class AuthInterceptor implements HandlerInterceptor {
             String path = request.getRequestURI();
             if (account != null && "SCHOOL_VIEWER".equalsIgnoreCase(account.getRole())
                     && !path.startsWith("/api/school-viewer/")
-                    && !path.startsWith("/api/recharge/")) {
+                    && !path.startsWith("/api/recharge/")
+                    && !path.startsWith("/api/account/")) {
                 response.setStatus(403); response.setContentType(MediaType.APPLICATION_JSON_VALUE); response.setCharacterEncoding("UTF-8");
                 response.getWriter().write(objectMapper.writeValueAsString(Map.of("code",403,"message","学校统计账号只能访问本校只读统计")));
                 return false;

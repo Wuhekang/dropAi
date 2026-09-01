@@ -9,6 +9,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -38,13 +39,30 @@ public class GlobalExceptionHandler {
                 exception);
     }
 
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<Map<String, Object>> handleResponseStatus(ResponseStatusException exception,
+                                                                    HttpServletRequest request) {
+        HttpStatus status = HttpStatus.valueOf(exception.getStatusCode().value());
+        String message = exception.getReason() == null || exception.getReason().isBlank()
+                ? status.getReasonPhrase() : exception.getReason();
+        return buildResponse(status, message, request, exception);
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<Map<String, Object>> handleBadRequest(IllegalArgumentException exception,
+                                                                 HttpServletRequest request) {
+        return buildResponse(HttpStatus.BAD_REQUEST, message(exception, "请求参数不正确"), request, exception);
+    }
+
+    @ExceptionHandler(IllegalStateException.class)
+    public ResponseEntity<Map<String, Object>> handleConflict(IllegalStateException exception,
+                                                               HttpServletRequest request) {
+        return buildResponse(HttpStatus.CONFLICT, message(exception, "当前状态不允许此操作"), request, exception);
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleException(Exception exception, HttpServletRequest request) {
-        String message = exception.getMessage();
-        if (message == null || message.isBlank()) {
-            message = "服务器内部错误";
-        }
-        return buildResponse(HttpStatus.INTERNAL_SERVER_ERROR, message, request, exception);
+        return buildResponse(HttpStatus.INTERNAL_SERVER_ERROR, "服务器内部错误", request, exception);
     }
 
     private ResponseEntity<Map<String, Object>> buildResponse(HttpStatus status, String message,
@@ -60,5 +78,9 @@ public class GlobalExceptionHandler {
         body.put("path", path);
         body.put("traceId", traceId);
         return ResponseEntity.status(status).body(body);
+    }
+
+    private String message(Exception exception, String fallback) {
+        return exception.getMessage() == null || exception.getMessage().isBlank() ? fallback : exception.getMessage();
     }
 }

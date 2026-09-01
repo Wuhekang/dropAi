@@ -33,6 +33,11 @@ public class RechargeController {
         return Result.success(rechargeService.plans());
     }
 
+    @GetMapping("/pricing")
+    public Result<Map<String, Object>> pricing() {
+        return Result.success(rechargeService.pricing());
+    }
+
     @PostMapping("/orders")
     public Result<RechargeOrderVO> create(@RequestBody RechargeOrderCreateDTO dto) {
         return Result.success(rechargeService.createOrder(dto));

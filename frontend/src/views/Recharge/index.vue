@@ -5,26 +5,26 @@
         <button class="brand" type="button" @click="router.push('/')"><span>D</span><b>Dokiai</b><small>ACADEMIC</small></button>
         <div class="identity"><span>{{ username.slice(0,1).toUpperCase() }}</span><div><strong>{{ username }}</strong><small>{{ isAdmin ? '管理员账户' : '研究者账户' }}</small></div></div>
         <nav aria-label="账户导航">
-          <button v-for="item in navItems" :key="item.key" :class="{active:activeTab===item.key}" type="button" @click="item.route ? router.push(item.route) : activeTab=item.key"><i>{{ item.icon }}</i><span>{{ item.label }}</span></button>
+          <button v-for="item in navItems" :key="item.key" :class="{active:activeTab===item.key}" type="button" @click="selectTab(item.key)"><i>{{ item.icon }}</i><span>{{ item.label }}</span></button>
         </nav>
         <button class="back" type="button" @click="router.push('/dashboard')">← 返回工作台</button>
       </aside>
 
       <section class="account-content">
-        <header class="page-header"><div><span>DOKIAI ACCOUNT CENTER</span><h1>{{ currentTitle }}</h1><p>{{ currentDescription }}</p></div><button v-if="activeTab!=='overview'" class="text-button" type="button" @click="activeTab='overview'">账户首页</button></header>
+        <header class="page-header"><div><span>DOKIAI ACCOUNT CENTER</span><h1>{{ currentTitle }}</h1><p>{{ currentDescription }}</p></div><button v-if="activeTab!=='overview'" class="text-button" type="button" @click="selectTab('overview')">账户首页</button></header>
 
         <template v-if="activeTab==='overview'">
           <section class="welcome-card panel"><div><small>WELCOME BACK</small><h2>{{ username }}，欢迎回来</h2><p>在一个空间里管理项目、积分与最终交付文件。</p></div><div class="balance-orb"><span>当前积分</span><strong>{{ account?.points ?? '--' }}</strong><small>POINTS</small></div></section>
           <section class="metric-grid"><article><span>累计获得</span><strong>{{ account?.totalPoints ?? '--' }}</strong><small>账户历史积分</small></article><article><span>累计消费</span><strong>{{ account?.usedPoints ?? '--' }}</strong><small>生成与服务消耗</small></article><article><span>我的项目</span><strong>{{ documents.length }}</strong><small>当前账户任务</small></article><article><span>可下载成果</span><strong>{{ downloads.length }}</strong><small>已完成文件</small></article></section>
-          <section class="quick-card panel"><header><small>QUICK ACCESS</small><h2>快捷入口</h2></header><div><button type="button" @click="router.push('/points')"><i>✦</i><span><b>积分中心</b><small>充值与积分流水</small></span><em>→</em></button><button type="button" @click="activeTab='projects'"><i>◇</i><span><b>我的项目</b><small>继续研究与创作</small></span><em>→</em></button><button type="button" @click="activeTab='downloads'"><i>↓</i><span><b>下载记录</b><small>获取最终成果文件</small></span><em>→</em></button></div></section>
-          <section class="recent-card panel"><header><div><small>RECENT PROJECTS</small><h2>最近项目</h2></div><button class="text-button" type="button" @click="activeTab='projects'">查看全部 →</button></header><ProjectList :items="documents.slice(0,3)" @view="viewProject" @download="downloadDocument" /></section>
+          <section class="quick-card panel"><header><small>QUICK ACCESS</small><h2>快捷入口</h2></header><div><button type="button" @click="router.push('/points')"><i>✦</i><span><b>积分中心</b><small>充值与积分流水</small></span><em>→</em></button><button type="button" @click="selectTab('projects')"><i>◇</i><span><b>我的项目</b><small>继续研究与创作</small></span><em>→</em></button><button type="button" @click="selectTab('downloads')"><i>↓</i><span><b>下载记录</b><small>获取最终成果文件</small></span><em>→</em></button></div></section>
+          <section class="recent-card panel"><header><div><small>RECENT PROJECTS</small><h2>最近项目</h2></div><button class="text-button" type="button" @click="selectTab('projects')">查看全部 →</button></header><ProjectList :items="documents.slice(0,3)" @view="viewProject" @download="downloadDocument" /></section>
         </template>
 
         <section v-else-if="activeTab==='profile'" class="profile-card panel"><div class="profile-avatar">{{ username.slice(0,1).toUpperCase() }}</div><div><small>PERSONAL PROFILE</small><h2>{{ username }}</h2><p>手机号账户 · {{ isAdmin ? '管理员权限' : '普通用户权限' }}</p><dl><div><dt>登录账号</dt><dd>{{ username }}</dd></div><div><dt>账户类型</dt><dd>{{ isAdmin ? '管理员账户' : '研究者账户' }}</dd></div><div><dt>当前积分</dt><dd>{{ account?.points ?? '--' }}</dd></div></dl></div></section>
 
         <template v-else-if="activeTab==='points'">
-          <section class="points-hero panel"><div><small>POINTS BALANCE</small><h2>{{ account?.points ?? '--' }} <em>积分</em></h2><p>2 元 = 10 积分，积分可用于 Dokiai 智能服务。</p></div><div><span>累计获得 <b>{{ account?.totalPoints ?? '--' }}</b></span><span>累计消费 <b>{{ account?.usedPoints ?? '--' }}</b></span></div></section>
-          <section class="recharge-card panel"><header><small>RECHARGE</small><h2>选择充值金额</h2><p>快捷选择或输入 1–1000 元整数金额。</p></header><div class="amount-grid"><button v-for="amount in quickAmounts" :key="amount" :class="{selected:selectedAmount===amount&&!customSelected}" type="button" @click="selectAmount(amount)"><b>¥{{ amount }}</b><span>{{ amount*5 }} 积分</span></button><label :class="{selected:customSelected}"><span>自定义金额</span><div><em>¥</em><input v-model="customAmount" type="number" min="1" max="1000" step="1" inputmode="numeric" @input="selectCustom"><small>{{ customPoints }} 积分</small></div></label></div><div class="payment-row"><div><span>支付方式</span><label><input v-model="payType" type="radio" value="alipay">支付宝</label><label><input v-model="payType" type="radio" value="wechat">微信支付</label></div><button class="primary-action" type="button" :disabled="creating||!finalAmount" @click="createAndRedirect">{{ creating?'正在创建订单…':`立即充值 ¥${finalAmount||'--'}` }}</button></div></section>
+          <section class="points-hero panel"><div><small>POINTS BALANCE</small><h2>{{ account?.points ?? '--' }} <em>积分</em></h2><p>{{ pricingDescription }}，积分可用于 Dokiai 智能服务。</p></div><div><span>累计获得 <b>{{ account?.totalPoints ?? '--' }}</b></span><span>累计消费 <b>{{ account?.usedPoints ?? '--' }}</b></span></div></section>
+          <section class="recharge-card panel"><header><small>RECHARGE</small><h2>选择充值金额</h2><p>{{ pricingReady ? `快捷选择或输入${amountHint}。` : '正在读取当前账号充值费率…' }}</p></header><div class="amount-grid"><button v-for="amount in quickAmounts" :key="amount" :class="{selected:selectedAmount===amount&&!customSelected}" type="button" @click="selectAmount(amount)"><b>¥{{ formatAmount(amount) }}</b><span>{{ pointsFor(amount) }} 积分</span></button><label :class="{selected:customSelected}"><span>自定义金额</span><div><em>¥</em><input v-model="customAmount" type="number" :disabled="!pricingReady" :min="minimumAmount" :max="maximumAmount" :step="amountStep" :inputmode="schoolPricing?'decimal':'numeric'" @input="selectCustom"><small>{{ customPoints }} 积分</small></div></label></div><div class="payment-row"><div><span>支付方式</span><label><input v-model="payType" type="radio" value="alipay">支付宝</label><label><input v-model="payType" type="radio" value="wechat">微信支付</label></div><button class="primary-action" type="button" :disabled="creating||!finalAmount" @click="createAndRedirect">{{ creating?'正在创建订单…':`立即充值 ¥${finalAmount?formatAmount(finalAmount):'--'}` }}</button></div></section>
           <section class="transaction-card panel"><header><small>POINTS HISTORY</small><h2>积分记录</h2></header><div v-if="transactions.length" class="simple-list"><article v-for="(item,index) in transactions.slice(0,8)" :key="item.id||index"><span><b>{{ item.description||item.remark||'积分变动' }}</b><small>{{ formatTime(item.createdAt||item.created_at) }}</small></span><strong :class="Number(item.points||item.amount)>=0?'plus':'minus'">{{ Number(item.points||item.amount)>=0?'+':'' }}{{ item.points??item.amount }}</strong></article></div><div v-else class="empty">暂无积分记录</div></section>
         </template>
 
@@ -41,29 +41,156 @@
 </template>
 
 <script setup>
-import { computed, defineComponent, h, onMounted, ref } from 'vue'
+import { computed, defineComponent, h, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { useRouter } from 'vue-router'
-import { createRechargeOrder, downloadArtifact, getMyDocuments, getPointAccount, getPointTransactions, getRechargeOrders, getRechargePlans } from '../../api/rewrite'
+import { useRoute, useRouter } from 'vue-router'
+import {
+  createRechargeOrder,
+  downloadArtifact,
+  getMyDocuments,
+  getPointAccount,
+  getPointTransactions,
+  getRechargeOrders,
+  getRechargePricing
+} from '../../api/rewrite'
 
-const router=useRouter(),username=sessionStorage.getItem('dropai_username')||'当前用户',role=sessionStorage.getItem('dropai_role')||'USER',isAdmin=String(role).toLowerCase()==='admin'
-const activeTab=ref('overview'),account=ref({}),documents=ref([]),orders=ref([]),plans=ref([]),transactions=ref([]),selectedAmount=ref(10),customAmount=ref(''),customSelected=ref(false),payType=ref('alipay'),creating=ref(false)
-const quickAmounts=[10,20,100]
-const navItems=[{key:'profile',label:'个人资料',icon:'○'},{key:'projects',label:'我的项目',icon:'◇'},{key:'history',label:'历史项目',icon:'📁',route:'/projects'},{key:'downloads',label:'下载记录',icon:'↓'},{key:'orders',label:'订单记录',icon:'▤'},{key:'settings',label:'安全设置',icon:'⚙'}]
-const pageMeta={overview:['账户首页','管理项目、积分和成果交付。'],profile:['个人资料','查看当前账户身份与权限。'],points:['积分中心','充值积分并查看账户流水。'],projects:['我的项目','继续项目或获取已经完成的成果。'],downloads:['下载记录','集中管理已完成的 DOCX 文件。'],orders:['订单记录','查看充值金额、积分和支付状态。'],settings:['账户设置','查看账户安全与数据状态。']}
-const normalizedCustomAmount=computed(()=>{const raw=String(customAmount.value??'').trim(),value=Number(raw);return raw&&Number.isInteger(value)&&value>=1&&value<=1000?value:null})
-const currentTitle=computed(()=>pageMeta[activeTab.value]?.[0]||'账户中心'),currentDescription=computed(()=>pageMeta[activeTab.value]?.[1]||''),downloads=computed(()=>documents.value.filter(item=>item.status==='SUCCESS'&&(item.downloadUrl||item.download_url))),customPoints=computed(()=>(normalizedCustomAmount.value||0)*5),finalAmount=computed(()=>customSelected.value?normalizedCustomAmount.value:selectedAmount.value)
+const defaultPricing = { pricePer10: 2, minAmount: 1, maxAmount: 1000, schoolPricing: false, schoolId: null, schoolName: '' }
+const router = useRouter()
+const route = useRoute()
+const username = sessionStorage.getItem('dropai_username') || '当前用户'
+const role = sessionStorage.getItem('dropai_role') || 'USER'
+const isAdmin = String(role).toLowerCase() === 'admin'
+const pageMeta = { overview: ['账户首页', '管理项目、积分和成果交付。'], profile: ['个人资料', '查看当前账户身份与权限。'], points: ['积分中心', '充值积分并查看账户流水。'], projects: ['我的项目', '继续项目或获取已经完成的成果。'], downloads: ['下载记录', '集中管理已完成的 DOCX 文件。'], orders: ['订单记录', '查看充值金额、积分和支付状态。'], settings: ['账户设置', '查看账户安全与数据状态。'] }
+const allowedTabs = Object.keys(pageMeta)
+const initialTab = allowedTabs.includes(String(route.query.tab)) ? String(route.query.tab) : 'overview'
+const activeTab = ref(initialTab)
+const account = ref({})
+const documents = ref([])
+const orders = ref([])
+const transactions = ref([])
+const pricing = ref({ ...defaultPricing })
+const pricingReady = ref(false)
+const selectedAmount = ref(null)
+const customAmount = ref('')
+const customSelected = ref(false)
+const payType = ref('alipay')
+const creating = ref(false)
+const navItems = [{ key: 'profile', label: '个人资料', icon: '○' }, { key: 'projects', label: '我的项目', icon: '◇' }, { key: 'downloads', label: '下载记录', icon: '↓' }, { key: 'orders', label: '订单记录', icon: '▤' }, { key: 'settings', label: '安全设置', icon: '⚙' }]
 
-const ProjectList=defineComponent({props:{items:{type:Array,default:()=>[]}},emits:['view','download'],setup(props,{emit}){return()=>props.items.length?h('div',{class:'project-list'},props.items.map(item=>h('article',{key:item.id||item.fileName},[h('i',(item.documentType||'文').slice(0,1)),h('span',[h('b',item.projectName||item.fileName||'未命名项目'),h('small',`${item.documentType||item.projectType||'智能文档'} · ${statusLabel(item.status)} · ${formatTime(item.updateTime||item.createTime||item.createdAt)}`)]),h('div',[h('button',{class:'text-button',onClick:()=>emit('view',item)},'查看'),h('button',{class:'outline-action',disabled:item.status!=='SUCCESS',onClick:()=>emit('download',item)},'下载')])]))):h('div',{class:'empty-state'},[h('b','◇'),h('strong','暂无项目'),h('span','创建文档后，项目会显示在这里。')])}})
+const schoolPricing = computed(() => Boolean(pricing.value.schoolPricing))
+const pricePer10 = computed(() => positiveNumber(pricing.value.pricePer10, defaultPricing.pricePer10))
+const minimumAmount = computed(() => positiveNumber(pricing.value.minAmount, schoolPricing.value ? pricePer10.value : defaultPricing.minAmount))
+const maximumAmount = computed(() => Math.max(minimumAmount.value, positiveNumber(pricing.value.maxAmount, defaultPricing.maxAmount)))
+const amountStep = computed(() => schoolPricing.value ? 0.01 : 1)
+const quickAmounts = computed(() => {
+  if (!pricingReady.value) return []
+  const candidates = schoolPricing.value ? [pricePer10.value, pricePer10.value * 10, pricePer10.value * 100] : [10, 20, 100]
+  const values = [...new Set(candidates.map(normalizeMoney).filter(value => value >= minimumAmount.value && value <= maximumAmount.value))]
+  return values.length ? values : [normalizeMoney(minimumAmount.value)]
+})
+const normalizedCustomAmount = computed(() => validateAmount(customAmount.value))
+const currentTitle = computed(() => pageMeta[activeTab.value]?.[0] || '账户中心')
+const currentDescription = computed(() => pageMeta[activeTab.value]?.[1] || '')
+const downloads = computed(() => documents.value.filter(item => item.status === 'SUCCESS' && (item.downloadUrl || item.download_url)))
+const customPoints = computed(() => pointsFor(normalizedCustomAmount.value))
+const finalAmount = computed(() => pricingReady.value ? (customSelected.value ? normalizedCustomAmount.value : validateAmount(selectedAmount.value)) : null)
+const amountHint = computed(() => pricingReady.value ? `${formatAmount(minimumAmount.value)}–${formatAmount(maximumAmount.value)} 元${schoolPricing.value ? '、最多两位小数' : '整数金额'}` : '充值范围读取中')
+const pricingDescription = computed(() => pricingReady.value ? `${schoolPricing.value && pricing.value.schoolName ? `${pricing.value.schoolName}统一价：` : ''}${formatAmount(pricePer10.value)} 元 = 10 积分` : '正在读取当前账号充值费率')
 
-async function load(){try{const [a,d,o,p,t]=await Promise.all([getPointAccount(),getMyDocuments({pageNum:1,pageSize:50}),getRechargeOrders(),getRechargePlans(),getPointTransactions().catch(()=>[])]);account.value=a||{};documents.value=d?.list||[];orders.value=o||[];plans.value=p||[];transactions.value=t?.list||t||[]}catch(error){ElMessage.warning(error?.responseData?.message||error.message||'账户信息暂时无法读取')}}
-function selectAmount(amount){selectedAmount.value=amount;customSelected.value=false;customAmount.value=''}function selectCustom(){customSelected.value=true}
-async function createAndRedirect(){const amount=finalAmount.value;if(!amount)return ElMessage.warning('充值金额必须为 1–1000 元整数');creating.value=true;try{const order=await createRechargeOrder({amount,payMethod:payType.value});if(!order?.paymentUrl)return ElMessage.error('支付订单创建失败，请稍后重试');window.location.href=order.paymentUrl}catch(e){ElMessage.error(e?.response?.data?.message||'支付服务暂时不可用')}finally{creating.value=false}}
-function viewProject(item){const id=item.projectId||item.id;if(id)sessionStorage.setItem('dropai_writing_project_id',id);router.push(item.status==='SUCCESS'?'/writing-generator/export':'/writing-generator/generate')}
-async function downloadDocument(item){const url=item.downloadUrl||item.download_url;if(!url)return ElMessage.warning('文件尚未就绪');try{const blob=await downloadArtifact(url),objectUrl=URL.createObjectURL(blob),link=document.createElement('a');link.href=objectUrl;link.download=item.fileName||'dokiai-result.docx';link.click();URL.revokeObjectURL(objectUrl)}catch(error){ElMessage.error(error.message||'下载失败')}}
-function statusLabel(value){return({SUCCESS:'已完成',FAILED:'失败',RUNNING:'生成中',GENERATING:'生成中',PENDING:'排队中',WAITING:'待继续'})[value]||value||'进行中'}
-function statusText(value){return({pending:'待支付',paid:'支付成功',failed:'支付失败',refunded:'已退款'})[value]||value||'--'}
-function formatTime(value){return value?String(value).replace('T',' ').slice(0,16):'--'}
+const ProjectList = defineComponent({
+  props: { items: { type: Array, default: () => [] } },
+  emits: ['view', 'download'],
+  setup(props, { emit }) {
+    return () => {
+      if (!props.items.length) {
+        return h('div', { class: 'empty-state' }, [h('b', '◇'), h('strong', '暂无项目'), h('span', '创建文档后，项目会显示在这里。')])
+      }
+      return h('div', { class: 'project-list' }, props.items.map(item => h('article', { key: item.id || item.fileName }, [
+        h('i', (item.documentType || '文').slice(0, 1)),
+        h('span', [h('b', item.projectName || item.fileName || '未命名项目'), h('small', `${item.documentType || item.projectType || '智能文档'} · ${statusLabel(item.status)} · ${formatTime(item.updateTime || item.createTime || item.createdAt)}`)]),
+        h('div', [h('button', { class: 'text-button', onClick: () => emit('view', item) }, '查看'), h('button', { class: 'outline-action', disabled: item.status !== 'SUCCESS', onClick: () => emit('download', item) }, '下载')])
+      ])))
+    }
+  }
+})
+
+function positiveNumber(value, fallback) { const parsed = Number(value); return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback }
+function normalizeMoney(value) { return Math.round(Number(value) * 100) / 100 }
+function normalizePricing(data) {
+  const price = Number(data?.pricePer10)
+  const minimum = Number(data?.minAmount)
+  const maximum = Number(data?.maxAmount)
+  if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(minimum) || minimum <= 0 || !Number.isFinite(maximum) || maximum < minimum || typeof data?.schoolPricing !== 'boolean') {
+    throw new Error('充值费率配置异常，请联系管理员')
+  }
+  return { ...defaultPricing, ...data, pricePer10: normalizeMoney(price), minAmount: normalizeMoney(minimum), maxAmount: normalizeMoney(maximum) }
+}
+function validateAmount(raw) {
+  if (raw === null || raw === undefined || String(raw).trim() === '') return null
+  const value = Number(raw)
+  if (!Number.isFinite(value) || value < minimumAmount.value || value > maximumAmount.value) return null
+  if (schoolPricing.value) return Math.abs(value * 100 - Math.round(value * 100)) < 1e-7 ? normalizeMoney(value) : null
+  return Number.isInteger(value) ? value : null
+}
+function pointsFor(amount) { return amount ? Math.floor((Number(amount) * 10) / pricePer10.value + 1e-9) : 0 }
+function formatAmount(value) { return Number(value || 0).toLocaleString('zh-CN', { minimumFractionDigits: schoolPricing.value ? 2 : 0, maximumFractionDigits: 2 }) }
+function selectAmount(amount) { selectedAmount.value = amount; customSelected.value = false; customAmount.value = '' }
+function selectCustom() { customSelected.value = true }
+function selectTab(tab) {
+  const next = allowedTabs.includes(tab) ? tab : 'overview'
+  activeTab.value = next
+  const query = { ...route.query }
+  if (next === 'overview') delete query.tab
+  else query.tab = next
+  router.replace({ path: '/account', query })
+}
+
+async function load() {
+  pricingReady.value = false
+  try {
+    const pricingRequest = getRechargePricing().then(data => {
+      pricing.value = normalizePricing(data)
+      pricingReady.value = true
+      return pricing.value
+    })
+    const [accountData, documentData, orderData, transactionData] = await Promise.all([
+      getPointAccount(),
+      getMyDocuments({ pageNum: 1, pageSize: 50 }),
+      getRechargeOrders(),
+      getPointTransactions().catch(() => []),
+      pricingRequest
+    ])
+    account.value = accountData || {}
+    documents.value = documentData?.list || []
+    orders.value = orderData || []
+    transactions.value = transactionData?.list || transactionData || []
+    if (!validateAmount(selectedAmount.value)) selectAmount(quickAmounts.value[0])
+  } catch (error) {
+    ElMessage.warning(error?.responseData?.message || error.message || '账户信息暂时无法读取')
+  }
+}
+async function createAndRedirect() {
+  if (!pricingReady.value) return ElMessage.warning('充值费率尚未读取成功，请刷新后重试')
+  const amount = finalAmount.value
+  if (!amount) return ElMessage.warning(`充值金额须为${amountHint.value}`)
+  creating.value = true
+  try {
+    const order = await createRechargeOrder({ amount, payMethod: payType.value })
+    if (!order?.paymentUrl) return ElMessage.error('支付订单创建失败，请稍后重试')
+    window.location.href = order.paymentUrl
+  } catch (error) {
+    ElMessage.error(error?.responseData?.message || error?.response?.data?.message || '支付服务暂时不可用')
+  } finally {
+    creating.value = false
+  }
+}
+function viewProject(item) { const id = item.projectId || item.id; if (id) sessionStorage.setItem('dropai_writing_project_id', id); router.push(item.status === 'SUCCESS' ? '/writing-generator/export' : '/writing-generator/generate') }
+async function downloadDocument(item) { const url = item.downloadUrl || item.download_url; if (!url) return ElMessage.warning('文件尚未就绪'); try { const blob = await downloadArtifact(url); const objectUrl = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = objectUrl; link.download = item.fileName || 'dokiai-result.docx'; link.click(); URL.revokeObjectURL(objectUrl) } catch (error) { ElMessage.error(error.message || '下载失败') } }
+function statusLabel(value) { return ({ SUCCESS: '已完成', FAILED: '失败', RUNNING: '生成中', GENERATING: '生成中', PENDING: '排队中', WAITING: '待继续' })[value] || value || '进行中' }
+function statusText(value) { return ({ pending: '待支付', paid: '支付成功', failed: '支付失败', refunded: '已退款' })[value] || value || '--' }
+function formatTime(value) { return value ? String(value).replace('T', ' ').slice(0, 16) : '--' }
+
+watch(() => route.query.tab, value => { activeTab.value = allowedTabs.includes(String(value)) ? String(value) : 'overview' })
 onMounted(load)
 </script>
 

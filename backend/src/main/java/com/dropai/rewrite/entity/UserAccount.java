@@ -19,6 +19,9 @@ public class UserAccount {
     private Integer usedPoints;
     private LocalDateTime lastNoticeTime;
     private Long noticeReadId;
+    private LocalDateTime deletedAt;
+    private Long deletedBy;
+    private String deleteReason;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
@@ -44,6 +47,12 @@ public class UserAccount {
     public void setLastNoticeTime(LocalDateTime lastNoticeTime) { this.lastNoticeTime = lastNoticeTime; }
     public Long getNoticeReadId() { return noticeReadId; }
     public void setNoticeReadId(Long noticeReadId) { this.noticeReadId = noticeReadId; }
+    public LocalDateTime getDeletedAt() { return deletedAt; }
+    public void setDeletedAt(LocalDateTime deletedAt) { this.deletedAt = deletedAt; }
+    public Long getDeletedBy() { return deletedBy; }
+    public void setDeletedBy(Long deletedBy) { this.deletedBy = deletedBy; }
+    public String getDeleteReason() { return deleteReason; }
+    public void setDeleteReason(String deleteReason) { this.deleteReason = deleteReason; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }
