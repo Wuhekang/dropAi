@@ -200,7 +200,8 @@ public class DoubaoWebSearchProvider implements ReferenceSearchProvider {
                 documentType, language, abstractText, keywords, sourceTitle, sourceSnippet, sourceType.
                 sourceType must be one of CNKI_PUBLIC_PAGE, CNKI_JOURNAL_PORTAL, JOURNAL_OFFICIAL, UNIVERSITY,
                 PUBLISHER, DOI_PAGE, OTHER_PUBLIC.
-                """.formatted(query.title(), query.major(), query.yearStart(), query.yearEnd(), query.joinedChineseKeywords(),
+                """.formatted(query.title(), query.major(), query.yearStart(), query.yearEnd(),
+                        query.hasProviderKeywordsOverride() ? query.providerKeywords() : query.joinedChineseKeywords(),
                         query.chineseTarget() > 0 && query.englishTarget() == 0 ? "Chinese" :
                                 query.englishTarget() > 0 && query.chineseTarget() == 0 ? "English" : "Chinese or English");
     }
@@ -230,10 +231,10 @@ public class DoubaoWebSearchProvider implements ReferenceSearchProvider {
                 result.add(new ReferenceCandidate(title, authors, year, container,
                         node.path("volume").asText(""), node.path("issue").asText(""), node.path("pages").asText(""),
                         node.path("doi").asText(""), url, "DOUBAO_WEB_SEARCH",
-                        firstNonBlank(node.path("abstractText").asText(""), snippet), query.joinedKeywords(),
+                        firstNonBlank(node.path("abstractText").asText(""), snippet), query.providerKeywords(),
                         LocalDateTime.now(), List.of(), 0.70, verificationStatus,
                         firstNonBlank(node.path("documentType").asText(""), "JOURNAL"),
-                        firstNonBlank(node.path("language").asText(""), "zh"),
+                        firstNonBlank(node.path("language").asText(""), requestedLanguage(query)),
                         sourceType, firstNonBlank(node.path("sourceTitle").asText(""), title), snippet));
             }
             node.fields().forEachRemaining(entry -> collectCandidates(entry.getValue(), query, result));
@@ -302,6 +303,12 @@ public class DoubaoWebSearchProvider implements ReferenceSearchProvider {
         char closing = value.charAt(start) == '[' ? ']' : '}';
         int end = value.lastIndexOf(closing);
         return end > start ? value.substring(start, end + 1) : "";
+    }
+
+    private String requestedLanguage(ReferenceSearchQuery query) {
+        if (query.englishTarget() > 0 && query.chineseTarget() == 0) return "en";
+        if (query.chineseTarget() > 0 && query.englishTarget() == 0) return "zh";
+        return "";
     }
 
     static int boundedTimeoutSeconds(int configuredTimeoutSeconds) {

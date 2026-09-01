@@ -4,6 +4,7 @@ import com.dropai.rewrite.config.WritingGenerationProperties;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.web.util.HtmlUtils;
 import org.springframework.web.client.RestClient;
 
 import java.net.URLEncoder;
@@ -12,6 +13,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 @Component
 public class CrossrefReferenceSearchProvider implements ReferenceSearchProvider {
@@ -37,9 +39,21 @@ public class CrossrefReferenceSearchProvider implements ReferenceSearchProvider 
 
     @Override
     public List<ReferenceCandidate> search(ReferenceSearchQuery query) {
-        String search = URLEncoder.encode(query.joinedKeywords(), StandardCharsets.UTF_8);
-        String url = "https://api.crossref.org/works?query.bibliographic=" + search + "&rows=" + Math.max(1, Math.min(query.maxResults(), 50));
-        JsonNode root = restClient.get().uri(url).retrieve().body(JsonNode.class);
+        JsonNode root = restClient.get().uri(buildUrl(query)).retrieve().body(JsonNode.class);
+        return candidatesFromResponse(root, query);
+    }
+
+    String buildUrl(ReferenceSearchQuery query) {
+        String search = URLEncoder.encode(query.providerKeywords(), StandardCharsets.UTF_8);
+        List<String> filters = new ArrayList<>();
+        if (query.yearStart() > 0) filters.add("from-pub-date:" + query.yearStart() + "-01-01");
+        if (query.yearEnd() > 0) filters.add("until-pub-date:" + query.yearEnd() + "-12-31");
+        String filter = filters.isEmpty() ? "" : "&filter=" + String.join(",", filters);
+        return "https://api.crossref.org/works?query.bibliographic=" + search + filter
+                + "&rows=" + overfetchLimit(query.maxResults());
+    }
+
+    List<ReferenceCandidate> candidatesFromResponse(JsonNode root, ReferenceSearchQuery query) {
         List<ReferenceCandidate> result = new ArrayList<>();
         JsonNode items = root == null ? null : root.path("message").path("items");
         if (items != null && items.isArray()) {
@@ -53,14 +67,56 @@ public class CrossrefReferenceSearchProvider implements ReferenceSearchProvider 
                     if (!name.isBlank()) authors.add(name);
                 }
                 String pages = item.path("page").asText("");
-                ReferenceCandidate candidate = new ReferenceCandidate(title, authors, year, firstText(item.path("container-title")),
+                String container = firstText(item.path("container-title"));
+                String abstractText = cleanAbstract(item.path("abstract").asText(""));
+                String language = normalizeLanguage(item.path("language").asText(""), title);
+                String documentType = documentType(item.path("type").asText(""));
+                String doi = item.path("DOI").asText("");
+                ReferenceCandidate candidate = new ReferenceCandidate(title, authors, year, container,
                         item.path("volume").asText(""), item.path("issue").asText(""), pages,
-                        item.path("DOI").asText(""), item.path("URL").asText(""), name(), item.path("abstract").asText(""),
-                        query.joinedKeywords(), LocalDateTime.now(), List.of(), item.path("score").asDouble(0), "VERIFIED");
+                        doi, item.path("URL").asText(""), name(), abstractText,
+                        query.providerKeywords(), LocalDateTime.now(), List.of(), item.path("score").asDouble(0), "VERIFIED",
+                        documentType, language, doi.isBlank() ? "OTHER_PUBLIC" : "DOI_PAGE", container, abstractText);
                 if (candidate.basicallyVerified()) result.add(candidate);
             }
         }
         return result;
+    }
+
+    private String cleanAbstract(String value) {
+        if (value == null || value.isBlank()) return "";
+        String withoutMarkup = value.replaceAll("(?s)<[^>]+>", " ");
+        return HtmlUtils.htmlUnescape(withoutMarkup).replaceAll("\\s+", " ").trim();
+    }
+
+    private String documentType(String rawType) {
+        String type = rawType == null ? "" : rawType.toLowerCase(Locale.ROOT);
+        if (type.contains("dissertation")) return "THESIS";
+        if (type.contains("proceedings")) return "CONFERENCE";
+        if (type.equals("book") || type.contains("book-chapter") || type.contains("reference-entry")) return "BOOK";
+        if (type.contains("report")) return "REPORT";
+        if (type.contains("standard")) return "STANDARD";
+        if (type.contains("patent")) return "PATENT";
+        if (type.contains("dataset") || type.contains("posted") || type.contains("component")) return "ONLINE";
+        return "JOURNAL";
+    }
+
+    private String normalizeLanguage(String rawLanguage, String title) {
+        String language = rawLanguage == null ? "" : rawLanguage.trim().toLowerCase(Locale.ROOT);
+        if (language.equals("zh") || language.startsWith("zh-") || language.equals("zho") || language.equals("chi")) return "zh";
+        if (language.equals("en") || language.startsWith("en-") || language.equals("eng")) return "en";
+        if (!language.isBlank()) return language;
+        return containsHan(title) ? "zh" : "en";
+    }
+
+    private int overfetchLimit(int requested) {
+        int safeRequested = Math.max(1, requested);
+        return Math.min(50, Math.max(safeRequested * 2, safeRequested + 5));
+    }
+
+    private boolean containsHan(String value) {
+        return value != null && value.codePoints()
+                .anyMatch(code -> Character.UnicodeScript.of(code) == Character.UnicodeScript.HAN);
     }
 
     private boolean within(Integer year, int start, int end) {

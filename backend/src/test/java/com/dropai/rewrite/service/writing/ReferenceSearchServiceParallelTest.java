@@ -13,11 +13,13 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -27,6 +29,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class ReferenceSearchServiceParallelTest {
@@ -38,6 +43,9 @@ class ReferenceSearchServiceParallelTest {
 
     @Mock
     private GbT7714Formatter formatter;
+
+    @Mock
+    private LiteratureEnglishQueryPlanner englishQueryPlanner;
 
     private final List<ReferenceSearchService> services = new ArrayList<>();
 
@@ -125,6 +133,160 @@ class ReferenceSearchServiceParallelTest {
     }
 
     @Test
+    void appliesRefinedProviderKeywordsOnlyToStandaloneBranches() {
+        WritingGenerationProperties properties = properties("public", false);
+        AtomicReference<ReferenceSearchQuery> chineseQuery = new AtomicReference<>();
+        AtomicReference<ReferenceSearchQuery> englishQuery = new AtomicReference<>();
+        ReferenceSearchService service = service(properties, List.of(fake("public", query -> {
+            if (query.chineseTarget() > 0) chineseQuery.set(query);
+            else englishQuery.set(query);
+            return List.of(candidate(language(query), "Relevant Result", "public"));
+        })));
+
+        service.standaloneSearch("数字经济", 1, 1);
+
+        assertEquals("数字经济", chineseQuery.get().providerKeywords());
+        assertEquals("\"digital economy\"", englishQuery.get().providerKeywords());
+        assertTrue(chineseQuery.get().joinedKeywords().contains("数字经济"));
+        assertTrue(englishQuery.get().joinedKeywords().contains("数字经济"));
+        assertTrue(chineseQuery.get().hasProviderKeywordsOverride());
+        assertTrue(englishQuery.get().hasProviderKeywordsOverride());
+        verify(englishQueryPlanner, never()).plan(anyString());
+    }
+
+    @Test
+    void fullyMappedNestedConceptDoesNotRequirePlanner() {
+        WritingGenerationProperties properties = properties("public", false);
+        AtomicReference<ReferenceSearchQuery> providerQuery = new AtomicReference<>();
+        ReferenceSearchService service = service(properties, List.of(fake("public", query -> {
+            providerQuery.set(query);
+            return List.of(rawCandidate(
+                    "Generative artificial intelligence applications in education", "EN", "public"));
+        })));
+
+        Map<String, Object> result = service.standaloneSearch("生成式人工智能应用研究", 0, 1);
+
+        assertEquals(1, result.get("actualEnglishCount"));
+        assertEquals("\"generative artificial intelligence\"", providerQuery.get().providerKeywords());
+        verify(englishQueryPlanner, never()).plan(anyString());
+    }
+
+    @Test
+    void usesBoundedPlannerForDictionaryUnknownEnglishBranch() {
+        WritingGenerationProperties properties = properties("public", false);
+        AtomicReference<ReferenceSearchQuery> providerQuery = new AtomicReference<>();
+        when(englishQueryPlanner.plan("甲骨文字形流变考")).thenReturn(Optional.of(
+                new LiteratureEnglishQueryPlanner.Plan(
+                        "Evolution of oracle bone script forms",
+                        List.of("oracle bone script", "script forms"))));
+        ReferenceSearchService service = service(properties, List.of(fake("public", query -> {
+            providerQuery.set(query);
+            return List.of(rawCandidate("Evolution of oracle bone script forms", "EN", "public"));
+        })));
+
+        Map<String, Object> result = service.standaloneSearch("甲骨文字形流变考", 0, 1);
+
+        assertEquals(1, result.get("actualEnglishCount"));
+        assertEquals("\"oracle bone script\" \"script forms\"", providerQuery.get().providerKeywords());
+        verify(englishQueryPlanner).plan("甲骨文字形流变考");
+    }
+
+    @Test
+    void asciiFragmentInsideUnknownChineseTopicStillUsesPlanner() {
+        WritingGenerationProperties properties = properties("public", false);
+        AtomicReference<ReferenceSearchQuery> providerQuery = new AtomicReference<>();
+        when(englishQueryPlanner.plan("AIGC赋能甲骨文字形识别")).thenReturn(Optional.of(
+                new LiteratureEnglishQueryPlanner.Plan(
+                        "AIGC-enabled oracle bone script recognition",
+                        List.of("oracle bone script recognition", "AIGC"))));
+        ReferenceSearchService service = service(properties, List.of(fake("public", query -> {
+            providerQuery.set(query);
+            return List.of(rawCandidate("AIGC-enabled oracle bone script recognition", "EN", "public"));
+        })));
+
+        Map<String, Object> result = service.standaloneSearch("AIGC赋能甲骨文字形识别", 0, 1);
+
+        assertEquals(1, result.get("actualEnglishCount"));
+        assertEquals("\"oracle bone script recognition\" \"AIGC\"", providerQuery.get().providerKeywords());
+        verify(englishQueryPlanner).plan("AIGC赋能甲骨文字形识别");
+    }
+
+    @Test
+    void plannerFailureKeepsUnknownEnglishBranchFailClosedWithoutProviderCall() {
+        WritingGenerationProperties properties = properties("public", false);
+        AtomicInteger providerCalls = new AtomicInteger();
+        when(englishQueryPlanner.plan("甲骨文字形流变考")).thenReturn(Optional.empty());
+        ReferenceSearchService service = service(properties, List.of(fake("public", query -> {
+            providerCalls.incrementAndGet();
+            return List.of(rawCandidate("Unrelated result", "EN", "public"));
+        })));
+
+        assertThrows(IllegalStateException.class,
+                () -> service.standaloneSearch("甲骨文字形流变考", 0, 1));
+        assertEquals(0, providerCalls.get());
+    }
+
+    @Test
+    void unknownCoreWithKnownSecondaryCannotSearchOrPassOnSecondaryAlone() {
+        WritingGenerationProperties properties = properties("public", false);
+        AtomicInteger providerCalls = new AtomicInteger();
+        when(englishQueryPlanner.plan("大模型对供应链韧性的影响")).thenReturn(Optional.empty());
+        ReferenceSearchService service = service(properties, List.of(fake("public", query -> {
+            providerCalls.incrementAndGet();
+            return List.of(rawCandidate("A review of supply chain resilience", "EN", "public"));
+        })));
+
+        assertThrows(IllegalStateException.class,
+                () -> service.standaloneSearch("大模型对供应链韧性的影响", 0, 1));
+        assertEquals(0, providerCalls.get());
+        verify(englishQueryPlanner).plan("大模型对供应链韧性的影响");
+    }
+
+    @Test
+    void plannerSharesTheStandaloneGlobalDeadline() throws Exception {
+        WritingGenerationProperties properties = properties("public", false);
+        properties.getReferenceSearch().setTimeoutSeconds(1);
+        AtomicInteger providerCalls = new AtomicInteger();
+        when(englishQueryPlanner.plan("甲骨文字形流变考")).thenAnswer(invocation -> {
+            try {
+                Thread.sleep(5_000L);
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+            }
+            return Optional.empty();
+        });
+        ReferenceSearchService service = service(properties, List.of(fake("public", query -> {
+            providerCalls.incrementAndGet();
+            return List.of();
+        })));
+
+        long started = System.nanoTime();
+        assertThrows(IllegalStateException.class,
+                () -> service.standaloneSearch("甲骨文字形流变考", 0, 1));
+        long elapsedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
+
+        assertTrue(elapsedMillis < 2_500L, "planner exceeded shared deadline: " + elapsedMillis + "ms");
+        assertEquals(0, providerCalls.get());
+    }
+
+    @Test
+    void honorsProviderLanguageMetadataBeforeTitleScript() {
+        WritingGenerationProperties properties = properties("openalex", false);
+        ReferenceCandidate chineseMetadataWithLatinTitle = new ReferenceCandidate(
+                "Shuzi Jingji and Regional Development", List.of("Test Author"), 2025, "Chinese Journal",
+                "1", "1", "1-10", "", "https://example.test/openalex/zh", "openalex",
+                "本文研究数字经济与区域发展。", "数字经济", LocalDateTime.now(), List.of(), 1.0, "VERIFIED",
+                "JOURNAL", "zh", "OTHER_PUBLIC", "Chinese Journal", "数字经济与区域发展");
+        ReferenceSearchService service = service(properties,
+                List.of(fake("openalex", query -> List.of(chineseMetadataWithLatinTitle))));
+
+        Map<String, Object> result = service.standaloneSearch("数字经济", 1, 0);
+
+        assertEquals(1, result.get("actualChineseCount"));
+        assertEquals("ZH", items(result).get(0).get("language"));
+    }
+
+    @Test
     void fillsBothLanguageQuotasAfterGlobalDoiDeduplication() {
         WritingGenerationProperties properties = properties("doubao_web", false);
         FakeProvider provider = fake("doubao_web", query -> "ZH".equals(language(query))
@@ -140,7 +302,7 @@ class ReferenceSearchServiceParallelTest {
         assertEquals(2, result.get("actualCount"));
         assertEquals(1, result.get("actualChineseCount"));
         assertEquals(1, result.get("actualEnglishCount"));
-        assertTrue(items.stream().anyMatch(item -> "Independent English Result".equals(item.get("title"))));
+        assertTrue(items.stream().anyMatch(item -> String.valueOf(item.get("title")).contains("Independent English Result")));
     }
 
     @Test
@@ -156,6 +318,47 @@ class ReferenceSearchServiceParallelTest {
                 () -> service.standaloneSearch("数字经济", 2, 1));
 
         assertEquals("暂未检索到符合条件的公开文献，请尝试补充或调整题目关键词", exception.getMessage());
+    }
+
+    @Test
+    void waitsForRelevantProviderInsteadOfLettingFastGarbageFillQuota() {
+        WritingGenerationProperties properties = properties("fast,slow", false);
+        FakeProvider fast = fake("fast", query -> "EN".equals(language(query))
+                ? List.of(
+                rawCandidate("The study of Joss paper offerings", "EN", "fast"),
+                rawCandidate("HPV E5 and E6 cell death evasion", "EN", "fast"))
+                : List.of(rawCandidate("短视频用户行为研究", "ZH", "fast")));
+        FakeProvider slow = fake("slow", query -> {
+            try {
+                Thread.sleep(150L);
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+            }
+            return List.of(candidate(language(query), "Relevant Result", "slow"));
+        });
+        ReferenceSearchService service = service(properties, List.of(fast, slow));
+
+        Map<String, Object> result = service.standaloneSearch("数字经济", 1, 1);
+
+        assertEquals(2, result.get("actualCount"));
+        assertTrue(items(result).stream().allMatch(item -> String.valueOf(item.get("title")).contains("数字经济")
+                || String.valueOf(item.get("title")).toLowerCase().contains("digital economy")));
+    }
+
+    @Test
+    void failsEnglishBranchClosedWhenNoReliableTranslationExists() {
+        WritingGenerationProperties properties = properties("public", false);
+        ReferenceSearchService service = service(properties, List.of(fake("public", query -> List.of(
+                rawCandidate("甲骨文字形流变考述", "ZH", "public"),
+                rawCandidate("Oracle bone script evolution", "EN", "public")))));
+
+        Map<String, Object> result = service.standaloneSearch("甲骨文字形流变考", 1, 1);
+
+        assertEquals(1, result.get("actualCount"));
+        assertEquals(1, result.get("actualChineseCount"));
+        assertEquals(0, result.get("actualEnglishCount"));
+        assertTrue(strings(result, "warnings").stream().anyMatch(warning -> warning.contains("英文分支")
+                && warning.contains("不扣费")));
     }
 
     @Test
@@ -199,7 +402,8 @@ class ReferenceSearchServiceParallelTest {
                     return "[" + number + "] " + candidate.title();
                 });
         ReferenceSearchService service = new ReferenceSearchService(
-                jdbcTemplate, properties, providers, new ObjectMapper(), searchPlanService, formatter);
+                jdbcTemplate, properties, providers, new ObjectMapper(), searchPlanService, formatter,
+                englishQueryPlanner);
         services.add(service);
         return service;
     }
@@ -251,10 +455,9 @@ class ReferenceSearchServiceParallelTest {
     }
 
     private static ReferenceCandidate candidateWithDoi(String language, String title, String provider, String doi) {
-        String visibleTitle = "ZH".equals(language) && title.codePoints().noneMatch(code ->
-                Character.UnicodeScript.of(code) == Character.UnicodeScript.HAN)
-                ? "中文" + title
-                : title;
+        String visibleTitle = "ZH".equals(language)
+                ? (title.contains("数字经济") ? title : "数字经济：" + title)
+                : (title.toLowerCase().contains("digital economy") ? title : "Digital economy: " + title);
         return new ReferenceCandidate(
                 visibleTitle,
                 List.of("Test Author"),
@@ -272,6 +475,13 @@ class ReferenceSearchServiceParallelTest {
                 List.of(),
                 1.0,
                 "VERIFIED");
+    }
+
+    private static ReferenceCandidate rawCandidate(String title, String language, String provider) {
+        return new ReferenceCandidate(title, List.of("Test Author"), 2025, "Test Journal", "1", "1", "1-10",
+                "", "https://example.test/" + provider + "/" + Math.abs(title.hashCode()), provider,
+                "Unrelated abstract", "offline test", LocalDateTime.now(), List.of(), 100.0, "VERIFIED",
+                "JOURNAL", language.toLowerCase(), "OTHER_PUBLIC", title, "Unrelated abstract");
     }
 
     @SuppressWarnings("unchecked")

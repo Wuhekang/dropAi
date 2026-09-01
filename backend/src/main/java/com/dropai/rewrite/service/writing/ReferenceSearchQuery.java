@@ -12,8 +12,16 @@ public record ReferenceSearchQuery(
         int yearEnd,
         int maxResults,
         int chineseTarget,
-        int englishTarget
+        int englishTarget,
+        String providerKeywordsOverride
 ) {
+    public ReferenceSearchQuery(String projectId, String title, String major, List<String> keywords,
+                                List<String> chapterTitles, int yearStart, int yearEnd, int maxResults,
+                                int chineseTarget, int englishTarget) {
+        this(projectId, title, major, keywords, chapterTitles, yearStart, yearEnd, maxResults,
+                chineseTarget, englishTarget, "");
+    }
+
     public String joinedKeywords() {
         StringBuilder builder = new StringBuilder();
         if (title != null) builder.append(title).append(' ');
@@ -27,6 +35,21 @@ public record ReferenceSearchQuery(
         if (text.contains("职业院校") || text.contains("职业教育")) builder.append(" vocational education vocational college");
         if (text.contains("就业")) builder.append(" employability employment skills");
         return builder.toString().trim();
+    }
+
+    public String providerKeywords() {
+        return providerKeywordsOverride == null || providerKeywordsOverride.isBlank()
+                ? joinedKeywords()
+                : providerKeywordsOverride.trim();
+    }
+
+    public boolean hasProviderKeywordsOverride() {
+        return providerKeywordsOverride != null && !providerKeywordsOverride.isBlank();
+    }
+
+    public ReferenceSearchQuery withProviderKeywords(String providerKeywords) {
+        return new ReferenceSearchQuery(projectId, title, major, keywords, chapterTitles, yearStart, yearEnd,
+                maxResults, chineseTarget, englishTarget, providerKeywords);
     }
 
     public String joinedChineseKeywords() {

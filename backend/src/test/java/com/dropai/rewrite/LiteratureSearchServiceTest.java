@@ -62,6 +62,7 @@ class LiteratureSearchServiceTest {
                 "englishCount", 4));
 
         assertEquals(6, result.get("costPoints"));
+        assertEquals(2, result.get("unitCostPoints"));
         assertTrue((Boolean) result.get("charged"));
         verify(pointService).ensureEnoughCustom(42L, 20);
         verify(pointService).deductCustom(eq(42L), nullable(String.class), eq(PointService.LITERATURE_SEARCH),
