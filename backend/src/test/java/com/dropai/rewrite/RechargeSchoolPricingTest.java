@@ -60,7 +60,7 @@ class RechargeSchoolPricingTest {
         AuthContext.setUserId(7L);
 
         RechargeOrderCreateDTO input = new RechargeOrderCreateDTO();
-        input.setAmount(new BigDecimal("0.30"));
+        input.setAmount(new BigDecimal("2.00"));
         service.createOrder(input);
 
         var lockOrder = inOrder(schools, users, orders);
@@ -72,7 +72,7 @@ class RechargeSchoolPricingTest {
         verify(orders).insert(captor.capture());
         RechargeOrder order = captor.getValue();
         assertEquals(10, order.getPoints());
-        assertEquals(new BigDecimal("0.30"), order.getRechargePricePer10());
+        assertEquals(new BigDecimal("2.00"), order.getRechargePricePer10());
         assertEquals(1L, order.getSchoolId());
 
         school.setRechargePricePer10(new BigDecimal("0.50"));
@@ -83,7 +83,7 @@ class RechargeSchoolPricingTest {
         when(orders.selectOne(any())).thenReturn(order);
         when(orders.claimPending(order.getId())).thenReturn(1);
 
-        assertEquals("success", service.handleNotify(notifyParams("0.30"), "test"));
+        assertEquals("success", service.handleNotify(notifyParams("2.00"), "test"));
         verify(users).addPoints(7L, 10);
         verify(schools, times(1)).selectOne(any());
     }
@@ -103,7 +103,7 @@ class RechargeSchoolPricingTest {
 
     @Test
     void studentRetailPriceDoesNotChangeSchoolViewerPurchasePrice() {
-        School school = school(1L, "测试学校", "0.30", "0.60");
+        School school = school(1L, "测试学校", "0.30", "0.60", "0.30");
         when(users.selectById(20L)).thenReturn(user(20L, "SCHOOL_VIEWER", 1L, 0));
         when(users.selectById(21L)).thenReturn(user(21L, "USER", 1L, 0));
         when(schools.selectById(1L)).thenReturn(school);
@@ -141,6 +141,42 @@ class RechargeSchoolPricingTest {
     }
 
     @Test
+    void boundUserDefaultsToTwoYuanAndPriceMustRespectAdminFloor() {
+        UserAccount user = user(10L, "USER", 1L, 0);
+        School school = school(1L, "测试学校", "0.30");
+        when(users.selectById(10L)).thenReturn(user);
+        when(schools.selectById(1L)).thenReturn(school);
+        AuthContext.setUserId(10L);
+
+        assertEquals(new BigDecimal("2.00"), service.pricing().get("pricePer10"));
+
+        school.setStudentRechargePricePer10(new BigDecimal("0.80"));
+        assertThrows(IllegalStateException.class, service::pricing);
+    }
+
+    @Test
+    void boundUserCanRechargeAtThirtyCentsAfterAdminLowersFloorToThirtyCents() {
+        UserAccount user = user(11L, "USER", 1L, 0);
+        School school = school(1L, "测试学校", "0.30", "0.30", "0.30");
+        when(users.selectById(11L)).thenReturn(user);
+        when(users.selectOne(any())).thenReturn(user);
+        when(schools.selectById(1L)).thenReturn(school);
+        when(schools.selectOne(any())).thenReturn(school);
+        AuthContext.setUserId(11L);
+
+        assertEquals(new BigDecimal("0.30"), service.pricing().get("pricePer10"));
+
+        RechargeOrderCreateDTO input = new RechargeOrderCreateDTO();
+        input.setAmount(new BigDecimal("0.30"));
+        service.createOrder(input);
+
+        ArgumentCaptor<RechargeOrder> captor = ArgumentCaptor.forClass(RechargeOrder.class);
+        verify(orders).insert(captor.capture());
+        assertEquals(new BigDecimal("0.30"), captor.getValue().getRechargePricePer10());
+        assertEquals(10, captor.getValue().getPoints());
+    }
+
+    @Test
     void createOrderRevalidatesSchoolAfterTakingSchoolThenUserLocks() {
         UserAccount hint = user(30L, "USER", 1L, 0);
         UserAccount moved = user(30L, "USER", 2L, 0);
@@ -170,16 +206,21 @@ class RechargeSchoolPricingTest {
     }
 
     private School school(Long id, String name, String price) {
-        return school(id, name, price, price);
+        return school(id, name, price, "2.00", "1.00");
     }
 
     private School school(Long id, String name, String price, String studentPrice) {
+        return school(id, name, price, studentPrice, "1.00");
+    }
+
+    private School school(Long id, String name, String price, String studentPrice, String studentMinPrice) {
         School school = new School();
         school.setId(id);
         school.setSchoolName(name);
         school.setEnabled(true);
         school.setRechargePricePer10(new BigDecimal(price));
         school.setStudentRechargePricePer10(new BigDecimal(studentPrice));
+        school.setStudentRechargeMinPricePer10(new BigDecimal(studentMinPrice));
         return school;
     }
 

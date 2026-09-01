@@ -31,10 +31,11 @@ class SchoolAccountSchemaInitializerTest {
         assertColumn(jdbc, "SCHOOL", "DELETED_BY");
         assertColumn(jdbc, "SCHOOL", "DELETE_REASON");
         assertColumn(jdbc, "SCHOOL", "STUDENT_RECHARGE_PRICE_PER10");
+        assertColumn(jdbc, "SCHOOL", "STUDENT_RECHARGE_MIN_PRICE_PER10");
     }
 
     @Test
-    void existingSchoolPriceBackfillsStudentFloorAndRepeatedStartupIsIdempotent() throws Exception {
+    void legacySchoolGetsTwoYuanStudentDefaultAndOneYuanAdminFloor() throws Exception {
         DriverManagerDataSource dataSource = dataSource("school-account-upgrade");
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         createLegacyUserTable(jdbc);
@@ -60,7 +61,25 @@ class SchoolAccountSchemaInitializerTest {
         java.math.BigDecimal studentPrice = jdbc.queryForObject(
                 "SELECT student_recharge_price_per10 FROM school WHERE school_code='LEGACY'",
                 java.math.BigDecimal.class);
-        assertEquals(0, new java.math.BigDecimal("0.50").compareTo(studentPrice));
+        java.math.BigDecimal studentMinPrice = jdbc.queryForObject(
+                "SELECT student_recharge_min_price_per10 FROM school WHERE school_code='LEGACY'",
+                java.math.BigDecimal.class);
+        assertEquals(0, new java.math.BigDecimal("2.00").compareTo(studentPrice));
+        assertEquals(0, new java.math.BigDecimal("1.00").compareTo(studentMinPrice));
+
+        jdbc.update("INSERT INTO school(school_code,school_name) VALUES(?,?)", "DEFAULTS", "默认价格学校");
+        assertEquals(0, new java.math.BigDecimal("2.00").compareTo(jdbc.queryForObject(
+                "SELECT student_recharge_price_per10 FROM school WHERE school_code='DEFAULTS'",
+                java.math.BigDecimal.class)));
+        assertEquals(0, new java.math.BigDecimal("1.00").compareTo(jdbc.queryForObject(
+                "SELECT student_recharge_min_price_per10 FROM school WHERE school_code='DEFAULTS'",
+                java.math.BigDecimal.class)));
+
+        jdbc.update("UPDATE school SET recharge_price_per10=0.30,student_recharge_price_per10=0.40,student_recharge_min_price_per10=0.30 WHERE school_code='LEGACY'");
+        initializer.run(arguments);
+        assertEquals(0, new java.math.BigDecimal("0.40").compareTo(jdbc.queryForObject(
+                "SELECT student_recharge_price_per10 FROM school WHERE school_code='LEGACY'",
+                java.math.BigDecimal.class)));
     }
 
     @Test
@@ -87,6 +106,40 @@ class SchoolAccountSchemaInitializerTest {
         assertTrue(raced.get());
         assertColumn(jdbc, "USER_ACCOUNT", "SCHOOL_ID");
         assertColumn(jdbc, "USER_ACCOUNT", "DELETED_AT");
+    }
+
+    @Test
+    void interruptedUpgradeRestoresInvalidPartialDefaultButPreservesValidAdminDiscount() throws Exception {
+        DriverManagerDataSource dataSource = dataSource("school-account-partial-upgrade");
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        createLegacyUserTable(jdbc);
+        jdbc.execute("""
+                CREATE TABLE school (
+                  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                  school_code VARCHAR(64) NOT NULL UNIQUE,
+                  school_name VARCHAR(120) NOT NULL,
+                  recharge_price_per10 DECIMAL(10,2) DEFAULT 0.30 NOT NULL,
+                  student_recharge_price_per10 DECIMAL(10,2) DEFAULT 0.30 NOT NULL,
+                  student_recharge_min_price_per10 DECIMAL(10,2) DEFAULT 1.00 NOT NULL,
+                  enabled BOOLEAN DEFAULT TRUE NOT NULL,
+                  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+                  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+                )
+                """);
+        jdbc.update("INSERT INTO school(school_code,school_name,student_recharge_price_per10,student_recharge_min_price_per10) VALUES(?,?,?,?)",
+                "PARTIAL", "中断升级学校", new java.math.BigDecimal("0.30"), new java.math.BigDecimal("1.00"));
+        jdbc.update("INSERT INTO school(school_code,school_name,student_recharge_price_per10,student_recharge_min_price_per10) VALUES(?,?,?,?)",
+                "DISCOUNT", "合法放宽学校", new java.math.BigDecimal("0.40"), new java.math.BigDecimal("0.30"));
+
+        new SchoolSchemaInitializer(jdbc, dataSource)
+                .run(new DefaultApplicationArguments(new String[0]));
+
+        assertEquals(0, new java.math.BigDecimal("2.00").compareTo(jdbc.queryForObject(
+                "SELECT student_recharge_price_per10 FROM school WHERE school_code='PARTIAL'",
+                java.math.BigDecimal.class)));
+        assertEquals(0, new java.math.BigDecimal("0.40").compareTo(jdbc.queryForObject(
+                "SELECT student_recharge_price_per10 FROM school WHERE school_code='DISCOUNT'",
+                java.math.BigDecimal.class)));
     }
 
     private DriverManagerDataSource dataSource(String name) {

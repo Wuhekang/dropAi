@@ -71,8 +71,8 @@
     <div v-if="studentPriceOpen" class="mask" @click.self="studentPriceOpen = false">
       <section class="modal price-modal">
         <header><div><small>STUDENT RECHARGE PRICING</small><h2>下级账号充值价设置</h2></div><button @click="studentPriceOpen = false">×</button></header>
-        <p class="price-note">学校账户自身充值价为 {{ money(rechargePrice) }} 元 / 10 积分。这里仅设置本校下级普通用户的统一充值价，不影响学校账户自身充值。</p>
-        <label>下级用户每 10 积分价格（元）<input v-model="studentPriceValue" type="number" :min="minimumStudentRechargePrice" max="1000" step="0.01" inputmode="decimal"><small>最低 {{ money(minimumStudentRechargePrice) }} 元，最高 1000 元，最多保留两位小数。</small></label>
+        <p class="price-note">管理员为本校设定的下级账号最低充值价是 {{ money(adminStudentRechargeMinimum) }} 元 / 10 积分；学校账户自身充值价是 {{ money(rechargePrice) }} 元 / 10 积分。本设置只影响本校下级普通用户。</p>
+        <label>本校下级实际统一充值价（每10积分）<input v-model="studentPriceValue" type="number" :min="minimumStudentRechargePrice" max="1000" step="0.01" inputmode="decimal"><small>综合最低可设 {{ money(minimumStudentRechargePrice) }} 元（取管理员最低限价、学校自身价和 0.30 元中的最高值），最多保留两位小数。</small></label>
         <footer><button :disabled="studentPriceSaving" @click="studentPriceOpen = false">取消</button><button class="primary" :disabled="studentPriceSaving || !validStudentPrice" @click="saveStudentPrice">{{ studentPriceSaving ? '保存中…' : '保存统一充值价' }}</button></footer>
       </section>
     </div>
@@ -141,14 +141,17 @@ const money = value => Number(value || 0).toLocaleString('zh-CN', { minimumFract
 const formatTime = value => value ? String(value).replace('T', ' ').slice(0, 16) : '--'
 const date = item => String(item.day || '').slice(0, 10)
 const rechargePrice = computed(() => Number(data.value.rechargePricePer10 || 0.3))
+const adminStudentRechargeMinimum = computed(() => {
+  const configuredMinimum = Number(data.value.studentRechargeMinPricePer10)
+  return Number.isFinite(configuredMinimum) && configuredMinimum >= 0.3 ? configuredMinimum : 1
+})
 const minimumStudentRechargePrice = computed(() => {
-  const configuredMinimum = Number(data.value.minimumStudentRechargePricePer10)
   const ownPrice = Number(data.value.rechargePricePer10)
-  return Math.max(0.3, Number.isFinite(configuredMinimum) ? configuredMinimum : 0, Number.isFinite(ownPrice) ? ownPrice : 0)
+  return Math.max(0.3, adminStudentRechargeMinimum.value, Number.isFinite(ownPrice) ? ownPrice : 0)
 })
 const currentStudentRechargePrice = computed(() => {
   const configured = Number(data.value.studentRechargePricePer10)
-  return Number.isFinite(configured) && configured >= minimumStudentRechargePrice.value ? configured : minimumStudentRechargePrice.value
+  return Number.isFinite(configured) && configured >= minimumStudentRechargePrice.value ? configured : Math.max(2, minimumStudentRechargePrice.value)
 })
 const validStudentPrice = computed(() => {
   if (String(studentPriceValue.value ?? '').trim() === '') return null

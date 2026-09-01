@@ -66,9 +66,25 @@ class SchoolAccountControlTest {
         assertThrows(IllegalArgumentException.class,
                 () -> service.validateRechargePrice(new BigDecimal("0.29")));
         assertThrows(IllegalArgumentException.class,
-                () -> service.validateStudentRechargePrice(new BigDecimal("0.49"), new BigDecimal("0.50")));
+                () -> service.validateStudentRechargePrice(new BigDecimal("0.49"),
+                        new BigDecimal("0.50"), new BigDecimal("0.30")));
         assertEquals(new BigDecimal("0.50"),
-                service.validateStudentRechargePrice(new BigDecimal("0.50"), new BigDecimal("0.50")));
+                service.validateStudentRechargePrice(new BigDecimal("0.50"),
+                        new BigDecimal("0.50"), new BigDecimal("0.30")));
+        assertThrows(IllegalArgumentException.class,
+                () -> service.validateStudentRechargePrice(new BigDecimal("0.99"),
+                        new BigDecimal("0.30"), new BigDecimal("1.00")));
+        assertEquals(new BigDecimal("0.30"),
+                service.validateStudentRechargeMinPrice(new BigDecimal("0.30")));
+        assertThrows(IllegalArgumentException.class,
+                () -> service.validateStudentRechargeMinPrice(new BigDecimal("0.29")));
+    }
+
+    @Test
+    void adminThirtyCentFloorAllowsSchoolToSetThirtyCentStudentPrice() {
+        assertEquals(new BigDecimal("0.30"),
+                service.validateStudentRechargePrice(new BigDecimal("0.30"),
+                        new BigDecimal("0.30"), new BigDecimal("0.30")));
     }
 
     @Test
@@ -77,6 +93,7 @@ class SchoolAccountControlTest {
         School school = school(10L);
         school.setRechargePricePer10(new BigDecimal("0.50"));
         school.setStudentRechargePricePer10(new BigDecimal("0.50"));
+        school.setStudentRechargeMinPricePer10(new BigDecimal("0.50"));
         when(users.selectById(1L)).thenReturn(viewer);
         when(schools.selectOne(any())).thenReturn(school);
         when(users.selectOne(any())).thenReturn(viewer);
@@ -87,7 +104,33 @@ class SchoolAccountControlTest {
 
         assertEquals(new BigDecimal("0.50"), school.getRechargePricePer10());
         assertEquals(new BigDecimal("0.60"), school.getStudentRechargePricePer10());
-        assertEquals(new BigDecimal("0.50"), result.get("minimumStudentRechargePricePer10"));
+        assertEquals(new BigDecimal("0.50"), result.get("studentRechargeMinPricePer10"));
+    }
+
+    @Test
+    void newSchoolDefaultsStudentPriceToTwoYuanAndAdminFloorToOneYuan() {
+        UserAccount admin = user(99L, "ADMIN", 0L, 0);
+        when(users.selectById(99L)).thenReturn(admin);
+        when(schools.selectOne(any())).thenReturn(null);
+        AuthContext.setUserId(99L);
+
+        var result = service.save(null,
+                new SchoolService.SchoolInput("NEW", "新学校", null, null, null, true));
+
+        assertEquals(new BigDecimal("0.30"), result.get("rechargePricePer10"));
+        assertEquals(new BigDecimal("2.00"), result.get("studentRechargePricePer10"));
+        assertEquals(new BigDecimal("1.00"), result.get("studentRechargeMinPricePer10"));
+    }
+
+    @Test
+    void adminSchoolSaveRejectsStudentPriceBelowConfiguredFloor() {
+        UserAccount admin = user(99L, "ADMIN", 0L, 0);
+        when(users.selectById(99L)).thenReturn(admin);
+        AuthContext.setUserId(99L);
+
+        assertThrows(IllegalArgumentException.class, () -> service.save(null,
+                new SchoolService.SchoolInput("NEW", "新学校", new BigDecimal("0.30"),
+                        new BigDecimal("0.99"), new BigDecimal("1.00"), true)));
     }
 
     @Test
@@ -294,7 +337,8 @@ class SchoolAccountControlTest {
         school.setSchoolName("测试学校");
         school.setEnabled(true);
         school.setRechargePricePer10(new BigDecimal("0.30"));
-        school.setStudentRechargePricePer10(new BigDecimal("0.30"));
+        school.setStudentRechargePricePer10(new BigDecimal("2.00"));
+        school.setStudentRechargeMinPricePer10(new BigDecimal("1.00"));
         return school;
     }
 }

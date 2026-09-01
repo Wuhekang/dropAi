@@ -431,12 +431,25 @@ public class RechargeService {
                 throw new IllegalStateException("学校账户充值价格配置无效");
             schoolPrice = schoolPrice.setScale(2, RoundingMode.UNNECESSARY);
             boolean schoolViewer = "SCHOOL_VIEWER".equalsIgnoreCase(user.getRole());
-            BigDecimal price = schoolViewer ? schoolPrice : school.getStudentRechargePricePer10();
-            if (price == null) price = schoolPrice.max(SchoolService.MIN_RECHARGE_PRICE);
-            if (price.compareTo(schoolPrice.max(SchoolService.MIN_RECHARGE_PRICE)) < 0
-                    || price.compareTo(SchoolService.MAX_RECHARGE_PRICE) > 0
-                    || price.stripTrailingZeros().scale() > 2) {
-                throw new IllegalStateException("下级账号充值价格配置无效");
+            BigDecimal price = schoolPrice;
+            if (!schoolViewer) {
+                BigDecimal configuredMinimum = school.getStudentRechargeMinPricePer10() == null
+                        ? SchoolService.DEFAULT_STUDENT_RECHARGE_MIN_PRICE
+                        : school.getStudentRechargeMinPricePer10();
+                if (configuredMinimum.compareTo(SchoolService.MIN_RECHARGE_PRICE) < 0
+                        || configuredMinimum.compareTo(SchoolService.MAX_RECHARGE_PRICE) > 0
+                        || configuredMinimum.stripTrailingZeros().scale() > 2) {
+                    throw new IllegalStateException("下级账号最低限价配置无效");
+                }
+                BigDecimal minimum = schoolPrice.max(configuredMinimum)
+                        .max(SchoolService.MIN_RECHARGE_PRICE);
+                price = school.getStudentRechargePricePer10() == null
+                        ? SchoolService.DEFAULT_STUDENT_RECHARGE_PRICE : school.getStudentRechargePricePer10();
+                if (price.compareTo(minimum) < 0
+                        || price.compareTo(SchoolService.MAX_RECHARGE_PRICE) > 0
+                        || price.stripTrailingZeros().scale() > 2) {
+                    throw new IllegalStateException("下级账号充值价格配置无效");
+                }
             }
             price = price.setScale(2, RoundingMode.UNNECESSARY);
             BigDecimal max = schoolViewer

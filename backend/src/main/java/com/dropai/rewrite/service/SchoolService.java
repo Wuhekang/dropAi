@@ -30,6 +30,8 @@ import java.util.Objects;
 public class SchoolService {
     public static final BigDecimal MIN_RECHARGE_PRICE = new BigDecimal("0.30");
     public static final BigDecimal MAX_RECHARGE_PRICE = new BigDecimal("1000.00");
+    public static final BigDecimal DEFAULT_STUDENT_RECHARGE_PRICE = new BigDecimal("2.00");
+    public static final BigDecimal DEFAULT_STUDENT_RECHARGE_MIN_PRICE = new BigDecimal("1.00");
 
     private final SchoolMapper schools;
     private final UserAccountMapper users;
@@ -71,15 +73,13 @@ public class SchoolService {
         BigDecimal ownPrice = input.rechargePricePer10() == null
                 ? (id == null ? MIN_RECHARGE_PRICE : effectivePrice(school))
                 : validateRechargePrice(input.rechargePricePer10());
-        BigDecimal minimumStudentPrice = minimumStudentRechargePrice(ownPrice);
-        BigDecimal studentPrice;
-        if (input.studentRechargePricePer10() != null) {
-            studentPrice = validateStudentRechargePrice(input.studentRechargePricePer10(), ownPrice);
-        } else {
-            BigDecimal configured = id == null ? null : school.getStudentRechargePricePer10();
-            studentPrice = configured == null || configured.compareTo(minimumStudentPrice) < 0
-                    ? minimumStudentPrice : configured.setScale(2, RoundingMode.UNNECESSARY);
-        }
+        BigDecimal studentMinPrice = input.studentRechargeMinPricePer10() == null
+                ? (id == null ? DEFAULT_STUDENT_RECHARGE_MIN_PRICE : effectiveStudentMinPrice(school))
+                : validateStudentRechargeMinPrice(input.studentRechargeMinPricePer10());
+        BigDecimal requestedStudentPrice = input.studentRechargePricePer10() == null
+                ? (id == null ? DEFAULT_STUDENT_RECHARGE_PRICE : configuredStudentPrice(school))
+                : input.studentRechargePricePer10();
+        BigDecimal studentPrice = validateStudentRechargePrice(requestedStudentPrice, ownPrice, studentMinPrice);
         School duplicate = schools.selectOne(new LambdaQueryWrapper<School>()
                 .eq(School::getSchoolCode, input.schoolCode().trim())
                 .isNull(School::getDeletedAt)
@@ -90,6 +90,7 @@ public class SchoolService {
         school.setSchoolName(input.schoolName().trim());
         school.setRechargePricePer10(ownPrice);
         school.setStudentRechargePricePer10(studentPrice);
+        school.setStudentRechargeMinPricePer10(studentMinPrice);
         if (id == null) {
             school.setEnabled(input.enabled() == null || input.enabled());
             school.setCreatedAt(LocalDateTime.now());
@@ -186,7 +187,7 @@ public class SchoolService {
         out.put("schoolCode", school.getSchoolCode());
         out.put("rechargePricePer10", effectivePrice(school));
         out.put("studentRechargePricePer10", effectiveStudentPrice(school));
-        out.put("minimumStudentRechargePricePer10", minimumStudentRechargePrice(school));
+        out.put("studentRechargeMinPricePer10", effectiveStudentMinPrice(school));
         out.put("balance", user.getPoints());
         out.put("totalRechargeAmount", scalarMoney(
                 "SELECT COALESCE(SUM(COALESCE(o.pay_amount,o.amount)),0) FROM recharge_order o WHERE o.user_id=? AND o.status IN ('paid','approved')",
@@ -254,7 +255,8 @@ public class SchoolService {
     public Map<String, Object> updateRechargePrice(PriceInput input) {
         LockedViewerSchool locked = lockViewerSchool(AuthContext.requireUserId());
         School school = locked.school();
-        BigDecimal price = validateStudentRechargePrice(input.studentRechargePricePer10(), effectivePrice(school));
+        BigDecimal price = validateStudentRechargePrice(input.studentRechargePricePer10(),
+                effectivePrice(school), effectiveStudentMinPrice(school));
         LocalDateTime now = LocalDateTime.now();
         int changed = schools.update(null, new LambdaUpdateWrapper<School>()
                 .eq(School::getId, school.getId())
@@ -268,7 +270,7 @@ public class SchoolService {
         out.put("schoolId", school.getId());
         out.put("rechargePricePer10", effectivePrice(school));
         out.put("studentRechargePricePer10", price);
-        out.put("minimumStudentRechargePricePer10", minimumStudentRechargePrice(school));
+        out.put("studentRechargeMinPricePer10", effectiveStudentMinPrice(school));
         return out;
     }
 
@@ -407,9 +409,20 @@ public class SchoolService {
         return normalized.setScale(2, RoundingMode.UNNECESSARY);
     }
 
-    public BigDecimal validateStudentRechargePrice(BigDecimal rawPrice, BigDecimal schoolRechargePrice) {
+    public BigDecimal validateStudentRechargeMinPrice(BigDecimal rawPrice) {
+        if (rawPrice == null) throw new IllegalArgumentException("下级账号最低限价不能为空");
+        BigDecimal normalized = rawPrice.stripTrailingZeros();
+        if (normalized.scale() > 2 || normalized.compareTo(MIN_RECHARGE_PRICE) < 0
+                || normalized.compareTo(MAX_RECHARGE_PRICE) > 0) {
+            throw new IllegalArgumentException("下级账号最低限价必须为0.30-1000元，最多两位小数");
+        }
+        return normalized.setScale(2, RoundingMode.UNNECESSARY);
+    }
+
+    public BigDecimal validateStudentRechargePrice(BigDecimal rawPrice, BigDecimal schoolRechargePrice,
+                                                   BigDecimal studentRechargeMinPrice) {
         if (rawPrice == null) throw new IllegalArgumentException("下级账号每10积分价格不能为空");
-        BigDecimal minimum = minimumStudentRechargePrice(schoolRechargePrice);
+        BigDecimal minimum = minimumStudentRechargePrice(schoolRechargePrice, studentRechargeMinPrice);
         BigDecimal normalized = rawPrice.stripTrailingZeros();
         if (normalized.scale() > 2 || normalized.compareTo(minimum) < 0
                 || normalized.compareTo(MAX_RECHARGE_PRICE) > 0) {
@@ -427,20 +440,38 @@ public class SchoolService {
 
     private BigDecimal effectiveStudentPrice(School school) {
         BigDecimal minimum = minimumStudentRechargePrice(school);
-        BigDecimal configured = school.getStudentRechargePricePer10();
-        return configured == null || configured.compareTo(minimum) < 0
-                ? minimum : configured.setScale(2, RoundingMode.UNNECESSARY);
+        BigDecimal configured = configuredStudentPrice(school);
+        return configured.compareTo(minimum) < 0 ? minimum : configured;
     }
 
     private BigDecimal minimumStudentRechargePrice(School school) {
-        return minimumStudentRechargePrice(effectivePrice(school));
+        return minimumStudentRechargePrice(effectivePrice(school), effectiveStudentMinPrice(school));
     }
 
-    private BigDecimal minimumStudentRechargePrice(BigDecimal schoolRechargePrice) {
-        if (schoolRechargePrice == null || schoolRechargePrice.compareTo(MIN_RECHARGE_PRICE) < 0) {
-            return MIN_RECHARGE_PRICE;
+    private BigDecimal minimumStudentRechargePrice(BigDecimal schoolRechargePrice,
+                                                   BigDecimal studentRechargeMinPrice) {
+        BigDecimal ownPrice = schoolRechargePrice == null
+                ? MIN_RECHARGE_PRICE : schoolRechargePrice.max(MIN_RECHARGE_PRICE);
+        BigDecimal adminMinimum = studentRechargeMinPrice == null
+                ? DEFAULT_STUDENT_RECHARGE_MIN_PRICE : studentRechargeMinPrice.max(MIN_RECHARGE_PRICE);
+        return ownPrice.max(adminMinimum).setScale(2, RoundingMode.UNNECESSARY);
+    }
+
+    private BigDecimal effectiveStudentMinPrice(School school) {
+        BigDecimal configured = school.getStudentRechargeMinPricePer10();
+        return configured == null ? DEFAULT_STUDENT_RECHARGE_MIN_PRICE
+                : validateStudentRechargeMinPrice(configured);
+    }
+
+    private BigDecimal configuredStudentPrice(School school) {
+        BigDecimal configured = school.getStudentRechargePricePer10();
+        if (configured == null) return DEFAULT_STUDENT_RECHARGE_PRICE;
+        BigDecimal normalized = configured.stripTrailingZeros();
+        if (normalized.scale() > 2 || normalized.compareTo(MIN_RECHARGE_PRICE) < 0
+                || normalized.compareTo(MAX_RECHARGE_PRICE) > 0) {
+            throw new IllegalStateException("下级账号充值价格配置无效");
         }
-        return schoolRechargePrice.setScale(2, RoundingMode.UNNECESSARY);
+        return normalized.setScale(2, RoundingMode.UNNECESSARY);
     }
 
     private void writeTransaction(Long userId, String jobId, String code, String name,
@@ -464,7 +495,7 @@ public class SchoolService {
         out.put("schoolName", school.getSchoolName());
         out.put("rechargePricePer10", effectivePrice(school));
         out.put("studentRechargePricePer10", effectiveStudentPrice(school));
-        out.put("minimumStudentRechargePricePer10", minimumStudentRechargePrice(school));
+        out.put("studentRechargeMinPricePer10", effectiveStudentMinPrice(school));
         out.put("enabled", school.getEnabled());
         out.put("createdAt", school.getCreatedAt());
         out.put("updatedAt", school.getUpdatedAt());
@@ -579,7 +610,8 @@ public class SchoolService {
     }
 
     public record SchoolInput(String schoolCode, String schoolName, BigDecimal rechargePricePer10,
-                              BigDecimal studentRechargePricePer10, Boolean enabled) {}
+                              BigDecimal studentRechargePricePer10,
+                              BigDecimal studentRechargeMinPricePer10, Boolean enabled) {}
     public record ViewerInput(String phone, String password, Boolean enabled) {}
     public record ViewerUpdate(Long schoolId, String password, Boolean enabled) {}
     public record GiftInput(Integer points) {}
