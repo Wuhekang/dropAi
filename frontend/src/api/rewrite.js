@@ -419,7 +419,7 @@ export function getWritingReferenceSearchStatus() {
 }
 
 export function searchLiterature(data) {
-  return request.post('/literature/search', data, { timeout: 300000 })
+  return request.post('/literature/search', data, { timeout: 30000 })
 }
 
 export function getWritingReferenceProviders() {

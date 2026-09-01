@@ -2,6 +2,7 @@ package com.dropai.rewrite.service.writing;
 
 import com.dropai.rewrite.config.WritingGenerationProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.annotation.PreDestroy;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -9,12 +10,25 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.time.Year;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.CompletionService;
+import java.util.concurrent.ExecutorCompletionService;
+import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Service
 public class ReferenceSearchService {
@@ -24,6 +38,7 @@ public class ReferenceSearchService {
     private final ObjectMapper objectMapper;
     private final ChineseReferenceSearchPlanService searchPlanService;
     private final GbT7714Formatter formatter;
+    private final ThreadPoolExecutor searchExecutor;
 
     public ReferenceSearchService(JdbcTemplate jdbcTemplate,
                                   WritingGenerationProperties properties,
@@ -40,6 +55,27 @@ public class ReferenceSearchService {
         this.objectMapper = objectMapper;
         this.searchPlanService = searchPlanService;
         this.formatter = formatter;
+        int parallelism = Math.max(4, Math.min(16, properties.getReferenceSearch().getParallelism()));
+        AtomicInteger threadNumber = new AtomicInteger();
+        ThreadFactory threadFactory = runnable -> {
+            Thread thread = new Thread(runnable, "literature-search-" + threadNumber.incrementAndGet());
+            thread.setDaemon(true);
+            return thread;
+        };
+        this.searchExecutor = new ThreadPoolExecutor(
+                parallelism,
+                parallelism,
+                30L,
+                TimeUnit.SECONDS,
+                new ArrayBlockingQueue<>(Math.max(32, parallelism * 8)),
+                threadFactory,
+                new ThreadPoolExecutor.AbortPolicy());
+        this.searchExecutor.allowCoreThreadTimeOut(true);
+    }
+
+    @PreDestroy
+    void shutdownSearchExecutor() {
+        searchExecutor.shutdownNow();
     }
 
     public Map<String, Object> status() {
@@ -287,7 +323,8 @@ public class ReferenceSearchService {
         for (String providerName : properties.getReferenceSearch().providerOrder()) {
             ReferenceSearchProvider provider = providers.get(providerName);
             if (provider == null || !provider.available() || !provider.supportsLanguage(language)) continue;
-            for (int attempt = 1; attempt <= Math.max(1, properties.getReferenceSearch().getRetryCount()); attempt++) {
+            int attempts = Math.max(1, Math.min(2, properties.getReferenceSearch().getRetryCount()));
+            for (int attempt = 1; attempt <= attempts; attempt++) {
                 long started = System.currentTimeMillis();
                 try {
                     List<ReferenceCandidate> found = provider.search(query);
@@ -299,17 +336,21 @@ public class ReferenceSearchService {
                     lastError = exception;
                     insertSearchLog(query.projectId(), provider.providerCode(), language, query.joinedKeywords(), 0, 0, System.currentTimeMillis() - started, false,
                             exception.getClass().getSimpleName(), String.valueOf(exception.getMessage()));
-                    try {
-                        Thread.sleep(800L * attempt);
-                    } catch (InterruptedException interruptedException) {
-                        Thread.currentThread().interrupt();
-                        throw new IllegalStateException("参考文献搜索被中断", interruptedException);
+                    if (attempt < attempts) {
+                        try {
+                            Thread.sleep(150L);
+                        } catch (InterruptedException interruptedException) {
+                            Thread.currentThread().interrupt();
+                            throw new IllegalStateException("参考文献搜索被中断", interruptedException);
+                        }
                     }
                 }
             }
         }
-        if (result.isEmpty() && lastError != null) throw lastError;
-        if (result.isEmpty()) throw new IllegalStateException("没有可用的联网参考文献搜索Provider，或搜索结果为空");
+        if (result.isEmpty() && lastError != null) {
+            throw new IllegalStateException("公开学术来源暂时无法访问，请稍后重试", lastError);
+        }
+        if (result.isEmpty()) throw new IllegalStateException("暂未检索到符合条件的公开文献，请尝试补充或调整题目关键词");
         return result;
     }
 
@@ -381,25 +422,27 @@ public class ReferenceSearchService {
         if (zhTarget + enTarget < 1) throw new IllegalArgumentException("中文和英文文献数量不能同时为 0");
 
         int currentYear = Year.now().getValue();
-        List<ReferenceCandidate> selected = new ArrayList<>();
+        int configuredMax = Math.max(1, Math.min(30, properties.getReferenceSearch().getMaxResults()));
+        List<SearchBranch> branches = new ArrayList<>();
         if (zhTarget > 0) {
+            int searchMax = Math.min(configuredMax, Math.max(zhTarget * 2, zhTarget + 4));
             ReferenceSearchQuery zhQuery = new ReferenceSearchQuery(
                     "literature_" + WritingJdbc.id("zh"), normalizedTitle, "中文学术文献",
                     List.of(normalizedTitle, "中文文献"), List.of(), currentYear - 5, currentYear,
-                    zhTarget, zhTarget, 0);
-            selected.addAll(dedupe(searchOnline(zhQuery, "ZH")).stream()
-                    .filter(ReferenceCandidate::basicallyVerified).limit(zhTarget).toList());
+                    searchMax, zhTarget, 0);
+            branches.add(new SearchBranch("ZH", zhTarget, zhQuery));
         }
         if (enTarget > 0) {
+            int searchMax = Math.min(configuredMax, Math.max(enTarget * 2, enTarget + 4));
             ReferenceSearchQuery enQuery = new ReferenceSearchQuery(
                     "literature_" + WritingJdbc.id("en"), normalizedTitle, "English academic literature",
                     List.of(normalizedTitle, "English papers"), List.of(), currentYear - 5, currentYear,
-                    enTarget, 0, enTarget);
-            selected.addAll(dedupe(searchOnline(enQuery, "EN")).stream()
-                    .filter(ReferenceCandidate::basicallyVerified).limit(enTarget).toList());
+                    searchMax, 0, enTarget);
+            branches.add(new SearchBranch("EN", enTarget, enQuery));
         }
 
-        List<ReferenceCandidate> unique = dedupe(selected);
+        ParallelSearchResult searchResult = searchStandaloneBranches(branches);
+        List<ReferenceCandidate> unique = searchResult.selected();
         List<Map<String, Object>> items = new ArrayList<>();
         int index = 1;
         for (ReferenceCandidate candidate : unique) {
@@ -418,9 +461,230 @@ public class ReferenceSearchService {
         response.put("englishCount", enTarget);
         response.put("requestedCount", zhTarget + enTarget);
         response.put("actualCount", items.size());
+        response.put("actualChineseCount", searchResult.actualChineseCount());
+        response.put("actualEnglishCount", searchResult.actualEnglishCount());
+        response.put("status", searchResult.warnings().isEmpty() ? "SUCCESS" : "PARTIAL");
+        response.put("partial", !searchResult.warnings().isEmpty());
+        response.put("warnings", searchResult.warnings());
+        response.put("searchMode", "PARALLEL_MULTI_PROVIDER");
+        response.put("providersTried", searchResult.providersTried());
+        response.put("providerOutcomes", searchResult.providerOutcomes());
+        response.put("timedOut", searchResult.timedOut());
         response.put("citationText", citationText(items));
         response.put("items", items);
         return response;
+    }
+
+    private ParallelSearchResult searchStandaloneBranches(List<SearchBranch> branches) {
+        List<ProviderTask> tasks = new ArrayList<>();
+        int providerIndex = 0;
+        for (String providerName : properties.getReferenceSearch().providerOrder()) {
+            ReferenceSearchProvider provider = providers.get(providerName);
+            if (provider == null) continue;
+            for (SearchBranch branch : branches) {
+                if (provider.available() && provider.supportsLanguage(branch.language())) {
+                    tasks.add(new ProviderTask(branch, provider, providerIndex));
+                }
+            }
+            providerIndex++;
+        }
+        tasks = distinctTasks(tasks);
+        if (tasks.isEmpty()) {
+            throw new IllegalStateException("当前未启用可用的公开文献检索来源，请检查服务器搜索配置");
+        }
+
+        CompletionService<ProviderSearchOutcome> completion = new ExecutorCompletionService<>(searchExecutor);
+        List<Future<ProviderSearchOutcome>> futures = new ArrayList<>();
+        List<ProviderSearchOutcome> outcomes = new ArrayList<>();
+        int submitted = 0;
+        for (ProviderTask task : tasks) {
+            try {
+                futures.add(completion.submit(() -> callProvider(task)));
+                submitted++;
+            } catch (RejectedExecutionException exception) {
+                outcomes.add(ProviderSearchOutcome.busy(task));
+            }
+        }
+        if (submitted == 0) {
+            throw new IllegalStateException("文献检索任务较多，请稍后重试");
+        }
+
+        int timeoutSeconds = Math.max(1, Math.min(20, properties.getReferenceSearch().getTimeoutSeconds()));
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(timeoutSeconds);
+        int completed = 0;
+        boolean timedOut = false;
+        try {
+            while (completed < submitted) {
+                long remaining = deadline - System.nanoTime();
+                if (remaining <= 0) {
+                    timedOut = true;
+                    break;
+                }
+                Future<ProviderSearchOutcome> completedFuture = completion.poll(remaining, TimeUnit.NANOSECONDS);
+                if (completedFuture == null) {
+                    timedOut = true;
+                    break;
+                }
+                completed++;
+                try {
+                    outcomes.add(completedFuture.get());
+                } catch (Exception exception) {
+                    // Provider tasks return an outcome for normal failures. Keep another task alive if one
+                    // encounters an unexpected runtime error.
+                }
+                if (quotasSatisfied(branches, outcomes)) break;
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("参考文献搜索被中断", exception);
+        } finally {
+            futures.forEach(future -> {
+                if (!future.isDone()) future.cancel(true);
+            });
+        }
+
+        outcomes.sort(Comparator.comparingInt(ProviderSearchOutcome::providerIndex)
+                .thenComparing(ProviderSearchOutcome::language));
+        List<ReferenceCandidate> selected = new ArrayList<>();
+        Set<String> selectedKeys = new LinkedHashSet<>();
+        List<String> warnings = new ArrayList<>();
+        int actualChineseCount = addBranchSelection("ZH", branches, outcomes, selected, selectedKeys, warnings);
+        int actualEnglishCount = addBranchSelection("EN", branches, outcomes, selected, selectedKeys, warnings);
+        if (selected.isEmpty()) {
+            if (timedOut) {
+                throw new IllegalStateException("公开学术来源响应超时，请稍后重试或缩小检索范围");
+            }
+            throw new IllegalStateException("暂未检索到符合条件的公开文献，请尝试补充或调整题目关键词");
+        }
+
+        List<Map<String, Object>> publicOutcomes = outcomes.stream().map(outcome -> Map.<String, Object>of(
+                "language", outcome.language(),
+                "provider", outcome.providerCode(),
+                "status", outcome.status(),
+                "resultCount", outcome.candidates().size(),
+                "durationMs", outcome.durationMs()
+        )).toList();
+        int providersTried = (int) tasks.stream().map(task -> task.provider().providerCode()).distinct().count();
+        return new ParallelSearchResult(selected, actualChineseCount, actualEnglishCount,
+                List.copyOf(warnings), publicOutcomes, timedOut, providersTried);
+    }
+
+    private List<ProviderTask> distinctTasks(List<ProviderTask> tasks) {
+        Set<ReferenceSearchProvider> seenChinese = Collections.newSetFromMap(new IdentityHashMap<>());
+        Set<ReferenceSearchProvider> seenEnglish = Collections.newSetFromMap(new IdentityHashMap<>());
+        List<ProviderTask> distinct = new ArrayList<>();
+        for (ProviderTask task : tasks) {
+            Set<ReferenceSearchProvider> seen = "ZH".equals(task.branch().language()) ? seenChinese : seenEnglish;
+            if (seen.add(task.provider())) distinct.add(task);
+        }
+        return distinct;
+    }
+
+    private ProviderSearchOutcome callProvider(ProviderTask task) {
+        int attempts = Math.max(1, Math.min(2, properties.getReferenceSearch().getRetryCount()));
+        long started = System.currentTimeMillis();
+        for (int attempt = 1; attempt <= attempts; attempt++) {
+            if (Thread.currentThread().isInterrupted()) return ProviderSearchOutcome.interrupted(task, started);
+            long attemptStarted = System.currentTimeMillis();
+            try {
+                List<ReferenceCandidate> found = task.provider().search(task.branch().query());
+                List<ReferenceCandidate> safeFound = found == null ? List.of() : found;
+                insertSearchLog(task.branch().query().projectId(), task.provider().providerCode(), task.branch().language(),
+                        task.branch().query().joinedKeywords(), safeFound.size(), safeFound.size(),
+                        System.currentTimeMillis() - attemptStarted, true, "", "");
+                return new ProviderSearchOutcome(task.branch().language(), task.providerIndex(), task.provider().providerCode(),
+                        safeFound, safeFound.isEmpty() ? "EMPTY" : "SUCCESS", System.currentTimeMillis() - started);
+            } catch (RuntimeException exception) {
+                insertSearchLog(task.branch().query().projectId(), task.provider().providerCode(), task.branch().language(),
+                        task.branch().query().joinedKeywords(), 0, 0, System.currentTimeMillis() - attemptStarted, false,
+                        exception.getClass().getSimpleName(), String.valueOf(exception.getMessage()));
+                if (attempt < attempts) {
+                    try {
+                        Thread.sleep(150L);
+                    } catch (InterruptedException interruptedException) {
+                        Thread.currentThread().interrupt();
+                        return ProviderSearchOutcome.interrupted(task, started);
+                    }
+                }
+            }
+        }
+        return new ProviderSearchOutcome(task.branch().language(), task.providerIndex(), task.provider().providerCode(),
+                List.of(), "FAILED", System.currentTimeMillis() - started);
+    }
+
+    private boolean quotasSatisfied(List<SearchBranch> branches, List<ProviderSearchOutcome> outcomes) {
+        List<ProviderSearchOutcome> orderedOutcomes = new ArrayList<>(outcomes);
+        orderedOutcomes.sort(Comparator.comparingInt(ProviderSearchOutcome::providerIndex)
+                .thenComparing(ProviderSearchOutcome::language));
+        Set<String> selectedKeys = new LinkedHashSet<>();
+        for (SearchBranch branch : branches) {
+            List<ReferenceCandidate> candidates = dedupe(orderedOutcomes.stream()
+                    .filter(outcome -> branch.language().equals(outcome.language()))
+                    .flatMap(outcome -> outcome.candidates().stream())
+                    .filter(ReferenceCandidate::basicallyVerified)
+                    .filter(candidate -> branch.language().equals(languageOf(candidate)))
+                    .toList());
+            int count = 0;
+            for (ReferenceCandidate candidate : candidates) {
+                if (selectedKeys.add(candidateKey(candidate))) count++;
+                if (count >= branch.target()) break;
+            }
+            if (count < branch.target()) return false;
+        }
+        return true;
+    }
+
+    private int addBranchSelection(String language, List<SearchBranch> branches,
+                                   List<ProviderSearchOutcome> outcomes, List<ReferenceCandidate> selected,
+                                   Set<String> selectedKeys, List<String> warnings) {
+        SearchBranch branch = branches.stream().filter(item -> language.equals(item.language())).findFirst().orElse(null);
+        if (branch == null) return 0;
+        List<ReferenceCandidate> candidates = dedupe(outcomes.stream()
+                .filter(outcome -> language.equals(outcome.language()))
+                .flatMap(outcome -> outcome.candidates().stream())
+                .filter(ReferenceCandidate::basicallyVerified)
+                .filter(candidate -> language.equals(languageOf(candidate)))
+                .toList());
+        List<ReferenceCandidate> branchSelected = new ArrayList<>();
+        for (ReferenceCandidate candidate : candidates) {
+            if (selectedKeys.add(candidateKey(candidate))) branchSelected.add(candidate);
+            if (branchSelected.size() >= branch.target()) break;
+        }
+        selected.addAll(branchSelected);
+        if (branchSelected.size() < branch.target()) {
+            String languageName = "ZH".equals(language) ? "中文" : "英文";
+            if (branchSelected.isEmpty()) {
+                warnings.add(languageName + "来源暂未返回可用结果，本次不对该部分扣费");
+            } else {
+                warnings.add(languageName + "文献仅检索到 " + branchSelected.size() + "/" + branch.target() + " 篇，已按实际数量计费");
+            }
+        }
+        return branchSelected.size();
+    }
+
+    private record SearchBranch(String language, int target, ReferenceSearchQuery query) {
+    }
+
+    private record ProviderTask(SearchBranch branch, ReferenceSearchProvider provider, int providerIndex) {
+    }
+
+    private record ProviderSearchOutcome(String language, int providerIndex, String providerCode,
+                                         List<ReferenceCandidate> candidates, String status, long durationMs) {
+        private static ProviderSearchOutcome busy(ProviderTask task) {
+            return new ProviderSearchOutcome(task.branch().language(), task.providerIndex(), task.provider().providerCode(),
+                    List.of(), "BUSY", 0L);
+        }
+
+        private static ProviderSearchOutcome interrupted(ProviderTask task, long started) {
+            return new ProviderSearchOutcome(task.branch().language(), task.providerIndex(), task.provider().providerCode(),
+                    List.of(), "CANCELLED", System.currentTimeMillis() - started);
+        }
+    }
+
+    private record ParallelSearchResult(List<ReferenceCandidate> selected, int actualChineseCount,
+                                        int actualEnglishCount, List<String> warnings,
+                                        List<Map<String, Object>> providerOutcomes, boolean timedOut,
+                                        int providersTried) {
     }
 
     private String citationText(List<Map<String, Object>> items) {
@@ -449,13 +713,25 @@ public class ReferenceSearchService {
     private List<ReferenceCandidate> dedupe(List<ReferenceCandidate> candidates) {
         Map<String, ReferenceCandidate> map = new LinkedHashMap<>();
         for (ReferenceCandidate candidate : candidates) {
-            String key = candidate.doi() != null && !candidate.doi().isBlank()
-                    ? "doi:" + candidate.doi().toLowerCase(Locale.ROOT)
-                    : "title:" + normalize(candidate.title()) + ":" + candidate.year();
+            String key = candidateKey(candidate);
             ReferenceCandidate previous = map.get(key);
             if (previous == null || candidate.relevanceScore() > previous.relevanceScore()) map.put(key, candidate);
         }
         return new ArrayList<>(map.values());
+    }
+
+    private String candidateKey(ReferenceCandidate candidate) {
+        String normalizedDoi = normalizeDoi(candidate.doi());
+        return !normalizedDoi.isBlank()
+                ? "doi:" + normalizedDoi
+                : "title:" + normalize(candidate.title()) + ":" + candidate.year();
+    }
+
+    private String normalizeDoi(String doi) {
+        if (doi == null) return "";
+        return doi.trim().toLowerCase(Locale.ROOT)
+                .replaceFirst("^https?://(dx\\.)?doi\\.org/", "")
+                .replaceFirst("^doi\\s*:\\s*", "");
     }
 
     private String normalize(String title) {
