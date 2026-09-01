@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
@@ -13,14 +14,20 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Component
 public class DoubaoWebSearchProvider implements ReferenceSearchProvider {
+    private static final int MAX_HTTP_TIMEOUT_SECONDS = 20;
+    private static final int MAX_CONNECT_TIMEOUT_SECONDS = 5;
+    private static final Pattern YEAR_PATTERN = Pattern.compile("(?<!\\d)((?:19|20)\\d{2})(?!\\d)");
     private final DoubaoProperties properties;
     private final RestClient restClient;
     private final ObjectMapper objectMapper;
@@ -30,7 +37,7 @@ public class DoubaoWebSearchProvider implements ReferenceSearchProvider {
                                    RestClient.Builder builder,
                                    ObjectMapper objectMapper) {
         this.properties = properties;
-        this.restClient = builder.build();
+        this.restClient = builder.requestFactory(requestFactory(properties.getWebSearchTimeoutSeconds())).build();
         this.objectMapper = objectMapper;
     }
 
@@ -115,6 +122,12 @@ public class DoubaoWebSearchProvider implements ReferenceSearchProvider {
         ResponsesResult response = executeResponsesRequest(query);
         JsonNode root = response.root();
         saveDiagnosticResponse(root, response);
+        return candidatesFromResponse(root, query);
+    }
+
+    List<ReferenceCandidate> candidatesFromResponse(JsonNode root, ReferenceSearchQuery query) {
+        DoubaoWebSearchSourceExtractor.ExtractionResult extraction = sourceExtractor.extract(root);
+        if (!extraction.toolInvoked() || !extraction.hasAcceptedSources()) return List.of();
         return parseCandidates(root, query).stream()
                 .filter(candidate -> isSafePublicUrl(candidate.url()))
                 .filter(ReferenceCandidate::basicallyVerified)
@@ -132,13 +145,13 @@ public class DoubaoWebSearchProvider implements ReferenceSearchProvider {
         }
     }
 
-    private Map<String, Object> responsesRequest(ReferenceSearchQuery query, boolean includeSources) {
+    Map<String, Object> responsesRequest(ReferenceSearchQuery query, boolean includeSources) {
         Map<String, Object> request = new LinkedHashMap<>();
         request.put("model", properties.getWebSearchModel());
         request.put("stream", false);
         request.put("max_output_tokens", Math.max(1024, properties.getMaxOutputTokens()));
         request.put("tools", List.of(Map.of("type", "web_search")));
-        request.put("tool_choice", "auto");
+        request.put("tool_choice", properties.isWebSearchForce() ? "required" : "auto");
         if (includeSources) {
             request.put("include", List.of("web_search_call.action.sources"));
         }
@@ -206,11 +219,12 @@ public class DoubaoWebSearchProvider implements ReferenceSearchProvider {
             String snippet = firstNonBlank(node.path("sourceSnippet").asText(""), node.path("snippet").asText(""),
                     node.path("summary").asText(""), node.path("content").asText(""));
             if (!title.isBlank() && isSafePublicUrl(url)) {
-                Integer year = node.path("year").canConvertToInt() ? node.path("year").asInt() : null;
-                if (year == null) year = node.path("publicationYear").canConvertToInt() ? node.path("publicationYear").asInt() : null;
+                Integer year = year(node.path("year"));
+                if (year == null) year = year(node.path("publicationYear"));
                 List<String> authors = authors(node.path("authors"));
                 String container = firstNonBlank(node.path("journalOrPublisher").asText(""), node.path("journal").asText(""),
-                        node.path("source").asText(""), node.path("publisher").asText(""));
+                        node.path("source").asText(""), node.path("publisher").asText(""),
+                        node.path("source").path("display_name").asText(""), node.path("source").path("name").asText(""));
                 String sourceType = firstNonBlank(node.path("sourceType").asText(""), classifySource(url));
                 String verificationStatus = isPrimaryPublicSource(sourceType) ? "VERIFIED_PRIMARY_PUBLIC" : "PARTIALLY_VERIFIED";
                 result.add(new ReferenceCandidate(title, authors, year, container,
@@ -227,8 +241,8 @@ public class DoubaoWebSearchProvider implements ReferenceSearchProvider {
             node.forEach(item -> collectCandidates(item, query, result));
         } else if (node.isTextual()) {
             try {
-                String text = node.asText();
-                if (text.trim().startsWith("[") || text.trim().startsWith("{")) collectCandidates(objectMapper.readTree(text), query, result);
+                String json = embeddedJson(node.asText());
+                if (!json.isBlank()) collectCandidates(objectMapper.readTree(json), query, result);
             } catch (Exception ignored) {
             }
         }
@@ -239,9 +253,14 @@ public class DoubaoWebSearchProvider implements ReferenceSearchProvider {
         if (node == null || node.isMissingNode() || node.isNull()) return result;
         if (node.isArray()) {
             node.forEach(item -> {
-                String value = item.asText("").trim();
+                String value = authorName(item);
                 if (!value.isBlank()) result.add(value);
             });
+            return result;
+        }
+        if (node.isObject()) {
+            String value = authorName(node);
+            if (!value.isBlank()) result.add(value);
             return result;
         }
         for (String part : node.asText("").split("[,;；，、]+")) {
@@ -249,6 +268,53 @@ public class DoubaoWebSearchProvider implements ReferenceSearchProvider {
             if (!value.isBlank()) result.add(value);
         }
         return result;
+    }
+
+    private String authorName(JsonNode node) {
+        if (node == null || node.isNull() || node.isMissingNode()) return "";
+        if (node.isTextual()) return node.asText("").trim();
+        String direct = firstNonBlank(node.path("name").asText(""), node.path("display_name").asText(""),
+                node.path("displayName").asText(""), node.path("literal").asText(""),
+                node.path("author").path("display_name").asText(""), node.path("author").path("name").asText(""));
+        if (!direct.isBlank()) return direct;
+        return (node.path("given").asText("") + " " + node.path("family").asText("")).trim();
+    }
+
+    private Integer year(JsonNode node) {
+        if (node == null || node.isNull() || node.isMissingNode()) return null;
+        if (node.isIntegralNumber()) return node.asInt();
+        Matcher matcher = YEAR_PATTERN.matcher(node.asText(""));
+        return matcher.find() ? Integer.valueOf(matcher.group(1)) : null;
+    }
+
+    private String embeddedJson(String text) {
+        if (text == null) return "";
+        String value = text.trim();
+        if (value.startsWith("```")) {
+            int firstLineEnd = value.indexOf('\n');
+            if (firstLineEnd >= 0) value = value.substring(firstLineEnd + 1).trim();
+            if (value.endsWith("```")) value = value.substring(0, value.length() - 3).trim();
+        }
+        int arrayStart = value.indexOf('[');
+        int objectStart = value.indexOf('{');
+        int start = arrayStart < 0 ? objectStart : objectStart < 0 ? arrayStart : Math.min(arrayStart, objectStart);
+        if (start < 0) return "";
+        char closing = value.charAt(start) == '[' ? ']' : '}';
+        int end = value.lastIndexOf(closing);
+        return end > start ? value.substring(start, end + 1) : "";
+    }
+
+    static int boundedTimeoutSeconds(int configuredTimeoutSeconds) {
+        return Math.max(1, Math.min(configuredTimeoutSeconds, MAX_HTTP_TIMEOUT_SECONDS));
+    }
+
+    private static SimpleClientHttpRequestFactory requestFactory(int configuredTimeoutSeconds) {
+        int readTimeoutSeconds = boundedTimeoutSeconds(configuredTimeoutSeconds);
+        int connectTimeoutSeconds = Math.min(MAX_CONNECT_TIMEOUT_SECONDS, readTimeoutSeconds);
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(Duration.ofSeconds(connectTimeoutSeconds));
+        factory.setReadTimeout(Duration.ofSeconds(readTimeoutSeconds));
+        return factory;
     }
 
     private ProviderHealthStatus status(boolean enabled, boolean configured, boolean available, String endpoint,

@@ -88,10 +88,12 @@ writing:
   chapter-timeout-seconds: ${WRITING_CHAPTER_TIMEOUT:180}
   reference-search:
     enabled: ${WRITING_REFERENCE_SEARCH_ENABLED:true}
-    provider: ${WRITING_REFERENCE_SEARCH_PROVIDER:doubao_web}
+    provider: ${WRITING_REFERENCE_SEARCH_PROVIDER:doubao_web,openalex,crossref}
     max-results: ${WRITING_REFERENCE_SEARCH_MAX_RESULTS:30}
-    timeout-seconds: ${WRITING_REFERENCE_SEARCH_TIMEOUT_SECONDS:30}
-    retry-count: ${WRITING_REFERENCE_SEARCH_RETRY_COUNT:3}
+    timeout-seconds: ${WRITING_REFERENCE_SEARCH_TIMEOUT_SECONDS:20}
+    retry-count: ${WRITING_REFERENCE_SEARCH_RETRY_COUNT:1}
+    public-fallback-enabled: ${WRITING_REFERENCE_SEARCH_PUBLIC_FALLBACK_ENABLED:true}
+    parallelism: ${WRITING_REFERENCE_SEARCH_PARALLELISM:8}
 
 reference:
   openalex:

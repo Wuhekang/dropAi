@@ -2,22 +2,26 @@ package com.dropai.rewrite.service.writing;
 
 import com.dropai.rewrite.config.WritingGenerationProperties;
 import com.fasterxml.jackson.databind.JsonNode;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
 @Component
 public class OpenAlexReferenceSearchProvider implements ReferenceSearchProvider {
+    private static final int MAX_HTTP_TIMEOUT_SECONDS = 20;
+    private static final int MAX_CONNECT_TIMEOUT_SECONDS = 5;
     private final RestClient restClient;
     private final WritingGenerationProperties properties;
 
     public OpenAlexReferenceSearchProvider(RestClient.Builder builder, WritingGenerationProperties properties) {
-        this.restClient = builder.build();
+        this.restClient = builder.requestFactory(requestFactory(properties.getReferenceSearch().getTimeoutSeconds())).build();
         this.properties = properties;
     }
 
@@ -65,5 +69,14 @@ public class OpenAlexReferenceSearchProvider implements ReferenceSearchProvider 
             }
         }
         return result;
+    }
+
+    private SimpleClientHttpRequestFactory requestFactory(int configuredTimeoutSeconds) {
+        int readTimeoutSeconds = Math.max(1, Math.min(configuredTimeoutSeconds, MAX_HTTP_TIMEOUT_SECONDS));
+        int connectTimeoutSeconds = Math.min(MAX_CONNECT_TIMEOUT_SECONDS, readTimeoutSeconds);
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(Duration.ofSeconds(connectTimeoutSeconds));
+        factory.setReadTimeout(Duration.ofSeconds(readTimeoutSeconds));
+        return factory;
     }
 }
