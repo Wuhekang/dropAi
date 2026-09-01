@@ -24,14 +24,14 @@ public class PptPlanService {
     private final ObjectMapper mapper;
     private final PptTextValidator validator;
     private final PptContentPlanner contentPlanner;
-    private final PptContentPlannerV2InputAdapter inputAdapter;private final PptContentPlannerV2 plannerV2;private final PptContentSanitizerV1 sanitizer;private final PptOutlinePlannerV1 outlinePlanner;private final PptOutlineValidatorV1 outlineValidator;private final ProductionRenderPlanCoordinator renderPlanCoordinator;
+    private final PptContentPlannerV2InputAdapter inputAdapter;private final PptContentPlannerV2 plannerV2;private final PptContentSanitizerV1 sanitizer;private final PptOutlinePlannerV1 outlinePlanner;private final PptOutlineValidatorV1 outlineValidator;private final ProductionRenderPlanCoordinator renderPlanCoordinator;private final PptMetadataNormalizer metadataNormalizer;
 
-    public PptPlanService(JdbcTemplate jdbc, ObjectMapper mapper, PptTextValidator validator, PptContentPlanner contentPlanner,PptContentPlannerV2InputAdapter inputAdapter,PptContentPlannerV2 plannerV2,PptContentSanitizerV1 sanitizer,PptOutlinePlannerV1 outlinePlanner,PptOutlineValidatorV1 outlineValidator,ProductionRenderPlanCoordinator renderPlanCoordinator) {
+    public PptPlanService(JdbcTemplate jdbc, ObjectMapper mapper, PptTextValidator validator, PptContentPlanner contentPlanner,PptContentPlannerV2InputAdapter inputAdapter,PptContentPlannerV2 plannerV2,PptContentSanitizerV1 sanitizer,PptOutlinePlannerV1 outlinePlanner,PptOutlineValidatorV1 outlineValidator,ProductionRenderPlanCoordinator renderPlanCoordinator,PptMetadataNormalizer metadataNormalizer) {
         this.jdbc = jdbc;
         this.mapper = mapper;
         this.validator = validator;
         this.contentPlanner = contentPlanner;
-        this.inputAdapter=inputAdapter;this.plannerV2=plannerV2;this.sanitizer=sanitizer;this.outlinePlanner=outlinePlanner;this.outlineValidator=outlineValidator;this.renderPlanCoordinator=renderPlanCoordinator;
+        this.inputAdapter=inputAdapter;this.plannerV2=plannerV2;this.sanitizer=sanitizer;this.outlinePlanner=outlinePlanner;this.outlineValidator=outlineValidator;this.renderPlanCoordinator=renderPlanCoordinator;this.metadataNormalizer=metadataNormalizer;
     }
 
     @Transactional
@@ -121,7 +121,7 @@ public class PptPlanService {
         put(metadata, "major", project.get("major"));
         put(metadata, "advisor", project.get("advisor"));
         put(metadata, "studentNumber", project.get("student_number"));
-        extractRenderingMetadata(metadata, blocks);
+        metadata = new LinkedHashMap<>(metadataNormalizer.normalizeValues(metadata));
         input = new PptContentPlannerV2.PlannerInput(
                 metadata,
                 input.chapters(),
@@ -221,24 +221,6 @@ public class PptPlanService {
         return result;
     }
     private void put(Map<String,String> target,String key,Object value){String text=string(value);if(!text.isBlank())target.put(key,text);}
-    private void extractRenderingMetadata(Map<String,String> metadata,List<String> blocks){
-        putUniqueLabeledMetadata(metadata,"institution",blocks,
-                "(?:学校|院校|学院)[：:\\s]+([\\u4e00-\\u9fa5A-Za-z0-9·（）()]{2,40}?)(?=\\s*(?:专业|学生|学号|指导教师|教师|日期|$))");
-        putUniqueLabeledMetadata(metadata,"date",blocks,
-                "(?:答辩日期|完成日期|日期)[：:\\s]+(20\\d{2}年\\s*\\d{1,2}月(?:\\s*\\d{1,2}日)?)");
-    }
-    private void putUniqueLabeledMetadata(Map<String,String> metadata,String key,List<String> blocks,String regex){
-        if(metadata.containsKey(key))return;
-        java.util.LinkedHashSet<String> matches=new java.util.LinkedHashSet<>();
-        var pattern=java.util.regex.Pattern.compile(regex);
-        for(String raw:blocks){
-            var matcher=pattern.matcher(PptDocumentParser.clean(raw));
-            while(matcher.find())matches.add(matcher.group(1).replaceAll("\\s+"," ").trim());
-        }
-        if(matches.size()==1)metadata.put(key,matches.iterator().next());
-        else if(matches.size()>1)throw new IllegalStateException("PPT Rendering V1 metadata is ambiguous: "+key);
-    }
-
     @Transactional
     public Map<String, Object> save(String projectId, List<Map<String, Object>> pages) {
         Long userId = AuthContext.requireUserId();

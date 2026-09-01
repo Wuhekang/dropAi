@@ -36,17 +36,19 @@ import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Deterministically compiles validated content into fully resolved editable
  * slide elements.  It does not call a planner, mutate content or render PPTX.
  */
 public final class RenderPlanCompiler {
-    public static final String ENGINE_VERSION = "1.0.0";
+    public static final String ENGINE_VERSION = "1.0.1";
 
     private final PageRenderabilityValidator renderabilityValidator;
     private final DeterministicTextMetricsService textMetrics;
@@ -147,8 +149,7 @@ public final class RenderPlanCompiler {
             int slideCount
     ) {
         List<LayoutRecipe> attempts = new ArrayList<>();
-        attempts.add(selected);
-        selected.fallbacks().forEach(id -> attempts.add(catalog.require(id)));
+        collectFallbackAttempts(selected, catalog, new LinkedHashSet<>(), attempts);
         RenderPlanCompilationException lastFailure = null;
         for (LayoutRecipe recipe : attempts) {
             try {
@@ -163,6 +164,21 @@ public final class RenderPlanCompiler {
             }
         }
         throw Objects.requireNonNull(lastFailure, "layout attempt failure");
+    }
+
+    private void collectFallbackAttempts(
+            LayoutRecipe recipe,
+            LayoutCatalog catalog,
+            Set<String> visited,
+            List<LayoutRecipe> attempts
+    ) {
+        if (!visited.add(recipe.layoutId())) {
+            return;
+        }
+        attempts.add(recipe);
+        for (String fallback : recipe.fallbacks()) {
+            collectFallbackAttempts(catalog.require(fallback), catalog, visited, attempts);
+        }
     }
 
     private ObjectNode compileSlide(
@@ -455,20 +471,29 @@ public final class RenderPlanCompiler {
         addBoundImage(elements, slideId, page, recipe, assets, styles);
 
         String keyPoints = bullets(page.path("keyPoints"));
+        boolean keyPointsRendered = keyPoints.isBlank();
         if (recipe.slots().containsKey("body") && !keyPoints.isBlank()) {
             addText(elements, slideId, "notes", keyPoints, recipe.slots().get("body"),
                     "body", "bodyText", "body", Math.max(3, page.path("keyPoints").size() * 2),
                     "LEFT", "TOP", 240, fonts, styles);
+            keyPointsRendered = true;
         }
         if (recipe.slots().containsKey("caption") && hasText(page, "description")) {
             addText(elements, slideId, "caption", requiredText(page, "description"),
-                    recipe.slots().get("caption"), "caption", "caption", "body", 3,
+                    recipe.slots().get("caption"), "caption", "caption", "body",
+                    recipe.constraints().captionMaxLines(),
                     "LEFT", "TOP", 240, fonts, styles);
         }
-        if (recipe.slots().containsKey("conclusion") && !keyPoints.isBlank()) {
+        if (!keyPointsRendered && recipe.slots().containsKey("conclusion")) {
             addText(elements, slideId, "conclusion", keyPoints, recipe.slots().get("conclusion"),
                     "bodyStrong", "summaryCard", "body", 4,
                     "LEFT", "MIDDLE", 245, fonts, styles);
+            keyPointsRendered = true;
+        }
+        if (!keyPointsRendered) {
+            throw new RenderPlanCompilationException(
+                    PptQualityCode.UNRENDERABLE_PAGE,
+                    recipe.layoutId() + " has no slot for non-empty image-page keyPoints");
         }
         addFooter(elements, slideId, recipe, index, slideCount, fonts, styles);
     }

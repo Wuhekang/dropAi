@@ -60,6 +60,7 @@
     "layoutId": {
       "enum": [
         "cover-centered.v1",
+        "cover-centered-long-title.v1",
         "agenda-vertical-steps.v1",
         "content-single-insight.v1",
         "content-three-cards.v1",
@@ -71,6 +72,8 @@
         "image-diagram-with-notes.v1",
         "image-result-chart-with-finding.v1",
         "image-effect-full-visual.v1",
+        "image-caption-side-compact.v1",
+        "image-centered-caption-bottom.v1",
         "table-generic-compact.v1",
         "table-entity-purpose-cards.v1",
         "table-test-result-status.v1",
@@ -155,6 +158,7 @@
         "titleMaxLines": { "type": "integer", "minimum": 1, "maximum": 2 },
         "bodyMaxChars": { "type": "integer", "minimum": 0 },
         "captionMaxChars": { "type": "integer", "minimum": 0 },
+        "captionMaxLines": { "type": "integer", "minimum": 1, "maximum": 8, "default": 3 },
         "imageFit": { "enum": ["CONTAIN", "COVER"] },
         "cropAllowed": { "type": "boolean" },
         "minImageAreaRatio": { "type": "number", "minimum": 0, "maximum": 1 },

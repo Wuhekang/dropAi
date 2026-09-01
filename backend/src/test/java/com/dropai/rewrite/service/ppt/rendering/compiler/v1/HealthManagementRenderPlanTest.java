@@ -263,6 +263,41 @@ class HealthManagementRenderPlanTest {
     }
 
     @Test
+    void effectImageFallbackPreservesDescriptionAndEveryKeyPoint() {
+        HealthManagementRenderPlanSupport.CompiledFixture fixture =
+                HealthManagementRenderPlanSupport.compile();
+        ObjectNode tree = fixture.tree().document();
+        ObjectNode page = (ObjectNode) tree.path("pages").get(26);
+        page.put("contentType", "FIGURE");
+
+        ObjectNode manifest = fixture.bundle().manifestDocument();
+        ArrayNode changedAssets = (ArrayNode) manifest.path("assets");
+        for (JsonNode asset : changedAssets) {
+            if ("figure_4_10".equals(asset.path("assetId").asText())) {
+                ((ObjectNode) asset).put("imageRole", "EFFECT").put("widthPx", 1_000).put("heightPx", 1_000);
+            }
+        }
+        RenderingAssetBundle squareEffectBundle = new RenderingAssetBundle(
+                changedAssets,
+                (ArrayNode) manifest.path("tables"),
+                fixture.bundle().tableIndex());
+
+        JsonNode plan = compilerForTest().compile(
+                new ValidatedPresentationTree(
+                        tree,
+                        fixture.tree().presentationId(),
+                        fixture.tree().sourceTreeHash()),
+                fixture.theme(), fixture.catalog(), squareEffectBundle, fixture.fonts()).document();
+        JsonNode slide = plan.path("slides").get(26);
+
+        assertEquals(LayoutIds.IMAGE_CENTERED_CAPTION_BOTTOM, slide.path("layoutId").asText());
+        String rendered = normalizeVisibleText(slide);
+        assertTrue(rendered.contains(normalizeText(page.path("description").asText())));
+        page.path("keyPoints").forEach(point ->
+                assertTrue(rendered.contains(normalizeText(point.asText())), point.asText()));
+    }
+
+    @Test
     void validatorRejectsMutatedTestStatusStyleInsteadOfRepairingIt() {
         HealthManagementRenderPlanSupport.CompiledFixture fixture =
                 HealthManagementRenderPlanSupport.compile();
@@ -300,6 +335,20 @@ class HealthManagementRenderPlanTest {
             }
         }
         return count;
+    }
+
+    private String normalizeVisibleText(JsonNode slide) {
+        StringBuilder text = new StringBuilder();
+        slide.path("elements").forEach(element -> {
+            if ("TEXT".equals(element.path("elementType").asText())) {
+                text.append(element.path("text").asText());
+            }
+        });
+        return normalizeText(text.toString());
+    }
+
+    private String normalizeText(String value) {
+        return value == null ? "" : value.replaceAll("[\\s•·▪●]+", "");
     }
 
     private JsonNode firstElement(JsonNode slide, String elementType) {

@@ -1,8 +1,9 @@
 {
   "catalogId": "academic-layouts-v1",
-  "catalogVersion": "1.0.0",
+  "catalogVersion": "1.1.0",
   "layouts": [
     { "layoutId": "cover-centered.v1", "resource": "ppt/layouts/v1/cover-centered.v1.json" },
+    { "layoutId": "cover-centered-long-title.v1", "resource": "ppt/layouts/v1/cover-centered-long-title.v1.json" },
     { "layoutId": "agenda-vertical-steps.v1", "resource": "ppt/layouts/v1/agenda-vertical-steps.v1.json" },
     { "layoutId": "content-single-insight.v1", "resource": "ppt/layouts/v1/content-single-insight.v1.json" },
     { "layoutId": "content-three-cards.v1", "resource": "ppt/layouts/v1/content-three-cards.v1.json" },
@@ -14,6 +15,8 @@
     { "layoutId": "image-diagram-with-notes.v1", "resource": "ppt/layouts/v1/image-diagram-with-notes.v1.json" },
     { "layoutId": "image-result-chart-with-finding.v1", "resource": "ppt/layouts/v1/image-result-chart-with-finding.v1.json" },
     { "layoutId": "image-effect-full-visual.v1", "resource": "ppt/layouts/v1/image-effect-full-visual.v1.json" },
+    { "layoutId": "image-caption-side-compact.v1", "resource": "ppt/layouts/v1/image-caption-side-compact.v1.json" },
+    { "layoutId": "image-centered-caption-bottom.v1", "resource": "ppt/layouts/v1/image-centered-caption-bottom.v1.json" },
     { "layoutId": "table-generic-compact.v1", "resource": "ppt/layouts/v1/table-generic-compact.v1.json" },
     { "layoutId": "table-entity-purpose-cards.v1", "resource": "ppt/layouts/v1/table-entity-purpose-cards.v1.json" },
     { "layoutId": "table-test-result-status.v1", "resource": "ppt/layouts/v1/table-test-result-status.v1.json" },

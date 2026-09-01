@@ -31,7 +31,7 @@ class ResolvedFontProfileResolverTest {
         assertFalse(profile.fallbackApplied().get("body"));
         assertTrue(profile.fontProfileHash().matches("sha256:[a-f0-9]{64}"));
         assertTrue(profile.requireFace("body", 400).fontFingerprint().matches("sha256:[a-f0-9]{64}"));
-        assertEquals("text-metrics-v1", profile.measurementEngineVersion());
+        assertEquals("text-metrics-v1.1", profile.measurementEngineVersion());
     }
 
     @Test

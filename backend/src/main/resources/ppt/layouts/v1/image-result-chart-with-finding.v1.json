@@ -1,7 +1,7 @@
 {
   "schemaVersion": "layout-recipe.v1",
   "layoutId": "image-result-chart-with-finding.v1",
-  "layoutVersion": "1.0.0",
+  "layoutVersion": "1.1.0",
   "supports": {
     "pageTypes": ["IMAGE"],
     "pagePurposes": ["RESULT", "TEST"],
@@ -16,7 +16,7 @@
     "image": { "gridColumn": 1, "gridSpan": 9, "topIn": 1.32, "heightIn": 4.55 },
     "conclusion": { "gridColumn": 10, "gridSpan": 3, "topIn": 1.8, "heightIn": 2.1 },
     "caption": { "gridColumn": 1, "gridSpan": 12, "topIn": 6.02, "heightIn": 0.75 },
-    "footer": { "gridColumn": 1, "gridSpan": 12, "topIn": 6.9, "heightIn": 0.2 }
+    "footer": { "gridColumn": 1, "gridSpan": 12, "topIn": 6.85, "heightIn": 0.25 }
   },
   "constraints": {
     "titleMaxLines": 1,

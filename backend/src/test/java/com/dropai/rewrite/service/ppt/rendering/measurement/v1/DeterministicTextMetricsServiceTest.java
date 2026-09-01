@@ -126,6 +126,31 @@ class DeterministicTextMetricsServiceTest {
         assertEquals("第一行第二行", result.renderedText().replace("\n", ""));
     }
 
+    @Test
+    void reservesAPlatformIndependentVerticalSafetyMargin() {
+        long natural = service.naturalLineHeightEmu(profile, "body", 400, 1_800);
+        long required = natural + DeterministicTextMetricsService.TEXT_BOX_VERTICAL_SAFETY_EMU;
+
+        TextFitResult exact = service.fit(request(
+                "健康管理",
+                1_800,
+                1_800,
+                MeasurementTestSupport.em(1_800, 10_000),
+                required,
+                1));
+        TextFitResult oneEmuShort = service.fit(request(
+                "健康管理",
+                1_800,
+                1_800,
+                MeasurementTestSupport.em(1_800, 10_000),
+                required - 1,
+                1));
+
+        assertTrue(exact.fits());
+        assertEquals(required, exact.requiredHeightEmu());
+        assertEquals(TextFitStatus.UNFIT, oneEmuShort.status());
+    }
+
     private TextFitRequest request(
             String text,
             int defaultSize,

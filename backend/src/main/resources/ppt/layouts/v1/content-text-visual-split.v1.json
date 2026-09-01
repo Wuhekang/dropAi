@@ -1,7 +1,7 @@
 {
   "schemaVersion": "layout-recipe.v1",
   "layoutId": "content-text-visual-split.v1",
-  "layoutVersion": "1.0.0",
+  "layoutVersion": "1.1.0",
   "supports": {
     "pageTypes": ["CONTENT"],
     "pagePurposes": ["METHOD", "DESIGN", "DATABASE", "IMPLEMENTATION", "RESULT", "TEST"],
@@ -16,7 +16,7 @@
     "body": { "gridColumn": 1, "gridSpan": 5, "topIn": 1.5, "heightIn": 4.9 },
     "image": { "gridColumn": 6, "gridSpan": 7, "topIn": 1.5, "heightIn": 4.45 },
     "caption": { "gridColumn": 6, "gridSpan": 7, "topIn": 6.05, "heightIn": 0.75 },
-    "footer": { "gridColumn": 1, "gridSpan": 12, "topIn": 6.9, "heightIn": 0.2 }
+    "footer": { "gridColumn": 1, "gridSpan": 12, "topIn": 6.85, "heightIn": 0.25 }
   },
   "constraints": {
     "titleMaxLines": 1,

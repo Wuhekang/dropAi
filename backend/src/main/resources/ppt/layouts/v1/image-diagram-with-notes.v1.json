@@ -1,7 +1,7 @@
 {
   "schemaVersion": "layout-recipe.v1",
   "layoutId": "image-diagram-with-notes.v1",
-  "layoutVersion": "1.0.0",
+  "layoutVersion": "1.1.0",
   "supports": {
     "pageTypes": ["IMAGE"],
     "pagePurposes": ["PROBLEM", "METHOD", "DESIGN", "DATABASE", "IMPLEMENTATION"],
@@ -16,7 +16,7 @@
     "image": { "gridColumn": 1, "gridSpan": 8, "topIn": 1.3, "heightIn": 5.35 },
     "body": { "gridColumn": 9, "gridSpan": 4, "topIn": 1.48, "heightIn": 3.2 },
     "caption": { "gridColumn": 9, "gridSpan": 4, "topIn": 4.95, "heightIn": 1.35 },
-    "footer": { "gridColumn": 1, "gridSpan": 12, "topIn": 6.9, "heightIn": 0.2 }
+    "footer": { "gridColumn": 1, "gridSpan": 12, "topIn": 6.85, "heightIn": 0.25 }
   },
   "constraints": {
     "titleMaxLines": 1,
@@ -26,5 +26,5 @@
     "cropAllowed": false,
     "minImageAreaRatio": 0.35
   },
-  "fallbacks": []
+  "fallbacks": ["image-caption-side-compact.v1"]
 }
