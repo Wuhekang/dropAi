@@ -24,6 +24,7 @@ import java.time.YearMonth;
 import java.time.format.DateTimeParseException;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 @RestController
@@ -97,6 +98,7 @@ public class AdminUserController {
     public Result<List<Map<String, Object>>> users(@RequestParam(required = false) String school,
                                                    @RequestParam(required = false) String keyword) {
         requireAdmin();
+        String normalizedKeyword = normalizeKeyword(keyword);
         return Result.success(userMapper.selectList(new LambdaQueryWrapper<UserAccount>()
                         .isNull(UserAccount::getDeletedAt)
                         .orderByDesc(UserAccount::getCreatedAt))
@@ -104,7 +106,7 @@ public class AdminUserController {
                 .filter(v -> school == null || school.isBlank() || "all".equalsIgnoreCase(school)
                         || ("unbound".equalsIgnoreCase(school) && ((Number)v.get("schoolId")).longValue() == 0)
                         || String.valueOf(v.get("schoolId")).equals(school))
-                .filter(v -> keyword == null || keyword.isBlank() || (String.valueOf(v.get("phone"))+" "+v.get("schoolName")+" "+v.get("schoolCode")).toLowerCase().contains(keyword.toLowerCase()))
+                .filter(v -> matchesAdminUserSearch(v, normalizedKeyword))
                 .toList());
     }
 
@@ -225,6 +227,7 @@ public class AdminUserController {
         view.put("schoolId", schoolId);
         view.put("schoolName", school == null ? null : school.getSchoolName());
         view.put("schoolCode", school == null ? null : school.getSchoolCode());
+        view.put("schoolHidden", school != null && Boolean.TRUE.equals(school.getHidden()));
         view.put("ownershipType", school == null ? "普通用户/未绑定学校" : "学校用户");
         view.put("points", user.getPoints());
         view.put("totalPoints", user.getTotalPoints());
@@ -235,6 +238,32 @@ public class AdminUserController {
         view.put("accountEnabled", enabled);
         view.put("status", enabled ? "ACTIVE" : "DISABLED");
         return view;
+    }
+
+    private String normalizeKeyword(String keyword) {
+        if (keyword == null || keyword.isBlank()) return null;
+        return keyword.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private boolean matchesAdminUserSearch(Map<String, Object> view, String normalizedKeyword) {
+        boolean hiddenSchoolAccount = Boolean.TRUE.equals(view.get("schoolHidden"))
+                && ("USER".equalsIgnoreCase(String.valueOf(view.get("role")))
+                || "SCHOOL_VIEWER".equalsIgnoreCase(String.valueOf(view.get("role"))));
+        if (hiddenSchoolAccount) {
+            return normalizedKeyword != null && matchesSchoolIdentity(view, normalizedKeyword);
+        }
+        if (normalizedKeyword == null) return true;
+        return containsIgnoreCase(view.get("phone"), normalizedKeyword)
+                || matchesSchoolIdentity(view, normalizedKeyword);
+    }
+
+    private boolean matchesSchoolIdentity(Map<String, Object> view, String normalizedKeyword) {
+        return containsIgnoreCase(view.get("schoolName"), normalizedKeyword)
+                || containsIgnoreCase(view.get("schoolCode"), normalizedKeyword);
+    }
+
+    private boolean containsIgnoreCase(Object value, String normalizedKeyword) {
+        return value != null && value.toString().toLowerCase(Locale.ROOT).contains(normalizedKeyword);
     }
 
     public record PointAdjustment(String type, Integer quantity, String reason, String remark) {}

@@ -22,6 +22,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -35,6 +36,7 @@ import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class SchoolAccountControlTest {
@@ -120,6 +122,72 @@ class SchoolAccountControlTest {
         assertEquals(new BigDecimal("0.30"), result.get("rechargePricePer10"));
         assertEquals(new BigDecimal("2.00"), result.get("studentRechargePricePer10"));
         assertEquals(new BigDecimal("1.00"), result.get("studentRechargeMinPricePer10"));
+        assertEquals(Boolean.FALSE, result.get("hidden"));
+    }
+
+    @Test
+    void defaultListOmitsHiddenSchoolsButNameOrCodeSearchFindsThem() {
+        UserAccount admin = user(99L, "ADMIN", 0L, 0);
+        School visible = school(10L);
+        visible.setSchoolCode("VISIBLE");
+        visible.setSchoolName("普通学校");
+        visible.setHidden(false);
+        School hidden = school(20L);
+        hidden.setSchoolCode("HIDDEN-CODE");
+        hidden.setSchoolName("机密示范学校");
+        hidden.setHidden(true);
+        when(users.selectById(99L)).thenReturn(admin);
+        when(schools.selectList(any())).thenReturn(List.of(visible, hidden));
+        when(users.selectList(any())).thenReturn(List.of());
+        when(jdbc.queryForObject(any(String.class), eq(Long.class), any())).thenReturn(0L);
+        when(jdbc.queryForObject(any(String.class), eq(BigDecimal.class), any())).thenReturn(BigDecimal.ZERO);
+        AuthContext.setUserId(99L);
+
+        List<Map<String, Object>> defaults = service.list(null);
+        List<Map<String, Object>> byName = service.list("示范学校");
+        List<Map<String, Object>> byCode = service.list("hidden-code");
+
+        assertEquals(List.of(10L), defaults.stream().map(row -> (Long) row.get("id")).toList());
+        assertEquals(List.of(20L), byName.stream().map(row -> (Long) row.get("id")).toList());
+        assertEquals(List.of(20L), byCode.stream().map(row -> (Long) row.get("id")).toList());
+        assertEquals(Boolean.TRUE, byName.get(0).get("hidden"));
+    }
+
+    @Test
+    void hidingSchoolDoesNotDisableSchoolAccountsOrInvalidateSessions() {
+        UserAccount admin = user(99L, "ADMIN", 0L, 0);
+        UserAccount viewer = user(3L, "SCHOOL_VIEWER", 10L, 0);
+        School school = school(10L);
+        when(users.selectById(99L)).thenReturn(admin);
+        when(schools.selectOne(any())).thenReturn(school);
+        when(schools.update(isNull(), any())).thenReturn(1);
+        AuthContext.setUserId(99L);
+
+        service.hidden(10L, true);
+
+        assertTrue(school.getHidden());
+        assertTrue(school.getEnabled());
+        assertTrue(viewer.getAccountEnabled());
+        verifyNoInteractions(security);
+    }
+
+    @Test
+    void hiddenEnabledSchoolStillSupportsSchoolViewerOperations() {
+        UserAccount viewer = user(1L, "SCHOOL_VIEWER", 10L, 0);
+        School hiddenSchool = school(10L);
+        hiddenSchool.setHidden(true);
+        when(users.selectById(1L)).thenReturn(viewer);
+        when(schools.selectOne(any())).thenReturn(hiddenSchool);
+        when(users.selectOne(any())).thenReturn(viewer);
+        when(schools.update(isNull(), any())).thenReturn(1);
+        AuthContext.setUserId(1L);
+
+        Map<String, Object> result = service.updateRechargePrice(
+                new SchoolService.PriceInput(new BigDecimal("1.50")));
+
+        assertEquals(new BigDecimal("1.50"), result.get("studentRechargePricePer10"));
+        assertTrue(hiddenSchool.getEnabled());
+        assertTrue(hiddenSchool.getHidden());
     }
 
     @Test

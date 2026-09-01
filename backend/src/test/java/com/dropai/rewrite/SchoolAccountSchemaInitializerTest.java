@@ -10,6 +10,7 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SchoolAccountSchemaInitializerTest {
@@ -20,7 +21,9 @@ class SchoolAccountSchemaInitializerTest {
         createLegacyUserTable(jdbc);
 
         DefaultApplicationArguments arguments = new DefaultApplicationArguments(new String[0]);
-        new SchoolSchemaInitializer(jdbc, dataSource).run(arguments);
+        SchoolSchemaInitializer initializer = new SchoolSchemaInitializer(jdbc, dataSource);
+        initializer.run(arguments);
+        initializer.run(arguments);
         new CommercialFeatureSchemaInitializer(jdbc, dataSource).run(arguments);
 
         assertColumn(jdbc, "RECHARGE_ORDER", "RECHARGE_PRICE_PER10");
@@ -32,6 +35,10 @@ class SchoolAccountSchemaInitializerTest {
         assertColumn(jdbc, "SCHOOL", "DELETE_REASON");
         assertColumn(jdbc, "SCHOOL", "STUDENT_RECHARGE_PRICE_PER10");
         assertColumn(jdbc, "SCHOOL", "STUDENT_RECHARGE_MIN_PRICE_PER10");
+        assertColumn(jdbc, "SCHOOL", "HIDDEN");
+        jdbc.update("INSERT INTO school(school_code,school_name) VALUES(?,?)", "VISIBLE", "默认可见学校");
+        assertFalse(jdbc.queryForObject(
+                "SELECT hidden FROM school WHERE school_code='VISIBLE'", Boolean.class));
     }
 
     @Test
@@ -66,6 +73,8 @@ class SchoolAccountSchemaInitializerTest {
                 java.math.BigDecimal.class);
         assertEquals(0, new java.math.BigDecimal("2.00").compareTo(studentPrice));
         assertEquals(0, new java.math.BigDecimal("1.00").compareTo(studentMinPrice));
+        assertFalse(jdbc.queryForObject(
+                "SELECT hidden FROM school WHERE school_code='LEGACY'", Boolean.class));
 
         jdbc.update("INSERT INTO school(school_code,school_name) VALUES(?,?)", "DEFAULTS", "默认价格学校");
         assertEquals(0, new java.math.BigDecimal("2.00").compareTo(jdbc.queryForObject(

@@ -19,18 +19,18 @@
       </div>
 
       <div v-if="loading" class="table-loading"><i v-for="n in 6" :key="n"></i></div>
-      <div v-else-if="!filteredSchools.length" class="empty-state"><b>暂未创建学校</b><span>创建学校后即可生成专属注册链接并统计学生充值数据。</span><button class="primary" @click="openSchoolForm()">新增第一所学校</button></div>
+      <div v-else-if="!filteredSchools.length" class="empty-state"><b>{{ searchTerm?'未找到匹配学校':'暂未创建学校' }}</b><span>{{ searchTerm?'请检查学校名称或编号，或尝试更换关键词。':'创建学校后即可生成专属注册链接并统计学生充值数据。' }}</span><button v-if="!searchTerm" class="primary" @click="openSchoolForm()">新增第一所学校</button></div>
       <div v-else class="table-scroll">
         <div class="school-table">
           <header><span>学校</span><span>状态</span><span>注册人数</span><span>下级账号充值规则</span><span>累计充值金额</span><span>累计充值积分</span><span>统计账号</span><span>渠道链接</span><span>更新时间</span><span>操作</span></header>
-          <article v-for="school in pagedSchools" :key="school.id">
+          <article v-for="school in pagedSchools" :key="school.id" :class="{'menu-expanded':menuId===school.id}">
             <div class="school-cell"><b :title="school.schoolName">{{ school.schoolName }}</b><small :title="school.schoolCode">编号：{{ school.schoolCode }}</small></div>
-            <span><em class="status" :class="school.enabled?'enabled':'disabled'">{{ school.enabled?'已启用':'已停用' }}</em></span>
+            <span class="status-cell"><em v-if="school.hidden" class="status hidden">已隐藏</em><em class="status" :class="school.enabled?'enabled':'disabled'">{{ school.enabled?'已启用':'已停用' }}</em></span>
             <strong>{{ school.registrationCount||0 }}</strong><span class="pricing-cell"><b>统一价 ¥{{ money(school.studentRechargePricePer10??2) }}</b><small>最低限价 ¥{{ money(school.studentRechargeMinPricePer10??1) }}</small></span><strong>¥{{ money(school.totalRechargeAmount) }}</strong><strong>{{ school.totalRechargePoints||0 }}</strong>
             <div class="viewer-cell"><template v-if="school.viewers?.length"><b>{{ school.viewers[0].phone }}</b><small :class="school.viewers[0].enabled?'ok':'off'">{{ school.viewers[0].enabled?'账号启用':'账号停用' }}<template v-if="school.viewers.length>1"> · 共{{ school.viewers.length }}个</template></small></template><small v-else>未创建</small></div>
             <div class="link-cell"><code :title="channelPath(school)">{{ channelPath(school) }}</code><button @click="copyLink(school)">复制</button></div>
             <time>{{ formatTime(school.updatedAt) }}</time>
-            <div class="row-actions"><button @click="openDetail(school)">查看</button><button @click="openSchoolForm(school)">编辑</button><button class="more" @click.stop="toggleMenu(school.id)">更多</button><div v-if="menuId===school.id" class="more-menu"><button @click="copyLink(school)">复制注册链接</button><button v-if="!school.viewers?.length" @click="openViewerCreate(school)">创建统计账号</button><template v-for="viewer in school.viewers||[]" :key="viewer.id"><button @click="openPasswordReset(school,viewer)">重置 {{ viewer.phone }} 密码</button><button :class="{danger:viewer.enabled}" @click="toggleViewer(viewer)">{{ viewer.enabled?'停用':'启用' }}统计账号</button></template><button :class="{danger:school.enabled}" @click="toggleSchool(school)">{{ school.enabled?'停用':'启用' }}学校</button><button class="danger" @click="removeSchool(school)">从系统移除</button></div></div>
+            <div class="row-actions"><button @click="openDetail(school)">查看</button><button @click="openSchoolForm(school)">编辑</button><button class="more" @click.stop="toggleMenu(school.id)">更多</button><div v-if="menuId===school.id" class="more-menu"><button @click="copyLink(school)">复制注册链接</button><button v-if="!school.viewers?.length" @click="openViewerCreate(school)">创建统计账号</button><template v-for="viewer in school.viewers||[]" :key="viewer.id"><button @click="openPasswordReset(school,viewer)">重置 {{ viewer.phone }} 密码</button><button :class="{danger:viewer.enabled}" @click="toggleViewer(viewer)">{{ viewer.enabled?'停用':'启用' }}统计账号</button></template><button :class="{danger:school.enabled}" @click="toggleSchool(school)">{{ school.enabled?'停用':'启用' }}学校</button><button :disabled="hiddenChangingId===school.id" @click="toggleHidden(school)">{{ hiddenChangingId===school.id?'处理中…':school.hidden?'取消隐藏':'隐藏学校' }}</button><button class="danger" @click="removeSchool(school)">从系统移除</button></div></div>
           </article>
         </div>
       </div>
@@ -38,7 +38,7 @@
       <footer v-if="filteredSchools.length" class="pagination"><span>第 {{ currentPage }} / {{ totalPages }} 页，共 {{ filteredSchools.length }} 所学校</span><label>每页<select v-model.number="pageSize" @change="resetPage"><option :value="10">10</option><option :value="20">20</option><option :value="50">50</option></select>条</label><button :disabled="currentPage<=1" @click="currentPage--">上一页</button><button :disabled="currentPage>=totalPages" @click="currentPage++">下一页</button></footer>
     </section>
 
-    <div v-if="detailSchool" class="drawer-mask" @click.self="detailSchool=null"><aside class="drawer"><header><div><small>SCHOOL DETAILS</small><h2>{{ detailSchool.schoolName }}</h2></div><button @click="detailSchool=null">×</button></header><section><h3>基本信息</h3><dl><div><dt>学校名称</dt><dd>{{ detailSchool.schoolName }}</dd></div><div><dt>学校编号</dt><dd>{{ detailSchool.schoolCode }}</dd></div><div><dt>学校状态</dt><dd>{{ detailSchool.enabled?'已启用':'已停用' }}</dd></div><div><dt>学校账户自身充值价</dt><dd>¥{{ money(detailSchool.rechargePricePer10??0.3) }} / 10积分</dd></div><div><dt>下级账号最低限价</dt><dd>¥{{ money(detailSchool.studentRechargeMinPricePer10??1) }} / 10积分</dd></div><div><dt>下级账号当前统一价</dt><dd>¥{{ money(detailSchool.studentRechargePricePer10??2) }} / 10积分</dd></div><div><dt>创建时间</dt><dd>{{ formatTime(detailSchool.createdAt) }}</dd></div><div><dt>更新时间</dt><dd>{{ formatTime(detailSchool.updatedAt) }}</dd></div></dl></section><section><h3>数据统计</h3><div class="drawer-metrics"><span><small>注册人数</small><b>{{ detailSchool.registrationCount||0 }}</b></span><span><small>累计充值金额</small><b>¥{{ money(detailSchool.totalRechargeAmount) }}</b></span><span><small>累计充值积分</small><b>{{ detailSchool.totalRechargePoints||0 }}</b></span></div></section><section><h3>渠道注册</h3><div class="full-link"><code>{{ fullLink(detailSchool) }}</code><button @click="copyLink(detailSchool)">复制链接</button></div></section><section><h3>学校统计账号</h3><article v-for="viewer in detailSchool.viewers||[]" :key="viewer.id" class="drawer-viewer"><div><b>{{ viewer.phone }}</b><small>绑定学校：{{ detailSchool.schoolName }}</small></div><em>{{ viewer.enabled?'已启用':'已停用' }}</em><small>创建时间：{{ formatTime(viewer.createdAt) }} · 最后登录：暂无记录</small></article><p v-if="!detailSchool.viewers?.length" class="muted">尚未创建统计账号</p></section><section><h3>管理操作</h3><div class="drawer-actions"><button @click="openSchoolForm(detailSchool)">编辑学校</button><button v-if="!detailSchool.viewers?.length" @click="openViewerCreate(detailSchool)">创建统计账号</button><template v-for="viewer in detailSchool.viewers||[]" :key="viewer.id"><button @click="openPasswordReset(detailSchool,viewer)">重置密码</button><button @click="toggleViewer(viewer)">{{ viewer.enabled?'停用':'启用' }}统计账号</button></template><button :class="{danger:detailSchool.enabled}" @click="toggleSchool(detailSchool)">{{ detailSchool.enabled?'停用':'启用' }}学校</button><button class="danger" @click="removeSchool(detailSchool)">从系统移除</button></div></section></aside></div>
+    <div v-if="detailSchool" class="drawer-mask" @click.self="detailSchool=null"><aside class="drawer"><header><div><small>SCHOOL DETAILS</small><h2>{{ detailSchool.schoolName }}</h2></div><button @click="detailSchool=null">×</button></header><section><h3>基本信息</h3><dl><div><dt>学校名称</dt><dd>{{ detailSchool.schoolName }}</dd></div><div><dt>学校编号</dt><dd>{{ detailSchool.schoolCode }}</dd></div><div><dt>学校状态</dt><dd>{{ detailSchool.enabled?'已启用':'已停用' }}</dd></div><div><dt>列表展示</dt><dd>{{ detailSchool.hidden?'已隐藏（账号正常）':'正常展示' }}</dd></div><div><dt>学校账户自身充值价</dt><dd>¥{{ money(detailSchool.rechargePricePer10??0.3) }} / 10积分</dd></div><div><dt>下级账号最低限价</dt><dd>¥{{ money(detailSchool.studentRechargeMinPricePer10??1) }} / 10积分</dd></div><div><dt>下级账号当前统一价</dt><dd>¥{{ money(detailSchool.studentRechargePricePer10??2) }} / 10积分</dd></div><div><dt>创建时间</dt><dd>{{ formatTime(detailSchool.createdAt) }}</dd></div><div><dt>更新时间</dt><dd>{{ formatTime(detailSchool.updatedAt) }}</dd></div></dl></section><section><h3>数据统计</h3><div class="drawer-metrics"><span><small>注册人数</small><b>{{ detailSchool.registrationCount||0 }}</b></span><span><small>累计充值金额</small><b>¥{{ money(detailSchool.totalRechargeAmount) }}</b></span><span><small>累计充值积分</small><b>{{ detailSchool.totalRechargePoints||0 }}</b></span></div></section><section><h3>渠道注册</h3><div class="full-link"><code>{{ fullLink(detailSchool) }}</code><button @click="copyLink(detailSchool)">复制链接</button></div></section><section><h3>学校统计账号</h3><article v-for="viewer in detailSchool.viewers||[]" :key="viewer.id" class="drawer-viewer"><div><b>{{ viewer.phone }}</b><small>绑定学校：{{ detailSchool.schoolName }}</small></div><em>{{ viewer.enabled?'已启用':'已停用' }}</em><small>创建时间：{{ formatTime(viewer.createdAt) }} · 最后登录：暂无记录</small></article><p v-if="!detailSchool.viewers?.length" class="muted">尚未创建统计账号</p></section><section><h3>管理操作</h3><div class="drawer-actions"><button @click="openSchoolForm(detailSchool)">编辑学校</button><button v-if="!detailSchool.viewers?.length" @click="openViewerCreate(detailSchool)">创建统计账号</button><template v-for="viewer in detailSchool.viewers||[]" :key="viewer.id"><button @click="openPasswordReset(detailSchool,viewer)">重置密码</button><button @click="toggleViewer(viewer)">{{ viewer.enabled?'停用':'启用' }}统计账号</button></template><button :class="{danger:detailSchool.enabled}" @click="toggleSchool(detailSchool)">{{ detailSchool.enabled?'停用':'启用' }}学校</button><button class="danger" @click="removeSchool(detailSchool)">从系统移除</button></div></section></aside></div>
 
     <div v-if="schoolFormOpen" class="modal-mask" @click.self="schoolFormOpen=false"><section class="modal"><header><div><small>{{ schoolForm.id?'EDIT SCHOOL':'NEW SCHOOL' }}</small><h2>{{ schoolForm.id?'编辑学校':'新增学校' }}</h2></div><button @click="schoolFormOpen=false">×</button></header><label>学校名称<input v-model.trim="schoolForm.schoolName" maxlength="120" placeholder="请输入学校名称"></label><label>学校编号<input v-model.trim="schoolForm.schoolCode" maxlength="64" placeholder="数字、字母、下划线或连接符"><small v-if="schoolCodeError" class="error">{{ schoolCodeError }}</small></label><label>学校账户自身充值价（每10积分）<input v-model.number="schoolForm.rechargePricePer10" type="number" min="0.30" max="1000" step="0.01"><small>学校账户自己充值时使用，默认 0.30 元；允许 0.30–1000 元、最多两位小数。</small></label><label>下级账号最低充值价（每10积分）<input v-model.number="schoolForm.studentRechargeMinPricePer10" type="number" min="0.30" max="1000" step="0.01"><small>这是管理员授予学校的最低定价限度，默认 1.00 元；管理员可调至 0.30 元及以上。</small></label><label>本校下级实际统一充值价（每10积分）<input v-model.number="schoolForm.studentRechargePricePer10" type="number" :min="studentPriceMinimum" max="1000" step="0.01"><small>默认 2.00 元，且不得低于自身充值价和管理员设定的最低限价；当前最低可设 {{ money(studentPriceMinimum) }} 元。</small></label><label class="switch-row"><input v-model="schoolForm.enabled" type="checkbox"><i></i>启用学校</label><div class="link-preview"><small>专属注册链接预览</small><code>{{ origin }}/login?college={{ schoolForm.schoolCode||'学校编号' }}</code></div><p v-if="schoolForm.id" class="warning">价格修改只影响后续新创建的充值订单，既有订单仍使用下单时保存的价格。</p><footer><button @click="schoolFormOpen=false">取消</button><button class="primary" :disabled="saving||!!schoolCodeError||!schoolForm.schoolName||!schoolForm.rechargePricePer10||!schoolForm.studentRechargeMinPricePer10||!schoolForm.studentRechargePricePer10" @click="saveSchool">{{ saving?'保存中…':'保存学校' }}</button></footer></section></div>
 
@@ -53,20 +53,54 @@
 <script setup>
 import {computed,onBeforeUnmount,onMounted,reactive,ref,watch} from 'vue'
 import {ElMessage,ElMessageBox} from 'element-plus'
-import {createSchool,createSchoolViewer,deleteSchool,getSchools,setSchoolEnabled,updateSchool,updateSchoolViewer} from '../../api/rewrite'
+import {createSchool,createSchoolViewer,deleteSchool,getSchools,setSchoolEnabled,setSchoolHidden,updateSchool,updateSchoolViewer} from '../../api/rewrite'
 
-const origin=location.origin,schools=ref([]),loading=ref(true),saving=ref(false),searchInput=ref(''),searchTerm=ref(''),statusFilter=ref('all'),viewerFilter=ref('all'),currentPage=ref(1),pageSize=ref(10),menuId=ref(null),detailSchool=ref(null),schoolFormOpen=ref(false),viewerFormOpen=ref(false),passwordOpen=ref(false),selectedSchool=ref(null),selectedViewer=ref(null),credential=ref(null)
+const origin=location.origin,schools=ref([]),statisticsSchools=ref([]),loading=ref(true),saving=ref(false),hiddenChangingId=ref(null),searchInput=ref(''),searchTerm=ref(''),statusFilter=ref('all'),viewerFilter=ref('all'),currentPage=ref(1),pageSize=ref(10),menuId=ref(null),detailSchool=ref(null),schoolFormOpen=ref(false),viewerFormOpen=ref(false),passwordOpen=ref(false),selectedSchool=ref(null),selectedViewer=ref(null),credential=ref(null)
 const schoolForm=reactive({id:null,schoolName:'',schoolCode:'',rechargePricePer10:0.3,studentRechargeMinPricePer10:1,studentRechargePricePer10:2,enabled:true}),viewerForm=reactive({phone:'',password:'',confirmPassword:'',enabled:true}),passwordForm=reactive({password:'',confirmPassword:''})
-let searchTimer
+let searchTimer,loadSequence=0,appliedKeyword='',activeLoadKeyword=null,hasAppliedResult=false
 const schoolCodeError=computed(()=>!schoolForm.schoolCode?'学校编号不能为空':/^[A-Za-z0-9_-]{1,64}$/.test(schoolForm.schoolCode)?'':'仅允许数字、字母、下划线和连接符，最长64位')
 const studentPriceMinimum=computed(()=>Math.max(0.3,Number(schoolForm.rechargePricePer10||0.3),Number(schoolForm.studentRechargeMinPricePer10||1)))
-const filteredSchools=computed(()=>schools.value.filter(s=>{const term=searchTerm.value.toLowerCase(),viewers=s.viewers||[];return(!term||`${s.schoolName} ${s.schoolCode}`.toLowerCase().includes(term))&&(statusFilter.value==='all'||(statusFilter.value==='enabled'&&s.enabled)||(statusFilter.value==='disabled'&&!s.enabled))&&(viewerFilter.value==='all'||(viewerFilter.value==='created'&&viewers.length)||(viewerFilter.value==='none'&&!viewers.length)||(viewerFilter.value==='disabled'&&viewers.some(v=>!v.enabled)))}))
-const totalPages=computed(()=>Math.max(1,Math.ceil(filteredSchools.value.length/pageSize.value))),pagedSchools=computed(()=>filteredSchools.value.slice((currentPage.value-1)*pageSize.value,currentPage.value*pageSize.value)),summary=computed(()=>[{label:'学校总数',value:schools.value.length,note:'全部学校数量'},{label:'启用学校',value:schools.value.filter(s=>s.enabled).length,note:'当前正常启用'},{label:'学校学生总数',value:schools.value.reduce((n,s)=>n+Number(s.registrationCount||0),0),note:'已绑定学校学生'},{label:'累计充值金额',value:`¥${money(schools.value.reduce((n,s)=>n+Number(s.totalRechargeAmount||0),0))}`,note:'成功支付减退款'}])
+const filteredSchools=computed(()=>schools.value.filter(s=>{const viewers=s.viewers||[];return(statusFilter.value==='all'||(statusFilter.value==='enabled'&&s.enabled)||(statusFilter.value==='disabled'&&!s.enabled))&&(viewerFilter.value==='all'||(viewerFilter.value==='created'&&viewers.length)||(viewerFilter.value==='none'&&!viewers.length)||(viewerFilter.value==='disabled'&&viewers.some(v=>!v.enabled)))}))
+const summarySchools=computed(()=>statisticsSchools.value.filter(s=>!s.hidden))
+const totalPages=computed(()=>Math.max(1,Math.ceil(filteredSchools.value.length/pageSize.value))),pagedSchools=computed(()=>filteredSchools.value.slice((currentPage.value-1)*pageSize.value,currentPage.value*pageSize.value)),summary=computed(()=>[{label:'学校总数',value:summarySchools.value.length,note:'不含隐藏学校'},{label:'启用学校',value:summarySchools.value.filter(s=>s.enabled).length,note:'当前正常启用'},{label:'学校学生总数',value:summarySchools.value.reduce((n,s)=>n+Number(s.registrationCount||0),0),note:'不含隐藏学校用户'},{label:'累计充值金额',value:`¥${money(summarySchools.value.reduce((n,s)=>n+Number(s.totalRechargeAmount||0),0))}`,note:'成功支付减退款'}])
 watch(filteredSchools,()=>{if(currentPage.value>totalPages.value)currentPage.value=totalPages.value})
-async function load(){loading.value=true;try{schools.value=await getSchools()||[];syncSelected()}finally{loading.value=false}}
+async function load(){
+  const sequence=++loadSequence,keyword=searchTerm.value
+  activeLoadKeyword=keyword
+  loading.value=true
+  try{
+    const resultRequest=getSchools(keyword)
+    const [result,statisticsResult]=await Promise.all([resultRequest,keyword?getSchools():resultRequest])
+    if(sequence!==loadSequence)return
+    schools.value=result||[]
+    statisticsSchools.value=statisticsResult||[]
+    appliedKeyword=keyword
+    hasAppliedResult=true
+    syncSelected()
+  }catch(error){
+    if(sequence!==loadSequence)return
+    searchTerm.value=appliedKeyword
+    searchInput.value=appliedKeyword
+    return false
+  }finally{if(sequence===loadSequence){activeLoadKeyword=null;loading.value=false}}
+  return true
+}
 function syncSelected(){if(detailSchool.value)detailSchool.value=schools.value.find(s=>s.id===detailSchool.value.id)||null}
-function queueSearch(){clearTimeout(searchTimer);searchTimer=setTimeout(()=>{searchTerm.value=searchInput.value.trim();resetPage()},280)}
-function resetPage(){currentPage.value=1}function clearFilters(){searchInput.value='';searchTerm.value='';statusFilter.value='all';viewerFilter.value='all';resetPage()}function toggleMenu(id){menuId.value=menuId.value===id?null:id}function openDetail(s){detailSchool.value=s;menuId.value=null}
+function queueSearch(){
+  clearTimeout(searchTimer)
+  const keyword=searchInput.value.trim()
+  if(activeLoadKeyword!==null&&activeLoadKeyword!==keyword){loadSequence++;activeLoadKeyword=null;loading.value=false}
+  if(hasAppliedResult&&keyword===appliedKeyword){searchTerm.value=keyword;resetPage();if(activeLoadKeyword===null)loading.value=false;return}
+  if(keyword===activeLoadKeyword)return
+  loading.value=true
+  searchTimer=setTimeout(()=>{
+    if(keyword!==searchInput.value.trim())return
+    searchTerm.value=keyword
+    resetPage()
+    load()
+  },280)
+}
+function resetPage(){currentPage.value=1}function clearFilters(){clearTimeout(searchTimer);searchInput.value='';searchTerm.value='';statusFilter.value='all';viewerFilter.value='all';resetPage();load()}function toggleMenu(id){menuId.value=menuId.value===id?null:id}function openDetail(s){detailSchool.value=s;menuId.value=null}
 function openSchoolForm(s){
   const configuredOwnPrice=Number(s?.rechargePricePer10??0.3)
   const configuredMinimumPrice=Number(s?.studentRechargeMinPricePer10??1)
@@ -93,6 +127,20 @@ async function saveViewer(){if(!/^\d{11}$/.test(viewerForm.phone))return ElMessa
 function openPasswordReset(s,v){selectedSchool.value=s;selectedViewer.value=v;Object.assign(passwordForm,{password:'',confirmPassword:''});passwordOpen.value=true;menuId.value=null}
 async function resetPassword(){if(passwordForm.password.length<6||passwordForm.password.length>72)return ElMessage.warning('密码长度必须为6–72位');if(passwordForm.password!==passwordForm.confirmPassword)return ElMessage.warning('两次输入的密码不一致');await ElMessageBox.confirm(`确认重置统计账号 ${selectedViewer.value.phone} 的密码？`,'重置密码',{confirmButtonText:'确认重置',cancelButtonText:'取消',type:'warning'});saving.value=true;try{await updateSchoolViewer(selectedViewer.value.id,{password:passwordForm.password,enabled:selectedViewer.value.enabled});credential.value={phone:selectedViewer.value.phone,password:passwordForm.password};passwordOpen.value=false;await load()}finally{saving.value=false}}
 async function toggleSchool(s){if(s.enabled)await ElMessageBox.confirm(`停用学校“${s.schoolName}”后，专属注册链接将失效，确认继续？`,'停用学校',{type:'warning',confirmButtonText:'确认停用',cancelButtonText:'取消'});await setSchoolEnabled(s.id,!s.enabled);menuId.value=null;ElMessage.success(`学校已${s.enabled?'停用':'启用'}`);await load()}
+async function toggleHidden(s){
+  if(hiddenChangingId.value)return
+  const willHide=!s.hidden
+  try{
+    await ElMessageBox.confirm(willHide?`隐藏学校“${s.schoolName}”后，该学校及其用户将不再出现在默认管理列表和统计中；账号不会停用，仍可正常登录和使用。之后可通过学校名称或编号搜索并取消隐藏。`:`确认取消隐藏学校“${s.schoolName}”？取消后，该学校及其用户会重新出现在默认管理列表和统计中。`,willHide?'隐藏学校':'取消隐藏',{type:'warning',confirmButtonText:willHide?'确认隐藏':'取消隐藏',cancelButtonText:'返回'})
+  }catch(error){if(error==='cancel'||error==='close')return;throw error}
+  hiddenChangingId.value=s.id
+  menuId.value=null
+  try{
+    await setSchoolHidden(s.id,willHide)
+    ElMessage.success(willHide?'学校已隐藏，账号状态未改变':'学校已取消隐藏')
+    await load()
+  }finally{hiddenChangingId.value=null}
+}
 async function removeSchool(s){
   try{await ElMessageBox.confirm(`确认将学校“${s.schoolName}”（${s.schoolCode}）从系统移除？系统会停用学校及其统计账号，并保留审计记录；若仍有普通用户或充值订单，后端会拒绝本次操作。`,'从系统移除学校',{type:'warning',confirmButtonText:'确认移除',cancelButtonText:'取消',confirmButtonClass:'danger-confirm-button'})}catch(error){if(error==='cancel'||error==='close')return;throw error}
   await deleteSchool(s.id)
@@ -104,7 +152,7 @@ async function removeSchool(s){
 async function toggleViewer(v){if(v.enabled)await ElMessageBox.confirm(`确认停用统计账号 ${v.phone}？`,'停用统计账号',{type:'warning',confirmButtonText:'确认停用',cancelButtonText:'取消'});await updateSchoolViewer(v.id,{password:'',enabled:!v.enabled});menuId.value=null;ElMessage.success(`统计账号已${v.enabled?'停用':'启用'}`);await load()}
 const money=v=>Number(v||0).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2}),formatTime=v=>v?String(v).replace('T',' ').slice(0,16):'--',channelPath=s=>`/login?college=${s.schoolCode}`,fullLink=s=>`${origin}${channelPath(s)}`
 async function copyText(text,message){try{await navigator.clipboard.writeText(text)}catch{const input=document.createElement('textarea');input.value=text;document.body.appendChild(input);input.select();document.execCommand('copy');input.remove()}ElMessage.success(message)}function copyLink(s){menuId.value=null;return copyText(fullLink(s),'学校注册链接已复制')}
-function closeMenus(){menuId.value=null}onMounted(()=>{load();document.addEventListener('click',closeMenus)});onBeforeUnmount(()=>{clearTimeout(searchTimer);document.removeEventListener('click',closeMenus)})
+function closeMenus(){menuId.value=null}onMounted(()=>{load();document.addEventListener('click',closeMenus)});onBeforeUnmount(()=>{clearTimeout(searchTimer);loadSequence++;document.removeEventListener('click',closeMenus)})
 </script>
 
 <style scoped>
@@ -116,4 +164,8 @@ function closeMenus(){menuId.value=null}onMounted(()=>{load();document.addEventL
 .modal footer .primary{border-color:transparent!important;background:linear-gradient(135deg,#6e4fff,#d35ea9)!important;color:#fff!important;box-shadow:0 8px 20px rgba(110,79,255,.2)}
 .modal footer .primary:hover,.modal footer .primary:focus-visible{background:linear-gradient(135deg,#5c42e9,#c24b98)!important;color:#fff!important;outline:3px solid rgba(110,79,255,.24);outline-offset:2px}
 .more-menu .danger:hover,.drawer-actions .danger:hover{background:#fff0f3;color:#b93453!important}
+.status-cell{display:flex;flex-wrap:wrap;gap:4px}
+.status.hidden{color:#6b4eb7;background:#f1ebff}
+.more-menu button:disabled{opacity:.5;cursor:not-allowed}
+.school-table>article.menu-expanded{padding-bottom:220px}
 </style>

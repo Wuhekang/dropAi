@@ -202,11 +202,12 @@ export function adjustAdminUserPoints(userId, data) {
 export function resetAdminUserPassword(userId, password){return request.put(`/admin/users/${userId}/password`,{password})}
 export function updateAdminUserSchool(userId,schoolId){return request.put(`/admin/users/${userId}/school`,{schoolId})}
 export function getAdminFinancialSummary(month){return request.get('/admin/users/financial-summary',{params:{month}})}
-export function getSchools(){return request.get('/admin/schools')}
+export function getSchools(keyword=''){return request.get('/admin/schools',{params:keyword?{keyword}:{}})}
 export function createSchool(data){return request.post('/admin/schools',data)}
 export function updateSchool(id,data){return request.put(`/admin/schools/${id}`,data)}
 export function deleteSchool(id){return request.delete(`/admin/schools/${id}`)}
 export function setSchoolEnabled(id,enabled){return request.put(`/admin/schools/${id}/enabled`,{enabled})}
+export function setSchoolHidden(id,hidden){return request.put(`/admin/schools/${id}/hidden`,{hidden})}
 export function createSchoolViewer(id,data){return request.post(`/admin/schools/${id}/viewers`,data)}
 export function updateSchoolViewer(id,data){return request.put(`/admin/school-viewers/${id}`,data)}
 export function getSchoolViewerStatistics(range='30d'){return request.get('/school-viewer/statistics',{params:{range}})}

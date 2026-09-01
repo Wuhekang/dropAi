@@ -12,11 +12,11 @@
 
       <template v-if="activeTab==='overview'"><section class="overview-hero"><div><small>PLATFORM OVERVIEW</small><h2>Dokiai 月度运行概览</h2><p>每个自然月独立累计，历史月份不会清除。</p></div><div class="month-switch"><button v-for="item in monthOptions" :key="item.value" :class="{active:financeMonth===item.value}" @click="changeFinanceMonth(item.value)">{{ item.label }}</button></div></section><div class="metrics finance-metrics"><article><span>用户充值金额</span><strong>¥{{ money(finance.userRechargeAmount) }}</strong><small>当月普通用户实际支付</small></article><article><span>学校充值金额</span><strong>¥{{ money(finance.schoolRechargeAmount) }}</strong><small>当月学校账户实际支付</small></article><article><span>操作积分合计</span><strong>{{ Number(finance.operationPointsTotal||0).toLocaleString('zh-CN') }}</strong><small>充值所得积分 + 管理员手动调整</small></article><article><span>人工调整统计价值</span><strong>¥{{ money(finance.adjustedStatisticalValue) }}</strong><small>充值金额已合并人工积分调整</small></article></div><section class="panel"><header><small>MONTHLY FINANCIAL TABLE</small><h2>{{ finance.month }} 月度统计表</h2></header><div class="finance-table"><article><span>用户充值</span><b>¥{{ money(finance.userRechargeAmount) }}</b></article><article><span>学校充值</span><b>¥{{ money(finance.schoolRechargeAmount) }}</b></article><article class="total-row"><span>操作积分合计</span><strong>{{ Number(finance.operationPointsTotal||0).toLocaleString('zh-CN') }}</strong></article><article class="total-row"><span>人工调整统计价值</span><strong>¥{{ money(finance.adjustedStatisticalValue) }}</strong></article></div></section><section class="panel overview-list"><header><small>RECENT USERS</small><h2>最近注册用户</h2></header><UserTable :items="users.slice(0,5)" @detail="openUser" @adjust="openAdjust" @reset="openAdminReset" @school="openSchoolChange" /></section></template>
 
-      <section v-else-if="activeTab==='users'" class="panel"><div class="section-head"><div><small>USER MANAGEMENT</small><h2>用户管理</h2><p>查看账户身份、积分余额与账户状态。</p></div><label class="search">⌕ <input v-model="userKeyword" placeholder="搜索手机号或用户 ID"></label></div><UserTable :items="filteredUsers" @detail="openUser" @adjust="openAdjust" @reset="openAdminReset" @school="openSchoolChange" /></section>
+      <section v-else-if="activeTab==='users'" class="panel"><div class="section-head"><div><small>USER MANAGEMENT</small><h2>用户管理</h2><p>查看账户身份、积分余额与账户状态。</p></div><label class="search">⌕ <input v-model="userKeyword" placeholder="搜索手机号、学校名称或编号"></label></div><UserTable :items="filteredUsers" :empty-text="userListEmptyText" @detail="openUser" @adjust="openAdjust" @reset="openAdminReset" @school="openSchoolChange" /></section>
 
       <SchoolAdmin v-else-if="activeTab==='schools'" style="min-height:0;padding:0;background:transparent" />
 
-      <template v-else-if="activeTab==='points'"><div class="metrics"><article><span>平台积分余额</span><strong>{{ totalPoints }}</strong><small>全部用户合计</small></article><article><span>累计发放</span><strong>{{ totalGranted }}</strong><small>历史获得积分</small></article><article><span>累计消费</span><strong>{{ totalUsed }}</strong><small>历史服务消耗</small></article></div><div class="subtabs"><button :class="{active:pointsTab==='accounts'}" @click="pointsTab='accounts'">用户积分管理</button><button :class="{active:pointsTab==='packages'}" @click="pointsTab='packages'">充值套餐</button><button :class="{active:pointsTab==='orders'}" @click="pointsTab='orders'">订单查询</button></div><section v-if="pointsTab==='accounts'" class="panel"><div class="section-head"><div><small>POINTS MANAGEMENT</small><h2>账户积分管理</h2><p>查询用户、调整积分并查看完整流水。</p></div><label class="search">⌕ <input v-model="userKeyword" placeholder="搜索手机号或用户 ID"></label></div><UserTable :items="filteredUsers" @detail="openUser" @adjust="openAdjust" @reset="openAdminReset" @school="openSchoolChange" /></section><section v-else-if="pointsTab==='packages'" class="panel"><div class="section-head"><div><small>RECHARGE PACKAGES</small><h2>充值套餐配置</h2><p>普通用户固定比例：2 元 = 10 积分。</p></div><em class="ratio">2 : 10</em></div><div class="package-grid"><article v-for="plan in plans" :key="plan.planId"><small>{{ plan.planId }}</small><strong>¥{{ plan.amount }}</strong><span>{{ plan.points }} 积分</span><em>{{ plan.recommended?'推荐套餐':'标准套餐' }}</em></article></div></section><section v-else class="panel"><div class="section-head"><div><small>ORDER QUERY</small><h2>充值订单查询</h2><p>支付结果自动同步，页面仅用于查询。</p></div><label class="search">⌕ <input v-model="orderKeyword" placeholder="订单号、手机号"></label></div><div class="query-table"><header><span>订单号</span><span>用户</span><span>金额</span><span>积分</span><span>支付状态</span><span>时间</span></header><article v-for="row in filteredOrders" :key="row.orderNo"><code>{{ row.orderNo }}</code><span>{{ row.phone }}</span><span>¥{{ row.amount }}</span><strong>{{ row.points }}</strong><em :class="paymentState(row.status).className">{{ paymentState(row.status).label }}</em><time>{{ formatTime(row.paidAt||row.createdAt) }}</time></article><div v-if="!filteredOrders.length" class="empty">暂无符合条件的订单</div></div></section></template>
+      <template v-else-if="activeTab==='points'"><div class="metrics"><article><span>平台积分余额</span><strong>{{ totalPoints }}</strong><small>全部用户合计</small></article><article><span>累计发放</span><strong>{{ totalGranted }}</strong><small>历史获得积分</small></article><article><span>累计消费</span><strong>{{ totalUsed }}</strong><small>历史服务消耗</small></article></div><div class="subtabs"><button :class="{active:pointsTab==='accounts'}" @click="pointsTab='accounts'">用户积分管理</button><button :class="{active:pointsTab==='packages'}" @click="pointsTab='packages'">充值套餐</button><button :class="{active:pointsTab==='orders'}" @click="pointsTab='orders'">订单查询</button></div><section v-if="pointsTab==='accounts'" class="panel"><div class="section-head"><div><small>POINTS MANAGEMENT</small><h2>账户积分管理</h2><p>查询用户、调整积分并查看完整流水。</p></div><label class="search">⌕ <input v-model="userKeyword" placeholder="搜索手机号、学校名称或编号"></label></div><UserTable :items="filteredUsers" :empty-text="userListEmptyText" @detail="openUser" @adjust="openAdjust" @reset="openAdminReset" @school="openSchoolChange" /></section><section v-else-if="pointsTab==='packages'" class="panel"><div class="section-head"><div><small>RECHARGE PACKAGES</small><h2>充值套餐配置</h2><p>普通用户固定比例：2 元 = 10 积分。</p></div><em class="ratio">2 : 10</em></div><div class="package-grid"><article v-for="plan in plans" :key="plan.planId"><small>{{ plan.planId }}</small><strong>¥{{ plan.amount }}</strong><span>{{ plan.points }} 积分</span><em>{{ plan.recommended?'推荐套餐':'标准套餐' }}</em></article></div></section><section v-else class="panel"><div class="section-head"><div><small>ORDER QUERY</small><h2>充值订单查询</h2><p>支付结果自动同步，页面仅用于查询。</p></div><label class="search">⌕ <input v-model="orderKeyword" placeholder="订单号、手机号"></label></div><div class="query-table"><header><span>订单号</span><span>用户</span><span>金额</span><span>积分</span><span>支付状态</span><span>时间</span></header><article v-for="row in filteredOrders" :key="row.orderNo"><code>{{ row.orderNo }}</code><span>{{ row.phone }}</span><span>¥{{ row.amount }}</span><strong>{{ row.points }}</strong><em :class="paymentState(row.status).className">{{ paymentState(row.status).label }}</em><time>{{ formatTime(row.paidAt||row.createdAt) }}</time></article><div v-if="!filteredOrders.length" class="empty">暂无符合条件的订单</div></div></section></template>
 
       <section v-else-if="activeTab==='pricing'" class="panel"><div class="section-head"><div><small>FEATURE PRICING</small><h2>功能价格配置</h2><p>修改后对后续生成请求生效。</p></div></div><div class="pricing-grid"><article v-for="row in pricing" :key="row.featureCode"><span>{{ row.featureCode }}</span><h3>{{ displayFeatureName(row) }}</h3><label>消耗积分<input v-model.number="row.costPoints" type="number" min="0" step="10"></label><footer><label class="switch"><input v-model="row.enabled" type="checkbox"><i></i>{{ row.enabled?'已启用':'已停用' }}</label><button @click="savePrice(row)">保存</button></footer></article></div><div v-if="!pricing.length" class="empty">暂无功能价格配置</div></section>
 
@@ -72,7 +72,7 @@
 </template>
 
 <script setup>
-import { computed, defineComponent, h, onMounted, reactive, ref, watch } from 'vue'
+import { computed, defineComponent, h, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import ChangePasswordDialog from '../components/ChangePasswordDialog.vue'
@@ -99,6 +99,10 @@ const allowedTabs = ['overview', 'users', 'schools', 'points', 'pricing', 'setti
 const activeTab = ref(allowedTabs.includes(String(route.query.tab)) ? String(route.query.tab) : 'overview')
 const pointsTab = ref('accounts')
 const users = ref([])
+const userSearchResults = ref([])
+const userSearchAppliedKeyword = ref('')
+const userSearchLoading = ref(false)
+const userSearchError = ref('')
 const schools = ref([])
 const pricing = ref([])
 const orders = ref([])
@@ -122,6 +126,8 @@ const schoolUser = ref(null)
 const selectedSchoolId = ref(0)
 const managementSaving = ref(false)
 const adminPasswordForm = reactive({ password: '', confirmPassword: '' })
+let userSearchTimer
+let userRequestSequence = 0
 
 const navItems = [
   { key: 'overview', label: '数据概览', icon: '⌂' },
@@ -141,7 +147,12 @@ const meta = {
 }
 
 const currentMeta = computed(() => ({ title: meta[activeTab.value][0], description: meta[activeTab.value][1] }))
-const filteredUsers = computed(() => users.value.filter(item => `${item.id} ${item.phone} ${item.schoolName || ''} ${item.schoolCode || ''} ${item.ownershipType || ''}`.toLowerCase().includes(userKeyword.value.toLowerCase())))
+const normalizedUserKeyword = computed(() => String(userKeyword.value || '').trim())
+const filteredUsers = computed(() => {
+  if (!normalizedUserKeyword.value) return users.value
+  return userSearchAppliedKeyword.value === normalizedUserKeyword.value ? userSearchResults.value : []
+})
+const userListEmptyText = computed(() => userSearchLoading.value ? '正在搜索用户…' : (userSearchError.value || '暂无符合条件的用户'))
 const filteredOrders = computed(() => orders.value.filter(item => `${item.orderNo} ${item.phone}`.toLowerCase().includes(orderKeyword.value.toLowerCase())))
 const enabledSchools = computed(() => schools.value.filter(item => item.enabled === true && !item.deletedAt))
 const totalPoints = computed(() => users.value.reduce((sum, item) => sum + Number(item.points || 0), 0))
@@ -160,7 +171,10 @@ function canChangeSchool(user) { return Boolean(user?.id) && normalizedRole(user
 function roleName(role) { return ({ USER: '普通用户', SCHOOL_VIEWER: '学校统计账号', ADMIN: '管理员' })[String(role || '').toUpperCase()] || role || '用户' }
 
 const UserTable = defineComponent({
-  props: { items: { type: Array, default: () => [] } },
+  props: {
+    items: { type: Array, default: () => [] },
+    emptyText: { type: String, default: '暂无用户数据' }
+  },
   emits: ['detail', 'adjust', 'reset', 'school'],
   setup(props, { emit }) {
     return () => h('div', { class: 'user-table' }, [
@@ -181,7 +195,7 @@ const UserTable = defineComponent({
           h('div', actions)
         ])
       }),
-      !props.items.length ? h('div', { class: 'empty' }, '暂无用户数据') : null
+      !props.items.length ? h('div', { class: 'empty' }, props.emptyText) : null
     ])
   }
 })
@@ -190,22 +204,82 @@ function formatTime(value) { return value ? String(value).replace('T', ' ').slic
 function displayFeatureName(row) { return ({ DOCUMENT_REWRITE: '标准优化', DOCUMENT_HUMANIZE: 'AI痕迹优化', DOCUMENT_DOUBLE: '深度优化' })[row.featureCode] || row.featureName || row.featureCode }
 const money = value => Number(value || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
+function updateSelectedUserFrom(list) {
+  if (selectedUser.value) selectedUser.value = list.find(item => String(item.id) === String(selectedUser.value.id)) || selectedUser.value
+}
+
+async function requestUserList(keyword, requestId, { fallbackToAccount = false, notifyOnError = false } = {}) {
+  const normalized = String(keyword || '').trim()
+  try {
+    const list = await getAdminUsers(normalized ? { keyword: normalized } : undefined)
+    if (requestId !== userRequestSequence) return
+    const nextUsers = list || []
+    if (normalized) {
+      userSearchResults.value = nextUsers
+      userSearchAppliedKeyword.value = normalized
+    } else {
+      users.value = nextUsers
+      userSearchResults.value = []
+      userSearchAppliedKeyword.value = ''
+    }
+    userSearchError.value = ''
+    updateSelectedUserFrom(nextUsers)
+  } catch {
+    if (requestId !== userRequestSequence) return
+    if (!normalized && fallbackToAccount) {
+      try {
+        const me = await getPointAccount()
+        if (requestId !== userRequestSequence) return
+        users.value = [{ id: 'ME', phone: username, role: 'ADMIN', status: 'ACTIVE', ...me }]
+        userSearchResults.value = []
+        userSearchAppliedKeyword.value = ''
+        return
+      } catch {
+        // Fall through to the visible error state when both user endpoints fail.
+      }
+    }
+    if (requestId !== userRequestSequence) return
+    if (normalized) {
+      userSearchResults.value = []
+      userSearchAppliedKeyword.value = normalized
+      userSearchError.value = '搜索失败，请稍后重试'
+    } else {
+      userSearchError.value = '用户列表刷新失败'
+    }
+    if (notifyOnError) ElMessage.error(userSearchError.value)
+  } finally {
+    if (requestId === userRequestSequence) userSearchLoading.value = false
+  }
+}
+
+function reloadUsersForCurrentKeyword(options = {}) {
+  clearTimeout(userSearchTimer)
+  const keyword = normalizedUserKeyword.value
+  const requestId = ++userRequestSequence
+  userSearchLoading.value = true
+  userSearchError.value = ''
+  if (keyword) {
+    userSearchResults.value = []
+    userSearchAppliedKeyword.value = ''
+  }
+  return requestUserList(keyword, requestId, options)
+}
+
 async function load() {
-  const [userList, priceList, orderList, packageList, financial, schoolList] = await Promise.all([
-    getAdminUsers().catch(async () => { const me = await getPointAccount(); return [{ id: 'ME', phone: username, role: 'ADMIN', status: 'ACTIVE', ...me }] }),
+  const userListRequest = reloadUsersForCurrentKeyword({ fallbackToAccount: true })
+  const [, priceList, orderList, packageList, financial, schoolList] = await Promise.all([
+    userListRequest,
     getFeaturePricing(),
     getAdminRechargeOrders().catch(() => []),
     getRechargePlans(),
     getAdminFinancialSummary(financeMonth.value).catch(() => ({})),
     getSchools().catch(() => [])
   ])
-  users.value = userList || []
   pricing.value = priceList || []
   orders.value = orderList || []
   plans.value = (packageList || []).filter(item => [10, 20, 100].includes(Number(item.amount)))
   finance.value = financial || {}
   schools.value = schoolList || []
-  if (selectedUser.value) selectedUser.value = users.value.find(item => String(item.id) === String(selectedUser.value.id)) || selectedUser.value
 }
 
 async function changeFinanceMonth(value) { financeMonth.value = value; finance.value = await getAdminFinancialSummary(value) || {} }
@@ -294,7 +368,32 @@ function paymentState(status) {
   return { label: '支付失败', className: 'failed' }
 }
 
+watch(userKeyword, value => {
+  clearTimeout(userSearchTimer)
+  const keyword = String(value || '').trim()
+  const requestId = ++userRequestSequence
+  userSearchLoading.value = true
+  userSearchError.value = ''
+  userSearchResults.value = []
+  userSearchAppliedKeyword.value = ''
+  if (!keyword) {
+    void requestUserList('', requestId, { notifyOnError: true })
+    return
+  }
+  userSearchTimer = setTimeout(() => {
+    void requestUserList(keyword, requestId, { notifyOnError: true })
+  }, 320)
+})
+watch(activeTab, (tab, previousTab) => {
+  if (previousTab !== 'schools' || tab === 'schools') return
+  void reloadUsersForCurrentKeyword({ notifyOnError: true })
+  void getSchools().then(list => { schools.value = list || [] }).catch(() => {})
+})
 watch(() => route.query.tab, tab => { activeTab.value = allowedTabs.includes(String(tab)) ? String(tab) : 'overview' })
+onBeforeUnmount(() => {
+  clearTimeout(userSearchTimer)
+  userRequestSequence += 1
+})
 onMounted(load)
 </script>
 

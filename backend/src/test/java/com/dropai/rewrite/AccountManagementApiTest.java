@@ -206,6 +206,47 @@ class AccountManagementApiTest {
         assertFalse(wrapper.getValue().getExpression().getNormal().isEmpty());
     }
 
+    @Test
+    void hiddenSchoolUsersRequireSchoolNameOrCodeKeywordAndCannotBeFoundByPhone() {
+        MapperBuilderAssistant assistant = new MapperBuilderAssistant(new MybatisConfiguration(), "hidden-account-test");
+        assistant.setCurrentNamespace("com.dropai.rewrite.AccountManagementApiTest.hiddenSchoolUsers");
+        TableInfoHelper.initTableInfo(assistant, UserAccount.class);
+        TableInfoHelper.initTableInfo(assistant, School.class);
+        AdminUserController controller = controller();
+        UserAccount admin = account(1L, "ADMIN");
+        UserAccount visibleUnbound = account(2L, "USER");
+        visibleUnbound.setPhone("13800000002");
+        UserAccount hiddenUser = account(3L, "USER");
+        hiddenUser.setPhone("13900000003");
+        hiddenUser.setSchoolId(20L);
+        UserAccount hiddenViewer = account(4L, "SCHOOL_VIEWER");
+        hiddenViewer.setPhone("13900000004");
+        hiddenViewer.setSchoolId(20L);
+        School hiddenSchool = new School();
+        hiddenSchool.setId(20L);
+        hiddenSchool.setSchoolName("机密示范学校");
+        hiddenSchool.setSchoolCode("HID20");
+        hiddenSchool.setEnabled(true);
+        hiddenSchool.setHidden(true);
+        when(userMapper.selectOne(any())).thenReturn(admin);
+        when(userMapper.selectList(any())).thenReturn(List.of(visibleUnbound, hiddenUser, hiddenViewer));
+        when(schoolMapper.selectOne(any())).thenReturn(hiddenSchool);
+        AuthContext.setUserId(admin.getId());
+
+        Result<List<Map<String, Object>>> defaults = controller.users(null, null);
+        Result<List<Map<String, Object>>> byHiddenPhone = controller.users(null, "13900000003");
+        Result<List<Map<String, Object>>> bySchoolName = controller.users(null, "机密示范");
+        Result<List<Map<String, Object>>> bySchoolCode = controller.users(null, "hid20");
+        Result<List<Map<String, Object>>> visiblePhone = controller.users(null, "13800000002");
+
+        assertEquals(List.of(2L), defaults.getData().stream().map(row -> (Long) row.get("id")).toList());
+        assertTrue(byHiddenPhone.getData().isEmpty());
+        assertEquals(List.of(3L, 4L), bySchoolName.getData().stream().map(row -> (Long) row.get("id")).toList());
+        assertEquals(List.of(3L, 4L), bySchoolCode.getData().stream().map(row -> (Long) row.get("id")).toList());
+        assertEquals(List.of(2L), visiblePhone.getData().stream().map(row -> (Long) row.get("id")).toList());
+        assertTrue(bySchoolName.getData().stream().allMatch(row -> Boolean.TRUE.equals(row.get("schoolHidden"))));
+    }
+
     private AdminUserController controller() {
         return new AdminUserController(userMapper, transactionMapper, orderMapper,
                 schoolMapper, jdbc, securityService);

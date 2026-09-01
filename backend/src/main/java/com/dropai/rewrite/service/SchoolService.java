@@ -23,6 +23,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 
@@ -58,11 +59,20 @@ public class SchoolService {
     }
 
     public List<Map<String, Object>> list() {
+        return list(null);
+    }
+
+    public List<Map<String, Object>> list(String keyword) {
         requireAdmin();
+        String normalizedKeyword = normalizeKeyword(keyword);
         return schools.selectList(new LambdaQueryWrapper<School>()
                         .isNull(School::getDeletedAt)
                         .orderByDesc(School::getCreatedAt))
-                .stream().map(this::summary).toList();
+                .stream()
+                .filter(school -> normalizedKeyword == null
+                        ? !Boolean.TRUE.equals(school.getHidden())
+                        : matchesSchool(school, normalizedKeyword))
+                .map(this::summary).toList();
     }
 
     @Transactional
@@ -93,6 +103,7 @@ public class SchoolService {
         school.setStudentRechargeMinPricePer10(studentMinPrice);
         if (id == null) {
             school.setEnabled(input.enabled() == null || input.enabled());
+            school.setHidden(false);
             school.setCreatedAt(LocalDateTime.now());
         } else if (input.enabled() != null) {
             school.setEnabled(input.enabled());
@@ -109,6 +120,22 @@ public class SchoolService {
         school.setEnabled(enabled);
         school.setUpdatedAt(LocalDateTime.now());
         schools.updateById(school);
+    }
+
+    @Transactional
+    public void hidden(Long id, Boolean hidden) {
+        requireAdmin();
+        if (hidden == null) throw new IllegalArgumentException("隐藏状态不能为空");
+        School school = requiredForUpdate(id);
+        LocalDateTime now = LocalDateTime.now();
+        int changed = schools.update(null, new LambdaUpdateWrapper<School>()
+                .eq(School::getId, id)
+                .isNull(School::getDeletedAt)
+                .set(School::getHidden, hidden)
+                .set(School::getUpdatedAt, now));
+        if (changed != 1) throw new IllegalStateException("学校隐藏状态更新失败");
+        school.setHidden(hidden);
+        school.setUpdatedAt(now);
     }
 
     @Transactional
@@ -497,6 +524,7 @@ public class SchoolService {
         out.put("studentRechargePricePer10", effectiveStudentPrice(school));
         out.put("studentRechargeMinPricePer10", effectiveStudentMinPrice(school));
         out.put("enabled", school.getEnabled());
+        out.put("hidden", Boolean.TRUE.equals(school.getHidden()));
         out.put("createdAt", school.getCreatedAt());
         out.put("updatedAt", school.getUpdatedAt());
         out.put("registrationCount", jdbc.queryForObject(
@@ -535,6 +563,20 @@ public class SchoolService {
         School school = schools.selectById(id);
         if (school == null || school.getDeletedAt() != null) throw new IllegalArgumentException("学校不存在");
         return school;
+    }
+
+    private String normalizeKeyword(String keyword) {
+        if (keyword == null || keyword.isBlank()) return null;
+        return keyword.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private boolean matchesSchool(School school, String normalizedKeyword) {
+        return containsIgnoreCase(school.getSchoolName(), normalizedKeyword)
+                || containsIgnoreCase(school.getSchoolCode(), normalizedKeyword);
+    }
+
+    private boolean containsIgnoreCase(String value, String normalizedKeyword) {
+        return value != null && value.toLowerCase(Locale.ROOT).contains(normalizedKeyword);
     }
 
     private School requiredForUpdate(Long id) {
@@ -616,6 +658,7 @@ public class SchoolService {
     public record ViewerUpdate(Long schoolId, String password, Boolean enabled) {}
     public record GiftInput(Integer points) {}
     public record PriceInput(BigDecimal studentRechargePricePer10) {}
+    public record HiddenInput(Boolean hidden) {}
     public record DeleteInput(String reason, String currentPassword) {
         public DeleteInput(String reason) { this(reason, null); }
     }
