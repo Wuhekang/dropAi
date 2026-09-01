@@ -131,7 +131,7 @@ public class DoubaoWebSearchProvider implements ReferenceSearchProvider {
         return parseCandidates(root, query).stream()
                 .filter(candidate -> isSafePublicUrl(candidate.url()))
                 .filter(ReferenceCandidate::basicallyVerified)
-                .limit(Math.max(1, properties.getWebSearchMaxResults()))
+                .limit(Math.max(1, Math.min(query.maxResults(), properties.getWebSearchMaxResults())))
                 .toList();
     }
 
@@ -194,6 +194,8 @@ public class DoubaoWebSearchProvider implements ReferenceSearchProvider {
                 Year range: %d-%d
                 Search keywords: %s
                 Required language: %s. Return publications written in this language only.
+                Search batch: %d. %s
+                Return at most %d items. Do not return these previously seen identities: %s
 
                 JSON item fields:
                 title, authors, year, journalOrPublisher, volume, issue, pages, doi, url,
@@ -203,7 +205,13 @@ public class DoubaoWebSearchProvider implements ReferenceSearchProvider {
                 """.formatted(query.title(), query.major(), query.yearStart(), query.yearEnd(),
                         query.hasProviderKeywordsOverride() ? query.providerKeywords() : query.joinedChineseKeywords(),
                         query.chineseTarget() > 0 && query.englishTarget() == 0 ? "Chinese" :
-                                query.englishTarget() > 0 && query.chineseTarget() == 0 ? "English" : "Chinese or English");
+                                query.englishTarget() > 0 && query.chineseTarget() == 0 ? "English" : "Chinese or English",
+                        query.searchRound() + 1,
+                        query.searchRound() > 0
+                                ? "This is a continuation search. Return additional distinct publications and avoid repeating the first batch."
+                                : "Return the strongest matching first batch.",
+                        Math.max(1, Math.min(query.maxResults(), properties.getWebSearchMaxResults())),
+                        query.excludedIdentities().isEmpty() ? "none" : String.join("; ", query.excludedIdentities()));
     }
 
     private List<ReferenceCandidate> parseCandidates(JsonNode root, ReferenceSearchQuery query) {

@@ -13,13 +13,27 @@ public record ReferenceSearchQuery(
         int maxResults,
         int chineseTarget,
         int englishTarget,
-        String providerKeywordsOverride
+        String providerKeywordsOverride,
+        int searchRound,
+        List<String> excludedIdentities
 ) {
+    public ReferenceSearchQuery {
+        searchRound = Math.max(0, searchRound);
+        excludedIdentities = excludedIdentities == null ? List.of() : List.copyOf(excludedIdentities);
+    }
+
     public ReferenceSearchQuery(String projectId, String title, String major, List<String> keywords,
                                 List<String> chapterTitles, int yearStart, int yearEnd, int maxResults,
                                 int chineseTarget, int englishTarget) {
         this(projectId, title, major, keywords, chapterTitles, yearStart, yearEnd, maxResults,
-                chineseTarget, englishTarget, "");
+                chineseTarget, englishTarget, "", 0, List.of());
+    }
+
+    public ReferenceSearchQuery(String projectId, String title, String major, List<String> keywords,
+                                List<String> chapterTitles, int yearStart, int yearEnd, int maxResults,
+                                int chineseTarget, int englishTarget, String providerKeywordsOverride) {
+        this(projectId, title, major, keywords, chapterTitles, yearStart, yearEnd, maxResults,
+                chineseTarget, englishTarget, providerKeywordsOverride, 0, List.of());
     }
 
     public String joinedKeywords() {
@@ -49,7 +63,17 @@ public record ReferenceSearchQuery(
 
     public ReferenceSearchQuery withProviderKeywords(String providerKeywords) {
         return new ReferenceSearchQuery(projectId, title, major, keywords, chapterTitles, yearStart, yearEnd,
-                maxResults, chineseTarget, englishTarget, providerKeywords);
+                maxResults, chineseTarget, englishTarget, providerKeywords, searchRound, excludedIdentities);
+    }
+
+    public ReferenceSearchQuery forSearchRound(int round) {
+        return new ReferenceSearchQuery(projectId, title, major, keywords, chapterTitles, yearStart, yearEnd,
+                maxResults, chineseTarget, englishTarget, providerKeywordsOverride, round, excludedIdentities);
+    }
+
+    public ReferenceSearchQuery forSearchRound(int round, List<String> exclusions) {
+        return new ReferenceSearchQuery(projectId, title, major, keywords, chapterTitles, yearStart, yearEnd,
+                maxResults, chineseTarget, englishTarget, providerKeywordsOverride, round, exclusions);
     }
 
     public String joinedChineseKeywords() {

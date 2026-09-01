@@ -65,6 +65,14 @@ class CrossrefReferenceSearchProviderTest {
         assertEquals("DOI_PAGE", candidate.sourceType());
     }
 
+    @Test
+    void firstContinuationRoundOffsetsByOneFullBatch() {
+        String url = provider.buildUrl(query().forSearchRound(1));
+
+        assertTrue(url.contains("&rows=10"));
+        assertTrue(url.endsWith("&offset=10"));
+    }
+
     private ReferenceSearchQuery query() {
         ReferenceSearchQuery query = new ReferenceSearchQuery("en", "数字经济", "English academic literature",
                 List.of("数字经济"), List.of(), 2021, 2026, 5, 0, 5);

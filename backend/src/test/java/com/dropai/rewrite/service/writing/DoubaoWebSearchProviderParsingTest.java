@@ -61,6 +61,21 @@ class DoubaoWebSearchProviderParsingTest {
         assertEquals("auto", forced.responsesRequest(query(), true).get("tool_choice"));
     }
 
+    @Test
+    void continuationPromptRequestsAnotherDistinctBatchAndCarriesExclusions() {
+        ReferenceSearchQuery continuation = query().forSearchRound(1, List.of(
+                "DOI 10.1000/existing",
+                "TITLE 数字经济研究 (2024)"));
+
+        String prompt = String.valueOf(provider.responsesRequest(continuation, true).get("input"));
+
+        assertTrue(prompt.contains("Search batch: 2"));
+        assertTrue(prompt.contains("continuation search"));
+        assertTrue(prompt.contains("Return at most 5 items"));
+        assertTrue(prompt.contains("DOI 10.1000/existing"));
+        assertTrue(prompt.contains("TITLE 数字经济研究 (2024)"));
+    }
+
     private ReferenceSearchQuery query() {
         return new ReferenceSearchQuery("test", "数字经济", "management", List.of("数字经济"),
                 List.of(), 2020, 2026, 5, 5, 0);

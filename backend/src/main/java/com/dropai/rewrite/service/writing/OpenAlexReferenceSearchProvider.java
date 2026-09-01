@@ -46,6 +46,7 @@ public class OpenAlexReferenceSearchProvider implements ReferenceSearchProvider 
 
     String buildUrl(ReferenceSearchQuery query) {
         String search = URLEncoder.encode(query.providerKeywords(), StandardCharsets.UTF_8);
+        int batchSize = overfetchLimit(query.maxResults());
         List<String> filters = new ArrayList<>();
         String language = targetLanguage(query);
         if (!language.isBlank()) filters.add("language:" + language);
@@ -56,7 +57,8 @@ public class OpenAlexReferenceSearchProvider implements ReferenceSearchProvider 
             filters.add("to_publication_date:" + end + "-12-31");
         }
         String filter = filters.isEmpty() ? "" : "&filter=" + String.join(",", filters);
-        return "https://api.openalex.org/works?search=" + search + filter + "&per-page=" + overfetchLimit(query.maxResults());
+        String page = query.searchRound() > 0 ? "&page=" + (query.searchRound() + 1) : "";
+        return "https://api.openalex.org/works?search=" + search + filter + "&per-page=" + batchSize + page;
     }
 
     List<ReferenceCandidate> candidatesFromResponse(JsonNode root, ReferenceSearchQuery query) {

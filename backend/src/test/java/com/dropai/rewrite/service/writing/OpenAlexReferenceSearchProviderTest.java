@@ -74,6 +74,14 @@ class OpenAlexReferenceSearchProviderTest {
         assertTrue(url.endsWith("per-page=9"));
     }
 
+    @Test
+    void firstContinuationRoundRequestsSecondPageWithTheSameBatchSize() {
+        String url = provider.buildUrl(englishQuery().forSearchRound(1));
+
+        assertTrue(url.contains("&per-page=10"));
+        assertTrue(url.endsWith("&page=2"));
+    }
+
     private ReferenceSearchQuery englishQuery() {
         ReferenceSearchQuery query = new ReferenceSearchQuery("en", "数字经济", "English academic literature",
                 List.of("数字经济"), List.of(), 2021, 2026, 5, 0, 5);

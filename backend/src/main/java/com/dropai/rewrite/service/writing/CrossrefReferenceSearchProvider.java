@@ -45,12 +45,14 @@ public class CrossrefReferenceSearchProvider implements ReferenceSearchProvider 
 
     String buildUrl(ReferenceSearchQuery query) {
         String search = URLEncoder.encode(query.providerKeywords(), StandardCharsets.UTF_8);
+        int batchSize = overfetchLimit(query.maxResults());
         List<String> filters = new ArrayList<>();
         if (query.yearStart() > 0) filters.add("from-pub-date:" + query.yearStart() + "-01-01");
         if (query.yearEnd() > 0) filters.add("until-pub-date:" + query.yearEnd() + "-12-31");
         String filter = filters.isEmpty() ? "" : "&filter=" + String.join(",", filters);
         return "https://api.crossref.org/works?query.bibliographic=" + search + filter
-                + "&rows=" + overfetchLimit(query.maxResults());
+                + "&rows=" + batchSize
+                + (query.searchRound() > 0 ? "&offset=" + (query.searchRound() * batchSize) : "");
     }
 
     List<ReferenceCandidate> candidatesFromResponse(JsonNode root, ReferenceSearchQuery query) {

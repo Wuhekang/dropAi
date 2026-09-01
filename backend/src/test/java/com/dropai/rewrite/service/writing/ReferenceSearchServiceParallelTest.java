@@ -328,6 +328,149 @@ class ReferenceSearchServiceParallelTest {
     }
 
     @Test
+    void continuesOnlyTheMissingLanguageAndFillsItsQuotaOnSecondRound() {
+        WritingGenerationProperties properties = properties("public", false);
+        List<Integer> chineseRounds = java.util.Collections.synchronizedList(new ArrayList<>());
+        List<Integer> englishRounds = java.util.Collections.synchronizedList(new ArrayList<>());
+        ReferenceSearchService service = service(properties, List.of(fake("public", query -> {
+            if ("ZH".equals(language(query))) {
+                chineseRounds.add(query.searchRound());
+                return query.searchRound() == 0
+                        ? List.of(candidate("ZH", "首批中文文献", "public"))
+                        : List.of(candidate("ZH", "续搜中文文献", "public"));
+            }
+            englishRounds.add(query.searchRound());
+            return List.of(candidate("EN", "First batch English result", "public"));
+        })));
+
+        Map<String, Object> result = service.standaloneSearch("数字经济", 2, 1);
+
+        assertEquals(3, result.get("actualCount"));
+        assertEquals(2, result.get("actualChineseCount"));
+        assertEquals(1, result.get("actualEnglishCount"));
+        assertEquals(2, result.get("searchRounds"));
+        assertEquals(List.of(0, 1), chineseRounds);
+        assertEquals(List.of(0), englishRounds, "a satisfied language must not be searched again");
+    }
+
+    @Test
+    void fastProviderContinuesWithoutWaitingForAnotherProvidersBlockedFirstRound() {
+        WritingGenerationProperties properties = properties("fast,slow", false);
+        properties.getReferenceSearch().setTimeoutSeconds(2);
+        CountDownLatch slowFirstRoundStarted = new CountDownLatch(1);
+        List<Integer> fastRounds = java.util.Collections.synchronizedList(new ArrayList<>());
+        AtomicInteger slowCalls = new AtomicInteger();
+
+        FakeProvider fast = fake("fast", query -> {
+            fastRounds.add(query.searchRound());
+            if (query.searchRound() == 0) {
+                try {
+                    if (!slowFirstRoundStarted.await(1, TimeUnit.SECONDS)) {
+                        throw new IllegalStateException("slow provider did not start its first round");
+                    }
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException("fast provider interrupted", exception);
+                }
+            }
+            return List.of(candidate("ZH", "快源第" + (query.searchRound() + 1) + "批文献", "fast"));
+        });
+        FakeProvider slow = fake("slow", query -> {
+            slowCalls.incrementAndGet();
+            slowFirstRoundStarted.countDown();
+            try {
+                Thread.sleep(5_000L);
+                return List.of();
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("slow provider interrupted", exception);
+            }
+        });
+        ReferenceSearchService service = service(properties, List.of(fast, slow));
+
+        long started = System.nanoTime();
+        Map<String, Object> result = service.standaloneSearch("数字经济", 2, 0);
+        long elapsedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
+
+        assertEquals(2, result.get("actualChineseCount"));
+        assertEquals(List.of(0, 1), fastRounds,
+                "the fast stream must advance while the slow stream is still on round zero");
+        assertEquals(1, slowCalls.get());
+        assertTrue(elapsedMillis < 1_500L,
+                "continuation waited for the blocked provider's round barrier: " + elapsedMillis + "ms");
+    }
+
+    @Test
+    void retriesSameSearchRoundAfterCallProviderExhaustsItsInternalRetries() {
+        WritingGenerationProperties properties = properties("public", false);
+        properties.getReferenceSearch().setRetryCount(2);
+        AtomicInteger providerCalls = new AtomicInteger();
+        List<Integer> observedRounds = java.util.Collections.synchronizedList(new ArrayList<>());
+        ReferenceSearchService service = service(properties, List.of(fake("public", query -> {
+            observedRounds.add(query.searchRound());
+            if (providerCalls.incrementAndGet() <= 2) {
+                throw new IllegalStateException("transient round-zero failure");
+            }
+            return List.of(candidate("ZH", "失败重试后的文献", "public"));
+        })));
+
+        Map<String, Object> result = service.standaloneSearch("数字经济", 1, 0);
+
+        assertEquals(1, result.get("actualChineseCount"));
+        assertEquals(3, providerCalls.get(), "the first callProvider must exhaust both internal attempts");
+        assertEquals(List.of(0, 0, 0), observedRounds,
+                "a failed callProvider must be retried on the same page before advancing pagination");
+        assertEquals(1, result.get("searchRounds"),
+                "transport retries of round zero must not be reported as a continuation page");
+    }
+
+    @Test
+    void duplicateContinuationBatchDoesNotCountAndThirdRoundProvidesReplacement() {
+        WritingGenerationProperties properties = properties("public", false);
+        List<Integer> rounds = java.util.Collections.synchronizedList(new ArrayList<>());
+        ReferenceSearchService service = service(properties, List.of(fake("public", query -> {
+            rounds.add(query.searchRound());
+            return switch (query.searchRound()) {
+                case 0 -> List.of(candidateWithDoi(
+                        "ZH", "首篇文献", "public", "https://doi.org/10.1000/repeated"));
+                case 1 -> List.of(candidateWithDoi(
+                        "ZH", "重复 DOI 的题名变体", "public", "doi:10.1000/repeated"));
+                default -> List.of(candidateWithDoi(
+                        "ZH", "第三轮替补文献", "public", "10.1000/replacement"));
+            };
+        })));
+
+        Map<String, Object> result = service.standaloneSearch("数字经济", 2, 0);
+
+        assertEquals(2, result.get("actualCount"));
+        assertEquals(2, result.get("actualChineseCount"));
+        assertEquals(3, result.get("searchRounds"));
+        assertEquals(List.of(0, 1, 2), rounds,
+                "the duplicate second batch must not satisfy the quota");
+        assertTrue(items(result).stream()
+                .anyMatch(item -> String.valueOf(item.get("title")).contains("第三轮替补文献")));
+        assertEquals(1L, items(result).stream()
+                .filter(item -> String.valueOf(item.get("doi")).contains("10.1000/repeated"))
+                .count());
+    }
+
+    @Test
+    void doesNotContinueWhenFirstRoundAlreadyMeetsQuota() {
+        WritingGenerationProperties properties = properties("public", false);
+        List<Integer> rounds = java.util.Collections.synchronizedList(new ArrayList<>());
+        ReferenceSearchService service = service(properties, List.of(fake("public", query -> {
+            rounds.add(query.searchRound());
+            return List.of(candidate("ZH", "首批已满足", "public"));
+        })));
+
+        Map<String, Object> result = service.standaloneSearch("数字经济", 1, 0);
+
+        assertEquals(1, result.get("actualChineseCount"));
+        assertEquals(1, result.get("searchRounds"));
+        assertEquals(List.of(0), rounds);
+    }
+
+    @Test
     void reportsFriendlyErrorWhenEveryProviderReturnsEmpty() {
         WritingGenerationProperties properties = properties("doubao_web,openalex,crossref", true);
         Function<ReferenceSearchQuery, List<ReferenceCandidate>> empty = query -> List.of();
