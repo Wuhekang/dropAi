@@ -7,6 +7,8 @@ import java.util.Set;
 
 public final class DeterministicTextMetricsService {
     public static final int FONT_STEP_HUNDREDTH_PT = 50;
+    /** One point above and below the measured glyph box for PowerPoint/LibreOffice parity. */
+    public static final long TEXT_BOX_VERTICAL_SAFETY_EMU = 2L * Emu.PER_POINT;
 
     private static final Set<Integer> FORBIDDEN_LINE_START = codePoints(
             "，。！？；：、）》】〕〉”’…％‰℃°,.!?;:%)]}»”’");
@@ -34,9 +36,10 @@ public final class DeterministicTextMetricsService {
                         request.lineSpacingPermille(),
                         1_000);
                 long lineAdvance = Math.max(naturalLineHeight, configuredAdvance);
-                long requiredHeight = Math.addExact(
+                long measuredHeight = Math.addExact(
                         naturalLineHeight,
                         Math.multiplyExact(Math.max(0, wrapped.lines().size() - 1), lineAdvance));
+                long requiredHeight = Math.addExact(measuredHeight, TEXT_BOX_VERTICAL_SAFETY_EMU);
                 if (requiredHeight <= request.maxHeightEmu()) {
                     return new TextFitResult(
                             size == request.defaultFontSizeHundredthPt()

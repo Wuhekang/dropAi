@@ -9,10 +9,10 @@
     "themeHash": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
     "layoutCatalogVersion": "1.0.0",
     "layoutCatalogHash": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
-    "fontProfileHash": "sha256:e1fbd48ec21c484f93193ddc80fc8702196282cb6b203e430364ab2d1d66c609",
+    "fontProfileHash": "sha256:0a1c3803a066ea65ba6bcadb3ecac121feafad8a59cec6b966bb3e00974123ae",
     "resolvedFontProfile": {
       "profileId": "cjk-academic-v1",
-      "measurementEngineVersion": "text-metrics-v1",
+      "measurementEngineVersion": "text-metrics-v1.1",
       "faces": [
         {
           "fontFaceId": "body-400",
@@ -118,7 +118,7 @@
           "text": "AI健康评估结果展示",
           "lineCount": 1,
           "requiredWidthEmu": 3351530,
-          "requiredHeightEmu": 368300
+          "requiredHeightEmu": 393700
         },
         {
           "elementId": "image",

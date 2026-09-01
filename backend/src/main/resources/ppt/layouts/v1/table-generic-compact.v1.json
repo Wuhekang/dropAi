@@ -1,7 +1,7 @@
 {
   "schemaVersion": "layout-recipe.v1",
   "layoutId": "table-generic-compact.v1",
-  "layoutVersion": "1.0.0",
+  "layoutVersion": "1.1.0",
   "supports": {
     "pageTypes": ["TABLE"],
     "pagePurposes": ["BACKGROUND", "PROBLEM", "METHOD", "DESIGN", "DATABASE", "IMPLEMENTATION", "RESULT", "TEST", "SUMMARY"],
@@ -15,7 +15,7 @@
     "title": { "gridColumn": 1, "gridSpan": 12, "topIn": 0.4, "heightIn": 0.7 },
     "table": { "gridColumn": 1, "gridSpan": 12, "topIn": 1.4, "heightIn": 4.55 },
     "conclusion": { "gridColumn": 2, "gridSpan": 10, "topIn": 6.12, "heightIn": 0.68 },
-    "footer": { "gridColumn": 1, "gridSpan": 12, "topIn": 6.9, "heightIn": 0.2 }
+    "footer": { "gridColumn": 1, "gridSpan": 12, "topIn": 6.85, "heightIn": 0.25 }
   },
   "constraints": {
     "titleMaxLines": 1,

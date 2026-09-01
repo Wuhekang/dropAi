@@ -82,12 +82,14 @@ public record LayoutRecipe(
             int titleMaxLines,
             int bodyMaxChars,
             int captionMaxChars,
+            int captionMaxLines,
             ImageFitMode imageFit,
             boolean cropAllowed,
             BigDecimal minImageAreaRatio,
             List<String> allowedContainedTextComponents
     ) {
         public Constraints {
+            captionMaxLines = captionMaxLines <= 0 ? 3 : captionMaxLines;
             imageFit = Objects.requireNonNull(imageFit, "imageFit");
             minImageAreaRatio = Objects.requireNonNull(minImageAreaRatio, "minImageAreaRatio");
             allowedContainedTextComponents = allowedContainedTextComponents == null

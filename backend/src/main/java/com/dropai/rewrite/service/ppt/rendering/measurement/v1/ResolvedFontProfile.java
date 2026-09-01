@@ -10,7 +10,7 @@ import java.util.SortedMap;
 import java.util.TreeMap;
 
 public final class ResolvedFontProfile {
-    public static final String MEASUREMENT_ENGINE_VERSION = "text-metrics-v1";
+    public static final String MEASUREMENT_ENGINE_VERSION = "text-metrics-v1.1";
 
     private final String profileId;
     private final Map<String, List<String>> requestedFamilies;

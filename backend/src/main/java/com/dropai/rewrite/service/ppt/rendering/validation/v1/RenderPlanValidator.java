@@ -3,6 +3,7 @@ package com.dropai.rewrite.service.ppt.rendering.validation.v1;
 import com.dropai.rewrite.service.ppt.rendering.contract.v1.PptQualityCode;
 import com.dropai.rewrite.service.ppt.rendering.plan.v1.DraftSlideRenderPlan;
 import com.dropai.rewrite.service.ppt.rendering.plan.v1.RenderPlanIssue;
+import com.dropai.rewrite.service.ppt.rendering.measurement.v1.DeterministicTextMetricsService;
 import com.dropai.rewrite.service.ppt.rendering.measurement.v1.TextFitRequest;
 import com.dropai.rewrite.service.ppt.rendering.measurement.v1.TextFitResult;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -590,10 +591,12 @@ public final class RenderPlanValidator {
             issues.add(issue(PptQualityCode.TEXT_OVERFLOW, slideId, elementId,
                     "Text line metrics are missing or invalid"));
         } else {
+            BigInteger safetyHeight = BigInteger.valueOf(
+                    DeterministicTextMetricsService.TEXT_BOX_VERTICAL_SAFETY_EMU);
             BigInteger minimumMeasuredHeight = BigInteger.valueOf(Math.max(0L, measuredLineCount - 1L))
-                    .multiply(BigInteger.valueOf(lineHeight)).add(BigInteger.ONE);
+                    .multiply(BigInteger.valueOf(lineHeight)).add(BigInteger.ONE).add(safetyHeight);
             BigInteger maximumMeasuredHeight = BigInteger.valueOf(measuredLineCount)
-                    .multiply(BigInteger.valueOf(lineHeight));
+                    .multiply(BigInteger.valueOf(lineHeight)).add(safetyHeight);
             BigInteger frozenHeight = BigInteger.valueOf(requiredHeight);
             if (frozenHeight.compareTo(minimumMeasuredHeight) < 0
                     || frozenHeight.compareTo(maximumMeasuredHeight) > 0) {

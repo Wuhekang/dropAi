@@ -57,7 +57,7 @@ class RenderingEnumSchemaParityTest {
     void layoutRegistryExactlyMatchesBothSchemasAndKeepsOrder() {
         List<String> layoutRecipeIds = enumValuesInOrder(LAYOUT_SCHEMA, "layoutId");
         List<String> renderPlanIds = enumValuesInOrder(RENDER_SCHEMA, "layoutId");
-        assertEquals(18, LayoutIds.ORDERED.size());
+        assertEquals(21, LayoutIds.ORDERED.size());
         assertEquals(LayoutIds.ORDERED, layoutRecipeIds);
         assertEquals(LayoutIds.ORDERED, renderPlanIds);
         assertEquals(Set.copyOf(LayoutIds.ORDERED), LayoutIds.ALL);

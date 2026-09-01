@@ -1,7 +1,7 @@
 {
   "schemaVersion": "layout-recipe.v1",
   "layoutId": "content-comparison-columns.v1",
-  "layoutVersion": "1.0.0",
+  "layoutVersion": "1.1.0",
   "supports": {
     "pageTypes": ["CONTENT"],
     "pagePurposes": ["PROBLEM", "METHOD", "DESIGN", "RESULT", "TEST"],
@@ -16,7 +16,7 @@
     "body": { "gridColumn": 1, "gridSpan": 6, "topIn": 1.55, "heightIn": 4.7 },
     "keyPoints": { "gridColumn": 7, "gridSpan": 6, "topIn": 1.55, "heightIn": 4.7 },
     "conclusion": { "gridColumn": 2, "gridSpan": 10, "topIn": 6.38, "heightIn": 0.4 },
-    "footer": { "gridColumn": 1, "gridSpan": 12, "topIn": 6.9, "heightIn": 0.2 }
+    "footer": { "gridColumn": 1, "gridSpan": 12, "topIn": 6.85, "heightIn": 0.25 }
   },
   "constraints": {
     "titleMaxLines": 1,

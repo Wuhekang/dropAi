@@ -1,7 +1,7 @@
 {
   "schemaVersion": "layout-recipe.v1",
   "layoutId": "image-proof-screenshot-wide.v1",
-  "layoutVersion": "1.0.0",
+  "layoutVersion": "1.1.0",
   "supports": {
     "pageTypes": ["IMAGE"],
     "pagePurposes": ["IMPLEMENTATION", "RESULT", "TEST"],
@@ -16,7 +16,7 @@
     "image": { "gridColumn": 1, "gridSpan": 8, "topIn": 1.28, "heightIn": 5.45 },
     "caption": { "gridColumn": 9, "gridSpan": 4, "topIn": 1.62, "heightIn": 3.3 },
     "conclusion": { "gridColumn": 9, "gridSpan": 4, "topIn": 5.2, "heightIn": 1.1 },
-    "footer": { "gridColumn": 1, "gridSpan": 12, "topIn": 6.9, "heightIn": 0.2 }
+    "footer": { "gridColumn": 1, "gridSpan": 12, "topIn": 6.85, "heightIn": 0.25 }
   },
   "constraints": {
     "titleMaxLines": 1,
@@ -26,5 +26,5 @@
     "cropAllowed": false,
     "minImageAreaRatio": 0.4
   },
-  "fallbacks": []
+  "fallbacks": ["image-caption-side-compact.v1"]
 }
