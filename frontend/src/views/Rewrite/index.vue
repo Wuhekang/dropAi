@@ -132,6 +132,9 @@
               <dd>{{ downloadStateText }}</dd>
             </div>
           </dl>
+          <p v-if="documentJob.platform === 'DAYA' && documentJob.status === 'FAILED' && documentJob.message" class="process-error">
+            {{ documentJob.message }}
+          </p>
         </div>
 
         <button class="primary-button start-button" type="button" :disabled="docActionDisabled" @click="handleDocumentAction">
@@ -269,7 +272,7 @@ const platformOptions = [
   {
     value: 'DAYA',
     label: '大雅',
-    description: '豆包按大雅报告片段口径重组正文，并专项打碎第一、第二、第三等列举结构。'
+    description: 'Doki按大雅报告片段口径重组正文，并专项打碎第一、第二、第三等列举结构。'
   }
 ]
 
@@ -434,6 +437,8 @@ async function handleDocumentAction() {
 
 async function submitDocument() {
   if (!selectedDocument.value || !documentPrecheck.ready) return
+  const retryingFailedDaya = externalDocumentPlatform.value && documentJob.status === 'FAILED'
+  if (retryingFailedDaya) documentPrecheck.requestId = createRequestId()
   documentUploading.value = true
   resetDocumentJob()
   setDocProgress(10, '正在拆分文本段落...')
@@ -444,8 +449,21 @@ async function submitDocument() {
     setDocumentJob(job)
     upsertDocumentJob(job)
     setDocProgress(jobProgress(job), documentStepText.value)
-    startDocumentPolling(job.jobId)
-    notifyOnce('success', '文档任务已提交。')
+    if (externalDocumentPlatform.value) {
+      try {
+        await startDocumentPolling(job.jobId)
+      } catch (error) {
+        docStatusText.value = '状态获取失败'
+        reportRequestError(error, '文档任务已接收，但暂时无法读取处理状态。')
+        return
+      }
+      if (['PENDING', 'RUNNING'].includes(documentJob.status)) {
+        notifyOnce('success', '文档任务已接收，正在处理。')
+      }
+    } else {
+      startDocumentPolling(job.jobId)
+      notifyOnce('success', '文档任务已提交。')
+    }
   } catch (error) {
     docStatusText.value = '提交失败'
     reportRequestError(error, '文档提交失败。')
@@ -542,6 +560,11 @@ async function syncDocumentJob(jobId) {
   if (job.status === 'SUCCESS' && !notifiedJobIds.has(job.jobId)) {
     notifiedJobIds.add(job.jobId)
     notifyOnce('success', '文档处理完成，可以下载优化文档。')
+    await loadHistory()
+  }
+  if (job.platform === 'DAYA' && job.status === 'FAILED' && !notifiedJobIds.has(job.jobId)) {
+    notifiedJobIds.add(job.jobId)
+    notifyOnce('error', job.message || '大雅文档处理失败，预扣积分已退回。', `daya-failed:${job.jobId}`)
     await loadHistory()
   }
 }
@@ -652,9 +675,13 @@ function isRewriteDocument(item = {}) {
 }
 
 function jobProgress(job = {}) {
-  if (job.status === 'SUCCESS' || job.status === 'FAILED') return 100
+  if (job.status === 'SUCCESS') return 100
   const total = job.totalParagraphs || 0
   const done = job.processedParagraphs || 0
+  if (job.status === 'FAILED' && job.platform === 'DAYA') {
+    return total ? Math.min(99, Math.round((done / total) * 100)) : 0
+  }
+  if (job.status === 'FAILED') return 100
   if (!total) return ['PENDING', 'RUNNING'].includes(job.status) ? 12 : 0
   return Math.min(99, Math.round((done / total) * 100))
 }
@@ -1093,6 +1120,13 @@ onBeforeUnmount(stopDocumentPolling)
   color: var(--data-blue);
   font-size: 18px;
   font-weight: 760;
+}
+
+.process-error {
+  margin: 18px 0 0;
+  color: #c2415c;
+  font-size: 13px;
+  line-height: 1.65;
 }
 
 .start-button {

@@ -36,10 +36,19 @@ class PlatformRewriteSkillCatalogTest {
     @Test
     void dayaProfileContainsTheSevenReportAndEnumerationRules() {
         assertThat(catalog.load(XuejiePlatform.DAYA))
-                .contains("profile-id: daya-report-segment-rebuild-v2")
+                .contains("profile-id: daya-report-segment-rebuild-v7")
+                .contains("正文表格长说明")
+                .contains("不得在一个正文段内输出回车、软换行或制表符")
+                .contains("同一表中相邻说明格会被平台连起来判断")
+                .contains("只有应用已判定为大雅高风险的段落才允许适当增加文字")
+                .contains("全文所有正向增加累计不得超过原稿 6000 个字符")
+                .contains("公式、变量、编号、输入数字和计算结果保持原样")
+                .contains("工程概况与参数清单")
+                .contains("高相似微改")
                 .contains("重度疑似占比", "轻度疑似单列参考")
                 .contains("第一/第二/第三", "每句不超过 20 个汉字")
-                .contains("中文摘要、英文摘要和正文自然语言段落")
+                .contains("中文摘要、英文摘要、正文自然语言段落")
+                .contains("正文表格中经应用筛出的长说明文字")
                 .contains("执行模型为豆包")
                 .contains("不是大雅官方规则")
                 .contains("不得新增原文没有的数据、案例、引用、作者、年份、系统功能、测试结果或性能结论");

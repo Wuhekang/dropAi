@@ -5,6 +5,11 @@ import jakarta.annotation.PreDestroy;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.apache.poi.xwpf.usermodel.XWPFParagraph;
 import org.apache.poi.xwpf.usermodel.XWPFRun;
+import org.apache.poi.xwpf.usermodel.XWPFTable;
+import org.apache.poi.xwpf.usermodel.XWPFTableCell;
+import org.apache.poi.xwpf.usermodel.XWPFTableRow;
+import org.apache.poi.xwpf.usermodel.TableRowHeightRule;
+import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTFonts;
 import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTRPr;
 import org.springframework.stereotype.Service;
 import org.w3c.dom.Node;
@@ -16,6 +21,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -29,18 +35,25 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
  * DOCX processor used only by the opt-in Daya profile.
- * Tables, media, headings and trailing reference sections are never submitted.
+ * Media, headings and trailing reference sections are never submitted. Daya has a conservative,
+ * separately guarded path for narrative body-table cells.
  */
 @Service
 public class PlatformDoubaoDocumentProcessor {
     static final int DAYA_MAX_BATCH_PARAGRAPHS = 4;
     static final int DAYA_MAX_BATCH_CHARACTERS = 1800;
     static final int DAYA_MAX_CONCURRENCY = 32;
+    static final int DAYA_MAX_TOTAL_EXPANSION_CHARACTERS = 6000;
+    private static final String DAYA_EXPANSION_BUDGET_CONTEXT =
+            "扩写预算已满：仅重构句式，不增加字数";
     private static final int MIN_PARAGRAPH_CHARACTERS = 8;
+    private static final int DAYA_TABLE_MIN_CHARACTERS = 18;
+    private static final int DAYA_TABLE_MIN_CJK = 8;
     private static final Pattern BODY_HEADING = Pattern.compile(
             "^(?:引言|绪论|前言|正文|Introduction|第[一二三四五六七八九十百]+章.*"
                     + "|[一二三四五六七八九十]+、.{1,80}"
@@ -57,6 +70,14 @@ public class PlatformDoubaoDocumentProcessor {
     private static final String TRAILING_NUMBER_PREFIX =
             "(?:第(?:[一二三四五六七八九十百]+|[0-9０-９]+)章"
                     + "|[0-9０-９]+(?:[.．][0-9０-９]+)*[、.．]?)?";
+    private static final Pattern DAYA_TABLE_INVARIANT = Pattern.compile(
+            "(?i)(“[^”\\r\\n]{1,30}”|"
+                    + "[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+(?:类|级|项)?|"
+                    + "(?:图|表|公式)\\s*[0-9０-９]+(?:[.．\\-—][0-9０-９]+)*|"
+                    + "\\[[0-9０-９,，;；\\-–—~～\\s]+]|"
+                    + "[A-Za-z][A-Za-z0-9_.:/\\-]*|"
+                    + "[0-9０-９]+(?:[.．][0-9０-９]+)*(?:%|％|亿元|万元|元|万|公顷|平方公里|公里|平方米|米|家|处|项|人|年|月|日|分|级|类|ms|s|kg|g|mm|cm|m|KB|MB|GB|℃)?|"
+                    + "尚未|不代表|不作为|不足|缺少|缺乏|未|无)");
 
     private final PlatformDoubaoRewriteGateway gateway;
     private final PlatformDocumentTextProtector protector;
@@ -82,6 +103,7 @@ public class PlatformDoubaoDocumentProcessor {
         try (InputStream stream = Files.newInputStream(input);
              XWPFDocument document = new XWPFDocument(stream)) {
             List<Target> targets = collectDayaTargets(document);
+            DayaTableStructureSnapshot tableSnapshot = DayaTableStructureSnapshot.capture(document);
             if (targets.isEmpty()) {
                 throw new IllegalArgumentException("未识别到可处理的正文自然语言段落");
             }
@@ -98,6 +120,8 @@ public class PlatformDoubaoDocumentProcessor {
 
             BatchResult[] completedBatches = rewriteBatchesConcurrently(
                     preparedBatches, targets.size(), platform, mode, progress);
+            completedBatches = enforceDayaExpansionBudget(
+                    completedBatches, preparedBatches, targets.size(), platform, mode, progress);
             int processed = 0;
             int rewritten = 0;
             int failed = 0;
@@ -120,7 +144,8 @@ public class PlatformDoubaoDocumentProcessor {
                 throw new IllegalStateException("平台 Skill 未生成任何通过保护校验的段落"
                         + (failureMessages.isEmpty() ? "" : "：" + String.join("；", failureMessages)));
             }
-            writeAtomically(document, output);
+            tableSnapshot.validate(document);
+            writeAtomically(document, output, tableSnapshot);
             return new ProcessingResult(targets.size(), processed, rewritten, failed, List.copyOf(failureMessages));
         } catch (RuntimeException exception) {
             throw exception;
@@ -138,7 +163,10 @@ public class PlatformDoubaoDocumentProcessor {
         for (Target target : batch.targets()) {
             StyledParagraph styledParagraph = styledParagraphFor(target, styleSequence);
             PlatformDocumentTextProtector.ProtectedText protectedText =
-                    protector.protect(styledParagraph.modelText(), tokenSequence);
+                    "英文摘要".equals(target.context())
+                            ? protector.protectDayaEnglishProse(
+                                    styledParagraph.modelText(), tokenSequence)
+                            : protector.protect(styledParagraph.modelText(), tokenSequence);
             styledById.put(target.id(), styledParagraph);
             protectedById.put(target.id(), protectedText);
             segments.add(new PlatformDoubaoRewriteGateway.Segment(
@@ -184,7 +212,207 @@ public class PlatformDoubaoDocumentProcessor {
             futures.forEach(future -> future.cancel(true));
             throw failure;
         }
-        return results;
+        return retryFailedTargetsConcurrently(results, totalTargets, platform, mode, progress);
+    }
+
+    /**
+     * Daya may add natural explanatory wording only to paragraphs selected by its risk rules.
+     * The document-level allowance is consumed in source order.  Once the allowance is full,
+     * only the rewrite that would cross the limit is submitted again with a no-growth context;
+     * a failed contraction falls back to that one original paragraph and never discards other
+     * accepted work.
+     */
+    private BatchResult[] enforceDayaExpansionBudget(
+            BatchResult[] initialResults,
+            List<PreparedBatch> preparedBatches,
+            int totalTargets,
+            XuejiePlatform platform,
+            XuejieRewriteMode mode,
+            ProgressListener progress) {
+        List<BudgetRewrite> ordered = new ArrayList<>();
+        Map<Integer, LinkedHashMap<String, ParagraphRewrite>> rewritesByBatch = new LinkedHashMap<>();
+        Map<Integer, List<String>> failuresByBatch = new LinkedHashMap<>();
+        Map<Integer, Integer> addedFailuresByBatch = new LinkedHashMap<>();
+        Map<Integer, PreparedBatch> preparedByIndex = new LinkedHashMap<>();
+        Map<String, Integer> sourceOrderByTargetId = new LinkedHashMap<>();
+        int sourceOrder = 0;
+        for (PreparedBatch prepared : preparedBatches) {
+            preparedByIndex.put(prepared.index(), prepared);
+            for (Target target : prepared.batch().targets()) {
+                sourceOrderByTargetId.put(target.id(), sourceOrder++);
+            }
+        }
+        for (BatchResult result : initialResults) {
+            LinkedHashMap<String, ParagraphRewrite> rewrites = new LinkedHashMap<>();
+            for (ParagraphRewrite rewrite : result.rewrites()) {
+                rewrites.put(rewrite.target().id(), rewrite);
+                ordered.add(new BudgetRewrite(result.index(), rewrite));
+            }
+            rewritesByBatch.put(result.index(), rewrites);
+            failuresByBatch.put(result.index(), new ArrayList<>(result.failureMessages()));
+        }
+        ordered.sort(Comparator.comparingInt(rewrite ->
+                sourceOrderByTargetId.getOrDefault(rewrite.rewrite().target().id(), Integer.MAX_VALUE)));
+
+        int consumedExpansion = 0;
+        int adjusted = 0;
+        for (BudgetRewrite budgetRewrite : ordered) {
+            ParagraphRewrite rewrite = budgetRewrite.rewrite();
+            int expansion = positiveExpansion(rewrite);
+            if (expansion == 0) continue;
+            if (consumedExpansion + expansion <= DAYA_MAX_TOTAL_EXPANSION_CHARACTERS) {
+                consumedExpansion += expansion;
+                continue;
+            }
+
+            int batchIndex = budgetRewrite.batchIndex();
+            PreparedBatch prepared = preparedByIndex.get(batchIndex);
+            BudgetRetryResult retry = retryWithinExpansionBudget(
+                    prepared, rewrite.target(), platform, mode);
+            LinkedHashMap<String, ParagraphRewrite> rewrites = rewritesByBatch.get(batchIndex);
+            if (retry.rewrite() == null) {
+                rewrites.remove(rewrite.target().id());
+                addedFailuresByBatch.merge(batchIndex, 1, Integer::sum);
+                failuresByBatch.get(batchIndex).add(retry.failure());
+            } else {
+                rewrites.put(rewrite.target().id(), retry.rewrite());
+            }
+            adjusted++;
+            int accepted = rewritesByBatch.values().stream().mapToInt(Map::size).sum();
+            progress.update(totalTargets, totalTargets, accepted,
+                    platform.remoteName() + " Skill 扩写预算收缩：" + adjusted + " 段");
+        }
+
+        BatchResult[] adjustedResults = new BatchResult[initialResults.length];
+        for (BatchResult initial : initialResults) {
+            List<String> failures = failuresByBatch.get(initial.index());
+            adjustedResults[initial.index()] = new BatchResult(
+                    initial.index(),
+                    initial.targetCount(),
+                    List.copyOf(rewritesByBatch.get(initial.index()).values()),
+                    initial.failed() + addedFailuresByBatch.getOrDefault(initial.index(), 0),
+                    List.copyOf(failures),
+                    List.of());
+        }
+        return adjustedResults;
+    }
+
+    private BudgetRetryResult retryWithinExpansionBudget(
+            PreparedBatch prepared,
+            Target target,
+            XuejiePlatform platform,
+            XuejieRewriteMode mode) {
+        if (prepared == null) {
+            return new BudgetRetryResult(null, "扩写预算收缩失败：未找到原段保护信息");
+        }
+        PlatformDoubaoRewriteGateway.Segment originalSegment = prepared.segments().stream()
+                .filter(candidate -> candidate.id().equals(target.id()))
+                .findFirst()
+                .orElse(null);
+        if (originalSegment == null) {
+            return new BudgetRetryResult(null, "扩写预算收缩失败：未找到原段保护文本");
+        }
+        String budgetContext = originalSegment.context() + "；" + DAYA_EXPANSION_BUDGET_CONTEXT;
+        PlatformDoubaoRewriteGateway.Segment budgetSegment =
+                new PlatformDoubaoRewriteGateway.Segment(
+                        originalSegment.id(), originalSegment.text(), budgetContext);
+        try {
+            Map<String, String> response = gateway.rewriteBatch(
+                    List.of(budgetSegment), platform, mode);
+            RewriteAttempt attempt = validateResponse(
+                    prepared, target, response.get(target.id()));
+            if (attempt.failure() != null || attempt.rewrite() == null) {
+                String failure = attempt.failure() == null
+                        ? "模型未生成有效的收缩改写" : attempt.failure();
+                return new BudgetRetryResult(null,
+                        compact("扩写预算收缩失败：" + failure));
+            }
+            if (DayaRewriteQualityRules.comparableLength(attempt.rewrite().restored().text())
+                    > DayaRewriteQualityRules.comparableLength(target.originalText())) {
+                return new BudgetRetryResult(null,
+                        "扩写预算收缩失败：结果仍长于原段");
+            }
+            return new BudgetRetryResult(attempt.rewrite(), null);
+        } catch (RuntimeException retryFailure) {
+            return new BudgetRetryResult(null,
+                    compact("扩写预算收缩失败：" + retryFailure.getMessage()));
+        }
+    }
+
+    private int positiveExpansion(ParagraphRewrite rewrite) {
+        return Math.max(0,
+                DayaRewriteQualityRules.comparableLength(rewrite.restored().text())
+                        - DayaRewriteQualityRules.comparableLength(
+                                rewrite.target().originalText()));
+    }
+
+    /**
+     * A failed first draft is retried once as an isolated segment.  The first-wave batch tasks
+     * have all completed before this phase starts, so the same fixed 32-thread executor keeps the
+     * remote-call ceiling unchanged while allowing unrelated failed paragraphs to retry in
+     * parallel.  Successful first-wave targets are never submitted again.
+     */
+    private BatchResult[] retryFailedTargetsConcurrently(
+            BatchResult[] initialResults, int totalTargets,
+            XuejiePlatform platform, XuejieRewriteMode mode,
+            ProgressListener progress) {
+        List<RetryTarget> retryTargets = new ArrayList<>();
+        int initialRewrites = 0;
+        for (BatchResult result : initialResults) {
+            initialRewrites += result.rewrites().size();
+            retryTargets.addAll(result.retryTargets());
+        }
+        if (retryTargets.isEmpty()) return initialResults;
+
+        CompletionService<RetryResult> completionService =
+                new ExecutorCompletionService<>(dayaBatchExecutor);
+        List<Future<RetryResult>> futures = new ArrayList<>();
+        int submitted = Math.min(DAYA_MAX_CONCURRENCY, retryTargets.size());
+        for (int index = 0; index < submitted; index++) {
+            RetryTarget retryTarget = retryTargets.get(index);
+            futures.add(completionService.submit(
+                    () -> retryFailedTarget(retryTarget, platform, mode)));
+        }
+
+        Map<Integer, List<RetryResult>> resultsByBatch = new LinkedHashMap<>();
+        int retryRewrites = 0;
+        try {
+            for (int completed = 0; completed < retryTargets.size(); completed++) {
+                RetryResult result = completedRetry(completionService);
+                resultsByBatch.computeIfAbsent(result.batchIndex(), ignored -> new ArrayList<>())
+                        .add(result);
+                if (result.rewrite() != null) retryRewrites++;
+                if (submitted < retryTargets.size()) {
+                    RetryTarget next = retryTargets.get(submitted++);
+                    futures.add(completionService.submit(
+                            () -> retryFailedTarget(next, platform, mode)));
+                }
+                progress.update(totalTargets, totalTargets, initialRewrites + retryRewrites,
+                        platform.remoteName() + " Skill 失败段单段重试（32 路）："
+                                + (completed + 1) + "/" + retryTargets.size() + " 段");
+            }
+        } catch (RuntimeException | Error failure) {
+            futures.forEach(future -> future.cancel(true));
+            throw failure;
+        }
+
+        BatchResult[] merged = new BatchResult[initialResults.length];
+        for (BatchResult initial : initialResults) {
+            List<ParagraphRewrite> rewrites = new ArrayList<>(initial.rewrites());
+            List<String> failures = new ArrayList<>();
+            int failed = 0;
+            for (RetryResult retry : resultsByBatch.getOrDefault(initial.index(), List.of())) {
+                if (retry.failure() == null) {
+                    if (retry.rewrite() != null) rewrites.add(retry.rewrite());
+                } else {
+                    failed++;
+                    if (failures.size() < 3) failures.add(retry.failure());
+                }
+            }
+            merged[initial.index()] = new BatchResult(initial.index(), initial.targetCount(),
+                    List.copyOf(rewrites), failed, List.copyOf(failures), List.of());
+        }
+        return merged;
     }
 
     private BatchResult completedBatch(CompletionService<BatchResult> completionService) {
@@ -201,36 +429,89 @@ public class PlatformDoubaoDocumentProcessor {
         }
     }
 
+    private RetryResult completedRetry(CompletionService<RetryResult> completionService) {
+        try {
+            Future<RetryResult> future = completionService.take();
+            return future.get();
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("大雅失败段单段重试被中断", exception);
+        } catch (ExecutionException exception) {
+            Throwable cause = exception.getCause();
+            if (cause instanceof RuntimeException runtimeException) throw runtimeException;
+            throw new IllegalStateException("大雅失败段单段重试失败", cause);
+        }
+    }
+
     private BatchResult rewritePreparedBatch(PreparedBatch prepared,
                                              XuejiePlatform platform,
                                              XuejieRewriteMode mode) {
         Batch batch = prepared.batch();
         List<ParagraphRewrite> rewrites = new ArrayList<>();
-        List<String> failures = new ArrayList<>();
-        int failed = 0;
+        List<RetryTarget> retryTargets = new ArrayList<>();
         try {
             Map<String, String> responses = gateway.rewriteBatch(prepared.segments(), platform, mode);
             for (Target target : batch.targets()) {
-                try {
-                    String protectedStylesRestored = prepared.protectedById().get(target.id())
-                            .validateAndRestore(responses.get(target.id()));
-                    StyledRestore restored = prepared.styledById().get(target.id())
-                            .restore(protectedStylesRestored);
-                    validateCandidate(target.originalText(), restored.text());
-                    if (!target.originalText().equals(restored.text())) {
-                        rewrites.add(new ParagraphRewrite(target, restored));
-                    }
-                } catch (RuntimeException validationFailure) {
-                    failed++;
-                    if (failures.size() < 3) failures.add(compact(validationFailure.getMessage()));
+                RewriteAttempt attempt = validateResponse(prepared, target, responses.get(target.id()));
+                if (attempt.failure() == null) {
+                    if (attempt.rewrite() != null) rewrites.add(attempt.rewrite());
+                } else {
+                    retryTargets.add(retryTarget(prepared, target, attempt.failure()));
                 }
             }
         } catch (RuntimeException batchFailure) {
-            failed = batch.targets().size();
-            failures.add(compact(batchFailure.getMessage()));
+            String failure = compact(batchFailure.getMessage());
+            for (Target target : batch.targets()) {
+                retryTargets.add(retryTarget(prepared, target, failure));
+            }
         }
         return new BatchResult(prepared.index(), batch.targets().size(),
-                List.copyOf(rewrites), failed, List.copyOf(failures));
+                List.copyOf(rewrites), retryTargets.size(), List.of(), List.copyOf(retryTargets));
+    }
+
+    private RetryResult retryFailedTarget(RetryTarget retryTarget,
+                                          XuejiePlatform platform,
+                                          XuejieRewriteMode mode) {
+        try {
+            Map<String, String> response = gateway.rewriteBatch(
+                    List.of(retryTarget.segment()), platform, mode);
+            RewriteAttempt attempt = validateResponse(
+                    retryTarget.prepared(), retryTarget.target(),
+                    response.get(retryTarget.target().id()));
+            if (attempt.failure() == null) {
+                return new RetryResult(retryTarget.batchIndex(), attempt.rewrite(), null);
+            }
+            return new RetryResult(retryTarget.batchIndex(), null,
+                    compact("首轮：" + retryTarget.firstFailure()
+                            + "；单段重试：" + attempt.failure()));
+        } catch (RuntimeException retryFailure) {
+            return new RetryResult(retryTarget.batchIndex(), null,
+                    compact("首轮：" + retryTarget.firstFailure()
+                            + "；单段重试：" + compact(retryFailure.getMessage())));
+        }
+    }
+
+    private RewriteAttempt validateResponse(PreparedBatch prepared, Target target, String response) {
+        try {
+            String protectedStylesRestored = prepared.protectedById().get(target.id())
+                    .validateAndRestore(response);
+            StyledRestore restored = prepared.styledById().get(target.id())
+                    .restore(protectedStylesRestored);
+            validateCandidate(target, restored.text());
+            ParagraphRewrite rewrite = target.originalText().equals(restored.text())
+                    ? null : new ParagraphRewrite(target, restored);
+            return new RewriteAttempt(rewrite, null);
+        } catch (RuntimeException validationFailure) {
+            return new RewriteAttempt(null, compact(validationFailure.getMessage()));
+        }
+    }
+
+    private RetryTarget retryTarget(PreparedBatch prepared, Target target, String firstFailure) {
+        PlatformDoubaoRewriteGateway.Segment segment = prepared.segments().stream()
+                .filter(candidate -> candidate.id().equals(target.id()))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("未找到大雅失败段保护文本"));
+        return new RetryTarget(prepared.index(), prepared, target, segment, firstFailure);
     }
 
     @PreDestroy
@@ -327,7 +608,10 @@ public class PlatformDoubaoDocumentProcessor {
                     || (!isHeadingStyle(paragraph) && MANUAL_CATALOG_LINE.matcher(text).matches()))) {
                 continue;
             }
-            if (isDayaBodyStartTitle(paragraph, text) && !isCatalogStyle(paragraph)) {
+            boolean longLeadingListItem = bodyStarted && text.length() > 30
+                    && DayaEnumerationRules.isLeadingListItem(text);
+            if (!longLeadingListItem
+                    && isDayaBodyStartTitle(paragraph, text) && !isCatalogStyle(paragraph)) {
                 bodyStarted = true;
                 catalogActive = false;
                 section = DayaSection.INCLUDE;
@@ -347,7 +631,162 @@ public class PlatformDoubaoDocumentProcessor {
                         prepared, context, List.of(paragraph), preparation));
             }
         }
+        targets.addAll(collectDayaTableTargets(document));
         return targets;
+    }
+
+    private List<Target> collectDayaTableTargets(XWPFDocument document) {
+        List<Target> targets = new ArrayList<>();
+        DayaSection section = DayaSection.SKIP;
+        String context = "正文";
+        String caption = "";
+        boolean hasAbstractBoundary = document.getParagraphs().stream()
+                .map(XWPFParagraph::getText).map(this::normalize).anyMatch(this::isAbstractTitle);
+        boolean hasCatalogBoundary = document.getParagraphs().stream()
+                .map(XWPFParagraph::getText).map(this::normalize).anyMatch(this::isCatalogTitle);
+        boolean boundaryReached = !hasAbstractBoundary && !hasCatalogBoundary;
+        boolean catalogActive = false;
+        boolean bodyStarted = false;
+        int tableIndex = 0;
+
+        for (var element : document.getBodyElements()) {
+            if (element instanceof XWPFParagraph paragraph) {
+                String text = normalize(paragraph.getText());
+                String compactText = text.replaceAll("\\s+", "");
+                if (isChineseAbstractTitle(text) || isEnglishAbstractTitle(text)) {
+                    boundaryReached = true;
+                    catalogActive = false;
+                    section = DayaSection.INCLUDE;
+                    context = isChineseAbstractTitle(text) ? "中文摘要" : "英文摘要";
+                    caption = "";
+                    continue;
+                }
+                if (isCatalogTitle(text)) {
+                    boundaryReached = true;
+                    catalogActive = true;
+                    section = DayaSection.SKIP;
+                    caption = "";
+                    continue;
+                }
+                if (!boundaryReached) continue;
+                if (isKeywordLine(text)) {
+                    section = DayaSection.SKIP;
+                    caption = "";
+                    continue;
+                }
+                if (isReferenceTitle(text)) {
+                    if (catalogActive || isCatalogStyle(paragraph)) continue;
+                    if (bodyStarted) break;
+                    section = DayaSection.SKIP;
+                    continue;
+                }
+                if (isAcknowledgementsTitle(text) || isProtectedTrailingTitle(compactText)) {
+                    if (catalogActive || isCatalogStyle(paragraph)) continue;
+                    if (bodyStarted) break;
+                    section = DayaSection.SKIP;
+                    continue;
+                }
+                if (catalogActive && (isCatalogStyle(paragraph)
+                        || (!isHeadingStyle(paragraph) && MANUAL_CATALOG_LINE.matcher(text).matches()))) {
+                    continue;
+                }
+                if (isDayaBodyStartTitle(paragraph, text) && !isCatalogStyle(paragraph)) {
+                    bodyStarted = true;
+                    catalogActive = false;
+                    section = DayaSection.INCLUDE;
+                    context = text;
+                    caption = "";
+                    continue;
+                }
+                if (catalogActive) continue;
+                if (bodyStarted && isHeadingStyle(paragraph)) {
+                    context = text.isBlank() ? context : text;
+                    caption = "";
+                    continue;
+                }
+                if (CAPTION_LINE.matcher(text).matches()) caption = text;
+                continue;
+            }
+            if (!(element instanceof XWPFTable table)) continue;
+            if (bodyStarted && section == DayaSection.INCLUDE) {
+                String tableContext = context + " / "
+                        + (caption.isBlank() ? "表格长说明" : caption + "（表格长说明）");
+                targets.addAll(collectDayaTableTargets(table, tableIndex, tableContext));
+            }
+            tableIndex++;
+            caption = "";
+        }
+        return targets;
+    }
+
+    private List<Target> collectDayaTableTargets(XWPFTable table, int tableIndex, String context) {
+        List<Target> targets = new ArrayList<>();
+        List<XWPFTableRow> rows = table.getRows();
+        for (int rowIndex = 1; rowIndex < rows.size(); rowIndex++) {
+            XWPFTableRow row = rows.get(rowIndex);
+            if (hasExactRowHeight(row)
+                    || (row.getCtRow().isSetTrPr()
+                    && row.getCtRow().getTrPr().sizeOfTblHeaderArray() > 0)) {
+                continue;
+            }
+            List<XWPFTableCell> cells = row.getTableCells();
+            for (int cellIndex = 0; cellIndex < cells.size(); cellIndex++) {
+                XWPFTableCell cell = cells.get(cellIndex);
+                if (!isDayaNarrativeTableCell(cell)) continue;
+                XWPFParagraph paragraph = cell.getParagraphs().get(0);
+                String text = normalize(paragraph.getText());
+                targets.add(new Target("t" + tableIndex + "r" + rowIndex + "c" + cellIndex,
+                        -1, paragraph, text, context, List.of(paragraph), DayaPreparation.TABLE_TEXT));
+            }
+        }
+        return targets;
+    }
+
+    /**
+     * Some Word documents contain a {@code w:trHeight} element without {@code w:hRule}.
+     * POI's {@link XWPFTableRow#getHeightRule()} dereferences that missing enum value and throws,
+     * so inspect the underlying XML defensively instead.
+     */
+    private boolean hasExactRowHeight(XWPFTableRow row) {
+        if (row == null || !row.getCtRow().isSetTrPr()) return false;
+        var properties = row.getCtRow().getTrPr();
+        for (int index = 0; index < properties.sizeOfTrHeightArray(); index++) {
+            var heightRule = properties.getTrHeightArray(index).getHRule();
+            if (heightRule != null
+                    && heightRule.intValue() == TableRowHeightRule.EXACT.getValue()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isDayaNarrativeTableCell(XWPFTableCell cell) {
+        if (!cell.getTables().isEmpty() || cell.getParagraphs().size() != 1) return false;
+        var properties = cell.getCTTc().getTcPr();
+        if (properties != null && (properties.isSetHMerge() || properties.isSetVMerge()
+                || (properties.isSetGridSpan() && properties.getGridSpan().getVal() != null
+                && properties.getGridSpan().getVal().intValue() > 1))) {
+            return false;
+        }
+        XWPFParagraph paragraph = cell.getParagraphs().get(0);
+        String text = normalize(paragraph.getText());
+        if (hasAutomaticNumbering(paragraph)
+                || !hasOnlyDayaTableTextRuns(paragraph)) {
+            return false;
+        }
+        if (text.length() < DAYA_TABLE_MIN_CHARACTERS || countCjk(text) < DAYA_TABLE_MIN_CJK) return false;
+        if (!containsAny(text, "，", "。", "；", "：", "！", "？", "、")) return false;
+        if (isTechnicalFragment(text)) return false;
+        int visible = (int) text.codePoints().filter(codePoint -> !Character.isWhitespace(codePoint)).count();
+        int technical = (int) text.codePoints().filter(this::isDayaTableTechnicalCharacter).count();
+        return technical * 5 <= Math.max(1, visible) * 2;
+    }
+
+    private boolean isDayaTableTechnicalCharacter(int codePoint) {
+        if (Character.isDigit(codePoint)) return true;
+        if (Character.isLetter(codePoint)
+                && Character.UnicodeScript.of(codePoint) == Character.UnicodeScript.LATIN) return true;
+        return ".%％/\\+-=—–_".indexOf(codePoint) >= 0;
     }
 
     private boolean isDayaBodyStartTitle(XWPFParagraph paragraph, String text) {
@@ -383,23 +822,48 @@ public class PlatformDoubaoDocumentProcessor {
         if (!isDayaEnumerationItemCandidate(first, firstText)) return List.of();
 
         String numberingKey = automatic ? numberingKey(first) : "text";
+        if (isDayaEnumerationContinuation(paragraphs, startIndex, automatic, numberingKey)) {
+            return List.of();
+        }
         List<XWPFParagraph> group = new ArrayList<>();
-        for (int index = startIndex; index < paragraphs.size(); index++) {
+        group.add(first);
+        List<XWPFParagraph> pendingContinuations = new ArrayList<>();
+        int itemCount = 1;
+        for (int index = startIndex + 1; index < paragraphs.size(); index++) {
             XWPFParagraph paragraph = paragraphs.get(index);
             String text = normalize(paragraph.getText());
             boolean matchingKind = automatic
                     ? hasAutomaticNumbering(paragraph) && numberingKey.equals(numberingKey(paragraph))
                     : !hasAutomaticNumbering(paragraph) && DayaEnumerationRules.isLeadingListItem(text);
-            if (!matchingKind || !isDayaEnumerationItemCandidate(paragraph, text)) break;
-            group.add(paragraph);
+            if (matchingKind && isDayaEnumerationItemCandidate(paragraph, text)) {
+                group.addAll(pendingContinuations);
+                pendingContinuations.clear();
+                group.add(paragraph);
+                itemCount++;
+                continue;
+            }
+            if (hasAutomaticNumbering(paragraph) || DayaEnumerationRules.isLeadingListItem(text)) break;
+            if (!isDayaEnumerationItemCandidate(paragraph, text)) break;
+            pendingContinuations.add(paragraph);
         }
-        if (group.size() < 2) return List.of();
+        if (itemCount < 2) return List.of();
         String merged = mergedEnumerationText(group);
         if (merged.length() < MIN_PARAGRAPH_CHARACTERS
                 || (countCjk(merged) < 10 && countLatinLetters(merged) < 40)) {
             return List.of();
         }
         return List.copyOf(group);
+    }
+
+    private boolean isDayaEnumerationContinuation(List<XWPFParagraph> paragraphs, int startIndex,
+                                                  boolean automatic, String numberingKey) {
+        if (startIndex <= 0) return false;
+        XWPFParagraph previous = paragraphs.get(startIndex - 1);
+        String previousText = normalize(previous.getText());
+        boolean matchingKind = automatic
+                ? hasAutomaticNumbering(previous) && numberingKey.equals(numberingKey(previous))
+                : !hasAutomaticNumbering(previous) && DayaEnumerationRules.isLeadingListItem(previousText);
+        return matchingKind && isDayaEnumerationItemCandidate(previous, previousText);
     }
 
     private boolean isDayaEnumerationItemCandidate(XWPFParagraph paragraph, String text) {
@@ -429,11 +893,19 @@ public class PlatformDoubaoDocumentProcessor {
 
     private String mergedEnumerationText(List<XWPFParagraph> paragraphs) {
         StringBuilder merged = new StringBuilder();
-        for (int index = 0; index < paragraphs.size(); index++) {
-            appendEnumerationItem(merged, DayaEnumerationRules.mergedItemText(
-                    index + 1, normalize(paragraphs.get(index).getText())));
+        int itemIndex = 0;
+        for (XWPFParagraph paragraph : paragraphs) {
+            String text = normalize(paragraph.getText());
+            String prepared = isDayaEnumerationMarker(paragraph, text)
+                    ? DayaEnumerationRules.mergedItemText(++itemIndex, text)
+                    : text;
+            appendEnumerationItem(merged, prepared);
         }
         return merged.toString();
+    }
+
+    private boolean isDayaEnumerationMarker(XWPFParagraph paragraph, String text) {
+        return hasAutomaticNumbering(paragraph) || DayaEnumerationRules.isLeadingListItem(text);
     }
 
     private void appendEnumerationItem(StringBuilder merged, String item) {
@@ -475,6 +947,24 @@ public class PlatformDoubaoDocumentProcessor {
      */
     private boolean hasOnlyDayaTextRuns(XWPFParagraph paragraph) {
         return hasOnlyTextRuns(paragraph, true);
+    }
+
+    private boolean hasOnlyDayaTableTextRuns(XWPFParagraph paragraph) {
+        Node paragraphNode = paragraph.getCTP().getDomNode();
+        boolean textRunSeen = false;
+        for (Node child = paragraphNode.getFirstChild(); child != null; child = child.getNextSibling()) {
+            if (child.getNodeType() != Node.ELEMENT_NODE) continue;
+            String name = child.getLocalName();
+            if ("pPr".equals(name)) continue;
+            if (!"r".equals(name)) return false;
+            textRunSeen = true;
+            for (Node runChild = child.getFirstChild(); runChild != null; runChild = runChild.getNextSibling()) {
+                if (runChild.getNodeType() != Node.ELEMENT_NODE) continue;
+                String runName = runChild.getLocalName();
+                if (!"rPr".equals(runName) && !"t".equals(runName)) return false;
+            }
+        }
+        return textRunSeen;
     }
 
     private boolean hasOnlyTextRuns(XWPFParagraph paragraph, boolean allowTextBoundaries) {
@@ -567,24 +1057,35 @@ public class PlatformDoubaoDocumentProcessor {
         return result;
     }
 
-    private void validateCandidate(String original, String rewritten) {
-        int originalLength = original.length();
-        int rewrittenLength = rewritten.length();
-        boolean dayaEnumeration = DayaEnumerationRules.requiresBreak(original);
-        double maximumRatio = 1.15;
-        int minimumLength = dayaEnumeration
-                ? Math.max(8, DayaEnumerationRules.itemCount(original) * 4)
-                : Math.max(6, (int) Math.floor(originalLength * 0.70));
-        if (rewrittenLength < minimumLength
-                || rewrittenLength > Math.ceil(originalLength * maximumRatio)) {
-            throw new IllegalStateException(dayaEnumeration
-                    ? "大雅列举段未满足每项短句的基础长度或超过 115% 保护范围"
-                    : "大雅普通段落长度超出 70%-115% 保护范围");
+    private void validateCandidate(Target target, String rewritten) {
+        String original = target.originalText();
+        int originalLength = DayaRewriteQualityRules.comparableLength(original);
+        int rewrittenLength = DayaRewriteQualityRules.comparableLength(rewritten);
+        boolean dayaTableText = target.preparation() == DayaPreparation.TABLE_TEXT;
+        if (rewrittenLength > originalLength
+                && !DayaRewriteQualityRules.isExpansionEligible(original, target.context())) {
+            throw new IllegalStateException("大雅普通段落不得增加文字");
         }
         if (rewritten.startsWith("```") || rewritten.contains("以下是改写") || rewritten.contains("改写结果：")) {
             throw new IllegalStateException("改写段落包含模型说明文字");
         }
-        if (dayaEnumeration) DayaEnumerationRules.validateRewrite(original, rewritten);
+        if (dayaTableText) {
+            if (rewritten.indexOf('\r') >= 0 || rewritten.indexOf('\n') >= 0
+                    || rewritten.indexOf('\t') >= 0) {
+                throw new IllegalStateException("大雅表格说明不得新增换行或制表符");
+            }
+            if (!dayaTableInvariants(original).equals(dayaTableInvariants(rewritten))) {
+                throw new IllegalStateException("大雅表格说明未完整保留编号、数据、单位或否定条件");
+            }
+        }
+        DayaRewriteQualityRules.validateFinal(original, rewritten);
+    }
+
+    private List<String> dayaTableInvariants(String text) {
+        List<String> invariants = new ArrayList<>();
+        Matcher matcher = DAYA_TABLE_INVARIANT.matcher(text == null ? "" : text);
+        while (matcher.find()) invariants.add(matcher.group());
+        return List.copyOf(invariants);
     }
 
     private StyledParagraph styledParagraphFor(Target target, AtomicInteger sequence) {
@@ -601,12 +1102,14 @@ public class PlatformDoubaoDocumentProcessor {
 
         StringBuilder modelText = new StringBuilder();
         Map<String, StyledFragment> fragments = new LinkedHashMap<>();
-        for (int index = 0; index < target.sourceParagraphs().size(); index++) {
-            XWPFParagraph paragraph = target.sourceParagraphs().get(index);
+        int itemIndex = 0;
+        for (XWPFParagraph paragraph : target.sourceParagraphs()) {
             StyledParagraph styled = protectStyledRuns(
                     paragraph, normalize(paragraph.getText()), sequence);
-            appendEnumerationItem(modelText, DayaEnumerationRules.mergedItemText(
-                    index + 1, styled.modelText()));
+            String prepared = isDayaEnumerationMarker(paragraph, normalize(paragraph.getText()))
+                    ? DayaEnumerationRules.mergedItemText(++itemIndex, styled.modelText())
+                    : styled.modelText();
+            appendEnumerationItem(modelText, prepared);
             fragments.putAll(styled.fragments());
         }
         return new StyledParagraph(modelText.toString(),
@@ -641,6 +1144,20 @@ public class PlatformDoubaoDocumentProcessor {
                 modelText.append(text);
                 continue;
             }
+            if (DayaEnumerationRules.isPureOrderingMarkerRun(text)) {
+                modelText.append(text);
+                continue;
+            }
+            int markerEnd = DayaEnumerationRules.leadingEditableMarkerEnd(text);
+            if (markerEnd > 0 && markerEnd < text.length()) {
+                String token = "[[DROP_STYLE_PROTECTED_" + sequence.getAndIncrement() + "]]";
+                CTRPr properties = run.getCTR().isSetRPr()
+                        ? (CTRPr) run.getCTR().getRPr().copy()
+                        : null;
+                fragments.put(token, new StyledFragment(text.substring(markerEnd), properties));
+                modelText.append(text, 0, markerEnd).append(token);
+                continue;
+            }
             String token = "[[DROP_STYLE_PROTECTED_" + sequence.getAndIncrement() + "]]";
             CTRPr properties = run.getCTR().isSetRPr()
                     ? (CTRPr) run.getCTR().getRPr().copy()
@@ -655,14 +1172,55 @@ public class PlatformDoubaoDocumentProcessor {
     }
 
     private String runPropertiesSignature(XWPFRun run) {
-        return run.getCTR().isSetRPr() ? run.getCTR().getRPr().xmlText() : "";
+        if (!run.getCTR().isSetRPr()) return "";
+        CTRPr properties = (CTRPr) run.getCTR().getRPr().copy();
+
+        while (properties.sizeOfLangArray() > 0) properties.removeLang(0);
+        while (properties.sizeOfNoProofArray() > 0) properties.removeNoProof(0);
+        for (int index = properties.sizeOfRFontsArray() - 1; index >= 0; index--) {
+            CTFonts fonts = properties.getRFontsArray(index);
+            if (fonts.isSetHint()) fonts.unsetHint();
+            if (!hasVisibleFontSelection(fonts)) properties.removeRFonts(index);
+        }
+
+        Node root = properties.getDomNode();
+        for (Node child = root.getFirstChild(); child != null; child = child.getNextSibling()) {
+            if (child.getNodeType() == Node.ELEMENT_NODE) return properties.xmlText();
+        }
+        return "";
     }
 
     private XWPFRun baseRun(List<XWPFRun> runs) {
-        return runs.stream()
-                .filter(run -> run.text() != null && !run.text().isEmpty())
-                .findFirst()
-                .orElse(runs.get(0));
+        Map<String, Integer> charactersByStyle = new LinkedHashMap<>();
+        Map<String, XWPFRun> representativeByStyle = new LinkedHashMap<>();
+        for (XWPFRun run : runs) {
+            String text = run.text();
+            if (text == null || text.isEmpty()) continue;
+            String signature = runPropertiesSignature(run);
+            charactersByStyle.merge(signature, text.length(), Integer::sum);
+            XWPFRun representative = representativeByStyle.get(signature);
+            if (representative == null || text.length() > representative.text().length()) {
+                representativeByStyle.put(signature, run);
+            }
+        }
+        if (charactersByStyle.isEmpty()) return runs.get(0);
+
+        String mainStyle = null;
+        int mainCharacters = -1;
+        for (Map.Entry<String, Integer> entry : charactersByStyle.entrySet()) {
+            if (entry.getValue() > mainCharacters) {
+                mainStyle = entry.getKey();
+                mainCharacters = entry.getValue();
+            }
+        }
+        return representativeByStyle.get(mainStyle);
+    }
+
+    private boolean hasVisibleFontSelection(CTFonts fonts) {
+        return fonts.isSetAscii() || fonts.isSetHAnsi()
+                || fonts.isSetEastAsia() || fonts.isSetCs()
+                || fonts.isSetAsciiTheme() || fonts.isSetHAnsiTheme()
+                || fonts.isSetEastAsiaTheme() || fonts.isSetCstheme();
     }
 
     private void replaceParagraphText(XWPFParagraph paragraph, StyledRestore restored) {
@@ -681,7 +1239,8 @@ public class PlatformDoubaoDocumentProcessor {
         }
     }
 
-    private void writeAtomically(XWPFDocument document, Path output) throws Exception {
+    private void writeAtomically(XWPFDocument document, Path output,
+                                 DayaTableStructureSnapshot tableSnapshot) throws Exception {
         Files.createDirectories(output.toAbsolutePath().getParent());
         Path temporary = output.resolveSibling(output.getFileName() + "." + UUID.randomUUID() + ".part");
         try {
@@ -689,6 +1248,12 @@ public class PlatformDoubaoDocumentProcessor {
                 document.write(stream);
             }
             if (Files.size(temporary) <= 0) throw new IllegalStateException("生成的 DOCX 文件为空");
+            if (!tableSnapshot.tables().isEmpty()) {
+                try (InputStream stream = Files.newInputStream(temporary);
+                     XWPFDocument verified = new XWPFDocument(stream)) {
+                    tableSnapshot.validate(verified);
+                }
+            }
             try {
                 Files.move(temporary, output, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
             } catch (AtomicMoveNotSupportedException ignored) {
@@ -696,6 +1261,50 @@ public class PlatformDoubaoDocumentProcessor {
             }
         } finally {
             Files.deleteIfExists(temporary);
+        }
+    }
+
+    private static String xml(org.apache.xmlbeans.XmlObject value) {
+        return value == null ? "" : value.xmlText();
+    }
+
+    private record DayaTableStructureSnapshot(List<DayaTableShape> tables) {
+        private static DayaTableStructureSnapshot capture(XWPFDocument document) {
+            return new DayaTableStructureSnapshot(document.getTables().stream()
+                    .map(DayaTableShape::capture).toList());
+        }
+
+        private void validate(XWPFDocument document) {
+            if (!equals(capture(document))) {
+                throw new IllegalStateException("大雅表格结构保护校验失败，未写入结果文件");
+            }
+        }
+    }
+
+    private record DayaTableShape(String properties, String grid, List<DayaTableRowShape> rows) {
+        private static DayaTableShape capture(XWPFTable table) {
+            return new DayaTableShape(xml(table.getCTTbl().getTblPr()),
+                    xml(table.getCTTbl().getTblGrid()),
+                    table.getRows().stream().map(DayaTableRowShape::capture).toList());
+        }
+    }
+
+    private record DayaTableRowShape(String properties, List<DayaTableCellShape> cells) {
+        private static DayaTableRowShape capture(XWPFTableRow row) {
+            return new DayaTableRowShape(xml(row.getCtRow().getTrPr()),
+                    row.getTableCells().stream().map(DayaTableCellShape::capture).toList());
+        }
+    }
+
+    private record DayaTableCellShape(String properties, int paragraphCount, int nestedTableCount,
+                                      List<String> paragraphProperties) {
+        private static DayaTableCellShape capture(XWPFTableCell cell) {
+            return new DayaTableCellShape(xml(cell.getCTTc().getTcPr()),
+                    cell.getParagraphs().size(), cell.getTables().size(),
+                    cell.getParagraphs().stream()
+                            .map(paragraph -> paragraph.getCTP().isSetPPr()
+                                    ? xml(paragraph.getCTP().getPPr()) : "")
+                            .toList());
         }
     }
 
@@ -754,12 +1363,28 @@ public class PlatformDoubaoDocumentProcessor {
 
     private record ParagraphRewrite(Target target, StyledRestore restored) { }
 
+    private record BudgetRewrite(int batchIndex, ParagraphRewrite rewrite) { }
+
+    private record BudgetRetryResult(ParagraphRewrite rewrite, String failure) { }
+
+    private record RewriteAttempt(ParagraphRewrite rewrite, String failure) { }
+
+    private record RetryTarget(
+            int batchIndex,
+            PreparedBatch prepared,
+            Target target,
+            PlatformDoubaoRewriteGateway.Segment segment,
+            String firstFailure) { }
+
+    private record RetryResult(int batchIndex, ParagraphRewrite rewrite, String failure) { }
+
     private record BatchResult(
             int index,
             int targetCount,
             List<ParagraphRewrite> rewrites,
             int failed,
-            List<String> failureMessages) { }
+            List<String> failureMessages,
+            List<RetryTarget> retryTargets) { }
 
     private enum DayaSection {
         INCLUDE,
@@ -769,7 +1394,8 @@ public class PlatformDoubaoDocumentProcessor {
     enum DayaPreparation {
         NONE,
         INLINE_NUMERIC,
-        MERGED_LIST
+        MERGED_LIST,
+        TABLE_TEXT
     }
 
     private record StyledFragment(String text, CTRPr properties) { }

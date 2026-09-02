@@ -159,8 +159,9 @@ public class XuejieExternalDocumentRewriteService {
                             + (refunded ? "；DropAI 预扣积分已退回" : ""));
             stateRepository.stage(jobId, XuejieExternalJobStateRepository.FAILED,
                     null, exception.getClass().getSimpleName());
-            log.warn("Platform Doubao job failed jobId={} platform={} type={}",
-                    jobId, platform.name(), exception.getClass().getSimpleName());
+            log.warn("Platform Doubao job failed jobId={} platform={} type={} message={}",
+                    jobId, platform.name(), exception.getClass().getSimpleName(),
+                    compact(exception.getMessage()), exception);
         } finally {
             deleteQuietly(inputPath);
         }
