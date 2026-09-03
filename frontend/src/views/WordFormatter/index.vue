@@ -127,13 +127,16 @@
     </section>
 
     <section v-else-if="screen === 'review'" ref="workspaceSection" class="review-center">
-      <article class="glass review-hero"><small>AI TEMPLATE ANALYSIS COMPLETE</small><h2>AI 已分析模板，请先确认关键格式</h2><p>下面三类规则可修改；确认后才会正式处理论文。未列入的系统固定规则无法修改。</p></article>
+      <article class="glass review-hero"><small>AI TEMPLATE ANALYSIS COMPLETE</small><h2>AI 已分析模板，请先确认关键格式</h2><p>下面四类规则可修改；正文仅固定首行缩进 2 字符。确认后才会正式处理论文。</p></article>
       <article v-for="group in ruleGroups" :key="group.key" class="glass rule-group">
         <header><div><small>{{ group.eyebrow }}</small><h2>{{ group.title }}</h2></div><span>可修改</span></header>
         <div class="rule-grid"><section v-for="item in group.items" :key="item.key" class="rule-card"><h3>{{ item.label }}</h3>
           <label>中文字体<input v-model.trim="item.rule.chineseFont" /></label><label>英文字体<input v-model.trim="item.rule.latinFont" /></label>
           <label>字号（磅）<input v-model.number="item.rule.fontSizePt" type="number" min="5" max="72" step="0.5" /></label>
           <label>行距<select v-model="item.rule.lineSpacingMode"><option value="single">单倍</option><option value="1.5">1.5 倍</option><option value="double">2 倍</option><option value="multiple">多倍</option><option value="fixed">固定值</option><option value="at_least">最小值</option></select></label>
+          <label v-if="item.rule.lineSpacingMode === 'fixed'">固定行距（磅）<input v-model.number="item.rule.fixedLineSpacingPt" type="number" min="1" max="200" step="0.5" /></label>
+          <label v-else-if="item.rule.lineSpacingMode === 'multiple'">多倍行距（倍）<input v-model.number="item.rule.multipleLineSpacing" type="number" min="0.5" max="10" step="0.05" /></label>
+          <label v-else-if="item.rule.lineSpacingMode === 'at_least'">最小行距（磅）<input v-model.number="item.rule.minimumLineSpacingPt" type="number" min="1" max="200" step="0.5" /></label>
           <label>段前（{{ item.rule.spaceBefore?.unit === 'pt' ? '磅' : '行' }}）<input v-model.number="item.rule.spaceBefore.value" type="number" min="0" max="20" step="0.25" /></label>
           <label>段后（{{ item.rule.spaceAfter?.unit === 'pt' ? '磅' : '行' }}）<input v-model.number="item.rule.spaceAfter.value" type="number" min="0" max="20" step="0.25" /></label>
         </section></div>
@@ -334,9 +337,10 @@ const ruleGroups = computed(() => {
   const rules = editableRules.value
   const make = (key, label, rule) => ({ key, label, rule })
   return [
-    { key: 'headings', eyebrow: '01 · HEADINGS', title: '一级、二级、三级标题', items: [make('level1', '一级标题', rules.headings?.level1), make('level2', '二级标题', rules.headings?.level2), make('level3', '三级标题', rules.headings?.level3)] },
-    { key: 'toc', eyebrow: '02 · TABLE OF CONTENTS', title: '目录格式', items: [make('title', '目录标题', rules.toc?.title), make('level1', '一级目录', rules.toc?.level1), make('level2', '二级目录', rules.toc?.level2), make('level3', '三级目录', rules.toc?.level3)] },
-    { key: 'captions', eyebrow: '03 · CAPTIONS', title: '图标题、表标题', items: [make('figure', '图标题', rules.captions?.figure), make('table', '表标题', rules.captions?.table)] }
+    { key: 'body', eyebrow: '01 · BODY TEXT', title: '正文格式（首行缩进固定为 2 字符）', items: [make('normal', '正文', rules.body?.normal)] },
+    { key: 'headings', eyebrow: '02 · HEADINGS', title: '一级、二级、三级标题', items: [make('level1', '一级标题', rules.headings?.level1), make('level2', '二级标题', rules.headings?.level2), make('level3', '三级标题', rules.headings?.level3)] },
+    { key: 'toc', eyebrow: '03 · TABLE OF CONTENTS', title: '目录格式', items: [make('title', '目录标题', rules.toc?.title), make('level1', '一级目录', rules.toc?.level1), make('level2', '二级目录', rules.toc?.level2), make('level3', '三级目录', rules.toc?.level3)] },
+    { key: 'captions', eyebrow: '04 · CAPTIONS', title: '图标题、表标题', items: [make('figure', '图标题', rules.captions?.figure), make('table', '表标题', rules.captions?.table)] }
   ].map(group => ({ ...group, items: group.items.filter(item => item.rule) }))
 })
 

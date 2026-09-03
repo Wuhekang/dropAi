@@ -157,6 +157,9 @@ def _paragraph_rule_summary(rule: ParagraphRule) -> dict[str, Any]:
         "bold": rule.bold,
         "alignment": rule.alignment,
         "lineSpacingMode": rule.line_spacing_mode,
+        "fixedLineSpacingPt": rule.fixed_line_spacing_pt,
+        "minimumLineSpacingPt": rule.minimum_line_spacing_pt,
+        "multipleLineSpacing": rule.multiple_line_spacing,
         "firstLineIndentChars": rule.special_indent_chars
         if rule.special_indent_mode == "first_line"
         else 0.0,
@@ -214,6 +217,7 @@ def _rule_summary(rules: DocumentRules) -> dict[str, Any]:
 def _editable_rules(rules: DocumentRules) -> dict[str, Any]:
     summary = _rule_summary(rules)
     return {
+        "body": {"normal": summary["normalText"]},
         "headings": {"level1": summary["heading1"], "level2": summary["heading2"], "level3": summary["heading3"]},
         "toc": {
             "title": summary["tocTitle"], "level1": summary["toc1"], "level2": summary["toc2"], "level3": summary["toc3"],
@@ -229,6 +233,7 @@ def _apply_confirmed_rules(rules: DocumentRules, path: Path | None) -> None:
     if not isinstance(payload, dict):
         raise CliInputError("确认规则必须是 JSON 对象")
     mapping = {
+        ("body", "normal"): rules.normal_text,
         ("headings", "level1"): rules.heading_1, ("headings", "level2"): rules.heading_2,
         ("headings", "level3"): rules.heading_3, ("captions", "figure"): rules.figure_caption,
         ("captions", "table"): rules.table_caption,
@@ -238,6 +243,9 @@ def _apply_confirmed_rules(rules: DocumentRules, path: Path | None) -> None:
     allowed = {
         "chineseFont": "chinese_font", "latinFont": "latin_font", "fontSizePt": "font_size_pt",
         "lineSpacingMode": "line_spacing_mode", "spaceBefore": "space_before", "spaceAfter": "space_after",
+        "fixedLineSpacingPt": "fixed_line_spacing_pt",
+        "minimumLineSpacingPt": "minimum_line_spacing_pt",
+        "multipleLineSpacing": "multiple_line_spacing",
     }
     for keys, rule in mapping.items():
         value = payload
@@ -257,6 +265,10 @@ def _apply_confirmed_rules(rules: DocumentRules, path: Path | None) -> None:
                     setattr(rule, f"{internal}_{'lines' if unit == 'line' else 'pt'}", number)
             elif internal == "font_size_pt":
                 rule.font_size_pt = max(5.0, min(72.0, float(value[public])))
+            elif internal in {"fixed_line_spacing_pt", "minimum_line_spacing_pt"}:
+                setattr(rule, internal, max(1.0, min(200.0, float(value[public]))))
+            elif internal == "multiple_line_spacing":
+                rule.multiple_line_spacing = max(0.5, min(10.0, float(value[public])))
             elif internal == "line_spacing_mode" and value[public] in {"single", "1.5", "double", "at_least", "fixed", "multiple"}:
                 rule.line_spacing_mode = value[public]
             elif isinstance(value[public], str) and value[public].strip():
@@ -412,7 +424,7 @@ def run_job(args: argparse.Namespace) -> dict[str, Any]:
                 "durationMs": round((time.perf_counter() - started) * 1000), "error": None,
             }
             _write_json_atomic(result_json, payload)
-            emit_progress(100, "awaiting_confirmation", "AI 分析完成，请确认三类可编辑格式")
+            emit_progress(100, "awaiting_confirmation", "AI 分析完成，请确认四类可编辑格式")
             return payload
 
         current_progress = 56

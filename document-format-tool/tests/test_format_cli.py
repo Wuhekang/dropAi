@@ -18,9 +18,15 @@ TOOL_ROOT = Path(__file__).resolve().parents[1]
 CLI = TOOL_ROOT / "format_cli.py"
 sys.path.insert(0, str(TOOL_ROOT))
 
-from format_cli import run_job, validate_runtime_support  # noqa: E402
+from format_cli import (  # noqa: E402
+    _apply_confirmed_rules,
+    _editable_rules,
+    run_job,
+    validate_runtime_support,
+)
 import format_cli  # noqa: E402
 from word_formatter.core.word_converter import WordConversionError  # noqa: E402
+from word_formatter.models.rules import DocumentRules, enforce_locked_document_policy  # noqa: E402
 
 
 def file_hash(path: Path) -> str:
@@ -70,6 +76,53 @@ def build_source(path: Path) -> None:
 
 
 class FormatCliTests(unittest.TestCase):
+    def test_body_is_editable_except_for_locked_first_line_indent(self) -> None:
+        rules = DocumentRules()
+        editable = _editable_rules(rules)
+        body = editable["body"]["normal"]
+        self.assertEqual(body["fontSizeName"], "小四")
+        self.assertEqual(body["fontSizePt"], 12.0)
+        self.assertEqual(body["fixedLineSpacingPt"], 20.0)
+        self.assertEqual(body["multipleLineSpacing"], 1.25)
+
+        with tempfile.TemporaryDirectory(prefix="dokiai_confirmed_rules_") as directory:
+            confirmed = Path(directory) / "rules.json"
+            confirmed.write_text(
+                json.dumps(
+                    {
+                        "body": {
+                            "normal": {
+                                "chineseFont": "仿宋",
+                                "latinFont": "Arial",
+                                "fontSizePt": 14,
+                                "lineSpacingMode": "multiple",
+                                "multipleLineSpacing": 1.75,
+                                "fixedLineSpacingPt": 24,
+                                "spaceBefore": {"unit": "pt", "value": 6},
+                                "spaceAfter": {"unit": "line", "value": 0.5},
+                                "firstLineIndentChars": 0,
+                            }
+                        }
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            _apply_confirmed_rules(rules, confirmed)
+            enforce_locked_document_policy(rules)
+
+        body_rule = rules.normal_text
+        self.assertEqual(body_rule.chinese_font, "仿宋")
+        self.assertEqual(body_rule.latin_font, "Arial")
+        self.assertEqual(body_rule.font_size_pt, 14.0)
+        self.assertEqual(body_rule.line_spacing_mode, "multiple")
+        self.assertEqual(body_rule.multiple_line_spacing, 1.75)
+        self.assertEqual(body_rule.fixed_line_spacing_pt, 24.0)
+        self.assertEqual(body_rule.space_before_pt, 6.0)
+        self.assertEqual(body_rule.space_after_lines, 0.5)
+        self.assertEqual(body_rule.special_indent_mode, "first_line")
+        self.assertEqual(body_rule.special_indent_chars, 2.0)
+
     def run_cli(
         self,
         source: Path,
