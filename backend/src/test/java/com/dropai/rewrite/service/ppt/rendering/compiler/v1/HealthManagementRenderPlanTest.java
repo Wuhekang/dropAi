@@ -116,6 +116,42 @@ class HealthManagementRenderPlanTest {
     }
 
     @Test
+    void sectionDividerCompilesAsOneCenteredTitleWithoutBodyOrFooter() {
+        HealthManagementRenderPlanSupport.CompiledFixture fixture =
+                HealthManagementRenderPlanSupport.compile();
+        ObjectNode tree = fixture.tree().document();
+        ObjectNode section = (ObjectNode) tree.path("pages").get(2);
+        section.put("pageType", "SECTION");
+        section.put("pagePurpose", "BACKGROUND");
+        section.put("contentType", "NARRATIVE");
+        section.put("title", "01 项目背景与需求");
+        section.putArray("keyPoints").add("项目背景与需求");
+        section.put("description", "本章节集中介绍项目背景与需求。");
+        section.putArray("assets");
+        section.putArray("tables");
+
+        JsonNode slide = compilerForTest().compile(
+                new ValidatedPresentationTree(
+                        tree,
+                        fixture.tree().presentationId(),
+                        fixture.tree().sourceTreeHash()),
+                fixture.theme(), fixture.catalog(), fixture.bundle(), fixture.fonts())
+                .document().path("slides").get(2);
+
+        assertEquals("SECTION", slide.path("pageType").asText());
+        assertEquals(LayoutIds.SECTION_CENTERED, slide.path("layoutId").asText());
+        assertEquals(1, countSlideElements(slide, "TEXT"));
+        assertEquals(0, countSlideElements(slide, "IMAGE"));
+        JsonNode title = firstElement(slide, "TEXT");
+        assertEquals("01 项目背景与需求", title.path("text").asText());
+        assertEquals("CENTER", title.path("resolvedStyle").path("horizontalAlign").asText());
+        assertEquals("MIDDLE", title.path("resolvedStyle").path("verticalAlign").asText());
+        long slideHeight = fixture.frozen().document().path("slideSize").path("heightEmu").asLong();
+        assertEquals(slideHeight,
+                title.path("yEmu").asLong() * 2 + title.path("heightEmu").asLong());
+    }
+
+    @Test
     void committedSnapshotIsCompilerOutputAndUsesCanonicalHash() {
         HealthManagementRenderPlanSupport.CompiledFixture fixture =
                 HealthManagementRenderPlanSupport.compile();

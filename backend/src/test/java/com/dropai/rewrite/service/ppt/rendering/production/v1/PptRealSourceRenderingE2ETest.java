@@ -81,7 +81,8 @@ class PptRealSourceRenderingE2ETest {
         PptOutlineValidatorV1.ValidationResult validated = new PptOutlineValidatorV1()
                 .validate(new PptOutlineValidatorV1.ValidationRequest(input.metadata(), outline));
         assertTrue(validated.valid(), validated.issues().toString());
-        assertEquals(44, validated.slideTree().size());
+        assertEquals(49, validated.slideTree().size());
+        assertEquals(5, validated.slideTree().stream().filter(page -> "SECTION".equals(page.pageType())).count());
         assertEquals(25, validated.slideTree().stream().filter(page -> "IMAGE".equals(page.pageType())).count());
 
         ProductionRenderPlanRequest request = new ProductionRenderPlanRequest(
@@ -113,7 +114,7 @@ class PptRealSourceRenderingE2ETest {
         Path generated = temp.resolve("dokiai-real-health-management.pptx");
         var receipt = new PptEngineV1Service().generate(
                 loaded.renderPlan(), loaded.assetResolver(), generated);
-        assertEquals(44, receipt.slideCount());
+        assertEquals(49, receipt.slideCount());
         assertEquals(loaded.renderPlanHash(), receipt.renderPlanHash());
         assertTrue(receipt.writtenBytes() > 0);
         assertPptx(generated);
@@ -151,12 +152,24 @@ class PptRealSourceRenderingE2ETest {
 
     private void assertPlan(FrozenSlideRenderPlan frozen) {
         ObjectNode plan = frozen.document();
-        assertEquals(44, plan.path("slides").size());
+        assertEquals(49, plan.path("slides").size());
         assertEquals(25, plan.path("assets").size());
         assertEquals(LayoutIds.COVER_CENTERED_LONG_TITLE,
                 plan.path("slides").get(0).path("layoutId").asText());
         JsonNode coverTitle = elementById(plan.path("slides").get(0), "slide-001-title");
         assertEquals(FULL_TITLE, coverTitle.path("text").asText().replace("\n", ""));
+        List<JsonNode> sections = java.util.stream.StreamSupport.stream(
+                        plan.path("slides").spliterator(), false)
+                .filter(slide -> "SECTION".equals(slide.path("pageType").asText()))
+                .toList();
+        assertEquals(List.of(
+                        "01 项目背景与需求",
+                        "02 系统设计",
+                        "03 系统实现",
+                        "04 测试验证",
+                        "05 总结展望"),
+                sections.stream().map(slide -> firstText(slide).path("text").asText()).toList());
+        sections.forEach(this::assertSection);
 
         long slideWidth = plan.path("slideSize").path("widthEmu").asLong();
         long slideHeight = plan.path("slideSize").path("heightEmu").asLong();
@@ -184,6 +197,27 @@ class PptRealSourceRenderingE2ETest {
                 "pagePurpose=", "answerQuestion=", "Click to edit Master", "Second level", "未填写")) {
             assertFalse(canonical.contains(forbidden), forbidden);
         }
+    }
+
+    private void assertSection(JsonNode slide) {
+        assertEquals("SECTION", slide.path("pageType").asText());
+        assertEquals(LayoutIds.SECTION_CENTERED, slide.path("layoutId").asText());
+        JsonNode titleElement = firstText(slide);
+        assertEquals("CENTER", titleElement.path("resolvedStyle").path("horizontalAlign").asText());
+        assertEquals("MIDDLE", titleElement.path("resolvedStyle").path("verticalAlign").asText());
+        assertEquals(1, java.util.stream.StreamSupport.stream(
+                        slide.path("elements").spliterator(), false)
+                .filter(element -> "TEXT".equals(element.path("elementType").asText()))
+                .count());
+    }
+
+    private JsonNode firstText(JsonNode slide) {
+        for (JsonNode element : slide.path("elements")) {
+            if ("TEXT".equals(element.path("elementType").asText())) {
+                return element;
+            }
+        }
+        throw new AssertionError("Missing text element on " + slide.path("slideId").asText());
     }
 
     private void assertImageContentConserved(
@@ -226,7 +260,7 @@ class PptRealSourceRenderingE2ETest {
     private void assertPptx(Path pptx) throws Exception {
         int pictures = 0;
         try (InputStream input = Files.newInputStream(pptx); XMLSlideShow deck = new XMLSlideShow(input)) {
-            assertEquals(44, deck.getSlides().size());
+            assertEquals(49, deck.getSlides().size());
             for (var slide : deck.getSlides()) {
                 pictures += (int) slide.getShapes().stream().filter(XSLFPictureShape.class::isInstance).count();
             }
@@ -256,7 +290,7 @@ class PptRealSourceRenderingE2ETest {
         report.put("renderPlanHash", compiled.renderPlanHash());
         report.put("pptxSha256", sha256(Files.readAllBytes(output)));
         report.put("pptxBytes", bytes);
-        report.put("slides", 44);
+        report.put("slides", 49);
         report.put("images", 25);
         ObjectNode quality = report.putObject("qualityErrors");
         for (String code : List.of(

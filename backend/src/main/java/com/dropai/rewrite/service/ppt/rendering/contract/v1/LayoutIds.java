@@ -7,6 +7,7 @@ public final class LayoutIds {
     public static final String COVER_CENTERED = "cover-centered.v1";
     public static final String COVER_CENTERED_LONG_TITLE = "cover-centered-long-title.v1";
     public static final String AGENDA_VERTICAL_STEPS = "agenda-vertical-steps.v1";
+    public static final String SECTION_CENTERED = "section-centered.v1";
     public static final String CONTENT_SINGLE_INSIGHT = "content-single-insight.v1";
     public static final String CONTENT_THREE_CARDS = "content-three-cards.v1";
     public static final String CONTENT_TEXT_VISUAL_SPLIT = "content-text-visual-split.v1";
@@ -30,6 +31,7 @@ public final class LayoutIds {
             COVER_CENTERED,
             COVER_CENTERED_LONG_TITLE,
             AGENDA_VERTICAL_STEPS,
+            SECTION_CENTERED,
             CONTENT_SINGLE_INSIGHT,
             CONTENT_THREE_CARDS,
             CONTENT_TEXT_VISUAL_SPLIT,

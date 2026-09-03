@@ -11,6 +11,7 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -21,6 +22,11 @@ class RenderingTemplatePackRegistryTest {
         RenderingTemplatePack pack = decorated(new RenderingTemplatePackRegistry());
 
         assertEquals(Set.of(PageType.values()), packSurfaceTypes(pack));
+        assertEquals("tpl-small-bear-watercolor-blue-v1-watercolor",
+                pack.surfaceAssetId(PageType.SECTION).orElseThrow());
+        assertEquals("tpl-small-bear-watercolor-blue-v1-watercolor",
+                pack.surfaceAssetId(PageType.IMAGE).orElseThrow());
+        assertNotEquals(pack.surfaceAssetId(PageType.CONTENT), pack.surfaceAssetId(PageType.IMAGE));
         assertEquals(pack.templatePackId(), pack.themeRequest().themeId());
         assertTrue(pack.sourceTemplateHash().matches("sha256:[a-f0-9]{64}"));
         assertTrue(pack.templatePackHash().matches("sha256:[a-f0-9]{64}"));

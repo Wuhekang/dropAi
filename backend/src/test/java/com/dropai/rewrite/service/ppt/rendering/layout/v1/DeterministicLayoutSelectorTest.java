@@ -27,6 +27,7 @@ class DeterministicLayoutSelectorTest {
     void selectsAllStructuralFamiliesWithoutReadingTextMeaning() {
         assertLayout(LayoutIds.COVER_CENTERED, noMedia(PageType.COVER, PagePurpose.BACKGROUND, ContentType.NARRATIVE, 3, 80, 0, 0));
         assertLayout(LayoutIds.AGENDA_VERTICAL_STEPS, noMedia(PageType.AGENDA, PagePurpose.METHOD, ContentType.KEY_POINTS, 5, 100, 0, 0));
+        assertLayout(LayoutIds.SECTION_CENTERED, noMedia(PageType.SECTION, PagePurpose.DESIGN, ContentType.NARRATIVE, 1, 40, 0, 0));
         assertLayout(LayoutIds.CONTENT_THREE_CARDS, noMedia(PageType.CONTENT, PagePurpose.BACKGROUND, ContentType.KEY_POINTS, 3, 160, 0, 0));
         assertLayout(LayoutIds.CONTENT_SINGLE_INSIGHT, noMedia(PageType.CONTENT, PagePurpose.BACKGROUND, ContentType.NARRATIVE, 1, 180, 0, 0));
         assertLayout(LayoutIds.CONTENT_PROCESS_STEPS, noMedia(PageType.CONTENT, PagePurpose.IMPLEMENTATION, ContentType.PROCESS, 3, 160, 0, 0));

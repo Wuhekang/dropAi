@@ -21,12 +21,12 @@ class LayoutCatalogTest {
     private final LayoutCatalogLoader loader = new LayoutCatalogLoader();
 
     @Test
-    void loadsTheFrozenTwentyRecipesInContractOrder() {
+    void loadsTheFrozenTwentyTwoRecipesInContractOrder() {
         LayoutCatalog catalog = loader.loadAcademicV1();
 
         assertEquals("academic-layouts-v1", catalog.catalogId());
-        assertEquals("1.1.0", catalog.catalogVersion());
-        assertEquals(21, catalog.recipes().size());
+        assertEquals("1.2.0", catalog.catalogVersion());
+        assertEquals(22, catalog.recipes().size());
         assertEquals(LayoutIds.ORDERED, catalog.recipes().stream().map(LayoutRecipe::layoutId).toList());
         assertEquals(LayoutIds.ALL, catalog.recipesById().keySet());
         assertTrue(catalog.catalogHash().matches("sha256:[a-f0-9]{64}"));

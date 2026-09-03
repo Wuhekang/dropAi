@@ -94,6 +94,7 @@ public final class DeterministicLayoutSelector {
         return switch (features.pageType()) {
             case COVER -> LayoutIds.COVER_CENTERED;
             case AGENDA -> LayoutIds.AGENDA_VERTICAL_STEPS;
+            case SECTION -> LayoutIds.SECTION_CENTERED;
             case THANKS -> LayoutIds.THANKS_CENTERED;
             case SUMMARY -> features.summaryCount() > 1 && features.summaryOrdinal() == features.summaryCount()
                     ? LayoutIds.SUMMARY_FUTURE

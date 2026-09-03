@@ -88,6 +88,36 @@ class PageRenderabilityValidatorTest {
                 issue.message().contains("closing description")));
     }
 
+    @Test
+    void sectionDividerAcceptsOnlyAStableTitleAndRejectsBoundContentAssets() {
+        ObjectNode tree = object("validated-presentation-tree.json");
+        ObjectNode section = findPage(tree, "CONTENT");
+        section.put("pageType", "SECTION");
+        section.put("contentType", "NARRATIVE");
+        section.put("title", "01 项目背景与需求");
+        section.putArray("assets");
+        section.putArray("tables");
+
+        PageRenderabilityResult clean = validator.validate(
+                tree,
+                object("fixture-manifest.json"),
+                Map.of(
+                        "database-purpose", read("tables/database-purpose.json"),
+                        "test-results", read("tables/test-results.json")));
+        assertTrue(clean.renderable(), () -> clean.issues().toString());
+
+        section.putArray("assets").addObject().put("assetId", "figure_2_01");
+        PageRenderabilityResult polluted = validator.validate(
+                tree,
+                object("fixture-manifest.json"),
+                Map.of(
+                        "database-purpose", read("tables/database-purpose.json"),
+                        "test-results", read("tables/test-results.json")));
+        assertFalse(polluted.renderable());
+        assertTrue(polluted.issues().stream().anyMatch(issue ->
+                issue.message().contains("must not bind")));
+    }
+
     private ObjectNode findPage(ObjectNode tree, String pageType) {
         for (JsonNode page : tree.path("pages")) {
             if (pageType.equals(page.path("pageType").asText())) {
