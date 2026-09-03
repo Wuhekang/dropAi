@@ -44,13 +44,16 @@ class ThemeBoundaryTest {
     }
 
     @Test
-    void themeResourcesContainOnlyTheFrozenBaseAndOfficialPurpleWithoutContentFields() throws IOException {
+    void themeResourcesContainOnlyTheBaseAndTwoOfficialThemesWithoutContentFields() throws IOException {
         List<Path> resources;
         try (Stream<Path> paths = Files.list(RESOURCE_ROOT)) {
             resources = paths.filter(value -> value.toString().endsWith(".json")).sorted().toList();
         }
         assertEquals(
-                Set.of("academic-base.json", "academic-purple.json"),
+                Set.of(
+                        "academic-base.json",
+                        "academic-purple.json",
+                        "small-bear-watercolor-blue-v1.json"),
                 resources.stream().map(path -> path.getFileName().toString()).collect(java.util.stream.Collectors.toSet()));
 
         List<String> forbiddenContentFields = List.of(

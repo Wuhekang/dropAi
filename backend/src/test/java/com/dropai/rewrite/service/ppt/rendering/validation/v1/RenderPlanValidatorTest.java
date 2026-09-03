@@ -43,6 +43,34 @@ class RenderPlanValidatorTest {
     }
 
     @Test
+    void acceptsVerifiedFullSlideDecorationWithoutChangingTheImagePageContract() {
+        ObjectNode plan = validSemanticPlan();
+        ObjectNode decoration = addTemplateDecoration(plan);
+
+        RenderPlanValidationResult result = validator.validate(
+                DraftSlideRenderPlan.of(plan), context(plan));
+
+        assertTrue(result.valid(), () -> result.issues().toString());
+        assertTrue(result.issues().isEmpty(), () -> result.issues().toString());
+        assertTrue(decoration.path("decorative").asBoolean());
+    }
+
+    @Test
+    void decorativeFlagCannotBypassSurfaceGeometryOrTrustedAssetKindChecks() {
+        ObjectNode plan = validSemanticPlan();
+        ObjectNode decoration = addTemplateDecoration(plan);
+        decoration.put("xEmu", 1);
+        ((ObjectNode) plan.path("assets").get(1)).put("assetKind", "SCREENSHOT");
+
+        RenderPlanValidationResult result = validator.validate(
+                DraftSlideRenderPlan.of(plan), context(plan));
+
+        assertFalse(result.valid());
+        assertHas(result, PptQualityCode.UNRENDERABLE_PAGE);
+        assertHas(result, PptQualityCode.INVALID_REFERENCE);
+    }
+
+    @Test
     void aggregatesGeometryAspectTruncationOverlapAndMissingAssetFailures() {
         ObjectNode plan = validSemanticPlan();
         RenderPlanValidationContext context = context(plan);
@@ -153,6 +181,23 @@ class RenderPlanValidatorTest {
     }
 
     @Test
+    void acceptsStableUuidDerivedPresentationIdentityButStillBindsItToContext() {
+        ObjectNode plan = validSemanticPlan();
+        plan.put("presentationId", "presentation-550e8400-e29b-41d4-a716-446655440000");
+
+        RenderPlanValidationResult stable = validator.validate(
+                DraftSlideRenderPlan.of(plan), context(plan));
+        assertTrue(stable.issues().stream().noneMatch(issue ->
+                issue.qualityCode() == PptQualityCode.NON_DETERMINISTIC_RENDER_PLAN),
+                () -> stable.issues().toString());
+
+        ObjectNode differentExpected = validSemanticPlan();
+        RenderPlanValidationResult mismatch = validator.validate(
+                DraftSlideRenderPlan.of(plan), context(differentExpected));
+        assertHas(mismatch, PptQualityCode.INVALID_REFERENCE);
+    }
+
+    @Test
     void rejectsBlankVisibleTextAndMissingExecutableStyleSource() {
         ObjectNode plan = validSemanticPlan();
         ObjectNode title = (ObjectNode) plan.path("slides").get(0).path("elements").get(1);
@@ -206,6 +251,9 @@ class RenderPlanValidatorTest {
     private RenderPlanValidationContext context(ObjectNode planWithExpectedHash) {
         ObjectNode engine = (ObjectNode) planWithExpectedHash.path("engine");
         ObjectNode slideSize = (ObjectNode) planWithExpectedHash.path("slideSize");
+        Map<String, String> assetHashes = new java.util.LinkedHashMap<>();
+        planWithExpectedHash.path("assets").forEach(asset -> assetHashes.put(
+                asset.path("assetId").asText(), asset.path("sha256").asText()));
         return new RenderPlanValidationContext(
                 planWithExpectedHash.path("presentationId").asText(),
                 planWithExpectedHash.path("sourceTreeHash").asText(),
@@ -226,7 +274,7 @@ class RenderPlanValidatorTest {
                 Map.of(),
                 Set.of("slideTitle", "tableBody", "imageFrame"),
                 Set.of("typography.styles.slideTitle", "components.tableBody", "components.imageFrame"),
-                Map.of("figure_4_10", planWithExpectedHash.path("assets").get(0).path("sha256").asText()),
+                assetHashes,
                 RenderPlanValidationContext.SafeArea.none(),
                 new RenderPlanValidationContext.StatusStyleExpectation(
                         "#237A52", "#9A6200", "#B63A3A", "#FFFFFF"),
@@ -277,6 +325,37 @@ class RenderPlanValidatorTest {
                 plan.path("slideSize").path("heightEmu").asLong(),
                 0));
         return plan;
+    }
+
+    private ObjectNode addTemplateDecoration(ObjectNode plan) {
+        String assetId = "tpl-safe-background";
+        ObjectNode asset = ((ArrayNode) plan.path("assets")).addObject();
+        asset.put("assetId", assetId);
+        asset.put("bundlePath", "assets/templates/safe/background.png");
+        asset.put("sha256", "sha256:" + "7".repeat(64));
+        asset.put("mimeType", "image/png");
+        asset.put("widthPx", 1600);
+        asset.put("heightPx", 900);
+        asset.put("assetKind", "TEMPLATE_DECORATION");
+        asset.put("imageRole", "INFORMATION");
+        asset.put("mandatory", true);
+
+        ObjectNode slide = (ObjectNode) plan.path("slides").get(0);
+        ObjectNode sourceImage = (ObjectNode) slide.path("elements").get(2);
+        ObjectNode decoration = sourceImage.deepCopy();
+        decoration.put("elementId", "slide-06-template-surface");
+        decoration.put("xEmu", 0);
+        decoration.put("yEmu", 0);
+        decoration.put("widthEmu", plan.path("slideSize").path("widthEmu").asLong());
+        decoration.put("heightEmu", plan.path("slideSize").path("heightEmu").asLong());
+        decoration.put("zIndex", 5);
+        decoration.put("decorative", true);
+        decoration.put("assetId", assetId);
+        decoration.put("fitMode", "CONTAIN");
+        decoration.put("cropAllowed", false);
+        decoration.remove("sourceCrop");
+        ((ArrayNode) slide.path("elements")).insert(1, decoration);
+        return decoration;
     }
 
     private ObjectNode shape(String id, long x, long y, long width, long height, int zIndex) {

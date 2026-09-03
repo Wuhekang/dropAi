@@ -4,6 +4,7 @@ import com.dropai.rewrite.service.PointsNotEnoughException;
 import com.dropai.rewrite.service.ppt.PptProjectService;
 import com.dropai.rewrite.service.ppt.PptPlanService;
 import com.dropai.rewrite.service.ppt.SourceDocumentPrecheckService;
+import com.dropai.rewrite.service.ppt.PptTemplateService;
 import com.dropai.rewrite.vo.Result;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.http.ContentDisposition;
@@ -29,8 +30,10 @@ import java.util.Map;
 public class PptController {
     private final PptProjectService service;
     private final PptPlanService plans;
-    public PptController(PptProjectService service,PptPlanService plans){this.service=service;this.plans=plans;}
+    private final PptTemplateService templates;
+    public PptController(PptProjectService service,PptPlanService plans,PptTemplateService templates){this.service=service;this.plans=plans;this.templates=templates;}
 
+    @GetMapping("/templates") public Result<List<Map<String,Object>>> templates(){return Result.success(templates.list());}
     @GetMapping("/projects") public Result<List<Map<String,Object>>> list(){return Result.success(service.list());}
     @PostMapping("/projects") public Result<Map<String,Object>> create(@RequestBody Map<String,Object> input){return Result.success(service.create(input));}
     @GetMapping("/projects/{id}") public Result<Map<String,Object>> get(@PathVariable String id){return Result.success(service.get(id));}
@@ -39,6 +42,8 @@ public class PptController {
     @GetMapping("/projects/{id}/analysis") public Result<Map<String,Object>> analysis(@PathVariable String id){return Result.success(service.analysis(id));}
     @PostMapping("/projects/{id}/outline") public Result<Map<String,Object>> outline(@PathVariable String id){return Result.success(service.generateOutline(id));}
     @PutMapping("/projects/{id}/outline") public Result<Map<String,Object>> saveOutline(@PathVariable String id,@RequestBody List<Map<String,Object>> items){return Result.success(service.saveOutline(id,items));}
+    @GetMapping("/projects/{id}/template/recommend") public Result<Map<String,Object>> recommendTemplate(@PathVariable String id){return Result.success(templates.recommend(id));}
+    @PutMapping("/projects/{id}/template") public Result<Map<String,Object>> selectTemplate(@PathVariable String id,@RequestBody Map<String,Object> input){return Result.success(templates.select(id,input));}
     @PostMapping("/projects/{id}/plan") public Result<Map<String,Object>> plan(@PathVariable String id){return Result.success(plans.create(id));}
     @PostMapping("/projects/{id}/generate") public Result<Map<String,Object>> generate(@PathVariable String id)throws Exception{return Result.success(service.generate(id));}
     @GetMapping("/projects/{id}/progress") public Result<Map<String,Object>> progress(@PathVariable String id){return Result.success(service.progress(id));}

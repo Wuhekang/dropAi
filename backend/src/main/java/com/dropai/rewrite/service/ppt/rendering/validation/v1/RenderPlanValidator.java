@@ -376,14 +376,17 @@ public final class RenderPlanValidator {
         String previousElementId = "";
         for (JsonNode element : elements) {
             String elementId = text(element, "elementId");
+            boolean decorative = element.path("decorative").asBoolean(false);
             if (elementId != null && !globalElementIds.add(elementId)) {
                 issues.add(issue(PptQualityCode.DUPLICATE_ID, slideId, elementId,
                         "Element IDs must be globally stable and unique"));
             }
             ElementBox box = ElementBox.from(element);
             if (box != null) {
-                boxes.add(box);
                 validateGeometry(box, slideWidth, slideHeight, context, slideId, element, issues);
+                if (!decorative) {
+                    boxes.add(box);
+                }
                 if (box.isFullBackground(element, slideWidth, slideHeight)) {
                     fullBackgrounds++;
                 }
@@ -399,11 +402,17 @@ public final class RenderPlanValidator {
             previousZIndex = zIndex;
             previousElementId = elementId == null ? "" : elementId;
             validateStyleSource(element, slideId, elementId, context, issues);
+            if (decorative) {
+                validateDecorativeElement(
+                        element, box, slideWidth, slideHeight, slideId, elementId, assets, issues);
+            }
             if ("TEXT".equals(type)) {
                 textElements++;
                 validateText(element, slideId, elementId, context, fontFaces, issues);
             } else if ("IMAGE".equals(type)) {
-                imageElements++;
+                if (!decorative) {
+                    imageElements++;
+                }
                 validateImage(element, slideId, elementId, assets, referencedAssets, issues);
             } else if ("TABLE".equals(type)) {
                 tableElements++;
@@ -427,6 +436,36 @@ public final class RenderPlanValidator {
                 slideHeight,
                 context.allowedContainedTextComponents(text(slide, "layoutId")),
                 issues);
+    }
+
+    private void validateDecorativeElement(
+            JsonNode element,
+            ElementBox box,
+            long slideWidth,
+            long slideHeight,
+            String slideId,
+            String elementId,
+            Map<String, JsonNode> assets,
+            List<RenderPlanIssue> issues
+    ) {
+        if (!"IMAGE".equals(element.path("elementType").asText())) {
+            issues.add(issue(PptQualityCode.SCHEMA_INVALID, slideId, elementId,
+                    "Only IMAGE elements may be marked decorative"));
+            return;
+        }
+        if (box == null || box.x != 0 || box.y != 0
+                || box.width != slideWidth || box.height != slideHeight
+                || box.zIndex != 5) {
+            issues.add(issue(PptQualityCode.UNRENDERABLE_PAGE, slideId, elementId,
+                    "Template decoration must be a deterministic full-slide surface at zIndex 5"));
+        }
+        String assetId = text(element, "assetId");
+        JsonNode asset = assetId == null ? null : assets.get(assetId);
+        if (asset == null || !"TEMPLATE_DECORATION".equals(asset.path("assetKind").asText())) {
+            issues.add(issue(PptQualityCode.INVALID_REFERENCE, slideId, elementId,
+                    "Decorative image must reference a TEMPLATE_DECORATION asset",
+                    assetId == null ? Map.of() : Map.of("assetId", assetId)));
+        }
     }
 
     private void validatePageElementContract(
@@ -509,6 +548,7 @@ public final class RenderPlanValidator {
             return;
         }
         if (box.isFullBackground(element, slideWidth, slideHeight)
+                || element.path("decorative").asBoolean(false)
                 || "pageNumber".equals(element.path("styleSource").path("component").asText())) {
             return;
         }
@@ -1190,7 +1230,9 @@ public final class RenderPlanValidator {
                         "RenderPlan contains a machine-specific absolute path",
                         Map.of("jsonPath", path)));
             }
-            if (field != null && IDENTITY_FIELDS.contains(field) && UUID.matcher(value).find()) {
+            boolean stableRootPresentationId = "$.presentationId".equals(path);
+            if (field != null && IDENTITY_FIELDS.contains(field)
+                    && !stableRootPresentationId && UUID.matcher(value).find()) {
                 issues.add(issue(PptQualityCode.NON_DETERMINISTIC_RENDER_PLAN, null, null,
                         "RenderPlan contains a UUID-like random value",
                         Map.of("jsonPath", path)));

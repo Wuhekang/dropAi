@@ -89,6 +89,26 @@ class ImageFitCalculatorTest {
     }
 
     @Test
+    void lowResolutionSourceIsCappedAtNative96DpiAndRecentred() {
+        ImageFitResult result = calculator.calculate(new ImageFitRequest(
+                536,
+                455,
+                1_000_000,
+                2_000_000,
+                5_876_925,
+                4_991_625,
+                ImageFitMode.CONTAIN,
+                false));
+
+        assertEquals(536L * 9_525L, result.widthEmu());
+        assertEquals(455L * 9_525L, result.heightEmu());
+        assertEquals(1_000_000L + (5_876_925L - result.widthEmu()) / 2L, result.xEmu());
+        assertEquals(2_000_000L + (4_991_625L - result.heightEmu()) / 2L, result.yEmu());
+        assertEquals(ImageFitMode.CONTAIN, result.fitMode());
+        assertFalse(result.cropAllowed());
+    }
+
+    @Test
     void veryLargeIntegerGeometryRemainsDeterministicAndOverflowSafe() {
         ImageFitRequest request = new ImageFitRequest(
                 Integer.MAX_VALUE,

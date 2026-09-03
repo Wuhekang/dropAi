@@ -3,7 +3,11 @@
 ```json
 {
   "skillName": "ppt-generation",
-  "skillVersion": "1.0.0",
+  "skillVersion": "2.0.0",
+  "skillHash": "sha256 of canonical packaged SKILL.md",
+  "provider": "kimi_ark",
+  "model": "configured provider model id",
+  "providerStatus": "SUCCESS",
   "projectId": "",
   "major": "",
   "documentAnalysis": {
@@ -45,4 +49,4 @@
 }
 ```
 
-Write UTF-8 JSON beside the generated PPTX using the suffix `-generation-log.json`.
+Never persist the API key, Authorization header, raw environment variables, or another secret in this log. Write UTF-8 JSON beside the generated PPTX using the suffix `-generation-log.json`.

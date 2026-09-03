@@ -7,12 +7,14 @@ import java.math.BigInteger;
 import java.util.Optional;
 
 public final class ImageFitCalculator {
+    /** One CSS/PowerPoint pixel at the quality gate's frozen 96-DPI baseline. */
+    private static final long EMU_PER_PIXEL_AT_96_DPI = 9_525L;
     private static final BigInteger TWO = BigInteger.valueOf(2L);
     private static final BigInteger ONE_THOUSAND = BigInteger.valueOf(1_000L);
 
     public ImageFitResult calculate(ImageFitRequest request) {
         if (request.fitMode() == ImageFitMode.CONTAIN) {
-            return contain(request);
+            return capAtNative96Dpi(contain(request), request);
         }
         if (!request.cropAllowed()) {
             throw new MeasurementException(
@@ -82,6 +84,51 @@ public final class ImageFitCalculator {
                 ImageFitMode.COVER,
                 true,
                 Optional.of(crop));
+    }
+
+    /**
+     * Never asks the renderer to enlarge a source beyond its native 96-DPI
+     * geometry. The result is scaled uniformly and re-centred inside the
+     * already selected rectangle, so fit/crop semantics stay unchanged and
+     * the compiler's existing minimum-area rule can still reject images that
+     * are genuinely too small for a recipe.
+     */
+    private ImageFitResult capAtNative96Dpi(
+            ImageFitResult fitted,
+            ImageFitRequest request
+    ) {
+        long maximumWidthEmu = Math.multiplyExact(
+                (long) request.sourceWidthPx(), EMU_PER_PIXEL_AT_96_DPI);
+        long maximumHeightEmu = Math.multiplyExact(
+                (long) request.sourceHeightPx(), EMU_PER_PIXEL_AT_96_DPI);
+        if (fitted.widthEmu() <= maximumWidthEmu && fitted.heightEmu() <= maximumHeightEmu) {
+            return fitted;
+        }
+
+        BigInteger widthLimitedHeight = multiply(fitted.heightEmu(), maximumWidthEmu)
+                .divide(BigInteger.valueOf(fitted.widthEmu()));
+        long width;
+        long height;
+        if (widthLimitedHeight.compareTo(BigInteger.valueOf(maximumHeightEmu)) <= 0) {
+            width = maximumWidthEmu;
+            height = Math.max(1L, widthLimitedHeight.longValueExact());
+        } else {
+            height = maximumHeightEmu;
+            width = Math.max(1L, multiply(fitted.widthEmu(), maximumHeightEmu)
+                    .divide(BigInteger.valueOf(fitted.heightEmu()))
+                    .longValueExact());
+        }
+
+        long x = Math.addExact(request.targetXEmu(), (request.targetWidthEmu() - width) / 2L);
+        long y = Math.addExact(request.targetYEmu(), (request.targetHeightEmu() - height) / 2L);
+        return new ImageFitResult(
+                x,
+                y,
+                width,
+                height,
+                fitted.fitMode(),
+                fitted.cropAllowed(),
+                fitted.sourceCrop());
     }
 
     private static BigInteger multiply(long first, long second) {

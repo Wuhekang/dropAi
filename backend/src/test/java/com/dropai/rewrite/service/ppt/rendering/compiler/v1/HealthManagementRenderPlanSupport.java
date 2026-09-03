@@ -18,6 +18,7 @@ import com.dropai.rewrite.service.ppt.rendering.measurement.v1.TableMetricsCalcu
 import com.dropai.rewrite.service.ppt.rendering.plan.v1.DraftSlideRenderPlan;
 import com.dropai.rewrite.service.ppt.rendering.canonical.v1.FrozenSlideRenderPlan;
 import com.dropai.rewrite.service.ppt.rendering.renderability.v1.PageRenderabilityValidator;
+import com.dropai.rewrite.service.ppt.rendering.template.v1.RenderingTemplatePack;
 import com.dropai.rewrite.service.ppt.rendering.theme.v1.ResolvedTheme;
 import com.dropai.rewrite.service.ppt.rendering.theme.v1.ThemeEngine;
 import com.dropai.rewrite.service.ppt.rendering.theme.v1.ThemeResolutionRequest;
@@ -51,6 +52,10 @@ final class HealthManagementRenderPlanSupport {
     }
 
     static CompiledFixture compile() {
+        return compile(null);
+    }
+
+    static CompiledFixture compile(RenderingTemplatePack templatePack) {
         ObjectNode treeDocument = object(readJson("validated-presentation-tree.json"));
         ObjectNode manifest = object(readJson("fixture-manifest.json"));
         Map<String, ObjectNode> tables = new LinkedHashMap<>();
@@ -58,8 +63,12 @@ final class HealthManagementRenderPlanSupport {
             String tableId = registration.path("tableId").asText();
             tables.put(tableId, object(readJson(registration.path("bundlePath").asText())));
         });
+        ArrayNode assetManifest = ((ArrayNode) manifest.path("assets")).deepCopy();
+        if (templatePack != null) {
+            templatePack.assets().forEach(assetManifest::add);
+        }
         RenderingAssetBundle bundle = new RenderingAssetBundle(
-                (ArrayNode) manifest.path("assets"),
+                assetManifest,
                 (ArrayNode) manifest.path("tables"),
                 tables);
         ValidatedPresentationTree tree = new ValidatedPresentationTree(
@@ -67,7 +76,9 @@ final class HealthManagementRenderPlanSupport {
                 treeDocument.path("fixtureId").asText(),
                 manifest.path("presentationTree").path("sha256").asText());
         ResolvedTheme theme = ThemeEngine.academicV1(Set.of(FAMILY))
-                .resolve(ThemeResolutionRequest.academicPurpleV1());
+                .resolve(templatePack == null
+                        ? ThemeResolutionRequest.academicPurpleV1()
+                        : templatePack.themeRequest());
         ResolvedFontProfile fonts = fontProfile(theme);
         LayoutCatalog catalog = new LayoutCatalogLoader().loadAcademicV1();
         DeterministicTextMetricsService textMetrics =
@@ -77,10 +88,12 @@ final class HealthManagementRenderPlanSupport {
                 textMetrics,
                 new ImageFitCalculator(),
                 new TableMetricsCalculator(textMetrics));
-        DraftSlideRenderPlan draft = compiler.compile(tree, theme, catalog, bundle, fonts);
+        DraftSlideRenderPlan draft = templatePack == null
+                ? compiler.compile(tree, theme, catalog, bundle, fonts)
+                : compiler.compile(tree, theme, catalog, bundle, fonts, templatePack);
 
         RenderPlanValidationContext context = validationContext(
-                treeDocument, manifest, theme, catalog, fonts, textMetrics, draft.document());
+                treeDocument, manifest, bundle, theme, catalog, fonts, textMetrics, draft.document());
         var validation = new RenderPlanValidator().validate(draft, context);
         if (!validation.valid()) {
             throw new AssertionError("Fixture RenderPlan validation failed: " + validation.issues());
@@ -149,6 +162,7 @@ final class HealthManagementRenderPlanSupport {
     private static RenderPlanValidationContext validationContext(
             ObjectNode tree,
             ObjectNode manifest,
+            RenderingAssetBundle bundle,
             ResolvedTheme theme,
             LayoutCatalog catalog,
             ResolvedFontProfile fonts,
@@ -165,7 +179,7 @@ final class HealthManagementRenderPlanSupport {
                         renderedSlide.path("pageType").asText(),
                         renderedSlide.path("layoutId").asText())));
         Map<String, String> hashes = new LinkedHashMap<>();
-        manifest.path("assets").forEach(asset -> hashes.put(
+        bundle.assets().forEach(asset -> hashes.put(
                 asset.path("assetId").asText(),
                 asset.path("sha256").asText()));
         JsonNode slide = theme.document().path("slide");

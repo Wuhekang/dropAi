@@ -12,10 +12,27 @@ public record ProductionRenderPlanRequest(
         Map<String, String> metadata,
         List<String> sourceBlocks,
         PptOutlineValidatorV1.ValidationResult validatedTree,
-        PptContentPlannerV2.PlannerInput plannerInput
+        PptContentPlannerV2.PlannerInput plannerInput,
+        String templatePackId
 ) {
+    /** Compatibility constructor for the frozen academic-purple baseline. */
+    public ProductionRenderPlanRequest(
+            String projectId,
+            Map<String, String> metadata,
+            List<String> sourceBlocks,
+            PptOutlineValidatorV1.ValidationResult validatedTree,
+            PptContentPlannerV2.PlannerInput plannerInput
+    ) {
+        this(projectId, metadata, sourceBlocks, validatedTree, plannerInput, "academic-purple");
+    }
+
     public ProductionRenderPlanRequest {
         metadata = Map.copyOf(metadata);
         sourceBlocks = List.copyOf(sourceBlocks);
+        if (templatePackId == null || templatePackId.isBlank()) {
+            templatePackId = "academic-purple";
+        } else {
+            templatePackId = templatePackId.strip();
+        }
     }
 }

@@ -58,6 +58,29 @@ class ThemeResolverTest {
     }
 
     @Test
+    void resolvesSmallBearAsAConcreteDeterministicOfficialTheme() {
+        ThemeEngine engine = engine(Set.of("Microsoft YaHei", "Noto Sans CJK SC"));
+        ResolvedTheme first = engine.resolve(ThemeResolutionRequest.smallBearWatercolorBlueV1());
+        ResolvedTheme second = engine.resolve(ThemeResolutionRequest.smallBearWatercolorBlueV1());
+
+        assertEquals(ThemeRegistry.SMALL_BEAR_WATERCOLOR_BLUE_V1, first.themeId());
+        assertEquals(
+                List.of("academic-base@1.0.0", "small-bear-watercolor-blue-v1@1.0.0"),
+                first.inheritanceChain());
+        assertEquals(first.canonicalDocument(), second.canonicalDocument());
+        assertEquals(first.hashManifest(), second.hashManifest());
+        assertTrue(first.resolvedThemeHash().matches("sha256:[a-f0-9]{64}"));
+        assertEquals("#4A5A69", first.document()
+                .path("components").path("coverTitle").path("textColor").asText());
+        assertEquals("#4A5A69", first.document()
+                .path("components").path("sectionTitle").path("textColor").asText());
+        assertEquals("#4A5A69", first.document()
+                .path("components").path("slideTitle").path("textColor").asText());
+        assertNotEquals("#4E58A0", first.document()
+                .path("components").path("slideTitle").path("textColor").asText());
+    }
+
+    @Test
     void aggregateThemeSourceHashChangesWhenEitherParentOrChildSourceChanges() {
         ThemeHasher hasher = new ThemeHasher(new ThemeCanonicalizer());
         String original = hasher.hashNamedValues(Map.of(
