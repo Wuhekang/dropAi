@@ -1,2 +1,7 @@
 template-import/packs/*.zip filter=lfs diff=lfs merge=lfs -text
-backend/src/test/resources/ppt/rendering-fixtures/** text eol=lf
+backend/src/test/resources/ppt/rendering-fixtures/**/*.json text eol=lf
+backend/src/test/resources/ppt/rendering-fixtures/**/*.md text eol=lf
+backend/src/test/resources/ppt/rendering-fixtures/**/*.sha256 text eol=lf
+backend/src/test/resources/ppt/rendering-fixtures/**/*.png binary
+backend/src/test/resources/ppt/rendering-fixtures/**/*.jpg binary
+backend/src/test/resources/ppt/rendering-fixtures/**/*.jpeg binary
