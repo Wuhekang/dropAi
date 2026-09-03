@@ -132,7 +132,7 @@
         <header><div><small>{{ group.eyebrow }}</small><h2>{{ group.title }}</h2></div><span>可修改</span></header>
         <div class="rule-grid"><section v-for="item in group.items" :key="item.key" class="rule-card"><h3>{{ item.label }}</h3>
           <label>中文字体<input v-model.trim="item.rule.chineseFont" /></label><label>英文字体<input v-model.trim="item.rule.latinFont" /></label>
-          <label>字号（磅）<input v-model.number="item.rule.fontSizePt" type="number" min="5" max="72" step="0.5" /></label>
+          <label>字号<select v-model.number="item.rule.fontSizePt"><option v-if="!isStandardFontSize(item.rule.fontSizePt)" :value="item.rule.fontSizePt">自定义字号</option><option v-for="size in fontSizeOptions" :key="size.name" :value="size.pt">{{ size.name }}</option></select></label>
           <label>行距<select v-model="item.rule.lineSpacingMode"><option value="single">单倍</option><option value="1.5">1.5 倍</option><option value="double">2 倍</option><option value="multiple">多倍</option><option value="fixed">固定值</option><option value="at_least">最小值</option></select></label>
           <label v-if="item.rule.lineSpacingMode === 'fixed'">固定行距（磅）<input v-model.number="item.rule.fixedLineSpacingPt" type="number" min="1" max="200" step="0.5" /></label>
           <label v-else-if="item.rule.lineSpacingMode === 'multiple'">多倍行距（倍）<input v-model.number="item.rule.multipleLineSpacing" type="number" min="0.5" max="10" step="0.05" /></label>
@@ -246,6 +246,16 @@ const POLL_INTERVAL = 1400
 const templateExtensions = new Set(['doc', 'docx', 'dotx'])
 const sourceExtensions = new Set(['docx'])
 const terminalStatuses = new Set(['SUCCESS', 'FAILED', 'AWAITING_CONFIRMATION'])
+const fontSizeOptions = [
+  { name: '初号', pt: 42 }, { name: '小初', pt: 36 },
+  { name: '一号', pt: 26 }, { name: '小一', pt: 24 },
+  { name: '二号', pt: 22 }, { name: '小二', pt: 18 },
+  { name: '三号', pt: 16 }, { name: '小三', pt: 15 },
+  { name: '四号', pt: 14 }, { name: '小四', pt: 12 },
+  { name: '五号', pt: 10.5 }, { name: '小五', pt: 9 },
+  { name: '六号', pt: 7.5 }, { name: '小六', pt: 6.5 },
+  { name: '七号', pt: 5.5 }, { name: '八号', pt: 5 }
+]
 
 const router = useRouter()
 const route = useRoute()
@@ -348,6 +358,11 @@ function clampProgress(value) {
   const number = Number(value)
   if (!Number.isFinite(number)) return 0
   return Math.max(0, Math.min(100, Math.round(number)))
+}
+
+function isStandardFontSize(value) {
+  const number = Number(value)
+  return fontSizeOptions.some(size => Math.abs(size.pt - number) < 0.001)
 }
 
 function inferStepIndex(currentJob, currentScreen, progress) {
