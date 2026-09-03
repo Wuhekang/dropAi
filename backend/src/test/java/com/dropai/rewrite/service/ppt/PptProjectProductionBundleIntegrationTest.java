@@ -109,7 +109,7 @@ class PptProjectProductionBundleIntegrationTest {
         assertTrue(failure.getMessage().contains("RenderPlan 未准备好或不存在"));
         assertFalse(Files.exists(projectRoot().resolve("outputs")));
         verify(skill).requireManifest();
-        verify(points,never()).chargeAfterSuccess(anyString(),anyString(),any());
+        verify(points,never()).chargeAfterSuccess(anyString(),anyString(),anyString(),any());
         verify(coordinator,never()).runtimeExpectations(org.mockito.ArgumentMatchers.anyString());
     }
 
@@ -119,9 +119,9 @@ class PptProjectProductionBundleIntegrationTest {
         JdbcTemplate jdbc=jdbcForProject(PROJECT_ID,"PLANNED");
         PointService points=mock(PointService.class);
         doAnswer(invocation->{
-            ((Supplier<?>)invocation.getArgument(2)).get();
+            ((Supplier<?>)invocation.getArgument(3)).get();
             throw new IllegalStateException("billing transaction failed");
-        }).when(points).chargeAfterSuccess(anyString(),anyString(),any());
+        }).when(points).chargeAfterSuccess(anyString(),anyString(),anyString(),any());
         ProductionRenderPlanCoordinator coordinator=mock(ProductionRenderPlanCoordinator.class);
         when(coordinator.runtimeExpectations("academic-purple")).thenReturn(RenderPlanBundleTestSupport.expectations());
         PptProjectService service=service(jdbc,mock(PptGenerationSkillService.class),points,coordinator);
@@ -158,7 +158,7 @@ class PptProjectProductionBundleIntegrationTest {
                 ()->service.generate(otherProject));
 
         assertTrue(failure.getMessage().contains("RenderPlan 与当前PPT项目不匹配"));
-        verify(points,never()).chargeAfterSuccess(anyString(),anyString(),any());
+        verify(points,never()).chargeAfterSuccess(anyString(),anyString(),anyString(),any());
     }
 
     @Test
@@ -175,7 +175,7 @@ class PptProjectProductionBundleIntegrationTest {
                 ()->service.generate(PROJECT_ID));
 
         assertTrue(failure.getMessage().contains("项目内容变更而失效"));
-        verify(points,never()).chargeAfterSuccess(anyString(),anyString(),any());
+        verify(points,never()).chargeAfterSuccess(anyString(),anyString(),anyString(),any());
         verify(coordinator,never()).runtimeExpectations(org.mockito.ArgumentMatchers.anyString());
     }
 
@@ -237,8 +237,9 @@ class PptProjectProductionBundleIntegrationTest {
 
     private PointService transparentPoints() {
         PointService points = mock(PointService.class);
-        doAnswer(invocation -> ((Supplier<?>) invocation.getArgument(2)).get())
-                .when(points).chargeAfterSuccess(anyString(), anyString(), any());
+        when(points.featureCostPoints(anyString())).thenReturn(100);
+        doAnswer(invocation -> ((Supplier<?>) invocation.getArgument(3)).get())
+                .when(points).chargeAfterSuccess(anyString(), anyString(), anyString(), any());
         return points;
     }
 
