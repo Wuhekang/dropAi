@@ -33,6 +33,21 @@ PRESERVED_TEXT_PARTS = (
     "word/endnotes.xml",
     "word/comments.xml",
 )
+COUNT_TAGS = {
+    "text_node_count": ("w", "t"),
+    "paragraph_count": ("w", "p"),
+    "table_count": ("w", "tbl"),
+    "section_count": ("w", "sectPr"),
+    "drawing_count": ("w", "drawing"),
+    "pict_count": ("w", "pict"),
+    "blip_count": ("a", "blip"),
+    "field_char_count": ("w", "fldChar"),
+    "instruction_text_count": ("w", "instrText"),
+    "bookmark_start_count": ("w", "bookmarkStart"),
+    "bookmark_end_count": ("w", "bookmarkEnd"),
+    "content_control_count": ("w", "sdt"),
+    "hyperlink_count": ("w", "hyperlink"),
+}
 
 
 class IntegrityValidationError(RuntimeError):
@@ -80,6 +95,44 @@ def _sha256(data: bytes) -> str:
 def _text_hash(root: ET.Element) -> str:
     values = [node.text or "" for node in root.findall(".//w:t", NS)]
     return _sha256("\u241e".join(values).encode("utf-8"))
+
+
+def _body_suffix_snapshot(root: ET.Element, paragraph_start: int = 1) -> dict[str, Any]:
+    """Inspect the body from a 1-based top-level paragraph onward."""
+    body = root.find(".//w:body", NS)
+    if body is None:
+        raise IntegrityValidationError("DOCX 缺少正文 body")
+    requested = max(1, paragraph_start)
+    seen = 0
+    selected: list[ET.Element] = []
+    started = requested == 1
+    paragraph_tag = f"{{{NS['w']}}}p"
+    for child in body:
+        if child.tag == paragraph_tag:
+            seen += 1
+            if seen >= requested:
+                started = True
+        if started:
+            selected.append(child)
+
+    def descendants(prefix: str, local_name: str):
+        tag = f"{{{NS[prefix]}}}{local_name}"
+        return [node for child in selected for node in child.iter(tag)]
+
+    text = "".join(node.text or "" for node in descendants("w", "t"))
+    snapshot: dict[str, Any] = {"visible_text": text}
+    for key, (prefix, local_name) in COUNT_TAGS.items():
+        snapshot[key] = len(descendants(prefix, local_name))
+    return snapshot
+
+
+def inspect_docx_body(path: str | Path, paragraph_start: int = 1) -> dict[str, Any]:
+    try:
+        with zipfile.ZipFile(Path(path)) as package:
+            root = ET.fromstring(package.read("word/document.xml"))
+            return _body_suffix_snapshot(root, paragraph_start)
+    except (zipfile.BadZipFile, KeyError, ET.ParseError) as exc:
+        raise IntegrityValidationError("无法读取 DOCX 正文以执行完整性校验") from exc
 
 
 def _preserved_part_hashes(package: zipfile.ZipFile, names: set[str]) -> dict[str, str]:
@@ -177,6 +230,7 @@ def validate_preservation(
     *,
     expected_source_sha256: str | None = None,
     allow_front_matter: bool = False,
+    source_body_start: int = 1,
 ) -> IntegrityResult:
     source = Path(source_path)
     output = Path(output_path)
@@ -192,11 +246,15 @@ def validate_preservation(
         if before[key] != after.get(key)
     }
     if allow_front_matter:
-        count_keys = {"text_node_count", "paragraph_count", "table_count", "section_count", "drawing_count", "pict_count", "blip_count", "field_char_count", "instruction_text_count", "bookmark_start_count", "bookmark_end_count", "content_control_count", "hyperlink_count"}
+        source_body = inspect_docx_body(source, source_body_start)
+        output_body = inspect_docx_body(output)
         for key in list(differences):
-            if key == "body_text_sha256" or key in {"preserved_text_parts", "relationships"}:
+            if key == "body_text_sha256":
+                if source_body["visible_text"] in output_body["visible_text"]:
+                    differences.pop(key, None)
+            elif key in COUNT_TAGS and output_body.get(key, 0) >= source_body.get(key, 0):
                 differences.pop(key, None)
-            elif key in count_keys and after.get(key, 0) >= before.get(key, 0):
+            elif key in {"preserved_text_parts", "relationships"}:
                 differences.pop(key, None)
             elif key == "preserved_parts":
                 source_hashes = set(before[key].values())

@@ -17,6 +17,8 @@ import time
 from typing import Any
 import uuid
 
+from docx import Document
+
 from word_formatter import __version__
 from word_formatter.core.analyzer import DocumentAnalyzer, DocumentInfo
 from word_formatter.core.doubao_parser import DoubaoRuleParser
@@ -429,6 +431,7 @@ def run_job(args: argparse.Namespace) -> dict[str, Any]:
 
         current_progress = 56
         emit_progress(current_progress, "processing", "正在把模板规则安全应用到论文副本")
+        source_body_start = DocumentProcessor._main_content_start(Document(source))
         output.parent.mkdir(parents=True, exist_ok=True)
         staging = output.with_name(
             f".{output.stem}.{uuid.uuid4().hex}.working.docx"
@@ -440,7 +443,11 @@ def run_job(args: argparse.Namespace) -> dict[str, Any]:
         current_progress = 88
         emit_progress(current_progress, "integrity_check", "正在校验文字、图片、表格、域、书签和关系部件完整性")
         integrity = validate_preservation(
-            source, staging, expected_source_sha256=source_hash_before, allow_front_matter=True
+            source,
+            staging,
+            expected_source_sha256=source_hash_before,
+            allow_front_matter=True,
+            source_body_start=source_body_start,
         )
         if sha256_file(template) != template_hash_before:
             raise IntegrityValidationError("处理期间格式模板发生变化，已拒绝交付输出")
