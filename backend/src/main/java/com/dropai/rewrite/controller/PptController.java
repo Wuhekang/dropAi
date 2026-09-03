@@ -5,6 +5,7 @@ import com.dropai.rewrite.service.ppt.PptProjectService;
 import com.dropai.rewrite.service.ppt.PptPlanService;
 import com.dropai.rewrite.service.ppt.SourceDocumentPrecheckService;
 import com.dropai.rewrite.service.ppt.PptTemplateService;
+import com.dropai.rewrite.service.ppt.enhancement.PptEnhancementService;
 import com.dropai.rewrite.vo.Result;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.http.ContentDisposition;
@@ -31,7 +32,8 @@ public class PptController {
     private final PptProjectService service;
     private final PptPlanService plans;
     private final PptTemplateService templates;
-    public PptController(PptProjectService service,PptPlanService plans,PptTemplateService templates){this.service=service;this.plans=plans;this.templates=templates;}
+    private final PptEnhancementService enhancements;
+    public PptController(PptProjectService service,PptPlanService plans,PptTemplateService templates,PptEnhancementService enhancements){this.service=service;this.plans=plans;this.templates=templates;this.enhancements=enhancements;}
 
     @GetMapping("/templates") public Result<List<Map<String,Object>>> templates(){return Result.success(templates.list());}
     @GetMapping("/projects") public Result<List<Map<String,Object>>> list(){return Result.success(service.list());}
@@ -50,6 +52,10 @@ public class PptController {
     @GetMapping("/projects/{id}/pages") public Result<List<Map<String,Object>>> pages(@PathVariable String id){return Result.success(service.pages(id));}
     @PostMapping("/projects/{id}/pages/{pageId}/retry") public Result<Map<String,Object>> retryPage(@PathVariable String id,@PathVariable String pageId){return Result.success(service.retryPage(id,pageId));}
     @GetMapping("/projects/{id}/download") public ResponseEntity<FileSystemResource> download(@PathVariable String id)throws Exception{FileSystemResource file=service.download(id);return ResponseEntity.ok().contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.presentationml.presentation")).contentLength(file.contentLength()).header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment().filename(service.downloadName(id),StandardCharsets.UTF_8).build().toString()).body(file);}
+    @GetMapping("/projects/{id}/enhancements/quote") public Result<Map<String,Object>> enhancementQuote(@PathVariable String id){return Result.success(enhancements.quote(id));}
+    @PostMapping("/projects/{id}/enhancements") public Result<Map<String,Object>> enhance(@PathVariable String id,@RequestBody Map<String,Object> input){return Result.success(enhancements.start(id,input));}
+    @GetMapping("/projects/{id}/enhancements/{taskId}") public Result<Map<String,Object>> enhancementStatus(@PathVariable String id,@PathVariable String taskId){return Result.success(enhancements.status(id,taskId));}
+    @GetMapping("/projects/{id}/enhancements/{taskId}/download") public ResponseEntity<FileSystemResource> enhancementDownload(@PathVariable String id,@PathVariable String taskId)throws Exception{FileSystemResource file=enhancements.download(id,taskId);return ResponseEntity.ok().contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.presentationml.presentation")).contentLength(file.contentLength()).header(HttpHeaders.CONTENT_DISPOSITION,ContentDisposition.attachment().filename(enhancements.downloadName(id,taskId),StandardCharsets.UTF_8).build().toString()).body(file);}
 
     @org.springframework.web.bind.annotation.ExceptionHandler(PointsNotEnoughException.class)
     public Result<?> points(PointsNotEnoughException e){return Result.fail("PAY_REQUIRED","积分不足，请前往积分中心充值",e.toResponse());}

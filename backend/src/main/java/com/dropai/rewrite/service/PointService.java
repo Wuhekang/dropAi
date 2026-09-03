@@ -67,6 +67,21 @@ public class PointService {
         return result;
     }
 
+    /**
+     * Charges only after artifact creation succeeds and binds the accounting entry
+     * to the immutable job that produced it.
+     */
+    @Transactional
+    public <T> T chargeAfterSuccess(String featureCode, String jobId, String remark, Supplier<T> action) {
+        Long userId = AuthContext.requireUserId();
+        FeaturePricing pricing = requirePricing(featureCode);
+        ensureEnough(userId, pricing);
+        int costPoints = value(pricing.getCostPoints());
+        T result = action.get();
+        deductCustom(userId, jobId, pricing.getFeatureCode(), pricing.getFeatureName(), costPoints, remark);
+        return result;
+    }
+
     @Transactional
     public <T> T chargeCustomAfterSuccess(String featureCode, int costPoints, String remark, Supplier<T> action) {
         Long userId = AuthContext.requireUserId();

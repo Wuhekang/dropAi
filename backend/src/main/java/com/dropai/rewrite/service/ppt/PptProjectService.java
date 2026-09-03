@@ -22,6 +22,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.security.MessageDigest;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -30,6 +31,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.HexFormat;
 
 @Service
 public class PptProjectService {
@@ -101,14 +103,15 @@ public class PptProjectService {
             throw new IllegalStateException("RenderPlan 与当前PPT项目不匹配，请重新生成PPT方案");
         }
         String taskId=UUID.randomUUID().toString();LocalDateTime now=LocalDateTime.now();
+        int generationCost=points.featureCostPoints(FEATURE_CODE);
         AtomicReference<Path> generatedOutput=new AtomicReference<>();
         boolean claimed=false;
         try{
             int claim=jdbc.update("UPDATE ppt_project SET status='GENERATING',current_stage='PureRenderer 正在执行冻结计划',progress=60,output_path=NULL,error_message=NULL,updated_at=? WHERE id=? AND user_id=? AND status=?",now,id,userId,string(project.get("status")));
             if(claim!=1)throw new IllegalStateException("PPT生成任务已被其他请求领取，请稍后查看进度");
             claimed=true;
-            jdbc.update("INSERT INTO ppt_generation_task(id,project_id,user_id,status,progress,current_stage,created_at,updated_at) VALUES(?,?,?,'RUNNING',60,'加载冻结渲染计划',?,?)",taskId,id,userId,now,now);
-            return points.chargeAfterSuccess(FEATURE_CODE,"PPT智能生成："+string(project.get("topic")),()->{
+            jdbc.update("INSERT INTO ppt_generation_task(id,project_id,user_id,status,progress,current_stage,cost_points,created_at,updated_at) VALUES(?,?,?,'RUNNING',60,'加载冻结渲染计划',?,?,?)",taskId,id,userId,generationCost,now,now);
+            return points.chargeAfterSuccess(FEATURE_CODE,taskId,"PPT智能生成："+string(project.get("topic")),()->{
                 try{
                     List<Map<String,Object>> pageTasks=jdbc.queryForList("SELECT id FROM ppt_page_task WHERE project_id=? ORDER BY id",id);
                     int completed=0;
@@ -127,9 +130,10 @@ public class PptProjectService {
                     if(expectedSlides!=rendered.slideCount())throw new IllegalStateException("PureRenderer 输出页数与冻结 RenderPlan 不一致");
                     jdbc.update("UPDATE ppt_page_task SET status='SUCCESS',progress=100,completed_at=? WHERE project_id=?",LocalDateTime.now(),id);
                     jdbc.update("UPDATE ppt_project SET status='SUCCESS',current_stage='生成完成',progress=100,output_path=?,error_message=NULL,updated_at=? WHERE id=? AND user_id=?",output.toString(),LocalDateTime.now(),id,userId);
-                    jdbc.update("UPDATE ppt_generation_task SET status='SUCCESS',progress=100,current_stage='生成完成',updated_at=? WHERE id=?",LocalDateTime.now(),taskId);
+                    String outputSha256=sha256(output);
+                    jdbc.update("UPDATE ppt_generation_task SET status='SUCCESS',progress=100,current_stage='生成完成',charged_points=?,output_path=?,output_sha256=?,render_plan_hash=?,template_pack_id=?,slide_count=?,completed_at=?,updated_at=? WHERE id=?",generationCost,output.toString(),outputSha256,rendered.renderPlanHash(),templatePackId,rendered.slideCount(),LocalDateTime.now(),LocalDateTime.now(),taskId);
                     Map<String,Object> result=detail(id,userId);
-                    result.put("validationStatus","VALID");result.put("autoFixes",List.of());result.put("renderPlanHash",rendered.renderPlanHash());result.put("rendererVersion",rendered.rendererVersion());result.put("slideCount",rendered.slideCount());result.put("writtenBytes",rendered.writtenBytes());result.put("assetCount",bundle.assetCount());result.put("templatePackId",templatePackId);
+                    result.put("validationStatus","VALID");result.put("autoFixes",List.of());result.put("renderPlanHash",rendered.renderPlanHash());result.put("rendererVersion",rendered.rendererVersion());result.put("slideCount",rendered.slideCount());result.put("writtenBytes",rendered.writtenBytes());result.put("assetCount",bundle.assetCount());result.put("templatePackId",templatePackId);result.put("generationTaskId",taskId);result.put("chargedPoints",generationCost);result.put("outputSha256",outputSha256);
                     return result;
                 }catch(java.io.IOException exception){
                     throw new IllegalStateException("PureRenderer 生成PPTX失败："+exception.getMessage(),exception);
@@ -192,6 +196,7 @@ public class PptProjectService {
     static String resolveAnalyzedTopic(String configuredTopic,Map<String,String> metadata,String parserFallback){String configured=configuredTopic==null?"":configuredTopic.strip();if(!configured.isBlank())return configured;String extracted=metadata==null?"":metadata.getOrDefault("title","").strip();if(!extracted.isBlank())return extracted;return parserFallback==null?"":parserFallback.strip();}
     private String string(Object v){return v==null?"":String.valueOf(v);}
     private String safeError(Throwable error){String message=error==null?"":string(error.getMessage()).replaceAll("[\\r\\n]+"," ").trim();return message.isBlank()?"PPT生成失败":message.substring(0,Math.min(500,message.length()));}
+    private String sha256(Path path){try{MessageDigest digest=MessageDigest.getInstance("SHA-256");try(var input=Files.newInputStream(path)){byte[]buffer=new byte[8192];for(int read;(read=input.read(buffer))>=0;){if(read>0)digest.update(buffer,0,read);}}return HexFormat.of().formatHex(digest.digest());}catch(Exception exception){throw new IllegalStateException("PPTX哈希计算失败",exception);}}
     private int integer(Object v,int d){try{return v instanceof Number n?n.intValue():Integer.parseInt(string(v));}catch(Exception e){return d;}}
     private List<String> stringList(Object value){if(value instanceof List<?>l)return l.stream().map(this::string).filter(x->!x.isBlank()).toList();return List.of();}
 }

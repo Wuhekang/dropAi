@@ -745,6 +745,10 @@ export function regeneratePptSlide(id, slideId) { return request.post(`/ppt/proj
 export function generatePptFile(id) { return request.post(`/ppt/projects/${id}/generate`, {}, { timeout: 600000 }) }
 export function getPptProgress(id) { return request.get(`/ppt/projects/${id}/progress`) }
 export function downloadPptFile(id) { return request.get(`/ppt/projects/${id}/download`, { responseType: 'blob', timeout: 300000 }) }
+export function getPptEnhancementQuote(id) { return request.get(`/ppt/projects/${id}/enhancements/quote`) }
+export function startPptEnhancement(id, data) { return request.post(`/ppt/projects/${id}/enhancements`, data) }
+export function getPptEnhancementTask(id, taskId) { return request.get(`/ppt/projects/${id}/enhancements/${taskId}`) }
+export function downloadPptEnhancement(id, taskId) { return request.get(`/ppt/projects/${id}/enhancements/${taskId}/download`, { responseType: 'blob', timeout: 300000 }) }
 export function listPptTemplates() { return request.get('/ppt/templates') }
 export function validateDiagram(dsl) { return request.post('/diagram/validate', { dsl }) }
 export function renderDiagram(projectId, dsl, signal) { return request.post('/diagram/render', { projectId, dsl }, { timeout: 30000, signal }) }
