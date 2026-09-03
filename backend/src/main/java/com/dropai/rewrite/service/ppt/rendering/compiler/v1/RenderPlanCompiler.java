@@ -257,6 +257,7 @@ public final class RenderPlanCompiler {
             case COVER -> compileCover(elements, slideId, page, tree.path("metadata"), recipe, fontProfile, styles);
             case AGENDA -> compileAgenda(elements, slideId, page, tree.path("agendaSections"), recipe,
                     fontProfile, styles, index, slideCount);
+            case SECTION -> compileSection(elements, slideId, page, recipe, fontProfile, styles);
             case CONTENT -> compileContent(elements, slideId, page, recipe, assets, fontProfile, styles,
                     index, slideCount);
             case IMAGE -> compileImage(elements, slideId, page, recipe, assets, fontProfile, styles,
@@ -342,6 +343,19 @@ public final class RenderPlanCompiler {
                     "CENTER", "MIDDLE", 230, fonts, styles);
         }
         addFooter(elements, slideId, recipe, index, slideCount, fonts, styles);
+    }
+
+    private void compileSection(
+            ArrayNode elements,
+            String slideId,
+            JsonNode page,
+            LayoutRecipe recipe,
+            ResolvedFontProfile fonts,
+            ThemePlanStyleResolver styles
+    ) {
+        addText(elements, slideId, "title", requiredText(page, "title"), requiredSlot(recipe, "title"),
+                "sectionTitle", "sectionTitle", "display", recipe.constraints().titleMaxLines(),
+                "CENTER", "MIDDLE", 220, fonts, styles);
     }
 
     private void compileContent(
@@ -1135,6 +1149,7 @@ public final class RenderPlanCompiler {
             case IMAGE -> assetCount == 1 && tableCount == 0;
             case TABLE -> assetCount == 0 && tableCount == 1;
             case CONTENT -> assetCount <= 1 && tableCount == 0;
+            case SECTION -> assetCount == 0 && tableCount == 0;
             default -> true;
         };
         if (!valid) {

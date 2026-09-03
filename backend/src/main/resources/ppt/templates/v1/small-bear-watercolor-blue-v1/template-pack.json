@@ -1,9 +1,9 @@
 {
   "schemaVersion": "template-pack.v1",
   "templatePackId": "small-bear-watercolor-blue-v1",
-  "templatePackVersion": "1.0.0",
+  "templatePackVersion": "1.1.0",
   "displayName": "小熊熊·晕染水彩蓝",
-  "description": "由小熊熊素材 37 清洗得到的浅蓝水彩学术答辩模板；仅保留无文字水彩角饰，并为正文重建纯白背景。",
+  "description": "由小熊熊素材 37 清洗得到的浅蓝水彩学术答辩模板；封面、目录、章节、图片与致谢页使用无文字水彩角饰，正文保留清晰白底。",
   "sourceTemplate": {
     "fileName": "小熊熊素材 (37).pptx",
     "sha256": "sha256:9ef26c051c77b97de54a762b1b0528c2956d2bbeaa771b72e0c2f0b99c8d6d37",
@@ -38,8 +38,9 @@
   "surfaces": {
     "COVER": "tpl-small-bear-watercolor-blue-v1-watercolor",
     "AGENDA": "tpl-small-bear-watercolor-blue-v1-watercolor",
+    "SECTION": "tpl-small-bear-watercolor-blue-v1-watercolor",
     "CONTENT": "tpl-small-bear-watercolor-blue-v1-white",
-    "IMAGE": "tpl-small-bear-watercolor-blue-v1-white",
+    "IMAGE": "tpl-small-bear-watercolor-blue-v1-watercolor",
     "TABLE": "tpl-small-bear-watercolor-blue-v1-white",
     "SUMMARY": "tpl-small-bear-watercolor-blue-v1-white",
     "THANKS": "tpl-small-bear-watercolor-blue-v1-watercolor"

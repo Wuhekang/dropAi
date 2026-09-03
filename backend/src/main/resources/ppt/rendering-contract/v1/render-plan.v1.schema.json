@@ -42,7 +42,7 @@
       "pattern": "^#[A-Fa-f0-9]{6}$"
     },
     "pageType": {
-      "enum": ["COVER", "AGENDA", "CONTENT", "IMAGE", "TABLE", "SUMMARY", "THANKS"]
+      "enum": ["COVER", "AGENDA", "SECTION", "CONTENT", "IMAGE", "TABLE", "SUMMARY", "THANKS"]
     },
     "renderElementType": {
       "enum": ["TEXT", "IMAGE", "SHAPE", "TABLE", "CONNECTOR"]
@@ -64,6 +64,7 @@
         "cover-centered.v1",
         "cover-centered-long-title.v1",
         "agenda-vertical-steps.v1",
+        "section-centered.v1",
         "content-single-insight.v1",
         "content-three-cards.v1",
         "content-text-visual-split.v1",

@@ -45,6 +45,8 @@ class RenderingTemplatePackCompilerTest {
             assertEquals(0, slide.path("elements").get(1).path("yEmu").asLong());
             if (PageType.IMAGE.name().equals(slide.path("pageType").asText())) {
                 assertEquals(1, contentImages, slide.path("slideId").asText());
+                assertEquals("tpl-small-bear-watercolor-blue-v1-watercolor",
+                        slide.path("elements").get(1).path("assetId").asText());
             } else {
                 assertEquals(0, contentImages, slide.path("slideId").asText());
             }

@@ -1,10 +1,11 @@
 {
   "catalogId": "academic-layouts-v1",
-  "catalogVersion": "1.1.0",
+  "catalogVersion": "1.2.0",
   "layouts": [
     { "layoutId": "cover-centered.v1", "resource": "ppt/layouts/v1/cover-centered.v1.json" },
     { "layoutId": "cover-centered-long-title.v1", "resource": "ppt/layouts/v1/cover-centered-long-title.v1.json" },
     { "layoutId": "agenda-vertical-steps.v1", "resource": "ppt/layouts/v1/agenda-vertical-steps.v1.json" },
+    { "layoutId": "section-centered.v1", "resource": "ppt/layouts/v1/section-centered.v1.json" },
     { "layoutId": "content-single-insight.v1", "resource": "ppt/layouts/v1/content-single-insight.v1.json" },
     { "layoutId": "content-three-cards.v1", "resource": "ppt/layouts/v1/content-three-cards.v1.json" },
     { "layoutId": "content-text-visual-split.v1", "resource": "ppt/layouts/v1/content-text-visual-split.v1.json" },

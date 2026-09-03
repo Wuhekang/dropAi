@@ -21,10 +21,14 @@ class PptOutlineValidatorV1Test {
         var result=validator.validate(new PptOutlineValidatorV1.ValidationRequest(Map.of("title","健康管理系统设计与实现","englishTitle","Health Management System","presenter","测试学生","major","软件工程","advisor","测试教师","studentNumber","20260001"),outline));
         assertTrue(result.valid(),result.issues().toString());
         assertEquals("FULL_PRESENTATION_TREE",result.treeType());
-        assertEquals(List.of("COVER","AGENDA","CONTENT","SUMMARY","THANKS"),result.slideTree().stream().map(PptOutlineValidatorV1.FullSlideNode::pageType).toList());
+        assertEquals(List.of("COVER","AGENDA","SECTION","CONTENT","SECTION","SUMMARY","THANKS"),result.slideTree().stream().map(PptOutlineValidatorV1.FullSlideNode::pageType).toList());
+        assertEquals("01 项目背景与需求",result.slideTree().get(2).title());
+        assertEquals("02 总结展望",result.slideTree().get(4).title());
         assertFalse(result.slideTree().get(1).agendaItems().isEmpty());
+        assertEquals(List.of(3,4),result.slideTree().get(1).agendaItems().get(0).pageRange());
+        assertEquals(List.of(5,6),result.slideTree().get(1).agendaItems().get(1).pageRange());
         assertEquals("测试学生",result.slideTree().get(0).payload().presenter());
-        assertEquals(List.of(1,2,3,4,5),result.slideTree().stream().map(PptOutlineValidatorV1.FullSlideNode::pageNumber).toList());
+        assertEquals(List.of(1,2,3,4,5,6,7),result.slideTree().stream().map(PptOutlineValidatorV1.FullSlideNode::pageNumber).toList());
         assertDoesNotThrow(()->validator.requireValid(result));
     }
 

@@ -88,6 +88,7 @@ public final class PageRenderabilityValidator {
         switch (pageType) {
             case COVER -> validateCover(tree, page, pageIndex, pageId, issues);
             case AGENDA -> validateAgenda(tree, pageIndex, pageId, issues);
+            case SECTION -> validateSection(page, pageIndex, pageId, issues);
             case CONTENT -> {
                 validateContent(page, contentType, pageIndex, pageId, issues);
                 validateOptionalImageBindings(page, assets, pageIndex, pageId, issues);
@@ -106,6 +107,23 @@ public final class PageRenderabilityValidator {
                             "Thanks page must contain stable closing description text"));
                 }
             }
+        }
+    }
+
+    private void validateSection(
+            JsonNode page,
+            int pageIndex,
+            String pageId,
+            List<PageRenderabilityIssue> issues
+    ) {
+        JsonNode assets = page.path("assets");
+        JsonNode tables = page.path("tables");
+        if (!assets.isArray() || !tables.isArray()) {
+            issues.add(issue(PptQualityCode.UNRENDERABLE_PAGE, pageIndex, pageId,
+                    "Section divider must declare empty assets and tables arrays"));
+        } else if (!assets.isEmpty() || !tables.isEmpty()) {
+            issues.add(issue(PptQualityCode.UNRENDERABLE_PAGE, pageIndex, pageId,
+                    "Section divider must not bind content assets or tables"));
         }
     }
 
