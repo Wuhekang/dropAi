@@ -15,6 +15,7 @@ from docx.enum.table import (
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
+from docx.opc.constants import RELATIONSHIP_TYPE as RT
 from docx.shared import Cm, Mm, Pt
 from docx.table import Table
 from docxcompose.composer import Composer
@@ -123,9 +124,12 @@ class DocumentProcessor:
             result.save_log(output.with_suffix(".log.json"))
             return result
         except Exception as exc:
-            result.warnings.append(f"处理失败：{exc}")
+            detail = str(exc).strip() or repr(exc)
+            result.warnings.append(f"处理失败（{exc.__class__.__name__}）：{detail}")
             result.save_log(output.with_suffix(".failed.log.json"))
-            raise RuntimeError("文档处理失败，原文件未改动。") from exc
+            raise RuntimeError(
+                f"文档处理失败，原文件未改动。根因：{exc.__class__.__name__}: {detail}"
+            ) from exc
 
     @classmethod
     def _compose_with_template_front(cls, source: Path, template: Path, result: ProcessResult):
@@ -141,11 +145,40 @@ class DocumentProcessor:
             if template_start <= 1:
                 result.warnings.append("模板未识别到独立前置页，保留论文原有前置内容。")
                 return source_doc
+            cls._repair_missing_numbering_part(source_doc, result)
             cls._trim_body(template_doc, keep_before=template_start)
             cls._trim_body(source_doc, remove_before=source_start)
             Composer(template_doc).append(source_doc)
             result.records.append(ChangeRecord(None, "模板前置内容", f"论文原前置段落 {max(0, source_start - 1)} 个", f"复制模板前置段落 {template_start - 1} 个", "固定系统规则"))
             return template_doc
+
+    @staticmethod
+    def _repair_missing_numbering_part(document, result: ProcessResult) -> None:
+        """Repair DOCX files containing dangling numPr references.
+
+        Some Word/WPS documents contain numbering references but omit
+        ``word/numbering.xml``. python-docx cannot create that part itself and
+        docxcompose consequently raises a message-less NotImplementedError.
+        Since the referenced definitions do not exist, remove those dangling
+        references and add an empty, valid numbering part before composition.
+        """
+        try:
+            document.part.part_related_by(RT.NUMBERING)
+            return
+        except KeyError:
+            pass
+
+        removed = 0
+        for root in (document.element.body, document.styles.element):
+            for num_pr in list(root.xpath(".//w:numPr")):
+                parent = num_pr.getparent()
+                if parent is not None:
+                    parent.remove(num_pr)
+                    removed += 1
+        Composer(document).numbering_part()
+        result.warnings.append(
+            f"论文缺少编号定义，已移除 {removed} 个无效编号引用并补建编号部件。"
+        )
 
     @staticmethod
     def _trim_body(document, keep_before: int | None = None, remove_before: int | None = None) -> None:

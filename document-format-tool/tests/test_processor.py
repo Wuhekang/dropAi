@@ -10,6 +10,7 @@ from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
+from docx.opc.constants import RELATIONSHIP_TYPE as RT
 from docx.shared import Pt
 from docx.table import Table
 
@@ -18,7 +19,30 @@ TOOL_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TOOL_ROOT))
 
 from word_formatter.core.processor import DocumentProcessor  # noqa: E402
+from word_formatter.models.results import ProcessResult  # noqa: E402
 from word_formatter.models.rules import DocumentRules  # noqa: E402
+
+
+class DocumentProcessorCompatibilityTests(unittest.TestCase):
+    def test_repairs_dangling_numbering_references_before_composition(self) -> None:
+        document = Document()
+        paragraph = document.add_paragraph("带有损坏编号引用的正文")
+        num_pr = OxmlElement("w:numPr")
+        num_id = OxmlElement("w:numId")
+        num_id.set(qn("w:val"), "9")
+        num_pr.append(num_id)
+        paragraph._p.get_or_add_pPr().append(num_pr)
+        numbering_rel = next(
+            rel for rel in document.part.rels.values() if rel.reltype == RT.NUMBERING
+        )
+        del document.part.rels[numbering_rel.rId]
+        result = ProcessResult(Path("source.docx"), Path("output.docx"))
+
+        DocumentProcessor._repair_missing_numbering_part(document, result)
+
+        self.assertFalse(document.element.body.xpath(".//w:numPr"))
+        self.assertIsNotNone(document.part.part_related_by(RT.NUMBERING))
+        self.assertTrue(any("缺少编号定义" in item for item in result.warnings))
 
 
 class DocumentProcessorTableTests(unittest.TestCase):
