@@ -176,6 +176,7 @@ def validate_preservation(
     output_path: str | Path,
     *,
     expected_source_sha256: str | None = None,
+    allow_front_matter: bool = False,
 ) -> IntegrityResult:
     source = Path(source_path)
     output = Path(output_path)
@@ -190,6 +191,18 @@ def validate_preservation(
         for key in before
         if before[key] != after.get(key)
     }
+    if allow_front_matter:
+        count_keys = {"text_node_count", "paragraph_count", "table_count", "section_count", "drawing_count", "pict_count", "blip_count", "field_char_count", "instruction_text_count", "bookmark_start_count", "bookmark_end_count", "content_control_count", "hyperlink_count"}
+        for key in list(differences):
+            if key == "body_text_sha256" or key in {"preserved_text_parts", "relationships"}:
+                differences.pop(key, None)
+            elif key in count_keys and after.get(key, 0) >= before.get(key, 0):
+                differences.pop(key, None)
+            elif key == "preserved_parts":
+                source_hashes = set(before[key].values())
+                output_hashes = set(after[key].values())
+                if source_hashes.issubset(output_hashes):
+                    differences.pop(key, None)
     result = IntegrityResult(
         passed=not differences,
         differences=differences,

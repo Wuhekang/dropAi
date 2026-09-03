@@ -163,7 +163,11 @@ class FormatCliTests(unittest.TestCase):
             )
             self.assertIsNone(payload["error"])
             self.assertTrue(output.is_file())
-            self.assertEqual(visible_text(output), text_before)
+            output_text = visible_text(output)
+            self.assertIn("目录", output_text)
+            cursor = 0
+            for item in text_before:
+                cursor = output_text.index(item, cursor) + 1
             self.assertEqual(file_hash(source), source_before)
             self.assertEqual(file_hash(template), template_before)
 
@@ -287,7 +291,7 @@ class FormatCliTests(unittest.TestCase):
             ):
                 validate_runtime_support(template, platform_name="posix")
 
-    def test_doubao_flag_requires_non_empty_instructions(self) -> None:
+    def test_doubao_flag_without_extra_instructions_still_formats_template(self) -> None:
         with tempfile.TemporaryDirectory(prefix="dokiai_format_cli_") as directory:
             root = Path(directory)
             source = root / "source.docx"
@@ -301,11 +305,11 @@ class FormatCliTests(unittest.TestCase):
                 source, template, output, result_json, use_doubao=True
             )
 
-            self.assertNotEqual(completed.returncode, 0)
-            self.assertFalse(output.exists())
+            self.assertEqual(completed.returncode, 0, completed.stderr or completed.stdout)
+            self.assertTrue(output.exists())
             payload = json.loads(result_json.read_text(encoding="utf-8"))
-            self.assertEqual(payload["errorCode"], "INVALID_INPUT")
-            self.assertIn("非空", payload["error"])
+            self.assertTrue(payload["success"])
+            self.assertIsNone(payload["error"])
 
     def test_result_write_failure_removes_published_output(self) -> None:
         with tempfile.TemporaryDirectory(prefix="dokiai_format_cli_") as directory:

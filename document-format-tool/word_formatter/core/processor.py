@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+import os
 import re
+import tempfile
 
 from docx import Document
 from docx.enum.section import WD_ORIENT
@@ -15,8 +17,10 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Mm, Pt
 from docx.table import Table
+from docxcompose.composer import Composer
 
 from word_formatter.core.analyzer import DocumentAnalyzer
+from word_formatter.core.word_converter import WordDocumentConverter
 from word_formatter.models.results import ChangeRecord, ProcessResult
 from word_formatter.models.rules import (
     DocumentRules,
@@ -47,6 +51,7 @@ class DocumentProcessor:
         source_path: str | Path,
         rules: DocumentRules,
         output_path: str | Path | None = None,
+        template_path: str | Path | None = None,
     ) -> ProcessResult:
         source = Path(source_path).resolve()
         self._validate_source(source)
@@ -60,8 +65,10 @@ class DocumentProcessor:
             # summary. Enforce it again here so direct/library callers cannot
             # bypass the fixed table contract.
             enforce_locked_table_policy(rules)
-            document = Document(source)
+            document = self._compose_with_template_front(source, Path(template_path).resolve(), result) if template_path else Document(source)
             content_start = self._main_content_start(document)
+            content_start += self._ensure_toc(document, rules, result, content_start)
+            self._enforce_global_paragraph_policy(document, result)
             if content_start > 1:
                 result.warnings.append(
                     f"已保留正文起点之前的 {content_start - 1} 个段落（封面、声明或目录），不套用正文格式。"
@@ -69,6 +76,7 @@ class DocumentProcessor:
             if rules.page_setup.enabled:
                 self._apply_page_setup(document, rules, result)
             reference_paragraphs = self._reference_paragraphs(document, content_start)
+            self._apply_toc(document, rules, result)
             if rules.figure_caption.enabled:
                 self._apply_figure_captions(
                     document, rules.figure_caption, result, content_start
@@ -102,6 +110,16 @@ class DocumentProcessor:
                 )
             self._request_field_update(document, result)
             document.save(output)
+            if os.name == "nt":
+                try:
+                    WordDocumentConverter().update_fields_in_place(output)
+                    refreshed = Document(output)
+                    self._apply_toc(refreshed, rules, result)
+                    self._request_field_update(refreshed, result)
+                    refreshed.save(output)
+                    WordDocumentConverter().update_fields_in_place(output)
+                except Exception as exc:
+                    result.warnings.append(f"目录域已插入，但自动刷新失败：{exc}")
             result.save_log(output.with_suffix(".log.json"))
             return result
         except Exception as exc:
@@ -109,9 +127,42 @@ class DocumentProcessor:
             result.save_log(output.with_suffix(".failed.log.json"))
             raise RuntimeError("文档处理失败，原文件未改动。") from exc
 
+    @classmethod
+    def _compose_with_template_front(cls, source: Path, template: Path, result: ProcessResult):
+        # Template extraction already supports legacy .doc/.dotx, but the
+        # formatting phase must convert it as well. Passing an OLE .doc path
+        # directly to python-docx produces a misleading missing-officeDocument
+        # relationship error after the user confirms the rules.
+        with WordDocumentConverter().as_docx(template) as readable_template:
+            template_doc = Document(readable_template)
+            source_doc = Document(source)
+            template_start = cls._main_content_start(template_doc)
+            source_start = cls._main_content_start(source_doc)
+            if template_start <= 1:
+                result.warnings.append("模板未识别到独立前置页，保留论文原有前置内容。")
+                return source_doc
+            cls._trim_body(template_doc, keep_before=template_start)
+            cls._trim_body(source_doc, remove_before=source_start)
+            Composer(template_doc).append(source_doc)
+            result.records.append(ChangeRecord(None, "模板前置内容", f"论文原前置段落 {max(0, source_start - 1)} 个", f"复制模板前置段落 {template_start - 1} 个", "固定系统规则"))
+            return template_doc
+
+    @staticmethod
+    def _trim_body(document, keep_before: int | None = None, remove_before: int | None = None) -> None:
+        body = document.element.body
+        paragraphs_seen = 0
+        for child in list(body.iterchildren()):
+            if child.tag == qn("w:sectPr"):
+                continue
+            if child.tag == qn("w:p"):
+                paragraphs_seen += 1
+            remove = (keep_before is not None and paragraphs_seen >= keep_before) or (remove_before is not None and paragraphs_seen < remove_before)
+            if remove:
+                body.remove(child)
+
     @staticmethod
     def default_output_path(source: Path) -> Path:
-        return DocumentProcessor._unique_path(source.with_name(f"{source.stem}_格式修改完成.docx"))
+        return DocumentProcessor._unique_path(source.with_name(f"{source.stem}-格式修订版.docx"))
 
     @staticmethod
     def _validate_source(source: Path) -> None:
@@ -143,15 +194,63 @@ class DocumentProcessor:
             if re.search(r"(?:^|\s)TOC\s*\d+|目录\s*\d+", identity, re.IGNORECASE):
                 toc_indexes.append(index)
         search_from = max(toc_indexes, default=0) + 1
+        # A centered cover title such as “（2027）届毕业论文” can resemble a
+        # level-3 numbered heading. Anchor the body at a top-level heading so
+        # the complete cover/statement section survives the merge.
         for index in range(search_from, len(paragraphs) + 1):
             paragraph = paragraphs[index - 1]
             text = paragraph.text.strip()
             if not text:
                 continue
-            if DocumentAnalyzer.recognized_heading_level(paragraph) is not None:
+            if DocumentAnalyzer.recognized_heading_level(paragraph) == 1:
                 return index
         # 没有标题结构的普通文档仍应从第一段开始处理。
         return 1
+
+    @classmethod
+    def _ensure_toc(
+        cls, document, rules: DocumentRules, result: ProcessResult, content_start: int
+    ) -> int:
+        """Insert a real Word TOC field between copied front matter and body."""
+        if document.element.body.xpath(".//w:instrText[contains(., 'TOC ')]"):
+            return 0
+        paragraphs = document.paragraphs
+        if not paragraphs:
+            return 0
+        anchor = paragraphs[max(0, min(content_start - 1, len(paragraphs) - 1))]._p
+
+        title = document.add_paragraph("目录")
+        cls._format_paragraph(title, rules.toc_title)
+        title._p.get_or_add_pPr().find(qn("w:outlineLvl")).set(qn("w:val"), "9")
+
+        toc = document.add_paragraph()
+        begin = OxmlElement("w:fldChar")
+        begin.set(qn("w:fldCharType"), "begin")
+        begin.set(qn("w:dirty"), "true")
+        instruction = OxmlElement("w:instrText")
+        instruction.set(qn("xml:space"), "preserve")
+        instruction.text = ' TOC \\o "1-3" \\h \\z \\u '
+        separate = OxmlElement("w:fldChar")
+        separate.set(qn("w:fldCharType"), "separate")
+        placeholder = OxmlElement("w:t")
+        placeholder.text = "正在生成目录…"
+        end = OxmlElement("w:fldChar")
+        end.set(qn("w:fldCharType"), "end")
+        for child in (begin, instruction, separate, placeholder, end):
+            run = OxmlElement("w:r")
+            run.append(child)
+            toc._p.append(run)
+
+        page_break = document.add_paragraph()
+        page_break.add_run().add_break()
+        page_break._p.xpath(".//w:br")[-1].set(qn("w:type"), "page")
+
+        for paragraph in (title, toc, page_break):
+            anchor.addprevious(paragraph._p)
+        result.records.append(
+            ChangeRecord(None, "自动目录", "文档中无目录", "封面后插入 1–3 级 Word 目录并刷新页码", "固定系统规则")
+        )
+        return 3
 
     @staticmethod
     def _apply_page_setup(document, rules: DocumentRules, result: ProcessResult) -> None:
@@ -175,6 +274,21 @@ class DocumentProcessor:
                 f"{rule.margin_left_mm:g}/{rule.margin_right_mm:g} mm"
             )
             result.records.append(ChangeRecord(None, f"第 {section_index} 节页面设置", old, new, "启用页面设置规则"))
+
+    @classmethod
+    def _enforce_global_paragraph_policy(cls, document, result: ProcessResult) -> None:
+        image_count = 0
+        for paragraph in document.paragraphs:
+            p_pr = paragraph._p.get_or_add_pPr()
+            for name in ("widowControl", "keepNext", "keepLines", "pageBreakBefore"):
+                cls._set_on_off_property(p_pr, name, False)
+            if paragraph._p.xpath(".//w:drawing | .//w:pict"):
+                paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                paragraph.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
+                image_count += 1
+        result.records.append(ChangeRecord(None, "全局段落策略", "继承原分页属性", "清除段落级换行分页选项", "固定系统规则"))
+        if image_count:
+            result.records.append(ChangeRecord(None, "图片段落", f"{image_count} 个", "居中、单倍行距", "固定系统规则"))
 
     @classmethod
     def _apply_normal_text(
@@ -232,14 +346,28 @@ class DocumentProcessor:
                 else "编号结构与加粗等标题特征的保守识别"
             )
             result.records.append(
-                ChangeRecord(
-                    index,
-                    f"{level} 级标题",
-                    before,
-                    cls._rule_summary(rule),
-                    f"段落通过{recognition}识别，并启用 heading_{level} 规则",
-                )
+                ChangeRecord(index, f"{level} 级标题", before, cls._rule_summary(rule),
+                             f"段落通过{recognition}识别，并启用 heading_{level} 规则")
             )
+
+    @classmethod
+    def _apply_toc(cls, document, rules: DocumentRules, result: ProcessResult) -> None:
+        rule_map = {1: rules.toc_1, 2: rules.toc_2, 3: rules.toc_3}
+        for index, paragraph in enumerate(document.paragraphs, start=1):
+            text = paragraph.text.strip()
+            style = paragraph.style
+            identity = f"{style.style_id if style else ''} {style.name if style else ''}"
+            if re.fullmatch(r"(?:目\s*录|contents)", text, re.I):
+                cls._format_paragraph(paragraph, rules.toc_title)
+                # The TOC title is presentation text, not a chapter entry.
+                paragraph._p.get_or_add_pPr().find(qn("w:outlineLvl")).set(qn("w:val"), "9")
+                result.records.append(ChangeRecord(index, "目录标题", "原格式", cls._rule_summary(rules.toc_title), "目录标题规则"))
+                continue
+            match = re.search(r"(?:^|\s)(?:TOC|目录)\s*([1-3])", identity, re.I)
+            if match:
+                rule = rule_map[int(match.group(1))]
+                cls._format_paragraph(paragraph, rule)
+                result.records.append(ChangeRecord(index, f"目录 {match.group(1)} 级", "原格式", cls._rule_summary(rule), "目录级别样式规则"))
 
     @classmethod
     def _apply_figure_captions(
@@ -281,11 +409,6 @@ class DocumentProcessor:
                 continue
             before = cls._paragraph_summary(paragraph)
             cls._format_paragraph(paragraph, rule)
-            # 表题必须与紧随其后的表格保持在同一页，避免“表题在上一页、
-            # 表格从下一页开始”的孤立题注。
-            cls._set_on_off_property(
-                paragraph._p.get_or_add_pPr(), "keepNext", True
-            )
             result.records.append(
                 ChangeRecord(
                     index,
@@ -394,10 +517,6 @@ class DocumentProcessor:
                     for paragraph in cell.paragraphs:
                         for run in paragraph.runs:
                             run.font.bold = rule.header_row_bold
-                        if rule.repeat_header_row:
-                            cls._set_on_off_property(
-                                paragraph._p.get_or_add_pPr(), "keepNext", True
-                            )
             cls._set_table_cell_vertical_alignment(table, rule.vertical_alignment)
             # python-docx's paragraph/run collections do not expose every item
             # nested in hyperlinks or content controls. Apply the locked

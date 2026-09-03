@@ -95,6 +95,11 @@ class TemplateRuleExtractor:
                     # 语义层级比模板样式中可能错写的 outlineLvl 更可靠。
                     heading_rule.outline_level = level - 1
                     heading_rule.keep_with_next = True
+            toc_title = next((p for p in document.paragraphs if re.fullmatch(r"(?:目\s*录|contents)", p.text.strip(), re.I)), None)
+            self._extract_sample_or_style(document, toc_title, rules.toc_title, (r"TOC\s*Heading", r"目录标题"), "目录标题", notes)
+            for level in range(1, 4):
+                toc_sample = next((p for p in document.paragraphs if re.search(fr"(?:^|\s)(?:TOC|目录)\s*{level}", f"{p.style.style_id if p.style else ''} {p.style.name if p.style else ''}", re.I)), None)
+                self._extract_sample_or_style(document, toc_sample, getattr(rules, f"toc_{level}"), (fr"TOC\s*{level}", fr"目录\s*{level}"), f"{level} 级目录", notes)
             self._extract_sample_or_style(
                 document,
                 samples.get("figure_caption"),

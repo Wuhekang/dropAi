@@ -110,20 +110,36 @@
             <div class="doubao-heading">
               <i>D</i>
               <span><b>Doki 理解补充要求</b><small>适合较复杂的自然语言规则</small></span>
-              <el-switch v-model="useDoubao" :disabled="!instructions.trim()" />
+              <span class="ai-required">必经步骤</span>
             </div>
             <ul>
-              <li><i>✓</i> 未开启时仍可按模板自动修改</li>
-              <li><i>✓</i> 开启后由服务端解析补充要求</li>
+              <li><i>✓</i> 9 条格式细分支并行分析，最长等待约 25 秒</li>
+              <li><i>✓</i> 单分支超时自动保留本地精确提取结果</li>
               <li><i>✓</i> 论文与模板始终作为独立文件处理</li>
             </ul>
           </div>
         </div>
         <button class="generate" type="button" :disabled="!canStart" @click="startFormatting">
-          <span>✦</span>开始智能修改格式<b>→</b>
+          <span>✦</span>上传并开始 AI 分析<b>→</b>
         </button>
         <p class="safe-note">上传后将创建独立任务；离开页面后可通过任务链接恢复进度。</p>
       </article>
+    </section>
+
+    <section v-else-if="screen === 'review'" ref="workspaceSection" class="review-center">
+      <article class="glass review-hero"><small>AI TEMPLATE ANALYSIS COMPLETE</small><h2>AI 已分析模板，请先确认关键格式</h2><p>下面三类规则可修改；确认后才会正式处理论文。未列入的系统固定规则无法修改。</p></article>
+      <article v-for="group in ruleGroups" :key="group.key" class="glass rule-group">
+        <header><div><small>{{ group.eyebrow }}</small><h2>{{ group.title }}</h2></div><span>可修改</span></header>
+        <div class="rule-grid"><section v-for="item in group.items" :key="item.key" class="rule-card"><h3>{{ item.label }}</h3>
+          <label>中文字体<input v-model.trim="item.rule.chineseFont" /></label><label>英文字体<input v-model.trim="item.rule.latinFont" /></label>
+          <label>字号（磅）<input v-model.number="item.rule.fontSizePt" type="number" min="5" max="72" step="0.5" /></label>
+          <label>行距<select v-model="item.rule.lineSpacingMode"><option value="single">单倍</option><option value="1.5">1.5 倍</option><option value="double">2 倍</option><option value="multiple">多倍</option><option value="fixed">固定值</option><option value="at_least">最小值</option></select></label>
+          <label>段前（{{ item.rule.spaceBefore?.unit === 'pt' ? '磅' : '行' }}）<input v-model.number="item.rule.spaceBefore.value" type="number" min="0" max="20" step="0.25" /></label>
+          <label>段后（{{ item.rule.spaceAfter?.unit === 'pt' ? '磅' : '行' }}）<input v-model.number="item.rule.spaceAfter.value" type="number" min="0" max="20" step="0.25" /></label>
+        </section></div>
+      </article>
+      <article class="glass locked-rules"><header><div><small>SYSTEM LOCKED POLICY</small><h2>固定执行规则</h2></div><span>不可修改</span></header><ul><li v-for="rule in lockedRules" :key="rule">✓ {{ rule }}</li></ul></article>
+      <div class="review-actions"><button class="secondary" type="button" @click="reset">重新上传</button><button class="primary" type="button" :disabled="confirming" @click="confirmRules">{{ confirming ? '正在提交…' : '确认规则并继续格式化 →' }}</button></div>
     </section>
 
     <section v-else ref="workspaceSection" class="workflow-center">
@@ -219,14 +235,14 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
-import { createWordFormatJob, downloadWordFormatResult, getWordFormatJob } from '../../api/rewrite'
+import { confirmWordFormatJob, createWordFormatJob, downloadWordFormatResult, getWordFormatJob } from '../../api/rewrite'
 
 const MAX_TEMPLATE_SIZE = 30 * 1024 * 1024
 const MAX_SOURCE_SIZE = 100 * 1024 * 1024
 const POLL_INTERVAL = 1400
 const templateExtensions = new Set(['doc', 'docx', 'dotx'])
 const sourceExtensions = new Set(['docx'])
-const terminalStatuses = new Set(['SUCCESS', 'FAILED'])
+const terminalStatuses = new Set(['SUCCESS', 'FAILED', 'AWAITING_CONFIRMATION'])
 
 const router = useRouter()
 const route = useRoute()
@@ -243,6 +259,8 @@ const uploadProgress = ref(0)
 const job = ref({})
 const errorMessage = ref('')
 const downloading = ref(false)
+const confirming = ref(false)
+const editableRules = ref({})
 
 let pollTimer = null
 let pollGeneration = 0
@@ -280,6 +298,7 @@ const statusLabel = computed(() => ({
   QUEUED: '排队中',
   RUNNING: '处理中',
   SUCCESS: '已完成',
+  AWAITING_CONFIRMATION: '等待确认',
   FAILED: '处理失败'
 })[normalizedStatus.value] || (screen.value === 'submitting' ? '上传中' : '准备中'))
 const taskEyebrow = computed(() => screen.value === 'done' ? 'FORMAT COMPLETE' : screen.value === 'error' ? 'TASK INTERRUPTED' : screen.value === 'submitting' ? 'FILES ARE UPLOADING' : 'SERVER IS PROCESSING')
@@ -309,6 +328,16 @@ const resultChangedCount = computed(() => {
   const value = job.value.changedCount ?? result.changedCount
   const number = Number(value)
   return Number.isFinite(number) && number >= 0 ? Math.round(number) : null
+})
+const lockedRules = computed(() => parseResult(job.value.result).lockedRules || [])
+const ruleGroups = computed(() => {
+  const rules = editableRules.value
+  const make = (key, label, rule) => ({ key, label, rule })
+  return [
+    { key: 'headings', eyebrow: '01 · HEADINGS', title: '一级、二级、三级标题', items: [make('level1', '一级标题', rules.headings?.level1), make('level2', '二级标题', rules.headings?.level2), make('level3', '三级标题', rules.headings?.level3)] },
+    { key: 'toc', eyebrow: '02 · TABLE OF CONTENTS', title: '目录格式', items: [make('title', '目录标题', rules.toc?.title), make('level1', '一级目录', rules.toc?.level1), make('level2', '二级目录', rules.toc?.level2), make('level3', '三级目录', rules.toc?.level3)] },
+    { key: 'captions', eyebrow: '03 · CAPTIONS', title: '图标题、表标题', items: [make('figure', '图标题', rules.captions?.figure), make('table', '表标题', rules.captions?.table)] }
+  ].map(group => ({ ...group, items: group.items.filter(item => item.rule) }))
 })
 
 function clampProgress(value) {
@@ -443,7 +472,7 @@ function parseResult(value) {
 
 function defaultOutputName() {
   const raw = String(job.value.sourceName || sourceFile.value?.name || '论文原稿.docx')
-  return `${raw.replace(/\.docx$/i, '')}_格式修改完成.docx`
+  return `${raw.replace(/\.docx$/i, '')}-格式修订版.docx`
 }
 
 function safeDownloadName() {
@@ -461,6 +490,10 @@ function applyJob(nextJob) {
   const status = String(job.value.status || '').toUpperCase()
   if (status === 'SUCCESS') {
     screen.value = 'done'
+    stopPolling()
+  } else if (status === 'AWAITING_CONFIRMATION') {
+    editableRules.value = JSON.parse(JSON.stringify(parseResult(job.value.result).editableRules || {}))
+    screen.value = 'review'
     stopPolling()
   } else if (status === 'FAILED') {
     errorMessage.value = job.value.message || '服务端未能完成本次格式处理。'
@@ -541,7 +574,7 @@ async function startFormatting() {
       template: templateFile.value,
       source: sourceFile.value,
       instructions: instructions.value,
-      useDoubao: Boolean(instructions.value.trim()) && useDoubao.value
+      useDoubao: true
     }, event => {
       if (event.total) uploadProgress.value = clampProgress((event.loaded / event.total) * 100)
     })
@@ -552,6 +585,20 @@ async function startFormatting() {
   } catch (error) {
     errorMessage.value = error?.responseData?.message || error.message || '任务创建失败，请检查文件后重试。'
     screen.value = 'error'
+  }
+}
+
+async function confirmRules() {
+  if (!job.value.id || confirming.value) return
+  confirming.value = true
+  try {
+    const next = await confirmWordFormatJob(job.value.id, editableRules.value)
+    applyJob(next)
+    startPolling(job.value.id)
+  } catch (error) {
+    ElMessage.error(error?.responseData?.message || error.message || '确认规则失败，请重试。')
+  } finally {
+    confirming.value = false
   }
 }
 
@@ -605,6 +652,7 @@ async function reset() {
   useDoubao.value = false
   uploadProgress.value = 0
   job.value = {}
+  editableRules.value = {}
   errorMessage.value = ''
   screen.value = 'upload'
   clearNativeInput('template')
@@ -639,6 +687,24 @@ onBeforeUnmount(stopPolling)
     linear-gradient(145deg, #fbf9ff, #f1f8ff 55%, #fff7fc);
   font-family: Inter, "PingFang SC", "Microsoft YaHei", sans-serif;
 }
+.review-center { max-width: 1280px; margin: 28px auto; display: grid; gap: 18px; }
+.review-hero, .rule-group, .locked-rules { padding: 26px; }
+.review-hero h2, .rule-group h2, .locked-rules h2 { margin: 5px 0 8px; }
+.review-hero p { margin: 0; color: var(--muted); }
+.rule-group header, .locked-rules header { display: flex; justify-content: space-between; align-items: center; }
+.rule-group header > span { color: #674fe1; background: #eeeaff; padding: 6px 12px; border-radius: 99px; }
+.locked-rules header > span { color: #a34e69; background: #fff0f5; padding: 6px 12px; border-radius: 99px; }
+.rule-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 18px; }
+.rule-card { padding: 16px; border: 1px solid #e9e5f3; border-radius: 15px; background: #fbfaff; }
+.rule-card h3 { margin: 0 0 12px; }
+.rule-card label { display: grid; gap: 5px; margin-top: 9px; color: #6f7485; font-size: 12px; }
+.rule-card input, .rule-card select { width: 100%; box-sizing: border-box; padding: 9px 10px; border: 1px solid #ded9eb; border-radius: 9px; background: #fff; color: #34384c; }
+.locked-rules ul { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 0; list-style: none; }
+.locked-rules li { padding: 12px; border-radius: 10px; background: #f8f7fb; color: #5d6475; }
+.review-actions { display: flex; justify-content: flex-end; gap: 12px; }
+.ai-required { padding: 5px 9px; border-radius: 99px; color: #fff; background: linear-gradient(135deg, var(--violet), var(--pink)); font-size: 11px; }
+@media (max-width: 900px) { .rule-grid { grid-template-columns: 1fr 1fr; } .locked-rules ul { grid-template-columns: 1fr; } }
+@media (max-width: 560px) { .rule-grid { grid-template-columns: 1fr; } }
 
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .48; }

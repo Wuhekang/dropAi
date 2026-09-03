@@ -31,11 +31,13 @@ from word_formatter.core.rule_parser import NaturalLanguageRuleParser
 from word_formatter.core.template_extractor import TemplateRuleExtractor
 from word_formatter.core.word_converter import WordConversionError, WordDocumentConverter
 from word_formatter.models.rules import (
+    LOCKED_DOCUMENT_POLICY_NOTES,
     LOCKED_TABLE_POLICY_NOTE,
     DocumentRules,
     ParagraphRule,
     TableRule,
     enforce_locked_table_policy,
+    enforce_locked_document_policy,
 )
 
 
@@ -194,6 +196,10 @@ def _rule_summary(rules: DocumentRules) -> dict[str, Any]:
         "heading2": _paragraph_rule_summary(rules.heading_2),
         "heading3": _paragraph_rule_summary(rules.heading_3),
         "heading4": _paragraph_rule_summary(rules.heading_4),
+        "tocTitle": _paragraph_rule_summary(rules.toc_title),
+        "toc1": _paragraph_rule_summary(rules.toc_1),
+        "toc2": _paragraph_rule_summary(rules.toc_2),
+        "toc3": _paragraph_rule_summary(rules.toc_3),
         "figureCaption": _paragraph_rule_summary(rules.figure_caption),
         "tableCaption": _paragraph_rule_summary(rules.table_caption),
         "reference": _paragraph_rule_summary(rules.reference),
@@ -203,6 +209,59 @@ def _rule_summary(rules: DocumentRules) -> dict[str, Any]:
             **rules.page_number.settings,
         },
     }
+
+
+def _editable_rules(rules: DocumentRules) -> dict[str, Any]:
+    summary = _rule_summary(rules)
+    return {
+        "headings": {"level1": summary["heading1"], "level2": summary["heading2"], "level3": summary["heading3"]},
+        "toc": {
+            "title": summary["tocTitle"], "level1": summary["toc1"], "level2": summary["toc2"], "level3": summary["toc3"],
+        },
+        "captions": {"figure": summary["figureCaption"], "table": summary["tableCaption"]},
+    }
+
+
+def _apply_confirmed_rules(rules: DocumentRules, path: Path | None) -> None:
+    if path is None:
+        return
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise CliInputError("确认规则必须是 JSON 对象")
+    mapping = {
+        ("headings", "level1"): rules.heading_1, ("headings", "level2"): rules.heading_2,
+        ("headings", "level3"): rules.heading_3, ("captions", "figure"): rules.figure_caption,
+        ("captions", "table"): rules.table_caption,
+        ("toc", "title"): rules.toc_title, ("toc", "level1"): rules.toc_1,
+        ("toc", "level2"): rules.toc_2, ("toc", "level3"): rules.toc_3,
+    }
+    allowed = {
+        "chineseFont": "chinese_font", "latinFont": "latin_font", "fontSizePt": "font_size_pt",
+        "lineSpacingMode": "line_spacing_mode", "spaceBefore": "space_before", "spaceAfter": "space_after",
+    }
+    for keys, rule in mapping.items():
+        value = payload
+        for key in keys:
+            value = value.get(key, {}) if isinstance(value, dict) else {}
+        if not isinstance(value, dict):
+            continue
+        for public, internal in allowed.items():
+            if public not in value:
+                continue
+            if internal in {"space_before", "space_after"}:
+                spacing = value[public]
+                if isinstance(spacing, dict) and spacing.get("unit") in {"line", "pt"}:
+                    unit = spacing["unit"]
+                    number = max(0.0, min(20.0, float(spacing.get("value", 0))))
+                    setattr(rule, f"{internal}_unit", unit)
+                    setattr(rule, f"{internal}_{'lines' if unit == 'line' else 'pt'}", number)
+            elif internal == "font_size_pt":
+                rule.font_size_pt = max(5.0, min(72.0, float(value[public])))
+            elif internal == "line_spacing_mode" and value[public] in {"single", "1.5", "double", "at_least", "fixed", "multiple"}:
+                rule.line_spacing_mode = value[public]
+            elif isinstance(value[public], str) and value[public].strip():
+                setattr(rule, internal, value[public].strip()[:80])
+        rule.enabled = True
 
 
 def _analysis_summary(info: DocumentInfo) -> dict[str, Any]:
@@ -284,6 +343,8 @@ def run_job(args: argparse.Namespace) -> dict[str, Any]:
         if args.instructions_file
         else None
     )
+    rules_file_arg = getattr(args, "rules_file", None)
+    confirmed_rules_file = Path(rules_file_arg).expanduser().resolve() if rules_file_arg else None
     staging: Path | None = None
     staging_log: Path | None = None
     published_output = False
@@ -303,8 +364,6 @@ def run_job(args: argparse.Namespace) -> dict[str, Any]:
         source_hash_before = sha256_file(source)
         template_hash_before = sha256_file(template)
         instructions = _read_instructions(instructions_file)
-        if args.use_doubao and not instructions:
-            raise CliInputError("启用豆包解析时必须提供非空的自然语言指令文件")
 
         current_progress = 15
         emit_progress(current_progress, "extracting_template", "正在从学校模板提取页面、标题、题注和表格规则")
@@ -312,15 +371,17 @@ def run_job(args: argparse.Namespace) -> dict[str, Any]:
         rules = extracted.rules
         template_notes = list(extracted.notes)
 
+        api_key = os.getenv("ARK_API_KEY", "").strip() or os.getenv("DOUBAO_API_KEY", "").strip()
+        model = os.getenv("DOUBAO_MODEL", "").strip() or os.getenv("DOUBAO_WEB_SEARCH_MODEL", "").strip() or None
+        if getattr(args, "analyze_only", False):
+            emit_progress(24, "ai_analyzing", "AI 正在以 9 条细分支并行复核标题、目录和图表题注")
+            rules, ai_notes = DoubaoRuleParser(api_key=api_key or None, model=model).analyze_template(rules, template_notes)
+            instruction_notes.extend(ai_notes)
+
         current_progress = 30
         if instructions:
             if args.use_doubao:
                 emit_progress(current_progress, "applying_rules", "正在使用豆包解析附加格式要求")
-                api_key = (
-                    os.getenv("ARK_API_KEY", "").strip()
-                    or os.getenv("DOUBAO_API_KEY", "").strip()
-                )
-                model = os.getenv("DOUBAO_MODEL", "").strip() or None
                 rules, instruction_notes = DoubaoRuleParser(
                     api_key=api_key or None, model=model
                 ).parse(instructions, rules)
@@ -329,8 +390,10 @@ def run_job(args: argparse.Namespace) -> dict[str, Any]:
                 instruction_notes = NaturalLanguageRuleParser().apply(instructions, rules)
         else:
             emit_progress(current_progress, "applying_rules", "未提供附加要求，直接采用模板识别规则")
-        enforce_locked_table_policy(rules)
+        _apply_confirmed_rules(rules, confirmed_rules_file)
+        enforce_locked_document_policy(rules)
         instruction_notes.append(LOCKED_TABLE_POLICY_NOTE)
+        instruction_notes.extend(LOCKED_DOCUMENT_POLICY_NOTES)
         rule_summary = _rule_summary(rules)
 
         current_progress = 42
@@ -338,20 +401,34 @@ def run_job(args: argparse.Namespace) -> dict[str, Any]:
         source_info = DocumentAnalyzer().analyze(source)
         analysis = _analysis_summary(source_info)
 
+        if getattr(args, "analyze_only", False):
+            payload = {
+                "success": True, "analysisReady": True, "engineVersion": __version__,
+                "changedCount": 0, "warnings": [], "templateNotes": template_notes,
+                "instructionNotes": instruction_notes, "analysis": analysis,
+                "ruleSummary": rule_summary, "editableRules": _editable_rules(rules),
+                "lockedRules": list(LOCKED_DOCUMENT_POLICY_NOTES),
+                "integrity": {"passed": True, "differences": {}},
+                "durationMs": round((time.perf_counter() - started) * 1000), "error": None,
+            }
+            _write_json_atomic(result_json, payload)
+            emit_progress(100, "awaiting_confirmation", "AI 分析完成，请确认三类可编辑格式")
+            return payload
+
         current_progress = 56
         emit_progress(current_progress, "processing", "正在把模板规则安全应用到论文副本")
         output.parent.mkdir(parents=True, exist_ok=True)
         staging = output.with_name(
             f".{output.stem}.{uuid.uuid4().hex}.working.docx"
         )
-        processor_result = DocumentProcessor().process(source, rules, staging)
+        processor_result = DocumentProcessor().process(source, rules, staging, template)
         staging_log = staging.with_suffix(".log.json")
         warnings = list(processor_result.warnings)
 
         current_progress = 88
         emit_progress(current_progress, "integrity_check", "正在校验文字、图片、表格、域、书签和关系部件完整性")
         integrity = validate_preservation(
-            source, staging, expected_source_sha256=source_hash_before
+            source, staging, expected_source_sha256=source_hash_before, allow_front_matter=True
         )
         if sha256_file(template) != template_hash_before:
             raise IntegrityValidationError("处理期间格式模板发生变化，已拒绝交付输出")
@@ -451,6 +528,8 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="使用环境变量中的豆包 Key/模型解析格式要求",
     )
+    parser.add_argument("--analyze-only", action="store_true", help="只分析模板并等待用户确认")
+    parser.add_argument("--rules-file", help="客户确认的可编辑规则 JSON")
     return parser
 
 

@@ -170,6 +170,50 @@ class WordDocumentConverter:
                 except Exception:
                     pass
 
+    def update_fields_in_place(self, path: str | Path) -> None:
+        """Refresh TOC/page fields in a newly-created output document."""
+        target = Path(path).expanduser().resolve()
+        if os.name != "nt":
+            raise WordConversionError("目录自动刷新仅支持已安装 Microsoft Word 的 Windows")
+        dispatch_ex, pythoncom = self._load_com()
+        word = None
+        document = None
+        initialized = False
+        try:
+            pythoncom.CoInitialize()
+            initialized = True
+            word = self._start_isolated_word(dispatch_ex)
+            word.Visible = False
+            word.DisplayAlerts = WD_ALERTS_NONE
+            document = word.Documents.Open(
+                FileName=str(target), ReadOnly=False, AddToRecentFiles=False,
+                Visible=False, OpenAndRepair=False,
+            )
+            document.Repaginate()
+            document.Fields.Update()
+            for index in range(1, document.TablesOfContents.Count + 1):
+                document.TablesOfContents.Item(index).Update()
+            document.Repaginate()
+            document.Save()
+        except Exception as exc:
+            raise WordConversionError(f"Word 目录域刷新失败：{exc}") from exc
+        finally:
+            if document is not None:
+                try:
+                    document.Close(SaveChanges=WD_DO_NOT_SAVE_CHANGES)
+                except Exception:
+                    pass
+            if word is not None:
+                try:
+                    word.Quit(SaveChanges=WD_DO_NOT_SAVE_CHANGES)
+                except Exception:
+                    pass
+            if initialized:
+                try:
+                    pythoncom.CoUninitialize()
+                except Exception:
+                    pass
+
 
 @contextmanager
 def readable_docx(path: str | Path) -> Iterator[Path]:

@@ -3,11 +3,13 @@ package com.dropai.rewrite.service.wordformat;
 import com.dropai.rewrite.auth.AuthContext;
 import com.dropai.rewrite.config.WordFormatProperties;
 import com.dropai.rewrite.vo.WordFormatJobVO;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
@@ -49,10 +51,13 @@ public class WordFormatJobService {
     private final ThreadPoolExecutor executor;
     private final Semaphore taskSlots;
     private final Map<String, JobState> jobs = new ConcurrentHashMap<>();
+    private final ObjectMapper objectMapper;
 
-    public WordFormatJobService(WordFormatProperties properties, WordFormatProcessRunner runner) {
+    @Autowired
+    public WordFormatJobService(WordFormatProperties properties, WordFormatProcessRunner runner, ObjectMapper objectMapper) {
         this.properties = properties;
         this.runner = runner;
+        this.objectMapper = objectMapper;
         this.dataRoot = properties.dataDir();
         this.taskSlots = new Semaphore(properties.maxConcurrent() + properties.queueCapacity(), true);
         this.executor = new ThreadPoolExecutor(
@@ -70,6 +75,10 @@ public class WordFormatJobService {
         );
     }
 
+    public WordFormatJobService(WordFormatProperties properties, WordFormatProcessRunner runner) {
+        this(properties, runner, new ObjectMapper());
+    }
+
     public WordFormatJobVO submit(
             MultipartFile template,
             MultipartFile source,
@@ -83,7 +92,7 @@ public class WordFormatJobService {
         Upload templateUpload = validateUpload(template, true);
         Upload sourceUpload = validateUpload(source, false);
         String normalizedInstructions = instructions == null ? "" : instructions.trim();
-        boolean effectiveUseDoubao = useDoubao && !normalizedInstructions.isBlank();
+        boolean effectiveUseDoubao = true;
         if (normalizedInstructions.length() > properties.maxInstructionsChars()) {
             throw new IllegalArgumentException("补充要求不能超过 " + properties.maxInstructionsChars() + " 个字符");
         }
@@ -93,6 +102,7 @@ public class WordFormatJobService {
         Path templatePath = inside(jobDir.resolve("template." + templateUpload.extension()));
         Path outputPath = inside(jobDir.resolve("formatted.docx"));
         Path resultPath = inside(jobDir.resolve("result.json"));
+        Path rulesPath = inside(jobDir.resolve("confirmed-rules.json"));
         Path instructionsPath = normalizedInstructions.isBlank()
                 ? null
                 : inside(jobDir.resolve("instructions.txt"));
@@ -138,13 +148,14 @@ public class WordFormatJobService {
                     templatePath,
                     outputPath,
                     resultPath,
-                    instructionsPath
+                    instructionsPath,
+                    rulesPath
             );
             jobs.put(jobId, job);
             try {
                 executor.execute(() -> {
                     try {
-                        process(job);
+                        analyze(job);
                     } finally {
                         taskSlots.release();
                     }
@@ -167,6 +178,35 @@ public class WordFormatJobService {
         return ownedJob(jobId, AuthContext.requireUserId()).view();
     }
 
+    public WordFormatJobVO confirm(String jobId, Map<String, Object> editableRules) {
+        JobState job = ownedJob(jobId, AuthContext.requireUserId());
+        synchronized (job) {
+            if (!"AWAITING_CONFIRMATION".equals(job.status)) {
+                throw new JobNotReadyException("任务尚未完成 AI 分析或已经确认");
+            }
+            if (editableRules == null || editableRules.isEmpty()) {
+                throw new IllegalArgumentException("请提交需要确认的三类格式规则");
+            }
+            try {
+                byte[] json = objectMapper.writeValueAsBytes(editableRules);
+                if (json.length > 128 * 1024) throw new IllegalArgumentException("确认规则内容过大");
+                Files.write(job.rulesPath, json);
+            } catch (IOException exception) {
+                throw new IllegalStateException("无法保存确认规则，请重试", exception);
+            }
+            if (!taskSlots.tryAcquire()) throw new JobQueueFullException("格式处理任务较多，请稍后重试");
+            job.running(45, "confirmed", "格式规则已确认，准备正式处理论文");
+            try {
+                executor.execute(() -> { try { process(job); } finally { taskSlots.release(); } });
+            } catch (RejectedExecutionException exception) {
+                taskSlots.release();
+                job.awaiting();
+                throw new JobQueueFullException("格式处理服务正在停止，请稍后重试");
+            }
+            return job.view();
+        }
+    }
+
     public DownloadFile download(String jobId) {
         JobState job = ownedJob(jobId, AuthContext.requireUserId());
         synchronized (job) {
@@ -185,6 +225,21 @@ public class WordFormatJobService {
         }
     }
 
+    private void analyze(JobState job) {
+        job.running(12, "extracting_template", "正在提取模板并进行 AI 分析");
+        try {
+            WordFormatProcessRunner.ProcessResult result = runner.run(
+                    job.sourcePath, job.templatePath, job.outputPath, job.resultPath,
+                    job.instructionsPath, true, true, null,
+                    event -> job.progress(event.progress(), event.stage(), event.message())
+            );
+            job.analysisReady(result.editableRules(), result.lockedRules(), result.analysis(), result.templateNotes());
+        } catch (Exception exception) {
+            log.error("Word formatter analysis failed: jobId={}", job.jobId, exception);
+            job.fail(userFacingWorkerError(exception));
+        }
+    }
+
     private void process(JobState job) {
         job.running(12, "starting", "已读取上传文件，准备提取学校模板格式");
         try {
@@ -195,6 +250,8 @@ public class WordFormatJobService {
                     job.resultPath,
                     job.instructionsPath,
                     job.useDoubao,
+                    false,
+                    job.rulesPath,
                     event -> job.progress(event.progress(), event.stage(), event.message())
             );
             job.running(96, "integrity_check", "格式修改已完成，正在检查 DOCX 完整性");
@@ -438,7 +495,7 @@ public class WordFormatJobService {
         if (base.length() > 160) {
             base = base.substring(0, 160);
         }
-        return base + "_格式修改完成.docx";
+        return base + "-格式修订版.docx";
     }
 
     private static String extension(String name) {
@@ -493,6 +550,7 @@ public class WordFormatJobService {
         private final Path outputPath;
         private final Path resultPath;
         private final Path instructionsPath;
+        private final Path rulesPath;
         private final LocalDateTime createdAt = LocalDateTime.now();
         private String status = "QUEUED";
         private int progress = 8;
@@ -501,6 +559,9 @@ public class WordFormatJobService {
         private int changedCount;
         private List<String> warnings = List.of();
         private List<String> templateNotes = List.of();
+        private Map<String, Object> editableRules = Map.of();
+        private List<String> lockedRules = List.of();
+        private Map<String, Object> analysis = Map.of();
         private LocalDateTime updatedAt = createdAt;
 
         private JobState(
@@ -515,7 +576,8 @@ public class WordFormatJobService {
                 Path templatePath,
                 Path outputPath,
                 Path resultPath,
-                Path instructionsPath
+                Path instructionsPath,
+                Path rulesPath
         ) {
             this.jobId = jobId;
             this.userId = userId;
@@ -529,6 +591,7 @@ public class WordFormatJobService {
             this.outputPath = outputPath;
             this.resultPath = resultPath;
             this.instructionsPath = instructionsPath;
+            this.rulesPath = rulesPath;
         }
 
         private synchronized void running(int value, String stage, String detail) {
@@ -561,6 +624,26 @@ public class WordFormatJobService {
             updatedAt = LocalDateTime.now();
         }
 
+        private synchronized void analysisReady(Map<String, Object> editable, List<String> locked,
+                                                Map<String, Object> analysis, List<String> notes) {
+            status = "AWAITING_CONFIRMATION";
+            progress = 40;
+            currentStage = "awaiting_confirmation";
+            message = "AI 分析完成，请核对并确认三类可编辑格式";
+            editableRules = editable == null ? Map.of() : Map.copyOf(editable);
+            lockedRules = immutable(locked);
+            this.analysis = analysis == null ? Map.of() : Map.copyOf(analysis);
+            templateNotes = immutable(notes);
+            updatedAt = LocalDateTime.now();
+        }
+
+        private synchronized void awaiting() {
+            status = "AWAITING_CONFIRMATION";
+            currentStage = "awaiting_confirmation";
+            message = "请再次确认格式规则";
+            updatedAt = LocalDateTime.now();
+        }
+
         private synchronized void fail(String reason) {
             status = "FAILED";
             currentStage = "failed";
@@ -569,12 +652,15 @@ public class WordFormatJobService {
         }
 
         private synchronized WordFormatJobVO view() {
-            Map<String, Object> result = "SUCCESS".equals(status)
+            Map<String, Object> result = ("SUCCESS".equals(status) || "AWAITING_CONFIRMATION".equals(status))
                     ? Map.of(
                     "changedCount", changedCount,
                     "warnings", warnings,
                     "templateNotes", templateNotes,
-                    "summary", message
+                    "summary", message,
+                    "editableRules", editableRules,
+                    "lockedRules", lockedRules,
+                    "analysis", analysis
             )
                     : Map.of();
             return new WordFormatJobVO(

@@ -162,6 +162,10 @@ class DocumentRules:
     heading_2: ParagraphRule = field(default_factory=lambda: _heading_rule(2))
     heading_3: ParagraphRule = field(default_factory=lambda: _heading_rule(3))
     heading_4: ParagraphRule = field(default_factory=lambda: _heading_rule(4))
+    toc_title: ParagraphRule = field(default_factory=lambda: _heading_rule(1))
+    toc_1: ParagraphRule = field(default_factory=lambda: _heading_rule(1))
+    toc_2: ParagraphRule = field(default_factory=lambda: _heading_rule(2))
+    toc_3: ParagraphRule = field(default_factory=lambda: _heading_rule(3))
     table: TableRule = field(default_factory=TableRule)
     figure_caption: ParagraphRule = field(
         default_factory=lambda: ParagraphRule(
@@ -194,7 +198,7 @@ class DocumentRules:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "DocumentRules":
         paragraph_keys = {
-            "normal_text", "heading_1", "heading_2", "heading_3", "heading_4",
+            "normal_text", "heading_1", "heading_2", "heading_3", "heading_4", "toc_title", "toc_1", "toc_2", "toc_3",
             "figure_caption", "table_caption", "reference",
         }
         generic_keys = {"header", "footer", "page_number", "formula"}
@@ -279,4 +283,40 @@ def enforce_locked_table_policy(rules: DocumentRules) -> DocumentRules:
     table.inner_border_width_pt = 0.75
     table.vertical_alignment = "center"
     table.header_row_bold = False
+    return rules
+
+
+LOCKED_DOCUMENT_POLICY_NOTES = (
+    "正文段落默认首行缩进 2 字符；模板和客户确认值不能覆盖。",
+    "正文数据表固定为黑色三线表，内容水平/垂直居中且不加粗。",
+    "图片所在段落固定居中、单倍行距。",
+    "清除段落级“与下段同页、段中不分页、段前分页、孤行控制”，保留文档中的分页符和分节符。",
+    "模板正文之前的封面、诚信声明等前置内容会复制到待修改论文。",
+)
+
+
+def enforce_locked_document_policy(rules: DocumentRules) -> DocumentRules:
+    """Apply product rules which neither template AI nor customer may change."""
+    enforce_locked_table_policy(rules)
+    body = rules.normal_text
+    body.enabled = True
+    body.special_indent_mode = "first_line"
+    body.special_indent_chars = 2.0
+    body.first_line_indent_chars = 2.0
+    for rule in (
+        body,
+        rules.heading_1,
+        rules.heading_2,
+        rules.heading_3,
+        rules.heading_4,
+        rules.toc_title, rules.toc_1, rules.toc_2, rules.toc_3,
+        rules.figure_caption,
+        rules.table_caption,
+        rules.reference,
+        rules.table,
+    ):
+        rule.widow_control = False
+        rule.keep_with_next = False
+        rule.keep_lines_together = False
+        rule.page_break_before = False
     return rules

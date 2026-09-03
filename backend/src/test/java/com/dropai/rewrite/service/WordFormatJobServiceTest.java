@@ -86,7 +86,7 @@ class WordFormatJobServiceTest {
         assertEquals(100, completed.progress());
         assertEquals("论文原稿.docx", completed.sourceName());
         assertEquals("学校模板.docx", completed.templateName());
-        assertEquals("论文原稿_格式修改完成.docx", completed.outputName());
+        assertEquals("论文原稿-格式修订版.docx", completed.outputName());
         assertEquals(17, completed.changedCount());
         assertEquals("已保留封面", completed.warnings().get(0));
         assertNotNull(completed.downloadUrl());

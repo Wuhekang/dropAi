@@ -15,6 +15,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -67,6 +68,7 @@ public class WordFormatProcessRunner {
         builder.redirectErrorStream(false);
         builder.environment().put("PYTHONUTF8", "1");
         builder.environment().put("PYTHONIOENCODING", "utf-8");
+        forwardAiEnvironment(builder);
 
         Process process;
         try {
@@ -147,6 +149,8 @@ public class WordFormatProcessRunner {
             Path resultJson,
             Path instructionsFile,
             boolean useDoubao,
+            boolean analyzeOnly,
+            Path rulesFile,
             Consumer<ProgressEvent> progressConsumer
     ) throws Exception {
         Path worker = resolveWorkerPath();
@@ -170,12 +174,20 @@ public class WordFormatProcessRunner {
         if (useDoubao) {
             command.add("--use-doubao");
         }
+        if (analyzeOnly) {
+            command.add("--analyze-only");
+        }
+        if (rulesFile != null) {
+            command.add("--rules-file");
+            command.add(rulesFile.toString());
+        }
 
         ProcessBuilder builder = new ProcessBuilder(command);
         builder.directory(worker.getParent().toFile());
         builder.redirectErrorStream(false);
         builder.environment().put("PYTHONUTF8", "1");
         builder.environment().put("PYTHONIOENCODING", "utf-8");
+        forwardAiEnvironment(builder);
 
         Process process;
         try {
@@ -253,7 +265,10 @@ public class WordFormatProcessRunner {
             return new ProcessResult(
                     changedCount,
                     strings(payload, "warnings"),
-                    strings(payload, "templateNotes", "template_notes", "notes")
+                    strings(payload, "templateNotes", "template_notes", "notes"),
+                    objectMapper.convertValue(payload.path("editableRules"), Map.class),
+                    strings(payload, "lockedRules"),
+                    objectMapper.convertValue(payload.path("analysis"), Map.class)
             );
         } finally {
             streams.shutdownNow();
@@ -261,6 +276,13 @@ public class WordFormatProcessRunner {
                 terminateProcessTree(process);
             }
         }
+    }
+
+    public ProcessResult run(Path source, Path template, Path output, Path resultJson,
+                             Path instructionsFile, boolean useDoubao,
+                             Consumer<ProgressEvent> progressConsumer) throws Exception {
+        return run(source, template, output, resultJson, instructionsFile, useDoubao,
+                false, null, progressConsumer);
     }
 
     private static void terminateProcessTree(Process process) {
@@ -444,7 +466,25 @@ public class WordFormatProcessRunner {
     public record ProgressEvent(int progress, String stage, String message) {
     }
 
-    public record ProcessResult(int changedCount, List<String> warnings, List<String> templateNotes) {
+    public record ProcessResult(int changedCount, List<String> warnings, List<String> templateNotes,
+                                Map<String, Object> editableRules, List<String> lockedRules,
+                                Map<String, Object> analysis) {
+        public ProcessResult(int changedCount, List<String> warnings, List<String> templateNotes) {
+            this(changedCount, warnings, templateNotes, Map.of(), List.of(), Map.of());
+        }
+    }
+
+    private static void forwardAiEnvironment(ProcessBuilder builder) {
+        for (String name : List.of(
+                "DOUBAO_API_KEY", "ARK_API_KEY", "DOUBAO_MODEL", "DOUBAO_WEB_SEARCH_MODEL",
+                "DOUBAO_BASE_URL", "DOUBAO_ENDPOINT", "DOUBAO_FORMAT_AI_CONCURRENCY",
+                "DOUBAO_FORMAT_AI_TIMEOUT_SECONDS"
+        )) {
+            String value = System.getProperty(name, "").trim();
+            if (!value.isBlank() && !builder.environment().containsKey(name)) {
+                builder.environment().put(name, value);
+            }
+        }
     }
 
     public static final class RuntimeUnavailableException extends IllegalStateException {

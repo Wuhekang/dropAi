@@ -13,6 +13,19 @@ const request = axios.create({
 
 const recentMessages = new Map()
 
+export function createWordFormatJob({ template, source, instructions = '', useDoubao = true }, onUploadProgress) {
+  const form = new FormData()
+  form.append('template', template?.raw || template)
+  form.append('source', source?.raw || source)
+  if (String(instructions).trim()) form.append('instructions', String(instructions).trim())
+  form.append('useDoubao', String(Boolean(useDoubao)))
+  return request.post('/word-format/jobs', form, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 600000, onUploadProgress })
+}
+
+export function getWordFormatJob(id) { return request.get(`/word-format/jobs/${id}`) }
+export function confirmWordFormatJob(id, rules) { return request.post(`/word-format/jobs/${id}/confirm`, rules, { timeout: 600000 }) }
+export function downloadWordFormatResult(id) { return request.get(`/word-format/jobs/${id}/download`, { responseType: 'blob', timeout: 300000 }) }
+
 function parsePointShortage(message = '') {
   const numbers = String(message).match(/\d+/g)?.map(Number) || []
   if (numbers.length >= 3) {

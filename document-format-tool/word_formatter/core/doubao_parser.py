@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import os
 import re
@@ -14,6 +15,7 @@ class DoubaoRuleParser:
 
     DEFAULT_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3"
     DEFAULT_MODEL = "doubao-seed-2-0-lite-260215"
+    MAX_TEMPLATE_AI_WORKERS = 32
     ENUMS = {
         "alignment": {"left", "center", "right", "justify"},
         "line_spacing_mode": {"single", "1.5", "double", "at_least", "fixed", "multiple"},
@@ -83,6 +85,97 @@ class DoubaoRuleParser:
             f"已校验并同步 {len(changed)} 个格式字段。",
             *[f"更新：{path}" for path in changed[:20]],
         ]
+
+    def analyze_template(self, current: DocumentRules, evidence: list[str]) -> tuple[DocumentRules, list[str]]:
+        """Use AI as a mandatory second pass over deterministic template extraction."""
+        if not self.api_key:
+            raise ValueError("未配置豆包 API Key，无法执行模板 AI 分析。")
+        try:
+            from openai import OpenAI
+        except ImportError as exc:
+            raise RuntimeError("缺少 openai 依赖，无法执行模板 AI 分析。") from exc
+        baseline = current.to_dict()
+        groups = {
+            "标题": ("heading_1", "heading_2", "heading_3"),
+            "目录": ("toc_title", "toc_1", "toc_2", "toc_3"),
+            "图表题注": ("figure_caption", "table_caption"),
+        }
+        # One rule object per request keeps prompts small and lets a slow model
+        # endpoint affect only that format instead of blocking the whole job.
+        branches = [
+            (f"{group_name}-{key}", group_name, (key,))
+            for group_name, keys in groups.items()
+            for key in keys
+        ]
+        requested_workers = int(os.getenv("DOUBAO_FORMAT_AI_CONCURRENCY", "32") or "32")
+        workers = max(1, min(self.MAX_TEMPLATE_AI_WORKERS, requested_workers, len(branches)))
+        branch_results: dict[str, dict[str, Any]] = {}
+        branch_errors: dict[str, str] = {}
+
+        def analyze_group(name: str, keys: tuple[str, ...]) -> dict[str, Any]:
+            editable = {key: baseline[key] for key in keys}
+            relevant_evidence = [line for line in evidence if any(token in line for token in self._evidence_tokens(name))]
+            prompt = (
+                "你是中文高校论文模板格式审查器。依据程序从模板提取的格式和证据，校正下面 JSON。"
+                f"本分支只审查{name}，只允许输出这些键：{', '.join(keys)}。"
+                "每个对象重点核对中英文字体、字号、行距、段前、段后。不要输出 Markdown 或解释。"
+                "证据不足时保持原值，禁止臆测。\n提取证据：\n"
+                + "\n".join((relevant_evidence or evidence)[:32])
+                + "\n当前 JSON：\n" + json.dumps(editable, ensure_ascii=False)
+            )
+            timeout = max(8.0, min(60.0, float(os.getenv("DOUBAO_FORMAT_AI_TIMEOUT_SECONDS", "25"))))
+            client = OpenAI(
+                base_url=self.base_url,
+                api_key=self.api_key,
+                timeout=timeout,
+                max_retries=0,
+            )
+            response = client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0,
+            )
+            proposed = self._extract_json(response.choices[0].message.content or "")
+            return {key: value for key, value in proposed.items() if key in editable}
+
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="template-ai") as pool:
+            futures = {
+                pool.submit(analyze_group, group_name, keys): branch_name
+                for branch_name, group_name, keys in branches
+            }
+            for future in as_completed(futures):
+                name = futures[future]
+                try:
+                    branch_results[name] = future.result()
+                except Exception as exc:
+                    branch_errors[name] = type(exc).__name__
+
+        if not branch_results:
+            failed = "、".join(branch_errors)
+            raise RuntimeError(f"豆包模板分析全部分支失败：{failed}")
+
+        merged = baseline
+        changed: list[str] = []
+        for name, _, _ in branches:
+            proposed = branch_results.get(name)
+            if proposed is None:
+                continue
+            merged, branch_changed = self._validated_merge(merged, proposed)
+            changed.extend(branch_changed)
+        notes = [
+            f"AI 已使用 {self.model} 并行复核模板格式（{len(branch_results)}/{len(branches)} 个细分支成功，并发 {workers}，上限 32）。",
+            f"AI 复核后校正 {len(changed)} 个可编辑格式字段。",
+        ]
+        notes.extend(f"AI {name}分支未完成，已保留本地精确提取结果（{error}）。" for name, error in branch_errors.items())
+        return DocumentRules.from_dict(merged), notes
+
+    @staticmethod
+    def _evidence_tokens(group_name: str) -> tuple[str, ...]:
+        return {
+            "标题": ("标题", "级"),
+            "目录": ("目录", "TOC"),
+            "图表题注": ("图名", "表名", "题注"),
+        }[group_name]
 
     @staticmethod
     def _extract_json(content: str) -> dict[str, Any]:
