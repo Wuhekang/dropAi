@@ -4,6 +4,7 @@ import com.dropai.rewrite.service.ppt.PptDocumentParser;
 import com.dropai.rewrite.service.ppt.PptTextValidator;
 import com.dropai.rewrite.service.ppt.PptxGenerator;
 import com.dropai.rewrite.service.ppt.PptAiService;
+import com.dropai.rewrite.service.ppt.PptGenerationSkillService;
 import com.dropai.rewrite.config.PptProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.poi.xslf.usermodel.XMLSlideShow;
@@ -27,8 +28,9 @@ class PptPresentationPipelineTest {
         Assumptions.assumeTrue(System.getenv("DOKIAI_PPT_ARK_API_KEY")!=null||System.getenv("ARK_API_KEY")!=null||System.getenv("DOUBAO_API_KEY")!=null,"本地未配置豆包密钥");
         Path source=Path.of(System.getProperty("ppt.test.source","C:/Users/Administrator/Desktop/自己的/6022203537-高瑞康-基于Spring Boot的个人健康管理系统的设计与实现-ppt.pptx"));
         var parsed=new PptDocumentParser().parse(source,Path.of("target","ppt-ai-assets").toAbsolutePath());
-        var result=new PptAiService(new PptProperties(new StandardEnvironment()),RestClient.builder(),new ObjectMapper()).createOutline("基于Spring Boot的个人健康管理系统的设计与实现",parsed);
+        ObjectMapper mapper=new ObjectMapper();var result=new PptAiService(new PptProperties(new StandardEnvironment()),RestClient.builder(),mapper,new PptGenerationSkillService(mapper)).createOutline("基于Spring Boot的个人健康管理系统的设计与实现",parsed);
         assertTrue(result.providerInvoked(),"豆包 Responses API 未成功调用，状态="+result.providerStatus());
+        assertEquals("ppt-generation",result.audit().skillName());assertEquals("2.0.0",result.audit().skillVersion());assertTrue(result.audit().skillHash().matches("[0-9a-f]{64}"));
         assertTrue(result.items().size()>=4);assertEquals(result.items().size(),result.items().stream().map(PptAiService.OutlineItem::title).distinct().count());
     }
     @Test void validatesTwentyVisibleCharactersAndFourBoxes(){PptTextValidator v=new PptTextValidator();var result=v.validateSlideTextLimits("这是一个超过二十四个可见字符需要自动缩短的幻灯片标题",List.of("这是一个明显超过二十个可见字符的正文文本框内容需要压缩","第二项","第三项","第四项","第五项"));assertTrue(v.visible(result.title())<=24);assertEquals(4,result.bodyBoxes().size());assertTrue(result.bodyBoxes().stream().allMatch(x->v.visible(x)<=20));assertEquals("AUTO_FIXED",result.status());}

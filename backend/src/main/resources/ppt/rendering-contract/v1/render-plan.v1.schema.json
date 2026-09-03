@@ -51,7 +51,7 @@
       "enum": ["CONTAIN", "COVER"]
     },
     "assetKind": {
-      "enum": ["SCREENSHOT", "DIAGRAM", "CHART", "PHOTO", "TECHNICAL_DRAWING", "DESIGN_RENDER", "TABLE_IMAGE", "LOGO"]
+      "enum": ["SCREENSHOT", "DIAGRAM", "CHART", "PHOTO", "TECHNICAL_DRAWING", "DESIGN_RENDER", "TABLE_IMAGE", "LOGO", "TEMPLATE_DECORATION"]
     },
     "imageRole": {
       "enum": ["INFORMATION", "PROOF", "EFFECT"]
@@ -216,6 +216,7 @@
         "widthEmu": { "type": "integer", "minimum": 1 },
         "heightEmu": { "type": "integer", "minimum": 1 },
         "zIndex": { "type": "integer", "minimum": 0, "maximum": 999 },
+        "decorative": { "type": "boolean" },
         "resolvedStyle": { "type": "object" },
         "styleSource": { "$ref": "#/$defs/styleSource" }
       }

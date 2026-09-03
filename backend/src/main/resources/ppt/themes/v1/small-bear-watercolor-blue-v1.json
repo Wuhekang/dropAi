@@ -1,8 +1,10 @@
 {
   "schemaVersion": "theme.v1",
-  "themeId": "academic-base",
+  "themeId": "small-bear-watercolor-blue-v1",
   "themeVersion": "1.0.0",
-  "inherits": [],
+  "inherits": [
+    "academic-base@1.0.0"
+  ],
   "slide": {
     "ratio": "16:9",
     "widthIn": 13.333,
@@ -20,30 +22,30 @@
   },
   "colors": {
     "surface": {
-      "canvas": "#F7F8FC",
+      "canvas": "#FFFFFF",
       "card": "#FFFFFF",
-      "elevated": "#FFFFFF",
-      "dark": "#1D2340"
+      "elevated": "#F7FAFD",
+      "dark": "#4E58A0"
     },
     "text": {
-      "primary": "#000000",
-      "secondary": "#677089",
+      "primary": "#4A5A69",
+      "secondary": "#6B7280",
       "inverse": "#FFFFFF"
     },
     "accent": {
-      "primary": "#4E5D78",
-      "secondary": "#7B849A",
-      "soft": "#EEF1F7"
+      "primary": "#4E58A0",
+      "secondary": "#8FAADC",
+      "soft": "#EDF4FB"
     },
     "state": {
       "success": "#237A52",
       "warning": "#9A6200",
       "danger": "#B63A3A",
-      "info": "#2D61B3"
+      "info": "#4E58A0"
     },
     "border": {
-      "default": "#E1E5EF",
-      "strong": "#B9C0D1"
+      "default": "#DDE7F1",
+      "strong": "#AFC2DD"
     }
   },
   "typography": {
@@ -131,9 +133,9 @@
   },
   "shape": {
     "radiusPt": {
-      "small": 6,
-      "medium": 12,
-      "large": 18
+      "small": 4,
+      "medium": 8,
+      "large": 14
     },
     "borderWidthPt": {
       "thin": 0.75,
@@ -142,26 +144,26 @@
   },
   "shadow": {
     "card": {
-      "blurPt": 10,
+      "blurPt": 8,
       "distancePt": 2,
       "angleDeg": 90,
-      "opacity": 0.14
+      "opacity": 0.1
     }
   },
   "components": {
     "coverTitle": {
       "textToken": "colors.text.primary",
-      "accentToken": "colors.accent.primary",
+      "accentToken": "colors.accent.secondary",
       "typographyToken": "typography.styles.deckTitle"
     },
     "sectionTitle": {
       "textToken": "colors.text.primary",
-      "accentToken": "colors.accent.primary",
+      "accentToken": "colors.accent.secondary",
       "typographyToken": "typography.styles.sectionTitle"
     },
     "slideTitle": {
       "textToken": "colors.text.primary",
-      "accentToken": "colors.accent.primary",
+      "accentToken": "colors.accent.secondary",
       "typographyToken": "typography.styles.slideTitle"
     },
     "bodyText": {
@@ -187,14 +189,14 @@
     },
     "imageFrame": {
       "fillToken": "colors.surface.card",
-      "borderToken": "colors.border.default",
+      "borderToken": "colors.border.strong",
       "radiusToken": "shape.radiusPt.small",
       "shadowToken": "shadow.card"
     },
     "tableHeader": {
-      "fillToken": "colors.accent.primary",
-      "textToken": "colors.text.inverse",
-      "borderToken": "colors.accent.primary",
+      "fillToken": "colors.accent.soft",
+      "textToken": "colors.text.primary",
+      "borderToken": "colors.border.strong",
       "typographyToken": "typography.styles.bodyStrong"
     },
     "tableBody": {

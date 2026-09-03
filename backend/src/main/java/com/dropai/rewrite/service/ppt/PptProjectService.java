@@ -9,6 +9,7 @@ import com.dropai.rewrite.service.ppt.rendering.bundle.v1.RenderPlanBundleLoader
 import com.dropai.rewrite.service.ppt.rendering.production.v1.ProductionRenderPlanCoordinator;
 import com.dropai.rewrite.service.ppt.rendering.production.v1.ProductionPresentationAdapter;
 import com.dropai.rewrite.service.ppt.rendering.renderer.v1.RenderedPptx;
+import com.dropai.rewrite.service.ppt.rendering.template.v1.RenderingTemplatePackRegistry;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.core.io.FileSystemResource;
@@ -80,6 +81,7 @@ public class PptProjectService {
     public Map<String,Object> generate(String id){
         Long userId=AuthContext.requireUserId();
         Map<String,Object> project=project(id,userId);
+        String templatePackId=RenderingTemplatePackRegistry.selectedPackId(project);
         generationSkill.requireManifest();
         if(!List.of("PLANNED","SUCCESS","FAILED").contains(string(project.get("status")))){
             throw new IllegalStateException("RenderPlan 未准备好或已因项目内容变更而失效，请先重新生成PPT方案");
@@ -90,7 +92,7 @@ public class PptProjectService {
         }
         LoadedRenderPlanBundle bundle;
         try{
-            bundle=bundleLoader.load(bundleDirectory,renderPlans.runtimeExpectations());
+            bundle=bundleLoader.load(bundleDirectory,renderPlans.runtimeExpectations(templatePackId));
         }catch(RenderPlanBundleException exception){
             throw new IllegalStateException("RenderPlan 未准备好或不存在，请先重新生成PPT方案："+exception.getMessage(),exception);
         }
@@ -127,7 +129,7 @@ public class PptProjectService {
                     jdbc.update("UPDATE ppt_project SET status='SUCCESS',current_stage='生成完成',progress=100,output_path=?,error_message=NULL,updated_at=? WHERE id=? AND user_id=?",output.toString(),LocalDateTime.now(),id,userId);
                     jdbc.update("UPDATE ppt_generation_task SET status='SUCCESS',progress=100,current_stage='生成完成',updated_at=? WHERE id=?",LocalDateTime.now(),taskId);
                     Map<String,Object> result=detail(id,userId);
-                    result.put("validationStatus","VALID");result.put("autoFixes",List.of());result.put("renderPlanHash",rendered.renderPlanHash());result.put("rendererVersion",rendered.rendererVersion());result.put("slideCount",rendered.slideCount());result.put("writtenBytes",rendered.writtenBytes());result.put("assetCount",bundle.assetCount());
+                    result.put("validationStatus","VALID");result.put("autoFixes",List.of());result.put("renderPlanHash",rendered.renderPlanHash());result.put("rendererVersion",rendered.rendererVersion());result.put("slideCount",rendered.slideCount());result.put("writtenBytes",rendered.writtenBytes());result.put("assetCount",bundle.assetCount());result.put("templatePackId",templatePackId);
                     return result;
                 }catch(java.io.IOException exception){
                     throw new IllegalStateException("PureRenderer 生成PPTX失败："+exception.getMessage(),exception);

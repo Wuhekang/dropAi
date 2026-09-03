@@ -53,7 +53,7 @@ class PptProjectProductionBundleIntegrationTest {
         PptGenerationSkillService skill = mock(PptGenerationSkillService.class);
         PointService points = transparentPoints();
         ProductionRenderPlanCoordinator coordinator = mock(ProductionRenderPlanCoordinator.class);
-        when(coordinator.runtimeExpectations()).thenReturn(RenderPlanBundleTestSupport.expectations());
+        when(coordinator.runtimeExpectations("academic-purple")).thenReturn(RenderPlanBundleTestSupport.expectations());
         PptProjectService service = service(jdbc, skill, points, coordinator);
         AuthContext.setUserId(USER_ID);
 
@@ -71,7 +71,26 @@ class PptProjectProductionBundleIntegrationTest {
             assertEquals(40, pptx.getSlides().size());
         }
         verify(skill).requireManifest();
-        verify(coordinator).runtimeExpectations();
+        verify(coordinator).runtimeExpectations("academic-purple");
+    }
+
+    @Test
+    void formalGenerateLoadsRuntimeExpectationsForThePersistedTrustedTemplatePack() {
+        RenderPlanBundleTestSupport.store(projectRoot().resolve("rendering-v1"));
+        JdbcTemplate jdbc = jdbcForProject(
+                PROJECT_ID, "PLANNED", "", "small-bear-watercolor-blue-v1");
+        ProductionRenderPlanCoordinator coordinator = mock(ProductionRenderPlanCoordinator.class);
+        when(coordinator.runtimeExpectations("small-bear-watercolor-blue-v1"))
+                .thenReturn(RenderPlanBundleTestSupport.expectations());
+        PptProjectService service = service(
+                jdbc, mock(PptGenerationSkillService.class), transparentPoints(), coordinator);
+        AuthContext.setUserId(USER_ID);
+
+        Map<String, Object> result = service.generate(PROJECT_ID);
+
+        assertEquals("small-bear-watercolor-blue-v1", result.get("templatePackId"));
+        verify(coordinator).runtimeExpectations("small-bear-watercolor-blue-v1");
+        verify(coordinator, never()).runtimeExpectations("academic-purple");
     }
 
     @Test
@@ -80,7 +99,7 @@ class PptProjectProductionBundleIntegrationTest {
         PptGenerationSkillService skill = mock(PptGenerationSkillService.class);
         PointService points = mock(PointService.class);
         ProductionRenderPlanCoordinator coordinator = mock(ProductionRenderPlanCoordinator.class);
-        when(coordinator.runtimeExpectations()).thenReturn(RenderPlanBundleTestSupport.expectations());
+        when(coordinator.runtimeExpectations("academic-purple")).thenReturn(RenderPlanBundleTestSupport.expectations());
         PptProjectService service = service(jdbc, skill, points, coordinator);
         AuthContext.setUserId(USER_ID);
 
@@ -91,7 +110,7 @@ class PptProjectProductionBundleIntegrationTest {
         assertFalse(Files.exists(projectRoot().resolve("outputs")));
         verify(skill).requireManifest();
         verify(points,never()).chargeAfterSuccess(anyString(),anyString(),any());
-        verify(coordinator,never()).runtimeExpectations();
+        verify(coordinator,never()).runtimeExpectations(org.mockito.ArgumentMatchers.anyString());
     }
 
     @Test
@@ -104,7 +123,7 @@ class PptProjectProductionBundleIntegrationTest {
             throw new IllegalStateException("billing transaction failed");
         }).when(points).chargeAfterSuccess(anyString(),anyString(),any());
         ProductionRenderPlanCoordinator coordinator=mock(ProductionRenderPlanCoordinator.class);
-        when(coordinator.runtimeExpectations()).thenReturn(RenderPlanBundleTestSupport.expectations());
+        when(coordinator.runtimeExpectations("academic-purple")).thenReturn(RenderPlanBundleTestSupport.expectations());
         PptProjectService service=service(jdbc,mock(PptGenerationSkillService.class),points,coordinator);
         AuthContext.setUserId(USER_ID);
 
@@ -129,7 +148,7 @@ class PptProjectProductionBundleIntegrationTest {
         RenderPlanBundleTestSupport.store(projectRoot(otherProject).resolve("rendering-v1"));
         PointService points=mock(PointService.class);
         ProductionRenderPlanCoordinator coordinator=mock(ProductionRenderPlanCoordinator.class);
-        when(coordinator.runtimeExpectations()).thenReturn(RenderPlanBundleTestSupport.expectations());
+        when(coordinator.runtimeExpectations("academic-purple")).thenReturn(RenderPlanBundleTestSupport.expectations());
         PptProjectService service=service(
                 jdbcForProject(otherProject,"PLANNED"),
                 mock(PptGenerationSkillService.class),points,coordinator);
@@ -157,7 +176,7 @@ class PptProjectProductionBundleIntegrationTest {
 
         assertTrue(failure.getMessage().contains("项目内容变更而失效"));
         verify(points,never()).chargeAfterSuccess(anyString(),anyString(),any());
-        verify(coordinator,never()).runtimeExpectations();
+        verify(coordinator,never()).runtimeExpectations(org.mockito.ArgumentMatchers.anyString());
     }
 
     @Test
@@ -190,6 +209,15 @@ class PptProjectProductionBundleIntegrationTest {
     }
 
     private JdbcTemplate jdbcForProject(String projectId,String status,String outputPath) {
+        return jdbcForProject(projectId,status,outputPath,"");
+    }
+
+    private JdbcTemplate jdbcForProject(
+            String projectId,
+            String status,
+            String outputPath,
+            String templatePackId
+    ) {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
         when(jdbc.queryForList(anyString(), any(Object[].class))).thenAnswer(invocation -> {
             String sql = invocation.getArgument(0);
@@ -197,6 +225,8 @@ class PptProjectProductionBundleIntegrationTest {
                 Map<String,Object> project=new java.util.LinkedHashMap<>();
                 project.put("id",projectId);project.put("topic","个人健康管理系统");
                 project.put("status",status);project.put("output_path",outputPath);
+                project.put("template_id",templatePackId);
+                project.put("template_style",templatePackId);
                 return List.of(project);
             }
             return List.of();

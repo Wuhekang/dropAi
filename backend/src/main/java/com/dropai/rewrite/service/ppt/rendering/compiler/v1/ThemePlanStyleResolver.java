@@ -62,6 +62,16 @@ final class ThemePlanStyleResolver {
         return style;
     }
 
+    /** A theme-derived, effect-free style for a full-slide template surface. */
+    ObjectNode templateDecorationStyle() {
+        ObjectNode style = imageStyle();
+        style.put("borderColor", color(path("colors.surface.canvas").asText()));
+        style.put("borderWidthEmu", 0L);
+        style.put("cornerRadiusEmu", 0L);
+        style.remove("shadow");
+        return style;
+    }
+
     ObjectNode shapeStyle(String component) {
         JsonNode componentStyle = required(path("components." + component), component);
         ObjectNode style = JsonNodeFactory.instance.objectNode();

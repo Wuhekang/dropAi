@@ -84,6 +84,8 @@ class PptAcademicProductionArchitectureTest {
                 "The bundle stage must be the last mutable planning output");
         assertTrue(planning.contains("RenderPlanBundleTransaction.requireActive()"));
         assertTrue(planning.contains("RenderPlanBundleTransaction.register("));
+        assertTrue(planning.contains("SELECT * FROM ppt_project WHERE id=? AND user_id=? FOR UPDATE"),
+                "Planning must lock the selected template until the bundle transaction commits");
         assertFalse(planning.contains("renderPlanCoordinator.prepareAndStore("),
                 "PptPlanService must not publish the bundle before transaction commit");
         assertFalse(planning.contains("PptRendererV1"));

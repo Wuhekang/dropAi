@@ -10,6 +10,7 @@ import com.dropai.rewrite.service.ppt.rendering.bundle.v1.StagedRenderPlanBundle
 import com.dropai.rewrite.service.ppt.rendering.bundle.v1.RenderPlanBundleTransaction;
 import com.dropai.rewrite.service.ppt.rendering.production.v1.ProductionRenderPlanCoordinator;
 import com.dropai.rewrite.service.ppt.rendering.production.v1.ProductionRenderPlanRequest;
+import com.dropai.rewrite.service.ppt.rendering.template.v1.RenderingTemplatePackRegistry;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -37,7 +38,7 @@ public class PptPlanService {
     @Transactional
     public Map<String, Object> create(String projectId) {
         Long userId = AuthContext.requireUserId();
-        Map<String, Object> project = requireProject(projectId, userId);
+        Map<String, Object> project = requireProjectForUpdate(projectId, userId);
         if(plannerV2!=null)return createV2(projectId,userId,project);
         List<Map<String, Object>> sections = outline(projectId);
         if (sections.size() < 4) throw new IllegalStateException("请先确认至少4项目录");
@@ -138,8 +139,9 @@ public class PptPlanService {
         var validated = outlineValidator.validate(
                 new PptOutlineValidatorV1.ValidationRequest(metadata, outline));
         outlineValidator.requireValid(validated);
+        String templatePackId = RenderingTemplatePackRegistry.selectedPackId(project);
         ProductionRenderPlanRequest renderPlanRequest = new ProductionRenderPlanRequest(
-                projectId, metadata, blocks, validated, input);
+                projectId, metadata, blocks, validated, input, templatePackId);
 
         Map<String, String> assetIdByPath = new LinkedHashMap<>();
         for (var asset : storedAssets) {
@@ -218,6 +220,7 @@ public class PptPlanService {
 
         result.put("renderPlanHash", stagedRenderPlanBundle.renderPlanHash());
         result.put("renderPlanAssetCount", stagedRenderPlanBundle.assetCount());
+        result.put("templatePackId", templatePackId);
         return result;
     }
     private void put(Map<String,String> target,String key,Object value){String text=string(value);if(!text.isBlank())target.put(key,text);}
@@ -276,6 +279,7 @@ public class PptPlanService {
     private int sourceChapterCount(List<String> blocks){int max=1;for(String block:blocks){var m=java.util.regex.Pattern.compile("(?m)^(?:第)?(\\d+)章|^(\\d+)(?:[.．]\\d+)+").matcher(PptDocumentParser.clean(block));if(m.find()){String n=m.group(1)!=null?m.group(1):m.group(2);max=Math.max(max,Integer.parseInt(n));}String v=PptDocumentParser.clean(block);for(int i=1;i<=10;i++)if(v.startsWith("第"+List.of("一","二","三","四","五","六","七","八","九","十").get(i-1)+"章"))max=Math.max(max,i);}return max;}
     private String imageTitle(String caption,String chapter){String clean=PptDocumentParser.clean(caption);var m=java.util.regex.Pattern.compile("(?:图|Figure|Fig\\.)\\s*\\d+(?:[-.．]\\d+)?\\s*(.*)",java.util.regex.Pattern.CASE_INSENSITIVE).matcher(clean);if(m.find()&&!m.group(1).isBlank())return m.group(1);return chapter+"图示";}
     private Map<String, Object> requireProject(String id, Long userId) { List<Map<String,Object>> rows=jdbc.queryForList("SELECT * FROM ppt_project WHERE id=? AND user_id=?",id,userId);if(rows.isEmpty())throw new IllegalArgumentException("PPT项目不存在或无权访问");return new LinkedHashMap<>(rows.get(0)); }
+    private Map<String, Object> requireProjectForUpdate(String id, Long userId) { List<Map<String,Object>> rows=jdbc.queryForList("SELECT * FROM ppt_project WHERE id=? AND user_id=? FOR UPDATE",id,userId);if(rows.isEmpty())throw new IllegalArgumentException("PPT项目不存在或无权访问");return new LinkedHashMap<>(rows.get(0)); }
     private List<Map<String,Object>> outline(String id){return jdbc.queryForList("SELECT * FROM ppt_outline WHERE project_id=? ORDER BY section_order",id);}
     private Map<String,Object> detail(String id,Long userId){Map<String,Object> p=requireProject(id,userId);p.put("outline",outline(id));p.put("slides",jdbc.queryForList("SELECT * FROM ppt_slide WHERE project_id=? ORDER BY slide_order",id));p.put("assets",jdbc.queryForList("SELECT id,source_type,source_page,caption,width,height FROM ppt_asset WHERE project_id=? ORDER BY source_page,id",id));return p;}
     private Map<String,Object> readJson(String value){try{return value==null||value.isBlank()?new LinkedHashMap<>():mapper.readValue(value,new TypeReference<>(){});}catch(Exception e){return new LinkedHashMap<>();}}

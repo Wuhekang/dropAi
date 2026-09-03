@@ -12,7 +12,10 @@ import com.dropai.rewrite.service.ppt.rendering.layout.v1.*;
 import com.dropai.rewrite.service.ppt.rendering.measurement.v1.*;
 import com.dropai.rewrite.service.ppt.rendering.plan.v1.DraftSlideRenderPlan;
 import com.dropai.rewrite.service.ppt.rendering.renderability.v1.PageRenderabilityValidator;
+import com.dropai.rewrite.service.ppt.rendering.renderer.v1.AssetBinaryResolver;
 import com.dropai.rewrite.service.ppt.rendering.theme.v1.*;
+import com.dropai.rewrite.service.ppt.rendering.template.v1.RenderingTemplatePack;
+import com.dropai.rewrite.service.ppt.rendering.template.v1.RenderingTemplatePackRegistry;
 import com.dropai.rewrite.service.ppt.rendering.validation.v1.*;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -30,15 +33,23 @@ public final class ProductionRenderPlanCoordinator {
     private final ObjectMapper mapper;
     private final PptAssetMapperV1 assetMapper;
     private final RenderPlanBundleStore bundleStore;
+    private final RenderingTemplatePackRegistry templatePacks;
 
     @Autowired
     public ProductionRenderPlanCoordinator(ObjectMapper mapper, PptAssetMapperV1 assetMapper) {
-        this(mapper, assetMapper, new RenderPlanBundleStore());
+        this(mapper, assetMapper, new RenderPlanBundleStore(), new RenderingTemplatePackRegistry());
     }
 
     ProductionRenderPlanCoordinator(ObjectMapper mapper, PptAssetMapperV1 assetMapper,
                                     RenderPlanBundleStore bundleStore) {
+        this(mapper, assetMapper, bundleStore, new RenderingTemplatePackRegistry());
+    }
+
+    ProductionRenderPlanCoordinator(ObjectMapper mapper, PptAssetMapperV1 assetMapper,
+                                    RenderPlanBundleStore bundleStore,
+                                    RenderingTemplatePackRegistry templatePacks) {
         this.mapper=mapper; this.assetMapper=assetMapper; this.bundleStore=bundleStore;
+        this.templatePacks=Objects.requireNonNull(templatePacks,"templatePacks");
     }
 
     public StoredRenderPlanBundle prepareAndStore(Path target, ProductionRenderPlanRequest request) {
@@ -69,8 +80,11 @@ public final class ProductionRenderPlanCoordinator {
         var mapping = assetMapper.map(new PptAssetMapperV1.MappingRequest(
                 request.validatedTree(), request.plannerInput().assets(), request.plannerInput().tables(), null));
         var adapted = new ProductionPresentationAdapter(mapper).adapt(request, mapping);
+        RenderingTemplatePack templatePack=templatePacks.require(request.templatePackId());
+        RenderingAssetBundle assets=mergeAssets(adapted.assets(),templatePack);
+        AssetBinaryResolver resolver=mergeResolvers(templatePack.assetResolver(),adapted.resolver());
 
-        RuntimeComponents runtime=runtimeComponents();
+        RuntimeComponents runtime=runtimeComponents(templatePack);
         ProductionFontInventoryLoader.LoadedFonts loaded = runtime.loaded();
         ResolvedTheme theme=runtime.theme();
         ResolvedFontProfile fonts=runtime.fonts();
@@ -79,17 +93,21 @@ public final class ProductionRenderPlanCoordinator {
         DeterministicTextMetricsService metrics=new DeterministicTextMetricsService(new AwtGlyphMetricsModel());
         RenderPlanCompiler compiler=new RenderPlanCompiler(new PageRenderabilityValidator(),metrics,
                 new ImageFitCalculator(),new TableMetricsCalculator(metrics));
-        DraftSlideRenderPlan draft=compiler.compile(adapted.tree(),theme,catalog,adapted.assets(),fonts);
-        RenderPlanValidationContext context=context(adapted.tree(),adapted.assets(),theme,catalog,fonts,metrics,draft);
+        DraftSlideRenderPlan draft=compiler.compile(adapted.tree(),theme,catalog,assets,fonts,templatePack);
+        RenderPlanValidationContext context=context(adapted.tree(),assets,theme,catalog,fonts,metrics,draft);
         RenderPlanValidationResult result=new RenderPlanValidator().validate(draft,context);
         if(!result.valid())throw new IllegalStateException("Production RenderPlan validation failed: "+result.issues());
         FrozenSlideRenderPlan frozen=new RenderPlanFreezer().freeze(result.accept());
         String hash=new RenderPlanHasher().hash(frozen);
-        return new ProductionRenderPlanPackage(frozen,hash,adapted.resolver(),actualFonts);
+        return new ProductionRenderPlanPackage(frozen,hash,resolver,actualFonts);
     }
 
     public BundleRuntimeExpectations runtimeExpectations() {
-        RuntimeComponents runtime=runtimeComponents();
+        return runtimeExpectations(RenderingTemplatePackRegistry.ACADEMIC_PURPLE);
+    }
+
+    public BundleRuntimeExpectations runtimeExpectations(String templatePackId) {
+        RuntimeComponents runtime=runtimeComponents(templatePacks.require(templatePackId));
         var buildIdentity = new ProductionBuildIdentityLoader().load();
         return new BundleRuntimeExpectations(RenderPlanCompiler.ENGINE_VERSION,
                 buildIdentity.rendererVersion(), buildIdentity.gitCommit(),
@@ -98,12 +116,12 @@ public final class ProductionRenderPlanCoordinator {
                 runtime.catalog().catalogHash(),runtime.actualFonts());
     }
 
-    private RuntimeComponents runtimeComponents(){
+    private RuntimeComponents runtimeComponents(RenderingTemplatePack templatePack){
         ProductionFontInventoryLoader.LoadedFonts loaded = new ProductionFontInventoryLoader().load();
         Set<String> families = new LinkedHashSet<>();
         loaded.resources().forEach(face -> families.add(face.family()));
         ResolvedTheme theme = ThemeEngine.academicV1(families)
-                .resolve(ThemeResolutionRequest.academicPurpleV1());
+                .resolve(templatePack.themeRequest());
         Map<String,List<String>> requests=new LinkedHashMap<>();
         for(String role:List.of("body","display")){List<String> values=new ArrayList<>(theme.fontProfile().declaredFamilies().get(role));values.addAll(theme.fontProfile().allowedFallbackFamilies().get(role));requests.put(role,List.copyOf(values));}
         Map<String,Set<Integer>> weights=Map.of("body",new LinkedHashSet<>(List.of(400,500,600)),"display",Set.of(700));
@@ -112,6 +130,25 @@ public final class ProductionRenderPlanCoordinator {
         var actualFonts=loaded.production(fonts);
         LayoutCatalog catalog=new LayoutCatalogLoader().loadAcademicV1();
         return new RuntimeComponents(loaded,theme,fonts,actualFonts,catalog);
+    }
+
+    private static RenderingAssetBundle mergeAssets(
+            RenderingAssetBundle source,
+            RenderingTemplatePack templatePack
+    ) {
+        var combined=source.assets();
+        combined.addAll(templatePack.assets());
+        return new RenderingAssetBundle(combined,source.tableIndex());
+    }
+
+    private static AssetBinaryResolver mergeResolvers(
+            AssetBinaryResolver template,
+            AssetBinaryResolver source
+    ) {
+        return (assetId,bundlePath,expectedSha256)->{
+            var decorated=template.resolve(assetId,bundlePath,expectedSha256);
+            return decorated!=null?decorated:source.resolve(assetId,bundlePath,expectedSha256);
+        };
     }
 
     private static RenderPlanValidationContext context(ValidatedPresentationTree tree,RenderingAssetBundle bundle,

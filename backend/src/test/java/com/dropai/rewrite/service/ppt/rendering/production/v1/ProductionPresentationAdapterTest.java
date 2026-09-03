@@ -111,6 +111,43 @@ class ProductionPresentationAdapterTest {
     }
 
     @Test
+    void productionCoordinatorFreezesTheSelectedTemplatePackAndItsVerifiedAssets() {
+        Path regular=Path.of("C:/Windows/Fonts/msyh.ttc");
+        Path bold=Path.of("C:/Windows/Fonts/msyhbd.ttc");
+        Assumptions.assumeTrue(Files.isRegularFile(regular)&&Files.isRegularFile(bold));
+        String previous=System.getProperty(ProductionFontInventoryLoader.FONT_FILES_PROPERTY);
+        try {
+            System.setProperty(ProductionFontInventoryLoader.FONT_FILES_PROPERTY,
+                    "400="+regular+",500="+regular+",600="+bold+",700="+bold);
+            var input=new PptContentPlannerV2.PlannerInput(
+                    metadata(),List.of(),List.of(),List.of(),"computer");
+            var request=new ProductionRenderPlanRequest(
+                    "project-small-bear-v1",metadata(),List.of("source"),tree(),input,
+                    "small-bear-watercolor-blue-v1");
+
+            ProductionRenderPlanPackage compiled=new ProductionRenderPlanCoordinator(
+                    new ObjectMapper(),new PptAssetMapperV1()).compile(request);
+
+            assertEquals("small-bear-watercolor-blue-v1",
+                    compiled.plan().document().path("engine").path("themeId").asText());
+            assertTrue(compiled.plan().document().path("slides").findValues("decorative")
+                    .stream().allMatch(node->node.asBoolean(false)));
+            assertEquals(6,compiled.plan().document().path("slides").findValues("decorative").size());
+            var decoration=java.util.stream.StreamSupport.stream(
+                            compiled.plan().document().path("assets").spliterator(),false)
+                    .filter(asset->"TEMPLATE_DECORATION".equals(asset.path("assetKind").asText()))
+                    .findFirst().orElseThrow();
+            assertNotNull(compiled.sourceAssets().resolve(
+                    decoration.path("assetId").asText(),
+                    decoration.path("bundlePath").asText(),
+                    decoration.path("sha256").asText()));
+        } finally {
+            if(previous==null)System.clearProperty(ProductionFontInventoryLoader.FONT_FILES_PROPERTY);
+            else System.setProperty(ProductionFontInventoryLoader.FONT_FILES_PROPERTY,previous);
+        }
+    }
+
+    @Test
     void productionFontInventoryRejectsARegularFileDeclaredAsBold() {
         Path regular=Path.of("C:/Windows/Fonts/msyh.ttc");
         Assumptions.assumeTrue(Files.isRegularFile(regular));

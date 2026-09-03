@@ -2,6 +2,7 @@ package com.dropai.rewrite.service.ppt.rendering.compiler.v1;
 
 import com.dropai.rewrite.service.ppt.rendering.contract.v1.PptQualityCode;
 import com.dropai.rewrite.service.ppt.rendering.contract.v1.LayoutIds;
+import com.dropai.rewrite.service.ppt.rendering.contract.v1.enums.AssetKind;
 import com.dropai.rewrite.service.ppt.rendering.contract.v1.enums.ImageFitMode;
 import com.dropai.rewrite.service.ppt.rendering.contract.v1.enums.PageType;
 import com.dropai.rewrite.service.ppt.rendering.contract.v1.enums.TableKind;
@@ -26,6 +27,7 @@ import com.dropai.rewrite.service.ppt.rendering.plan.v1.DraftSlideRenderPlan;
 import com.dropai.rewrite.service.ppt.rendering.renderability.v1.PageRenderabilityIssue;
 import com.dropai.rewrite.service.ppt.rendering.renderability.v1.PageRenderabilityResult;
 import com.dropai.rewrite.service.ppt.rendering.renderability.v1.PageRenderabilityValidator;
+import com.dropai.rewrite.service.ppt.rendering.template.v1.RenderingTemplatePack;
 import com.dropai.rewrite.service.ppt.rendering.theme.v1.ResolvedTheme;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -76,12 +78,53 @@ public final class RenderPlanCompiler {
             RenderingAssetBundle assets,
             ResolvedFontProfile fontProfile
     ) {
+        return compileInternal(tree, theme, catalog, assets, fontProfile, null);
+    }
+
+    /**
+     * Compiles the same frozen content/layout contract with an optional trusted
+     * visual template surface. The surface contribution is limited to one
+     * full-slide decorative image and cannot alter page content, layout
+     * selection or existing element geometry.
+     */
+    public DraftSlideRenderPlan compile(
+            ValidatedPresentationTree tree,
+            ResolvedTheme theme,
+            LayoutCatalog catalog,
+            RenderingAssetBundle assets,
+            ResolvedFontProfile fontProfile,
+            RenderingTemplatePack templatePack
+    ) {
+        return compileInternal(
+                tree,
+                theme,
+                catalog,
+                assets,
+                fontProfile,
+                Objects.requireNonNull(templatePack, "templatePack"));
+    }
+
+    private DraftSlideRenderPlan compileInternal(
+            ValidatedPresentationTree tree,
+            ResolvedTheme theme,
+            LayoutCatalog catalog,
+            RenderingAssetBundle assets,
+            ResolvedFontProfile fontProfile,
+            RenderingTemplatePack templatePack
+    ) {
         Objects.requireNonNull(tree, "tree");
         Objects.requireNonNull(theme, "theme");
         Objects.requireNonNull(catalog, "catalog");
         Objects.requireNonNull(assets, "assets");
         Objects.requireNonNull(fontProfile, "fontProfile");
         requireFontAgreement(theme, fontProfile);
+        if (templatePack != null
+                && (!templatePack.themeRequest().themeId().equals(theme.themeId())
+                || !templatePack.themeRequest().expectedVersion().equals(theme.themeVersion()))) {
+            throw new RenderPlanCompilationException(
+                    PptQualityCode.INVALID_REFERENCE,
+                    "Resolved theme does not match template pack " + templatePack.templatePackId());
+        }
 
         ObjectNode treeDocument = tree.document();
         ArrayNode pages = (ArrayNode) treeDocument.path("pages");
@@ -133,7 +176,8 @@ public final class RenderPlanCompiler {
                     styles,
                     catalog,
                     selected.recipe(),
-                    pages.size()));
+                    pages.size(),
+                    templatePack));
         }
         return DraftSlideRenderPlan.of(plan);
     }
@@ -146,14 +190,16 @@ public final class RenderPlanCompiler {
             ThemePlanStyleResolver styles,
             LayoutCatalog catalog,
             LayoutRecipe selected,
-            int slideCount
+            int slideCount,
+            RenderingTemplatePack templatePack
     ) {
         List<LayoutRecipe> attempts = new ArrayList<>();
         collectFallbackAttempts(selected, catalog, new LinkedHashSet<>(), attempts);
         RenderPlanCompilationException lastFailure = null;
         for (LayoutRecipe recipe : attempts) {
             try {
-                return compileSlide(page, tree, assets, fontProfile, styles, recipe, slideCount);
+                return compileSlide(
+                        page, tree, assets, fontProfile, styles, recipe, slideCount, templatePack);
             } catch (RenderPlanCompilationException exception) {
                 if (exception.qualityCode() != PptQualityCode.TEXT_OVERFLOW
                         && exception.qualityCode() != PptQualityCode.TABLE_CAPACITY_EXCEEDED
@@ -188,7 +234,8 @@ public final class RenderPlanCompiler {
             ResolvedFontProfile fontProfile,
             ThemePlanStyleResolver styles,
             LayoutRecipe recipe,
-            int slideCount
+            int slideCount,
+            RenderingTemplatePack templatePack
     ) {
         int index = page.path("index").asInt();
         String slideId = String.format(Locale.ROOT, "slide-%03d", index);
@@ -201,6 +248,10 @@ public final class RenderPlanCompiler {
         slide.put("layoutId", recipe.layoutId());
         ArrayNode elements = slide.putArray("elements");
         elements.add(background(slideId, styles));
+        if (templatePack != null) {
+            templatePack.surfaceAssetId(pageType).ifPresent(assetId ->
+                    elements.add(templateSurfaceElement(slideId, assetId, assets, styles)));
+        }
 
         switch (pageType) {
             case COVER -> compileCover(elements, slideId, page, tree.path("metadata"), recipe, fontProfile, styles);
@@ -271,7 +322,9 @@ public final class RenderPlanCompiler {
             int index,
             int slideCount
     ) {
-        addStandardTitle(elements, slideId, page, recipe, fonts, styles);
+        addText(elements, slideId, "title", requiredText(page, "title"), requiredSlot(recipe, "title"),
+                "slideTitle", "slideTitle", "display", recipe.constraints().titleMaxLines(),
+                "CENTER", "MIDDLE", 220, fonts, styles);
         if (!agendaSections.isArray() || agendaSections.isEmpty()) {
             throw new RenderPlanCompilationException(PptQualityCode.UNRENDERABLE_PAGE,
                     "Agenda sections are missing");
@@ -286,7 +339,7 @@ public final class RenderPlanCompiler {
                             requiredText(agendaSections.get(entry), "title")),
                     inset(steps.get(entry), styles.spacingEmu("mdPt"), styles.spacingEmu("xsPt")),
                     "bodyStrong", "keyPointCard", "body", 2,
-                    "LEFT", "MIDDLE", 230, fonts, styles);
+                    "CENTER", "MIDDLE", 230, fonts, styles);
         }
         addFooter(elements, slideId, recipe, index, slideCount, fonts, styles);
     }
@@ -837,6 +890,35 @@ public final class RenderPlanCompiler {
             sourceCrop.put("rightPermille", crop.rightPermille());
             sourceCrop.put("bottomPermille", crop.bottomPermille());
         });
+        return element;
+    }
+
+    private ObjectNode templateSurfaceElement(
+            String slideId,
+            String assetId,
+            RenderingAssetBundle assets,
+            ThemePlanStyleResolver styles
+    ) {
+        ObjectNode asset = assets.requireAsset(assetId);
+        if (!AssetKind.TEMPLATE_DECORATION.name().equals(asset.path("assetKind").asText())) {
+            throw new RenderPlanCompilationException(
+                    PptQualityCode.INVALID_REFERENCE,
+                    "Template surface must reference a TEMPLATE_DECORATION asset: " + assetId);
+        }
+        ObjectNode element = baseElement(
+                slideId + "-template-surface",
+                "IMAGE",
+                0L,
+                0L,
+                styles.slideWidthEmu(),
+                styles.slideHeightEmu(),
+                5,
+                styles.templateDecorationStyle());
+        element.set("styleSource", styles.styleSource("imageFrame", "components.imageFrame"));
+        element.put("decorative", true);
+        element.put("assetId", assetId);
+        element.put("fitMode", ImageFitMode.CONTAIN.name());
+        element.put("cropAllowed", false);
         return element;
     }
 

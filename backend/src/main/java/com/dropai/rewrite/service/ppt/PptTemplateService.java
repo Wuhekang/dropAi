@@ -1,6 +1,7 @@
 package com.dropai.rewrite.service.ppt;
 
 import com.dropai.rewrite.auth.AuthContext;
+import com.dropai.rewrite.service.ppt.rendering.template.v1.RenderingTemplatePackRegistry;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.poi.sl.usermodel.PaintStyle;
@@ -39,6 +40,8 @@ import java.util.zip.ZipFile;
 @Service
 public class PptTemplateService {
     public static final String AI_RECOMMEND="AI_RECOMMEND",TECH_DEFENSE="TECH_DEFENSE",SIMPLE_ACADEMIC="SIMPLE_ACADEMIC",ENVIRONMENT_DESIGN="ENVIRONMENT_DESIGN",VISUAL_COMMUNICATION="VISUAL_COMMUNICATION",BUSINESS="BUSINESS",MINIMAL_PREMIUM="MINIMAL_PREMIUM",CUSTOM="CUSTOM";
+    public static final String ACADEMIC_PURPLE=RenderingTemplatePackRegistry.ACADEMIC_PURPLE;
+    public static final String SMALL_BEAR_WATERCOLOR_BLUE_V1=RenderingTemplatePackRegistry.SMALL_BEAR_WATERCOLOR_BLUE_V1;
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper;
     private final Path root=Path.of("storage","ppt-templates").toAbsolutePath().normalize();
@@ -48,7 +51,9 @@ public class PptTemplateService {
     public List<Map<String,Object>> list(){
         Long userId=AuthContext.requireUserId();
         List<Map<String,Object>> result=new ArrayList<>(builtIns());
-        result.addAll(jdbc.queryForList("SELECT id,template_name,style,suitable_major,slide_types_json,metadata_json,file_path,created_at FROM ppt_template WHERE user_id=? AND status='READY' ORDER BY CASE WHEN template_name LIKE '%小熊熊%' THEN 0 ELSE 1 END,created_at DESC",userId));
+        List<Map<String,Object>> custom=jdbc.queryForList("SELECT id,template_name,style,suitable_major,slide_types_json,metadata_json,file_path,created_at FROM ppt_template WHERE user_id=? AND status='READY' ORDER BY CASE WHEN template_name LIKE '%小熊熊%' THEN 0 ELSE 1 END,created_at DESC",userId);
+        custom.forEach(row->{row.put("templatePackId",null);row.put("renderingV1Supported",false);row.put("trusted",false);row.put("unsupportedReason","自定义PPTX尚未编译为可信 Rendering V1 TemplatePack");});
+        result.addAll(custom);
         result.forEach(this::expandJson);
         return result;
     }
@@ -85,19 +90,28 @@ public class PptTemplateService {
         return created;
     }
 
-    public Map<String,Object> recommend(String projectId){Long userId=AuthContext.requireUserId();Map<String,Object> p=project(projectId,userId);Map<String,Object> candidate=preferredUserTemplate(userId);String style=candidate.isEmpty()?recommendStyle(p):CUSTOM;String templateId=string(candidate.get("id"));Map<String,Object> result=new LinkedHashMap<>();result.put("style",style);result.put("templateId",templateId);result.put("reason",candidate.isEmpty()?recommendReason(style,p):templatePriorityReason(candidate));result.put("profile",profile(style,templateId));return result;}
+    public Map<String,Object> recommend(String projectId){
+        Long userId=AuthContext.requireUserId();Map<String,Object> p=project(projectId,userId);
+        String templatePackId=recommendTemplatePack(p);PptxGenerator.TemplateProfile profile=profile(templatePackId,templatePackId);
+        Map<String,Object> result=new LinkedHashMap<>();result.put("style",templatePackId);result.put("templateId",templatePackId);result.put("templatePackId",templatePackId);result.put("renderingV1Supported",true);result.put("trusted",true);result.put("reason",recommendReason(templatePackId,p));result.put("profile",profile);return result;
+    }
 
     @Transactional public Map<String,Object> select(String projectId,Map<String,Object> input){
-        Long userId=AuthContext.requireUserId();Map<String,Object> p=project(projectId,userId);String style=string(input.get("style"));if(style.isBlank())style=AI_RECOMMEND;String templateId=string(input.get("templateId"));
-        if(AI_RECOMMEND.equals(style)){Map<String,Object> candidate=preferredUserTemplate(userId);if(candidate.isEmpty())style=recommendStyle(p);else{style=CUSTOM;templateId=string(candidate.get("id"));}}
-        PptxGenerator.TemplateProfile profile=profile(style,templateId.isBlank()?null:templateId);
-        jdbc.update("UPDATE ppt_project SET template_style=?,template_id=?,template_metadata_json=?,updated_at=? WHERE id=? AND user_id=?",style,templateId.isBlank()?null:templateId,json(profile),LocalDateTime.now(),projectId,userId);
-        Map<String,Object> out=new LinkedHashMap<>();out.put("style",style);out.put("templateId",templateId);out.put("profile",profile);out.put("reason",recommendReason(style,p));return out;
+        Long userId=AuthContext.requireUserId();Map<String,Object> p=project(projectId,userId);
+        if("GENERATING".equals(string(p.get("status"))))throw new IllegalStateException("PPT正在生成，暂时不能切换模板");
+        if(input==null)input=Map.of();
+        String requested=firstNonBlank(string(input.get("templatePackId")),string(input.get("templateId")),string(input.get("style")),AI_RECOMMEND);
+        String templatePackId=AI_RECOMMEND.equalsIgnoreCase(requested)?recommendTemplatePack(p):requireTrustedPack(requested);
+        PptxGenerator.TemplateProfile profile=profile(templatePackId,templatePackId);
+        Map<String,Object> metadata=selectionMetadata(templatePackId,profile);
+        int changed=jdbc.update("UPDATE ppt_project SET template_style=?,template_id=?,template_metadata_json=?,current_stage=CASE WHEN status IN ('PLANNED','SUCCESS','FAILED') THEN '模板已更新，等待重新规划' ELSE current_stage END,progress=CASE WHEN status IN ('PLANNED','SUCCESS','FAILED') THEN 38 ELSE progress END,status=CASE WHEN status IN ('PLANNED','SUCCESS','FAILED') THEN 'OUTLINE_READY' ELSE status END,output_path=NULL,error_message=NULL,updated_at=? WHERE id=? AND user_id=? AND status<>'GENERATING'",templatePackId,templatePackId,json(metadata),LocalDateTime.now(),projectId,userId);
+        if(changed!=1)throw new IllegalStateException("PPT正在生成，暂时不能切换模板");
+        Map<String,Object> out=new LinkedHashMap<>();out.put("style",templatePackId);out.put("templateId",templatePackId);out.put("templatePackId",templatePackId);out.put("renderingV1Supported",true);out.put("trusted",true);out.put("profile",profile);out.put("planInvalidated",List.of("PLANNED","SUCCESS","FAILED").contains(string(p.get("status"))));out.put("reason",recommendReason(templatePackId,p));return out;
     }
 
     public PptxGenerator.TemplateProfile selectedProfile(Map<String,Object> project){
-        Object raw=readJson(string(project.get("template_metadata_json")));if(raw instanceof Map<?,?> map){try{return mapper.convertValue(map,PptxGenerator.TemplateProfile.class);}catch(Exception ignored){}}
-        String style=string(project.get("template_style"));String templateId=string(project.get("template_id"));if(style.isBlank()||AI_RECOMMEND.equals(style)){Long userId=project.get("user_id") instanceof Number n?n.longValue():AuthContext.requireUserId();Map<String,Object> candidate=preferredUserTemplate(userId);if(candidate.isEmpty())style=recommendStyle(project);else{style=CUSTOM;templateId=string(candidate.get("id"));}}
+        Object raw=readJson(string(project.get("template_metadata_json")));if(raw instanceof Map<?,?> map){Object nested=map.get("profile");try{return mapper.convertValue(nested==null?map:nested,PptxGenerator.TemplateProfile.class);}catch(Exception ignored){}}
+        String style=string(project.get("template_style"));String templateId=string(project.get("template_id"));if(style.isBlank()||AI_RECOMMEND.equalsIgnoreCase(style)){style=recommendTemplatePack(project);templateId=style;}
         return profile(style,templateId);
     }
 
@@ -148,6 +162,9 @@ public class PptTemplateService {
     private void collect(XSLFShape shape,List<XSLFShape> out){out.add(shape);if(shape instanceof XSLFGroupShape group)for(XSLFShape child:group.getShapes())collect(child,out);}
 
     private PptxGenerator.TemplateProfile profile(String style,String templateId){
+        String trusted=trustedPackOrBlank(firstNonBlank(templateId,style));
+        if(ACADEMIC_PURPLE.equals(trusted))return new PptxGenerator.TemplateProfile(ACADEMIC_PURPLE,"#7257FF","#E85BB5","#20243A","#747B91","#F7F8FC","Microsoft YaHei","academic","Academic Purple",null);
+        if(SMALL_BEAR_WATERCOLOR_BLUE_V1.equals(trusted))return new PptxGenerator.TemplateProfile(SMALL_BEAR_WATERCOLOR_BLUE_V1,"#4F86A6","#A8CEE0","#4A5A69","#718896","#F4FAFC","Microsoft YaHei","watercolor-blue","小熊熊·水彩蓝",null);
         if(templateId!=null&&!templateId.isBlank()){
             Long userId=AuthContext.requireUserId();List<Map<String,Object>> rows=jdbc.queryForList("SELECT metadata_json,file_path FROM ppt_template WHERE id=? AND user_id=? AND status='READY'",templateId,userId);if(rows.isEmpty())throw new IllegalArgumentException("自定义模板不存在或无权访问");Object raw=readJson(string(rows.get(0).get("metadata_json")));if(raw instanceof Map<?,?> m){TemplateMetadata meta=mapper.convertValue(m,TemplateMetadata.class);List<String> c=meta.colors();return new PptxGenerator.TemplateProfile(CUSTOM,color(c,0,"#6E4FFF"),color(c,1,"#FF55B0"),color(c,2,"#202438"),"#6D7285",color(c,3,"#F7F5FF"),meta.fonts().isEmpty()?"Microsoft YaHei":meta.fonts().get(0),meta.layoutVariant(),meta.templateName(),string(rows.get(0).get("file_path")));}}
         return switch(style){
@@ -161,18 +178,20 @@ public class PptTemplateService {
         };
     }
 
-    private List<Map<String,Object>> builtIns(){return List.of(builtin(AI_RECOMMEND,"AI智能推荐","根据专业与文档类型自动选择","全部专业"),builtin(SIMPLE_ACADEMIC,"学术答辩","论文答辩、课题汇报","通用学术"),builtin(TECH_DEFENSE,"科技工程","计算机、工程与科技项目","计算机/工科"),builtin(ENVIRONMENT_DESIGN,"环境设计","自然、景观与图片型表达","环境/景观"),builtin(VISUAL_COMMUNICATION,"视觉传达","艺术设计与作品展示","视觉传达/艺术"),builtin(BUSINESS,"商务汇报","项目汇报与实施报告","管理/商务"),builtin(MINIMAL_PREMIUM,"极简高级","克制留白与高级排版","通用专业"));}
-    private Map<String,Object> builtin(String id,String name,String description,String major){Map<String,Object> row=new LinkedHashMap<>();row.put("id",id);row.put("templateName",name);row.put("style",id);row.put("description",description);row.put("suitableMajor",major);row.put("builtIn",true);return row;}
-    private String recommendStyle(Map<String,Object> project){String major=string(project.get("major")).toLowerCase(Locale.ROOT),source=string(project.get("source_file_name")).toLowerCase(Locale.ROOT),analysis=string(project.get("analysis_json")).toLowerCase(Locale.ROOT);int images=integer(project.get("image_count"),0),slides=Math.max(1,integer(project.get("target_slide_count"),16));if(major.contains("计算机")||major.contains("软件")||major.contains("工程")||analysis.contains("技术栈"))return TECH_DEFENSE;if(major.contains("环境")||major.contains("景观")||major.contains("室内"))return ENVIRONMENT_DESIGN;if(major.contains("视觉")||major.contains("艺术")||analysis.contains("设计作品"))return VISUAL_COMMUNICATION;if(major.contains("商务")||major.contains("管理")||source.contains("实施报告")||source.contains("工作汇报"))return BUSINESS;if(images*2>=slides)return MINIMAL_PREMIUM;if(source.contains("开题")||source.contains("论文")||source.contains("答辩"))return SIMPLE_ACADEMIC;return SIMPLE_ACADEMIC;}
-    private String recommendReason(String style,Map<String,Object> project){String major=string(project.get("major"));if(major.isBlank()||major.matches("[?？]+"))major="通用学术";String source=string(project.get("source_file_name"));int images=integer(project.get("image_count"),0),slides=Math.max(1,integer(project.get("target_slide_count"),16));String type=source.contains("开题")?"开题报告":source.contains("论文")?"论文":source.contains("实施")?"实施报告":"项目文档";return "根据专业“"+major+"”、"+type+"、图片比例 "+images+"/"+slides+" 与内容类型，推荐"+switch(style){case TECH_DEFENSE->"科技工程";case ENVIRONMENT_DESIGN->"环境设计";case VISUAL_COMMUNICATION->"视觉传达";case BUSINESS->"商务汇报";case MINIMAL_PREMIUM->"极简高级";case CUSTOM->"自定义模板";default->"学术答辩";};}
-    private Map<String,Object> preferredUserTemplate(Long userId){List<Map<String,Object>> rows=jdbc.queryForList("SELECT id,template_name FROM ppt_template WHERE user_id=? AND status='READY' ORDER BY CASE WHEN template_name LIKE '%小熊熊%' THEN 0 ELSE 1 END,created_at DESC",userId);return rows.isEmpty()?Map.of():rows.get(0);}
-    private String templatePriorityReason(Map<String,Object> template){String name=string(template.get("template_name"));return isBearTemplate(name)?"已优先选择小熊熊系列模板："+name:"已优先选择用户模板："+name;}
+    private List<Map<String,Object>> builtIns(){return List.of(builtin(ACADEMIC_PURPLE,"Academic Purple","DokiAI Academic 紫色学术基线，适合稳健、清晰的论文答辩","通用学术"),builtin(SMALL_BEAR_WATERCOLOR_BLUE_V1,"小熊熊·水彩蓝","来自已审计小熊熊模板的可信水彩蓝 TemplatePack，适合论文答辩与图片展示","论文答辩/计算机/工科"));}
+    private Map<String,Object> builtin(String id,String name,String description,String major){Map<String,Object> row=new LinkedHashMap<>();row.put("id",id);row.put("templateId",id);row.put("templatePackId",id);row.put("templateName",name);row.put("style",id);row.put("description",description);row.put("suitableMajor",major);row.put("builtIn",true);row.put("trusted",true);row.put("renderingV1Supported",true);return row;}
+    private String recommendTemplatePack(Map<String,Object> project){String source=string(project.get("source_file_name")).toLowerCase(Locale.ROOT),topic=string(project.get("topic")),analysis=string(project.get("analysis_json"));boolean thesis=source.endsWith(".docx")||source.endsWith(".pdf")||source.contains("论文")||source.contains("答辩")||source.contains("毕业设计")||topic.contains("设计与实现")||analysis.contains("毕业设计");return thesis?SMALL_BEAR_WATERCOLOR_BLUE_V1:ACADEMIC_PURPLE;}
+    private String recommendReason(String style,Map<String,Object> project){String major=string(project.get("major"));if(major.isBlank()||major.matches("[?？]+"))major="通用学术";String source=string(project.get("source_file_name"));int images=integer(project.get("image_count"),0),slides=Math.max(1,integer(project.get("target_slide_count"),16));String type=source.contains("开题")?"开题报告":source.toLowerCase(Locale.ROOT).endsWith(".docx")||source.contains("论文")?"论文":source.contains("实施")?"实施报告":"项目文档";String display=SMALL_BEAR_WATERCOLOR_BLUE_V1.equals(style)?"小熊熊·水彩蓝":"Academic Purple";return "根据专业“"+major+"”、"+type+"、图片比例 "+images+"/"+slides+" 与内容类型，推荐可信模板 "+display;}
     static boolean isBearTemplate(String name){return name!=null&&name.replace(" ","").contains("小熊熊");}
     private String classifyStyle(String name,List<String> colors,int pictures,int slides){String n=name.toLowerCase(Locale.ROOT);if(n.contains("科技")||n.contains("计算机"))return TECH_DEFENSE;if(n.contains("环境")||n.contains("景观")||n.contains("建筑")||n.contains("室内"))return ENVIRONMENT_DESIGN;if(n.contains("视觉")||n.contains("艺术")||n.contains("设计"))return VISUAL_COMMUNICATION;if(n.contains("商务")||n.contains("汇报")||n.contains("实施"))return BUSINESS;if(n.contains("极简")||n.contains("高级")||pictures>slides*2)return MINIMAL_PREMIUM;return SIMPLE_ACADEMIC;}
     private String suitableMajor(String style,String name){if(TECH_DEFENSE.equals(style))return "计算机/软件/工科";if(ENVIRONMENT_DESIGN.equals(style))return "环境/景观/室内";if(VISUAL_COMMUNICATION.equals(style))return "视觉传达/艺术设计";if(BUSINESS.equals(style))return "管理/商务/项目汇报";return name.contains("教师")?"教育/说课":"通用学术";}
     private String layoutVariant(String style){return switch(style){case TECH_DEFENSE->"tech";case ENVIRONMENT_DESIGN->"environment";case VISUAL_COMMUNICATION->"visual";case BUSINESS->"business";case MINIMAL_PREMIUM->"minimal";default->"academic";};}
     private Map<String,Object> project(String id,Long userId){List<Map<String,Object>> rows=jdbc.queryForList("SELECT p.*,(SELECT COUNT(*) FROM ppt_asset a WHERE a.project_id=p.id) image_count FROM ppt_project p WHERE p.id=? AND p.user_id=?",id,userId);if(rows.isEmpty())throw new IllegalArgumentException("PPT项目不存在或无权访问");return rows.get(0);}
-    private void expandJson(Map<String,Object> row){if(row.containsKey("template_name"))row.put("templateName",row.get("template_name"));if(row.containsKey("suitable_major"))row.put("suitableMajor",row.get("suitable_major"));row.put("priorityTemplate",isBearTemplate(string(row.get("template_name"))));Object m=readJson(string(row.get("metadata_json")));if(m instanceof Map<?,?> map&&!map.isEmpty())row.put("metadata",m);Object s=readJson(string(row.get("slide_types_json")));if(s instanceof List<?> list&&!list.isEmpty())row.put("slideTypes",s);}
+    private void expandJson(Map<String,Object> row){if(row.containsKey("template_name"))row.put("templateName",row.get("template_name"));if(row.containsKey("suitable_major"))row.put("suitableMajor",row.get("suitable_major"));row.put("priorityTemplate",isBearTemplate(string(row.get("template_name"))));row.putIfAbsent("renderingV1Supported",false);row.putIfAbsent("trusted",false);Object m=readJson(string(row.get("metadata_json")));if(m instanceof Map<?,?> map&&!map.isEmpty())row.put("metadata",m);Object s=readJson(string(row.get("slide_types_json")));if(s instanceof List<?> list&&!list.isEmpty())row.put("slideTypes",s);}
+    private String requireTrustedPack(String value){String trusted=trustedPackOrBlank(value);if(trusted.isBlank())throw new IllegalArgumentException("该模板尚未编译并通过 Rendering V1 安全校验，不能用于正式生成");return trusted;}
+    private String trustedPackOrBlank(String value){if(ACADEMIC_PURPLE.equalsIgnoreCase(value))return ACADEMIC_PURPLE;if(SMALL_BEAR_WATERCOLOR_BLUE_V1.equalsIgnoreCase(value))return SMALL_BEAR_WATERCOLOR_BLUE_V1;return "";}
+    private String firstNonBlank(String... values){for(String value:values)if(value!=null&&!value.isBlank())return value;return "";}
+    private Map<String,Object> selectionMetadata(String templatePackId,PptxGenerator.TemplateProfile profile){Map<String,Object> metadata=new LinkedHashMap<>();metadata.put("schemaVersion","rendering-template-selection.v1");metadata.put("templatePackId",templatePackId);metadata.put("renderingV1Supported",true);metadata.put("trusted",true);metadata.put("profile",profile);return metadata;}
     private String color(List<String> colors,int index,String fallback){return colors!=null&&index<colors.size()?colors.get(index):fallback;}
     private String hex(Color c){return String.format("#%02X%02X%02X",c.getRed(),c.getGreen(),c.getBlue());}
     private Color paintColor(PaintStyle paint){if(paint instanceof PaintStyle.SolidPaint solid)return solid.getSolidColor().getColor();return null;}

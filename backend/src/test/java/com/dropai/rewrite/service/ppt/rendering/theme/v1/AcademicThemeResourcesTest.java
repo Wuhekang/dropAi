@@ -28,14 +28,21 @@ class AcademicThemeResourcesTest {
     }
 
     @Test
-    void onlyAcademicPurpleIsOfficialAndBaseRemainsInternal() {
-        assertEquals(Set.of(ThemeRegistry.ACADEMIC_PURPLE), registry.officialThemeIds());
+    void bothProductionThemesAreOfficialAndBaseRemainsInternal() {
+        assertEquals(Set.of(
+                ThemeRegistry.ACADEMIC_PURPLE,
+                ThemeRegistry.SMALL_BEAR_WATERCOLOR_BLUE_V1), registry.officialThemeIds());
         ThemeRegistry.Registration base = registry.require(
                 new ThemeCoordinate(ThemeRegistry.ACADEMIC_BASE, ThemeRegistry.VERSION_1_0_0));
         ThemeRegistry.Registration purple = registry.require(
                 new ThemeCoordinate(ThemeRegistry.ACADEMIC_PURPLE, ThemeRegistry.VERSION_1_0_0));
+        ThemeRegistry.Registration smallBear = registry.require(
+                new ThemeCoordinate(
+                        ThemeRegistry.SMALL_BEAR_WATERCOLOR_BLUE_V1,
+                        ThemeRegistry.VERSION_1_0_0));
         assertFalse(base.official());
         assertTrue(purple.official());
+        assertTrue(smallBear.official());
     }
 
     @Test
@@ -45,5 +52,42 @@ class AcademicThemeResourcesTest {
                 .sourceDocument();
         assertEquals(1, purple.path("inherits").size());
         assertEquals("academic-base@1.0.0", purple.path("inherits").get(0).asText());
+    }
+
+    @Test
+    void smallBearInheritsOnlyTheExactAcademicBaseVersion() {
+        ObjectNode smallBear = loader.load(registry.require(
+                new ThemeCoordinate(
+                        ThemeRegistry.SMALL_BEAR_WATERCOLOR_BLUE_V1,
+                        ThemeRegistry.VERSION_1_0_0)))
+                .sourceDocument();
+        assertEquals(1, smallBear.path("inherits").size());
+        assertEquals("academic-base@1.0.0", smallBear.path("inherits").get(0).asText());
+    }
+
+    @Test
+    void defaultTitlesAreBlackAndSmallBearUsesItsAuditedTemplateTitleColor() {
+        ObjectNode base = loader.load(registry.require(
+                new ThemeCoordinate(ThemeRegistry.ACADEMIC_BASE, ThemeRegistry.VERSION_1_0_0)))
+                .sourceDocument();
+        assertEquals("#000000", base.path("colors").path("text").path("primary").asText());
+        assertTitleTokensUsePrimaryText(base);
+
+        ObjectNode smallBear = loader.load(registry.require(
+                new ThemeCoordinate(
+                        ThemeRegistry.SMALL_BEAR_WATERCOLOR_BLUE_V1,
+                        ThemeRegistry.VERSION_1_0_0)))
+                .sourceDocument();
+        assertEquals("#4A5A69", smallBear.path("colors").path("text").path("primary").asText());
+        assertTitleTokensUsePrimaryText(smallBear);
+    }
+
+    private void assertTitleTokensUsePrimaryText(ObjectNode theme) {
+        for (String component : Set.of("coverTitle", "sectionTitle", "slideTitle")) {
+            assertEquals(
+                    "colors.text.primary",
+                    theme.path("components").path(component).path("textToken").asText(),
+                    component);
+        }
     }
 }

@@ -13,6 +13,7 @@ import java.util.TreeSet;
 
 public final class ThemeRegistry {
     public static final String ACADEMIC_PURPLE = "academic-purple";
+    public static final String SMALL_BEAR_WATERCOLOR_BLUE_V1 = "small-bear-watercolor-blue-v1";
     public static final String ACADEMIC_BASE = "academic-base";
     public static final String VERSION_1_0_0 = "1.0.0";
 
@@ -50,6 +51,10 @@ public final class ThemeRegistry {
                 new Registration(
                         new ThemeCoordinate(ACADEMIC_PURPLE, VERSION_1_0_0),
                         "ppt/themes/v1/academic-purple.json",
+                        true),
+                new Registration(
+                        new ThemeCoordinate(SMALL_BEAR_WATERCOLOR_BLUE_V1, VERSION_1_0_0),
+                        "ppt/themes/v1/small-bear-watercolor-blue-v1.json",
                         true)
         ));
     }

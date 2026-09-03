@@ -100,6 +100,22 @@ class HealthManagementRenderPlanTest {
     }
 
     @Test
+    void agendaTitleAndEveryAgendaEntryAreHorizontallyCentered() {
+        JsonNode agendaSlide = HealthManagementRenderPlanSupport.compile()
+                .frozen().document().path("slides").get(1);
+        String slideId = agendaSlide.path("slideId").asText();
+
+        assertEquals("AGENDA", agendaSlide.path("pageType").asText());
+        assertEquals("CENTER", elementById(agendaSlide, slideId + "-title")
+                .path("resolvedStyle").path("horizontalAlign").asText());
+        for (int entry = 1; entry <= 5; entry++) {
+            String elementId = String.format("%s-agenda-step-%02d-text", slideId, entry);
+            assertEquals("CENTER", elementById(agendaSlide, elementId)
+                    .path("resolvedStyle").path("horizontalAlign").asText(), elementId);
+        }
+    }
+
+    @Test
     void committedSnapshotIsCompilerOutputAndUsesCanonicalHash() {
         HealthManagementRenderPlanSupport.CompiledFixture fixture =
                 HealthManagementRenderPlanSupport.compile();
