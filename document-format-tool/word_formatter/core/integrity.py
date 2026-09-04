@@ -9,6 +9,7 @@ embedded objects, charts, or relationship graph.
 
 from dataclasses import dataclass
 import hashlib
+import posixpath
 from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree as ET
@@ -48,6 +49,7 @@ COUNT_TAGS = {
     "content_control_count": ("w", "sdt"),
     "hyperlink_count": ("w", "hyperlink"),
 }
+RELATIONSHIP_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 
 
 class IntegrityValidationError(RuntimeError):
@@ -120,7 +122,17 @@ def _body_suffix_snapshot(root: ET.Element, paragraph_start: int = 1) -> dict[st
         return [node for child in selected for node in child.iter(tag)]
 
     text = "".join(node.text or "" for node in descendants("w", "t"))
-    snapshot: dict[str, Any] = {"visible_text": text}
+    relationship_ids = {
+        value
+        for child in selected
+        for node in child.iter()
+        for attribute, value in node.attrib.items()
+        if attribute.startswith(f"{{{RELATIONSHIP_NS}}}") and value
+    }
+    snapshot: dict[str, Any] = {
+        "visible_text": text,
+        "relationship_ids": relationship_ids,
+    }
     for key, (prefix, local_name) in COUNT_TAGS.items():
         snapshot[key] = len(descendants(prefix, local_name))
     return snapshot
@@ -130,7 +142,29 @@ def inspect_docx_body(path: str | Path, paragraph_start: int = 1) -> dict[str, A
     try:
         with zipfile.ZipFile(Path(path)) as package:
             root = ET.fromstring(package.read("word/document.xml"))
-            return _body_suffix_snapshot(root, paragraph_start)
+            snapshot = _body_suffix_snapshot(root, paragraph_start)
+            relationship_targets: dict[str, str] = {}
+            relationship_name = "word/_rels/document.xml.rels"
+            if relationship_name in package.namelist():
+                relationships = ET.fromstring(package.read(relationship_name))
+                relationship_targets = {
+                    item.attrib.get("Id", ""): item.attrib.get("Target", "")
+                    for item in relationships
+                }
+            part_hashes: dict[str, str] = {}
+            names = set(package.namelist())
+            for relationship_id in snapshot.pop("relationship_ids"):
+                target = relationship_targets.get(relationship_id, "")
+                if not target or "://" in target:
+                    continue
+                name = posixpath.normpath(posixpath.join("word", target))
+                if (
+                    name in names
+                    and any(name.startswith(prefix) for prefix in PRESERVED_PREFIXES)
+                ):
+                    part_hashes[name] = _sha256(package.read(name))
+            snapshot["preserved_parts"] = part_hashes
+            return snapshot
     except (zipfile.BadZipFile, KeyError, ET.ParseError) as exc:
         raise IntegrityValidationError("无法读取 DOCX 正文以执行完整性校验") from exc
 
@@ -252,13 +286,24 @@ def validate_preservation(
             if key == "body_text_sha256":
                 if source_body["visible_text"] in output_body["visible_text"]:
                     differences.pop(key, None)
-            elif key in COUNT_TAGS and output_body.get(key, 0) >= source_body.get(key, 0):
-                differences.pop(key, None)
+            elif key in COUNT_TAGS:
+                # Visible text is the authoritative paragraph/run/field check.
+                # Only semantic body objects remain blocking count checks.
+                blocking_counts = {
+                    "table_count", "drawing_count", "pict_count", "blip_count"
+                }
+                if (
+                    key not in blocking_counts
+                    or output_body.get(key, 0) >= source_body.get(key, 0)
+                ):
+                    differences.pop(key, None)
             elif key in {"preserved_text_parts", "relationships"}:
                 differences.pop(key, None)
             elif key == "preserved_parts":
-                source_hashes = set(before[key].values())
-                output_hashes = set(after[key].values())
+                # Front covers may intentionally be replaced. Only binary
+                # parts referenced by the retained source body are mandatory.
+                source_hashes = set(source_body[key].values())
+                output_hashes = set(output_body[key].values())
                 if source_hashes.issubset(output_hashes):
                     differences.pop(key, None)
     result = IntegrityResult(

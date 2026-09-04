@@ -97,6 +97,7 @@ class DocumentProcessor:
                     start_index=content_start,
                 )
             self._apply_headings(document, rules, result, content_start)
+            self._exclude_non_content_toc_entries(document, content_start)
             if rules.table.enabled:
                 self._apply_tables(document, rules.table, result, content_start)
             if rules.page_number.enabled:
@@ -140,6 +141,11 @@ class DocumentProcessor:
         with WordDocumentConverter().as_docx(template) as readable_template:
             template_doc = Document(readable_template)
             source_doc = Document(source)
+            if cls._looks_like_format_specification(template_doc):
+                result.warnings.append(
+                    "上传文件属于撰写/排版规范说明，仅提取格式规则，不复制其说明文字作为论文封面。"
+                )
+                return source_doc
             template_start = cls._main_content_start(template_doc)
             source_start = cls._main_content_start(source_doc)
             if template_start <= 1:
@@ -151,6 +157,23 @@ class DocumentProcessor:
             Composer(template_doc).append(source_doc)
             result.records.append(ChangeRecord(None, "模板前置内容", f"论文原前置段落 {max(0, source_start - 1)} 个", f"复制模板前置段落 {template_start - 1} 个", "固定系统规则"))
             return template_doc
+
+    @staticmethod
+    def _looks_like_format_specification(document) -> bool:
+        heading_text = "".join(
+            paragraph.text.strip() for paragraph in document.paragraphs[:12]
+        )
+        title_signal = bool(
+            re.search(r"(?:撰写|写作|排版|格式).{0,8}(?:规范|要求|说明)", heading_text)
+        )
+        table_labels = {
+            row.cells[0].text.strip().replace(" ", "")
+            for table in document.tables[:3]
+            for row in table.rows
+            if row.cells
+        }
+        rule_labels = {"页面设置", "目录", "正文", "图", "表", "参考文献"}
+        return title_signal and len(table_labels & rule_labels) >= 3
 
     @staticmethod
     def _repair_missing_numbering_part(document, result: ProcessResult) -> None:
@@ -245,6 +268,7 @@ class DocumentProcessor:
         cls, document, rules: DocumentRules, result: ProcessResult, content_start: int
     ) -> int:
         """Insert a real Word TOC field between copied front matter and body."""
+        cls._exclude_front_matter_from_toc(document, content_start)
         if document.element.body.xpath(".//w:instrText[contains(., 'TOC ')]"):
             return 0
         paragraphs = document.paragraphs
@@ -254,6 +278,7 @@ class DocumentProcessor:
 
         title = document.add_paragraph("目录")
         cls._format_paragraph(title, rules.toc_title)
+        title.paragraph_format.page_break_before = True
         title._p.get_or_add_pPr().find(qn("w:outlineLvl")).set(qn("w:val"), "9")
 
         toc = document.add_paragraph()
@@ -284,6 +309,35 @@ class DocumentProcessor:
             ChangeRecord(None, "自动目录", "文档中无目录", "封面后插入 1–3 级 Word 目录并刷新页码", "固定系统规则")
         )
         return 3
+
+    @staticmethod
+    def _exclude_front_matter_from_toc(document, content_start: int) -> None:
+        """Keep cover/declaration paragraphs out of regenerated Word TOCs."""
+        for index, paragraph in enumerate(document.paragraphs, start=1):
+            if index >= content_start:
+                break
+            p_pr = paragraph._p.get_or_add_pPr()
+            outline = p_pr.find(qn("w:outlineLvl"))
+            if outline is None:
+                outline = OxmlElement("w:outlineLvl")
+                p_pr.append(outline)
+            outline.set(qn("w:val"), "9")
+
+    @staticmethod
+    def _exclude_non_content_toc_entries(document, start_index: int) -> None:
+        excluded = re.compile(
+            r"^\s*(?:封面|目录|附录|诚信声明书?|原创性声明|学位论文.{0,8}声明)\s*$",
+            re.I,
+        )
+        for index, paragraph in enumerate(document.paragraphs, start=1):
+            if index < start_index or not excluded.match(paragraph.text.strip()):
+                continue
+            p_pr = paragraph._p.get_or_add_pPr()
+            outline = p_pr.find(qn("w:outlineLvl"))
+            if outline is None:
+                outline = OxmlElement("w:outlineLvl")
+                p_pr.append(outline)
+            outline.set(qn("w:val"), "9")
 
     @staticmethod
     def _apply_page_setup(document, rules: DocumentRules, result: ProcessResult) -> None:
@@ -392,6 +446,7 @@ class DocumentProcessor:
             identity = f"{style.style_id if style else ''} {style.name if style else ''}"
             if re.fullmatch(r"(?:目\s*录|contents)", text, re.I):
                 cls._format_paragraph(paragraph, rules.toc_title)
+                paragraph.paragraph_format.page_break_before = True
                 # The TOC title is presentation text, not a chapter entry.
                 paragraph._p.get_or_add_pPr().find(qn("w:outlineLvl")).set(qn("w:val"), "9")
                 result.records.append(ChangeRecord(index, "目录标题", "原格式", cls._rule_summary(rules.toc_title), "目录标题规则"))

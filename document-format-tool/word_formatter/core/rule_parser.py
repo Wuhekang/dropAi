@@ -50,7 +50,7 @@ class NaturalLanguageRuleParser:
             notes.append(f"分类结果：{summary}")
         notes.extend(classification_warnings)
 
-        for name, size in FONT_SIZE_NAMES.items():
+        for name, size in self._font_sizes_longest_first():
             if name in normal_text:
                 normal.font_size_name = name
                 normal.font_size_pt = size
@@ -129,7 +129,7 @@ class NaturalLanguageRuleParser:
             elif "无框线" in table_text:
                 table.border_style = "none"
                 notes.append("识别表格边框：无框线")
-            for name, size in FONT_SIZE_NAMES.items():
+            for name, size in self._font_sizes_longest_first():
                 if name in table_text:
                     table.font_size_name = name
                     table.font_size_pt = size
@@ -233,6 +233,7 @@ class NaturalLanguageRuleParser:
             and "figure" not in targets
             and "table" not in targets
             and not any(target.startswith("heading_") for target in targets)
+            and "五级标题" not in clause
         ):
             targets.extend(f"heading_{level}" for level in range(1, 5))
         # 保持顺序并去重；页面要求可与正文等对象同时存在。
@@ -257,7 +258,7 @@ class NaturalLanguageRuleParser:
         notes: list[str],
     ) -> None:
         rule.enabled = True
-        for name, size in FONT_SIZE_NAMES.items():
+        for name, size in cls._font_sizes_longest_first():
             if name in text:
                 rule.font_size_name = name
                 rule.font_size_pt = size
@@ -280,7 +281,7 @@ class NaturalLanguageRuleParser:
             rule.alignment = "right"
         elif "两端对齐" in text:
             rule.alignment = "justify"
-        elif "左对齐" in text:
+        elif "左对齐" in text or "居左" in text or "顶格" in text:
             rule.alignment = "left"
         if "1.5倍" in text or "一点五倍" in text:
             rule.line_spacing_mode = "1.5"
@@ -300,7 +301,7 @@ class NaturalLanguageRuleParser:
         cls, text: str, rule: ParagraphRule, known_fonts: list[str], notes: list[str]
     ) -> None:
         rule.enabled = True
-        for name, size in FONT_SIZE_NAMES.items():
+        for name, size in cls._font_sizes_longest_first():
             if name in text:
                 rule.font_size_name = name
                 rule.font_size_pt = size
@@ -339,6 +340,15 @@ class NaturalLanguageRuleParser:
             notes.append(f"识别{label}行距：最小值 {rule.minimum_line_spacing_pt:g}磅")
 
     @staticmethod
+    def _font_sizes_longest_first():
+        # “小四号”同时包含“小四”和“四号”；同长度时必须优先“小X”。
+        return sorted(
+            FONT_SIZE_NAMES.items(),
+            key=lambda item: (len(item[0]), item[0].startswith("小")),
+            reverse=True,
+        )
+
+    @staticmethod
     def _apply_wps_spacing(
         text: str, rule: ParagraphRule, label: str, notes: list[str]
     ) -> None:
@@ -358,21 +368,22 @@ class NaturalLanguageRuleParser:
         after = re.search(r"段后(?:间距)?\s*(\d+(?:\.\d+)?)\s*行", text)
         before_pt = re.search(r"段前(?:间距)?\s*(\d+(?:\.\d+)?)\s*(?:磅|pt)", text, re.I)
         after_pt = re.search(r"段后(?:间距)?\s*(\d+(?:\.\d+)?)\s*(?:磅|pt)", text, re.I)
+        both_pt = re.search(r"段前段后\s*(\d+(?:\.\d+)?)\s*(?:磅|pt)", text, re.I)
         if before:
             rule.space_before_unit = "line"
             rule.space_before_lines = float(before.group(1))
             notes.append(f"识别{label}段前：{rule.space_before_lines:g}行")
-        elif before_pt:
+        elif before_pt or both_pt:
             rule.space_before_unit = "pt"
-            rule.space_before_pt = float(before_pt.group(1))
+            rule.space_before_pt = float((before_pt or both_pt).group(1))
             notes.append(f"识别{label}段前：{rule.space_before_pt:g}磅")
         if after:
             rule.space_after_unit = "line"
             rule.space_after_lines = float(after.group(1))
             notes.append(f"识别{label}段后：{rule.space_after_lines:g}行")
-        elif after_pt:
+        elif after_pt or both_pt:
             rule.space_after_unit = "pt"
-            rule.space_after_pt = float(after_pt.group(1))
+            rule.space_after_pt = float((after_pt or both_pt).group(1))
             notes.append(f"识别{label}段后：{rule.space_after_pt:g}磅")
         left = re.search(r"文本之前\s*(\d+(?:\.\d+)?)\s*(?:厘米|cm)", text, re.I)
         right = re.search(r"文本之后\s*(\d+(?:\.\d+)?)\s*(?:厘米|cm)", text, re.I)

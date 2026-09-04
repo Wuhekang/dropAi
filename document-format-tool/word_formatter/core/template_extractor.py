@@ -11,6 +11,7 @@ from docx.table import Table
 from docx.text.paragraph import Paragraph
 
 from word_formatter.core.word_converter import WordDocumentConverter
+from word_formatter.core.rule_parser import NaturalLanguageRuleParser
 from word_formatter.models.rules import DocumentRules, ParagraphRule, font_size_name_for_points
 
 
@@ -125,15 +126,103 @@ class TemplateRuleExtractor:
                 notes,
             )
 
-            selected = self._select_body_table(document)
+            written_specification = self._apply_written_specification(document, rules, notes)
+
+            selected = None if written_specification else self._select_body_table(document)
             if selected is None:
-                rules.table.enabled = False
-                notes.append("模板中没有可确认的正文表格，未覆盖当前表格规则。")
+                if not written_specification:
+                    rules.table.enabled = False
+                    notes.append("模板中没有可确认的正文表格，未覆盖当前表格规则。")
             else:
                 table, table_index, selection_reason = selected
                 self._extract_table(document, table, rules, notes)
                 notes.append(f"表格样例选用模板中第 {table_index} 个表格：{selection_reason}。")
             return TemplateExtractionResult(rules, notes)
+
+    @staticmethod
+    def _apply_written_specification(
+        document, rules: DocumentRules, notes: list[str]
+    ) -> bool:
+        """Read explicit format rules from a two-column specification table."""
+        rows: dict[str, str] = {}
+        for table in document.tables:
+            for row in table.rows:
+                if len(row.cells) < 2:
+                    continue
+                label = re.sub(r"\s+", "", row.cells[0].text)
+                value = re.sub(r"\s+", " ", row.cells[1].text).strip()
+                if label and value:
+                    rows[label] = value
+        required = {"页面设置", "目录", "正文", "图", "表"}
+        if len(required & rows.keys()) < 3:
+            return False
+
+        parser = NaturalLanguageRuleParser()
+        # A written specification is stronger evidence than incidental styles in
+        # the explanatory document. Clear previously sampled paragraph values so
+        # unrelated prose cannot leak into the returned rules.
+        named_rules = [
+            rules.normal_text,
+            *(getattr(rules, f"heading_{level}") for level in range(1, 5)),
+            rules.toc_title,
+            *(getattr(rules, f"toc_{level}") for level in range(1, 4)),
+            rules.figure_caption,
+            rules.table_caption,
+            rules.reference,
+        ]
+        for rule in named_rules:
+            TemplateRuleExtractor._reset_rule_to_word_defaults(rule)
+        known_fonts = [
+            "宋体", "仿宋", "楷体", "黑体", "微软雅黑",
+            "方正小标宋", "Times New Roman", "Arial",
+        ]
+        if "页面设置" in rows:
+            normalized = re.sub(r"(?<=[页边距])为", "", rows["页面设置"])
+            notes.extend(parser.apply(f"页面：{normalized}\n正文：{normalized}", rules))
+        if "正文" in rows:
+            notes.extend(parser.apply(rows["正文"], rules))
+            for level in range(1, 5):
+                heading = getattr(rules, f"heading_{level}")
+                heading.outline_level = level - 1
+                heading.keep_with_next = True
+        if "图" in rows:
+            parser._apply_figure_text(
+                f"图名：{rows['图']}", rules.figure_caption, known_fonts, notes
+            )
+        if "表" in rows:
+            caption_text = rows["表"].split("要求", 1)[0]
+            if "居中" in rows["表"] and "居中" not in caption_text:
+                caption_text += "，居中"
+            parser._apply_figure_text(
+                f"表名：{caption_text}", rules.table_caption, known_fonts, notes
+            )
+        if "目录" in rows:
+            title_text, _, content_text = rows["目录"].partition("目录内容")
+            parser._apply_heading_text(
+                f"目录标题：{title_text}", rules.toc_title, 1, known_fonts, notes
+            )
+            rules.toc_title.outline_level = 9
+            content_text = f"目录内容{content_text}" if content_text else rows["目录"]
+            for level in range(1, 4):
+                rule = getattr(rules, f"toc_{level}")
+                parser._apply_heading_text(
+                    content_text, rule, level, known_fonts, notes
+                )
+                rule.outline_level = 9
+        if "参考文献" in rows:
+            _, _, content_text = rows["参考文献"].partition("内容部分")
+            parser._apply_heading_text(
+                content_text or rows["参考文献"],
+                rules.reference,
+                1,
+                known_fonts,
+                notes,
+            )
+            rules.reference.outline_level = 9
+        notes.append(
+            "检测到撰写规范表：已直接提取页面、正文、标题、目录和图表题注规则，不复制规范说明正文。"
+        )
+        return True
 
     @staticmethod
     def _extract_page(document, rules: DocumentRules, notes: list[str]) -> None:
