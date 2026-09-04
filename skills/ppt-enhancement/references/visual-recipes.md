@@ -90,9 +90,15 @@ Reuse these tokens consistently. Do not introduce a second visual language.
 
 ### Image-led slide
 
-- Preserve image aspect ratio and crop only when the subject remains intact.
-- Reuse the template image slot where available.
-- Captions must be source-grounded and should not obscure the image.
+- Treat every image-led slide and every slide containing a source-content image or screenshot as a protected media slide. When uncertain, protection wins.
+- `IMAGE_BACKGROUND` is the only valid recipe ID for these pages and authorizes background-layer treatment only.
+- Add or adjust only slide-local background-layer geometry placed behind every inherited foreground object. It may sit immediately above a trusted recurring template-background image so the background treatment is visible. A safe no-op is valid when protected full-bleed media leaves no editable background visible.
+- Preserve image and screenshot binaries, relationships, object IDs, z-order, position, size, rotation, crop, aspect ratio, opacity, border, shadow, recolor, and compression exactly.
+- Preserve all text, captions, charts, tables, logos, icons, coordinates, formatting, wrapping, and foreground decorations exactly.
+- Do not add brackets, outlines, badges, rails, labels, masks, overlays, shadows, highlights, or any other image-adjacent or foreground ornament.
+- Do not reuse, resize, crop, restyle, or replace the template image slot. Do not move text to create decoration space.
+
+This protected-media rule overrides the profile decoration budget. `balanced` and `showcase` may increase visual detail on non-media slides only; they never authorize foreground edits on a protected media slide.
 
 ### Outlook and closing
 

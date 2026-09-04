@@ -1,6 +1,7 @@
 package com.dropai.rewrite.service.ppt.enhancement;
 
 import org.apache.poi.xslf.usermodel.XMLSlideShow;
+import org.apache.poi.xslf.usermodel.XSLFPictureShape;
 import org.apache.poi.xslf.usermodel.XSLFShape;
 import org.apache.poi.xslf.usermodel.XSLFSlide;
 import org.apache.poi.xslf.usermodel.XSLFTextShape;
@@ -28,6 +29,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -56,13 +58,18 @@ public class PptEnhancementQualityGate {
             byte[] sourceBytes = before.get(name);
             byte[] outputBytes = after.get(name);
             if (SLIDE_XML.matcher(name).matches()) {
+                int page = slideNumber(name);
+                PptxBaselineInspector.SlideInventory baseline = inventory.slides().get(page - 1);
                 String outputXml = new String(outputBytes, StandardCharsets.UTF_8);
                 String restored = ENHANCEMENT_BLOCK.matcher(outputXml).replaceAll("");
                 if (!Arrays.equals(sourceBytes, restored.getBytes(StandardCharsets.UTF_8))) {
-                    throw new IllegalStateException("第" + slideNumber(name) + "页存在计划外XML改动");
+                    throw new IllegalStateException("第" + page + "页存在计划外XML改动");
                 }
-                if (!outputXml.contains(PptxSlideLocalEnhancer.MARKER_BEGIN + slideNumber(name) + "-->")) {
-                    throw new IllegalStateException("第" + slideNumber(name) + "页缺少增幅标记");
+                if (!outputXml.contains(PptxSlideLocalEnhancer.MARKER_BEGIN + page + "-->")) {
+                    throw new IllegalStateException("第" + page + "页缺少增幅标记");
+                }
+                if (protectedMediaSlide(baseline)) {
+                    validateBackgroundOnlyXml(outputXml, page);
                 }
                 patchedSlides++;
             } else if (!Arrays.equals(sourceBytes, outputBytes)) {
@@ -79,7 +86,10 @@ public class PptEnhancementQualityGate {
         ValidationCounters counters = compareAndRender(source, enhanced, sourceRenderDir, enhancedRenderDir,
             renders, inventory);
         int changed = counters.changedSlides();
-        if (changed != expectedSlides) throw new IllegalStateException("存在未产生可见增幅的页面：" + (expectedSlides - changed) + "页");
+        if (counters.changedNonMediaSlides() != counters.nonMediaSlides()) {
+            throw new IllegalStateException("存在未产生可见增幅的非媒体页："
+                + (counters.nonMediaSlides() - counters.changedNonMediaSlides()) + "页");
+        }
         if (counters.outOfBounds() != 0) throw new IllegalStateException("存在越界增幅元素：" + counters.outOfBounds() + "个");
         if (counters.overlaps() != 0) throw new IllegalStateException("存在遮挡原页面对象的增幅元素：" + counters.overlaps() + "个");
         if (counters.lowContrastSlides() != 0) throw new IllegalStateException("存在视觉增幅对比度不足的页面：" + counters.lowContrastSlides() + "页");
@@ -93,10 +103,13 @@ public class PptEnhancementQualityGate {
             "PAGE_SIZE_BYTE_IDENTICAL",
             "OPAQUE_PACKAGE_PARTS_BYTE_IDENTICAL",
             "EVERY_SLIDE_RENDERED",
-            "EVERY_SLIDE_VISUALLY_ENHANCED",
+            "EVERY_NON_MEDIA_SLIDE_VISUALLY_ENHANCED",
+            "MEDIA_SLIDES_BACKGROUND_ONLY_OR_SAFE_NOOP",
+            "MEDIA_SLIDES_INHERITED_OBJECTS_EXACT_MATCH",
+            "MEDIA_SLIDES_NO_FOREGROUND_ADDITIONS",
             "ADDED_GEOMETRY_IN_BOUNDS",
-            "NO_ADDED_GEOMETRY_OVERLAPS_INHERITED_OBJECTS",
-            "ADDED_GEOMETRY_CONTRAST_VISIBLE",
+            "NO_FOREGROUND_GEOMETRY_OVERLAPS_INHERITED_OBJECTS",
+            "NON_MEDIA_ADDED_GEOMETRY_CONTRAST_VISIBLE",
             "NO_TEXT_BEARING_OBJECTS_ADDED"
         );
         return new QualityResult("PASSED", expectedSlides, patchedSlides, changed, List.copyOf(renders), checks,
@@ -122,39 +135,68 @@ public class PptEnhancementQualityGate {
             }
             if (!before.getPageSize().equals(after.getPageSize())) throw new IllegalStateException("增强阶段修改了页面尺寸");
             int changed = 0;
+            int changedNonMedia = 0;
+            int nonMediaSlides = 0;
             int outOfBounds = 0;
             int overlaps = 0;
             int lowContrastSlides = 0;
             for (int index = 0; index < expectedSlides; index++) {
-                List<String> beforeText = textInventory(before.getSlides().get(index));
-                List<String> afterText = textInventory(after.getSlides().get(index));
+                XSLFSlide beforeSlide = before.getSlides().get(index);
+                XSLFSlide afterSlide = after.getSlides().get(index);
+                List<String> beforeText = textInventory(beforeSlide);
+                List<String> afterText = textInventory(afterSlide);
                 if (!beforeText.equals(afterText)) throw new IllegalStateException("第" + (index + 1) + "页文字发生变化");
-                List<XSLFShape> added = addedShapes(after.getSlides().get(index));
-                if (added.isEmpty()) throw new IllegalStateException("第" + (index + 1) + "页没有计划内增幅元素");
+                List<XSLFShape> added = addedShapes(afterSlide);
                 PptxBaselineInspector.SlideInventory baseline = inventory.slides().get(index);
-                GeometryCheck geometry = geometryCheck(added, baseline, after.getPageSize());
+                boolean protectedMedia = protectedMediaSlide(baseline);
+                boolean safeNoop = protectedMedia && fullBleedMedia(baseline);
+                if (added.isEmpty() && !safeNoop) {
+                    throw new IllegalStateException("第" + (index + 1) + "页没有计划内增幅元素");
+                }
+                boolean foregroundObjectsUnchanged = inheritedShapeInventory(beforeSlide)
+                    .equals(inheritedShapeInventory(afterSlide));
+                if (!foregroundObjectsUnchanged) {
+                    throw new IllegalStateException("第" + (index + 1) + "页原始图片、文字或其他继承对象发生变化");
+                }
+                if (protectedMedia) {
+                    validateBackgroundOnlyShapes(
+                        afterSlide, added, after.getPageSize(), baseline, index + 1, safeNoop);
+                } else {
+                    nonMediaSlides++;
+                }
+                GeometryCheck geometry = geometryCheck(added, baseline, after.getPageSize(), protectedMedia);
                 outOfBounds += geometry.outOfBounds();
                 overlaps += geometry.overlaps();
                 Path beforePng = sourceDir.resolve(String.format("slide-%03d.png", index + 1));
                 Path afterPng = enhancedDir.resolve(String.format("slide-%03d.png", index + 1));
-                BufferedImage beforeImage = render(before.getSlides().get(index), before.getPageSize(), beforePng);
-                BufferedImage afterImage = render(after.getSlides().get(index), after.getPageSize(), afterPng);
+                BufferedImage beforeImage = render(beforeSlide, before.getPageSize(), beforePng);
+                BufferedImage afterImage = render(afterSlide, after.getPageSize(), afterPng);
                 String beforeHash = PptxBaselineInspector.sha256(beforePng);
                 String afterHash = PptxBaselineInspector.sha256(afterPng);
                 boolean visuallyChanged = !beforeHash.equals(afterHash);
                 VisualDelta delta = visualDelta(beforeImage, afterImage, added, before.getPageSize());
                 boolean contrastVisible = delta.changedPixels() >= Math.max(12, Math.round(delta.geometryPixels() * .012))
                     && delta.meanChangedChannelDelta() >= 8d;
-                if (!contrastVisible) lowContrastSlides++;
-                if (visuallyChanged) changed++;
+                if (!safeNoop && !contrastVisible) lowContrastSlides++;
+                if (visuallyChanged) {
+                    changed++;
+                    if (!protectedMedia) changedNonMedia++;
+                }
+                boolean pagePassed = geometry.outOfBounds() == 0 && geometry.overlaps() == 0
+                    && foregroundObjectsUnchanged
+                    && (safeNoop || (visuallyChanged && contrastVisible));
                 renders.add(new PageRender(index + 1,
                     "qa/baseline-renders/" + beforePng.getFileName(), beforeHash,
                     "qa/enhanced-renders/" + afterPng.getFileName(), afterHash, visuallyChanged,
                     added.size(), geometry.outOfBounds() == 0, geometry.overlaps() == 0,
                     delta.changedPixels(), round(delta.meanChangedChannelDelta()), contrastVisible,
-                    visuallyChanged && geometry.outOfBounds() == 0 && geometry.overlaps() == 0 && contrastVisible ? "PASSED" : "FAILED"));
+                    protectedMedia, protectedMedia, foregroundObjectsUnchanged,
+                    foregroundObjectsUnchanged, foregroundObjectsUnchanged,
+                    protectedMedia && !safeNoop, safeNoop,
+                    pagePassed ? "PASSED" : "FAILED"));
             }
-            return new ValidationCounters(changed, outOfBounds, overlaps, lowContrastSlides);
+            return new ValidationCounters(
+                changed, changedNonMedia, nonMediaSlides, outOfBounds, overlaps, lowContrastSlides);
         }
     }
 
@@ -166,7 +208,8 @@ public class PptEnhancementQualityGate {
 
     private GeometryCheck geometryCheck(List<XSLFShape> added,
                                         PptxBaselineInspector.SlideInventory baseline,
-                                        Dimension pageSize) {
+                                        Dimension pageSize,
+                                        boolean backgroundOnly) {
         int outOfBounds = 0;
         int overlaps = 0;
         long width = Math.round(pageSize.getWidth() * 12_700d);
@@ -181,14 +224,113 @@ public class PptEnhancementQualityGate {
             long cx = Math.round(anchor.getWidth() * 12_700d);
             long cy = Math.round(anchor.getHeight() * 12_700d);
             if (x < 0 || y < 0 || cx <= 0 || cy <= 0 || x + cx > width || y + cy > height) outOfBounds++;
-            for (PptxBaselineInspector.ShapeBox inherited : baseline.shapeBoxes()) {
-                if (inherited.protectedContent() && inherited.intersects(x, y, cx, cy, 18_000L)) {
-                    overlaps++;
-                    break;
+            if (!backgroundOnly) {
+                for (PptxBaselineInspector.ShapeBox inherited : baseline.shapeBoxes()) {
+                    if (inherited.protectedContent() && inherited.intersects(x, y, cx, cy, 18_000L)) {
+                        overlaps++;
+                        break;
+                    }
                 }
             }
         }
         return new GeometryCheck(outOfBounds, overlaps);
+    }
+
+    private boolean protectedMediaSlide(PptxBaselineInspector.SlideInventory slide) {
+        return "image".equals(slide.suggestedArchetype());
+    }
+
+    private boolean fullBleedMedia(PptxBaselineInspector.SlideInventory slide) {
+        return slide.shapeBoxes().stream().anyMatch(box -> Set.of("PICTURE", "PICTURE_GROUP").contains(box.type())
+            && box.protectedContent() && box.fullBleed());
+    }
+
+    private void validateBackgroundOnlyXml(String outputXml, int page) {
+        Matcher block = ENHANCEMENT_BLOCK.matcher(outputXml);
+        if (!block.find()) {
+            throw new IllegalStateException("第" + page + "页受保护媒体页必须且只能有一个背景增幅块");
+        }
+        if (block.find()) {
+            throw new IllegalStateException("第" + page + "页受保护媒体页必须且只能有一个背景增幅块");
+        }
+    }
+
+    private void validateBackgroundOnlyShapes(
+        XSLFSlide slide,
+        List<XSLFShape> added,
+        Dimension pageSize,
+        PptxBaselineInspector.SlideInventory baseline,
+        int page,
+        boolean safeNoop
+    ) {
+        if (safeNoop) {
+            if (!added.isEmpty()) {
+                throw new IllegalStateException("第" + page + "页全幅媒体安全no-op禁止新增任何对象");
+            }
+            return;
+        }
+        if (added.size() != 1) {
+            throw new IllegalStateException("第" + page + "页受保护媒体页禁止新增前景装饰");
+        }
+        List<XSLFShape> all = slide.getShapes();
+        int backgroundIndex = all.indexOf(added.get(0));
+        if (backgroundIndex < 0) {
+            throw new IllegalStateException("第" + page + "页受保护媒体页背景对象不在页面对象树中");
+        }
+        Map<Integer, Integer> zOrderByShapeId = new HashMap<>();
+        for (int index = 0; index < all.size(); index++) {
+            zOrderByShapeId.put(all.get(index).getShapeId(), index);
+        }
+        for (PptxBaselineInspector.ShapeBox inherited : baseline.shapeBoxes()) {
+            Integer inheritedIndex = zOrderByShapeId.get(inherited.shapeId());
+            if (inheritedIndex == null) {
+                throw new IllegalStateException("第" + page + "页继承对象丢失：" + inherited.shapeId());
+            }
+            if (inherited.trustedTemplateBackground() && inheritedIndex >= backgroundIndex) {
+                throw new IllegalStateException("第" + page + "页增幅背景未位于可信模板底图之上");
+            }
+            if (inherited.protectedContent() && inheritedIndex <= backgroundIndex) {
+                throw new IllegalStateException("第" + page + "页增幅背景未位于所有受保护前景之下");
+            }
+        }
+        XSLFShape background = added.get(0);
+        if (background instanceof XSLFTextShape textShape && !textShape.getText().isBlank()) {
+            throw new IllegalStateException("第" + page + "页受保护媒体页背景包含文字");
+        }
+        Rectangle2D anchor = background.getAnchor();
+        double tolerance = 1d;
+        boolean fullSlide = anchor != null
+            && anchor.getX() <= tolerance && anchor.getY() <= tolerance
+            && anchor.getWidth() >= pageSize.getWidth() - tolerance * 2d
+            && anchor.getHeight() >= pageSize.getHeight() - tolerance * 2d;
+        if (!fullSlide) {
+            throw new IllegalStateException("第" + page + "页受保护媒体页增幅元素不是全页背景");
+        }
+    }
+
+    private List<InheritedShapeFingerprint> inheritedShapeInventory(XSLFSlide slide) {
+        List<InheritedShapeFingerprint> result = new ArrayList<>();
+        for (XSLFShape shape : slide.getShapes()) {
+            if (shape.getShapeName() != null && shape.getShapeName().startsWith("DOKIAI_ENHANCE_")) continue;
+            Rectangle2D anchor = shape.getAnchor();
+            String text = shape instanceof XSLFTextShape textShape ? textShape.getText() : "";
+            String pictureHash = shape instanceof XSLFPictureShape picture
+                ? sha256(picture.getPictureData().getData()) : "";
+            result.add(new InheritedShapeFingerprint(
+                shape.getShapeId(), shape.getShapeName(), shape.getClass().getName(),
+                anchor == null ? 0d : anchor.getX(), anchor == null ? 0d : anchor.getY(),
+                anchor == null ? 0d : anchor.getWidth(), anchor == null ? 0d : anchor.getHeight(),
+                text, pictureHash));
+        }
+        return List.copyOf(result);
+    }
+
+    private String sha256(byte[] value) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value));
+        } catch (Exception exception) {
+            throw new IllegalStateException("图片指纹计算失败", exception);
+        }
     }
 
     private VisualDelta visualDelta(BufferedImage before, BufferedImage after, List<XSLFShape> added,
@@ -321,12 +463,37 @@ public class PptEnhancementQualityGate {
         long visibleChangedPixels,
         double meanChangedChannelDelta,
         boolean contrastVisible,
+        boolean protectedMediaSlide,
+        boolean backgroundOnly,
+        boolean foregroundObjectsUnchanged,
+        boolean imageGeometryUnchanged,
+        boolean cropUnchanged,
+        boolean newObjectsBehindInherited,
+        boolean safeNoop,
         String status
     ) {}
 
     private record GeometryCheck(int outOfBounds, int overlaps) {}
     private record VisualDelta(long geometryPixels, long changedPixels, double meanChangedChannelDelta) {}
-    private record ValidationCounters(int changedSlides, int outOfBounds, int overlaps, int lowContrastSlides) {}
+    private record InheritedShapeFingerprint(
+        int shapeId,
+        String shapeName,
+        String shapeType,
+        double x,
+        double y,
+        double width,
+        double height,
+        String text,
+        String pictureSha256
+    ) {}
+    private record ValidationCounters(
+        int changedSlides,
+        int changedNonMediaSlides,
+        int nonMediaSlides,
+        int outOfBounds,
+        int overlaps,
+        int lowContrastSlides
+    ) {}
 
     public record QualityResult(
         String status,

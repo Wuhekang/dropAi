@@ -21,12 +21,14 @@ import java.util.zip.ZipOutputStream;
 
 @Component
 public class PptxSlideLocalEnhancer {
-    public static final String VERSION = "slide-local-ooxml-enhancer/1.1.0";
+    public static final String VERSION = "slide-local-ooxml-enhancer/1.2.0";
     public static final String MARKER_BEGIN = "<!--DOKIAI_ENHANCE_BEGIN:";
     public static final String MARKER_END = "<!--DOKIAI_ENHANCE_END-->";
 
     private static final Pattern SLIDE = Pattern.compile("ppt/slides/slide(\\d+)\\.xml");
     private static final Pattern SHAPE_ID = Pattern.compile("<p:cNvPr[^>]*\\bid=\"(\\d+)\"");
+    private static final Pattern GROUP_PROPERTIES = Pattern.compile(
+        "(?s)<p:grpSpPr\\b[^>]*(?:/>|>.*?</p:grpSpPr>)");
     private static final int MAX_ENTRIES = 10_000;
     private static final long MAX_ENTRY_BYTES = 96L * 1024L * 1024L;
     private static final long MAX_EXPANDED_BYTES = 700L * 1024L * 1024L;
@@ -90,18 +92,38 @@ public class PptxSlideLocalEnhancer {
     ) {
         String xml = new String(source, StandardCharsets.UTF_8);
         if (xml.contains(MARKER_BEGIN)) throw new IllegalStateException("基础PPT已经包含增幅美化标记");
-        int insertion = xml.lastIndexOf("</p:spTree>");
-        if (insertion < 0) throw new IllegalStateException("第" + plan.slideNumber() + "页缺少标准spTree");
         int nextId = maxShapeId(xml) + 1;
         String primary = inventory.palette().get(0);
         String secondary = inventory.palette().size() > 1 ? inventory.palette().get(1) : primary;
         PptxBaselineInspector.SlideInventory sourceSlide = inventory.slides().stream()
             .filter(slide -> slide.slideNumber() == plan.slideNumber()).findFirst()
             .orElseThrow(() -> new IllegalStateException("缺少第" + plan.slideNumber() + "页视觉基线"));
-        List<Geometry> geometry = selectSafeGeometry(
-            recipe(plan.recipeId(), inventory.widthEmu(), inventory.heightEmu(), profile),
-            fallbackGeometry(inventory.widthEmu(), inventory.heightEmu(), profile), sourceSlide,
-            inventory.widthEmu(), inventory.heightEmu());
+        boolean protectedMediaSlide = "image".equals(sourceSlide.suggestedArchetype());
+        if (plan.backgroundOnly() != protectedMediaSlide) {
+            throw new IllegalStateException("第" + plan.slideNumber() + "页媒体保护标记与可信基线不一致");
+        }
+        if (plan.backgroundOnly() != ("image".equals(plan.archetype())
+            && "IMAGE_BACKGROUND".equals(plan.recipeId()))) {
+            throw new IllegalStateException("第" + plan.slideNumber() + "页backgroundOnly、image页与IMAGE_BACKGROUND必须同时匹配");
+        }
+        int insertion;
+        List<Geometry> geometry;
+        if (plan.backgroundOnly()) {
+            requireBackgroundOnlyContract(plan);
+            boolean safeNoop = fullBleedMedia(sourceSlide);
+            insertion = safeNoop
+                ? lowestShapeZOrderInsertion(xml, plan.slideNumber())
+                : backgroundLayerInsertion(xml, sourceSlide);
+            geometry = safeNoop ? List.of()
+                : recipe("IMAGE_BACKGROUND", inventory.widthEmu(), inventory.heightEmu(), profile);
+        } else {
+            insertion = xml.lastIndexOf("</p:spTree>");
+            if (insertion < 0) throw new IllegalStateException("第" + plan.slideNumber() + "页缺少标准spTree");
+            geometry = selectSafeGeometry(
+                recipe(plan.recipeId(), inventory.widthEmu(), inventory.heightEmu(), profile),
+                fallbackGeometry(inventory.widthEmu(), inventory.heightEmu(), profile), sourceSlide,
+                inventory.widthEmu(), inventory.heightEmu());
+        }
         StringBuilder additions = new StringBuilder();
         additions.append(MARKER_BEGIN).append(plan.slideNumber()).append("-->");
         for (int index = 0; index < geometry.size(); index++) {
@@ -112,6 +134,68 @@ public class PptxSlideLocalEnhancer {
         additions.append(MARKER_END);
         String patched = xml.substring(0, insertion) + additions + xml.substring(insertion);
         return new PatchResult(patched.getBytes(StandardCharsets.UTF_8), geometry.size());
+    }
+
+    private boolean fullBleedMedia(PptxBaselineInspector.SlideInventory slide) {
+        return slide.shapeBoxes().stream().anyMatch(box -> Set.of("PICTURE", "PICTURE_GROUP").contains(box.type())
+            && box.protectedContent() && box.fullBleed());
+    }
+
+    private void requireBackgroundOnlyContract(PptEnhancementPlan.SlidePlan plan) {
+        if ("image".equals(plan.archetype()) && !"IMAGE_BACKGROUND".equals(plan.recipeId())) {
+            throw new IllegalStateException("第" + plan.slideNumber() + "页图片页只允许IMAGE_BACKGROUND配方");
+        }
+        if (plan.additions() == null || plan.additions().size() != 1) {
+            throw new IllegalStateException("第" + plan.slideNumber() + "页受保护媒体页必须且只能规划一个背景层");
+        }
+        PptEnhancementPlan.Addition addition = plan.additions().get(0);
+        if (!"background".equals(addition.type()) || addition.textBearing()) {
+            throw new IllegalStateException("第" + plan.slideNumber() + "页受保护媒体页禁止任何前景或文字增幅元素");
+        }
+    }
+
+    private int backgroundLayerInsertion(
+        String xml,
+        PptxBaselineInspector.SlideInventory slide
+    ) {
+        List<PptxBaselineInspector.ShapeBox> trustedBackgrounds = slide.shapeBoxes().stream()
+            .filter(PptxBaselineInspector.ShapeBox::trustedTemplateBackground)
+            .sorted(java.util.Comparator.comparingInt(PptxBaselineInspector.ShapeBox::zOrder))
+            .toList();
+        if (trustedBackgrounds.isEmpty()) return lowestShapeZOrderInsertion(xml, slide.slideNumber());
+        PptxBaselineInspector.ShapeBox lastBackground = trustedBackgrounds.get(trustedBackgrounds.size() - 1);
+        int firstProtectedZ = slide.shapeBoxes().stream()
+            .filter(PptxBaselineInspector.ShapeBox::protectedContent)
+            .mapToInt(PptxBaselineInspector.ShapeBox::zOrder)
+            .min().orElse(Integer.MAX_VALUE);
+        if (lastBackground.zOrder() >= firstProtectedZ) {
+            throw new IllegalStateException("第" + slide.slideNumber()
+                + "页可信模板背景不在受保护前景之下，无法安全增幅");
+        }
+        return afterPictureShape(xml, lastBackground.shapeId(), slide.slideNumber());
+    }
+
+    private int lowestShapeZOrderInsertion(String xml, int slideNumber) {
+        Matcher matcher = GROUP_PROPERTIES.matcher(xml);
+        if (!matcher.find()) {
+            throw new IllegalStateException("第" + slideNumber + "页缺少标准spTree组属性");
+        }
+        int spTreeEnd = xml.indexOf("</p:spTree>", matcher.end());
+        if (spTreeEnd < 0) throw new IllegalStateException("第" + slideNumber + "页缺少标准spTree");
+        return matcher.end();
+    }
+
+    private int afterPictureShape(String xml, int shapeId, int slideNumber) {
+        Matcher identity = Pattern.compile("<p:cNvPr\\b[^>]*\\bid=\"" + shapeId + "\"").matcher(xml);
+        if (!identity.find()) {
+            throw new IllegalStateException("第" + slideNumber + "页找不到可信模板背景对象");
+        }
+        int opening = xml.lastIndexOf("<p:pic", identity.start());
+        int closing = xml.indexOf("</p:pic>", identity.end());
+        if (opening < 0 || closing < 0) {
+            throw new IllegalStateException("第" + slideNumber + "页可信模板背景不是标准picture shape");
+        }
+        return closing + "</p:pic>".length();
     }
 
     private List<Geometry> selectSafeGeometry(
@@ -189,15 +273,9 @@ public class PptxSlideLocalEnhancer {
                 new Geometry(width - Math.round(2.85 * inch), height / 2, Math.round(2.05 * inch), thin, "roundRect", 58_000),
                 new Geometry(Math.round(.62 * inch), height / 2 - dot / 3, dot, dot, "ellipse", 76_000),
                 new Geometry(width - Math.round(.72 * inch), height / 2 - dot / 3, dot, dot, "ellipse", 76_000));
-            case "IMAGE_FRAME" -> List.of(
-                new Geometry(left, top, Math.round(.48 * inch), thin, "rect", 70_000),
-                new Geometry(left, top, thin, Math.round(.48 * inch), "rect", 70_000),
-                new Geometry(right - Math.round(.48 * inch), top, Math.round(.48 * inch), thin, "rect", 70_000),
-                new Geometry(right - thin, top, thin, Math.round(.48 * inch), "rect", 70_000),
-                new Geometry(left, bottom - thin, Math.round(.48 * inch), thin, "rect", 70_000),
-                new Geometry(left, bottom - Math.round(.48 * inch), thin, Math.round(.48 * inch), "rect", 70_000),
-                new Geometry(right - Math.round(.48 * inch), bottom - thin, Math.round(.48 * inch), thin, "rect", 70_000),
-                new Geometry(right - thin, bottom - Math.round(.48 * inch), thin, Math.round(.48 * inch), "rect", 70_000));
+            case "IMAGE_BACKGROUND" -> List.of(
+                new Geometry(0, 0, width, height, "rect",
+                    "showcase".equals(profile) ? 18_000 : "subtle".equals(profile) ? 9_000 : 13_000));
             case "TABLE_RAIL" -> List.of(
                 new Geometry(left, Math.round(1.15 * inch), thin, height - Math.round(1.70 * inch), "roundRect", 55_000),
                 new Geometry(left - dot / 3, Math.round(1.15 * inch), dot, dot, "ellipse", 78_000),
