@@ -319,22 +319,33 @@ def _safe_error_message(exc: BaseException) -> str:
 def _publish_without_overwrite(staging: Path, output: Path) -> None:
     """Atomically create the final name without replacing an existing file."""
 
-    linked = False
     try:
         os.link(staging, output)
-        linked = True
-        staging.unlink()
     except FileExistsError:
         raise FileExistsError("输出文件已存在，格式工具拒绝覆盖") from None
     except OSError as exc:
-        if linked:
+        # Some Windows filesystems, policies and network-backed directories do
+        # not permit hard links even when both names are on the same volume.
+        # Windows rename is atomic and refuses to overwrite an existing target,
+        # so it is a safe fallback for the server environment.
+        if os.name == "nt":
             try:
-                output.unlink(missing_ok=True)
-            except OSError:
-                pass
-        # Hard links are supported on NTFS/ext4 and keep publication atomic. A
-        # backend must keep staging/output on the same filesystem.
-        raise RuntimeError("无法原子发布输出文件，请确保任务目录位于同一文件系统") from exc
+                os.rename(staging, output)
+                return
+            except FileExistsError:
+                raise FileExistsError("输出文件已存在，格式工具拒绝覆盖") from None
+            except OSError as rename_exc:
+                raise RuntimeError(
+                    "无法发布输出文件，请检查任务目录权限、磁盘空间或文件占用"
+                ) from rename_exc
+        raise RuntimeError(
+            "无法发布输出文件，请检查任务目录权限、磁盘空间或文件占用"
+        ) from exc
+
+    # The final hard-link name now exists and publication has succeeded. The
+    # staging name is only cleanup; Word or antivirus scanners may briefly keep
+    # it open on Windows, which must not invalidate the completed result.
+    _safe_unlink(staging)
 
 
 def _safe_unlink(path: Path | None) -> None:

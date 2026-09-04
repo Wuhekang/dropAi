@@ -21,6 +21,7 @@ sys.path.insert(0, str(TOOL_ROOT))
 from format_cli import (  # noqa: E402
     _apply_confirmed_rules,
     _editable_rules,
+    _publish_without_overwrite,
     run_job,
     validate_runtime_support,
 )
@@ -76,6 +77,33 @@ def build_source(path: Path) -> None:
 
 
 class FormatCliTests(unittest.TestCase):
+    def test_published_hard_link_survives_staging_cleanup_failure(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="dokiai_publish_") as directory:
+            root = Path(directory)
+            staging = root / "working.docx"
+            output = root / "output.docx"
+            staging.write_bytes(b"complete-result")
+
+            with patch.object(Path, "unlink", side_effect=PermissionError("busy")):
+                _publish_without_overwrite(staging, output)
+
+            self.assertEqual(output.read_bytes(), b"complete-result")
+
+    def test_windows_rename_fallback_when_hard_links_are_unavailable(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="dokiai_publish_fallback_") as directory:
+            root = Path(directory)
+            staging = root / "working.docx"
+            output = root / "output.docx"
+            staging.write_bytes(b"complete-result")
+
+            with patch("format_cli.os.link", side_effect=OSError("not supported")), patch(
+                "format_cli.os.name", "nt"
+            ):
+                _publish_without_overwrite(staging, output)
+
+            self.assertFalse(staging.exists())
+            self.assertEqual(output.read_bytes(), b"complete-result")
+
     def test_body_is_editable_except_for_locked_first_line_indent(self) -> None:
         rules = DocumentRules()
         editable = _editable_rules(rules)
