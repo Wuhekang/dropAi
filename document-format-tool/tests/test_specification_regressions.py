@@ -9,12 +9,14 @@ import zipfile
 
 from docx import Document
 from docx.oxml.ns import qn
+from docx.shared import RGBColor
 
 
 TOOL_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TOOL_ROOT))
 
 from word_formatter.core.integrity import validate_preservation  # noqa: E402
+from word_formatter.core.finalizer import finalize_docx  # noqa: E402
 from word_formatter.core.processor import DocumentProcessor  # noqa: E402
 from word_formatter.core.template_extractor import TemplateRuleExtractor  # noqa: E402
 from word_formatter.models.results import ProcessResult  # noqa: E402
@@ -124,6 +126,61 @@ class IntegrityFrontMatterTests(unittest.TestCase):
             )
 
             self.assertTrue(result.passed, result.differences)
+
+
+class FinalDeliveryPolicyTests(unittest.TestCase):
+    def test_comments_are_removed_and_red_source_text_becomes_black(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="dokiai_finalizer_") as directory:
+            path = Path(directory) / "reviewed.docx"
+            document = Document()
+            paragraph = document.add_paragraph()
+            red_run = paragraph.add_run("必须保留的原稿文字")
+            red_run.font.color.rgb = RGBColor(255, 0, 0)
+            document.add_comment(red_run, text="仅用于核对格式", author="Reviewer")
+            document.save(path)
+
+            stats = finalize_docx(path)
+
+            with zipfile.ZipFile(path) as package:
+                names = package.namelist()
+                self.assertFalse(any("comment" in name.lower() for name in names))
+                document_xml = package.read("word/document.xml").decode("utf-8")
+                self.assertNotIn("commentRange", document_xml)
+                self.assertNotIn("commentReference", document_xml)
+                self.assertIn('w:val="000000"', document_xml)
+            self.assertGreater(stats["comment_parts_removed"], 0)
+            self.assertGreater(stats["red_fonts_blackened"], 0)
+
+    def test_red_template_instructions_are_not_copied_and_front_pages_become_sections(self) -> None:
+        document = Document()
+        document.add_paragraph("封面")
+        second_page = document.add_paragraph("诚信声明")
+        second_page.paragraph_format.page_break_before = True
+        review = document.add_paragraph()
+        review_run = review.add_run("此处红字只用于说明格式")
+        review_run.font.color.rgb = RGBColor(255, 0, 0)
+        body = document.add_heading("第一章 正文", level=1)
+        body.paragraph_format.page_break_before = True
+
+        removed = DocumentProcessor._remove_template_review_artifacts(document, 4)
+        added = DocumentProcessor._isolate_front_matter_pages(document, 4)
+
+        self.assertGreater(removed, 0)
+        self.assertNotIn("此处红字只用于说明格式", "\n".join(p.text for p in document.paragraphs))
+        self.assertGreaterEqual(added, 1)
+        self.assertGreaterEqual(len(document.sections), 2)
+
+    def test_each_numbered_chapter_starts_on_a_new_page(self) -> None:
+        document = Document()
+        first = document.add_heading("第一章 绪论", level=1)
+        document.add_paragraph("正文")
+        second = document.add_heading("第二章 方法", level=1)
+        result = ProcessResult(Path("source.docx"), Path("output.docx"))
+
+        DocumentProcessor._start_chapters_on_new_pages(document, 1, result)
+
+        self.assertTrue(first.paragraph_format.page_break_before)
+        self.assertTrue(second.paragraph_format.page_break_before)
 
 
 if __name__ == "__main__":

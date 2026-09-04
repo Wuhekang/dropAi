@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+from copy import deepcopy
 import os
 import re
 import tempfile
+import time
 
 from docx import Document
 from docx.enum.section import WD_ORIENT
@@ -21,6 +23,7 @@ from docx.table import Table
 from docxcompose.composer import Composer
 
 from word_formatter.core.analyzer import DocumentAnalyzer
+from word_formatter.core.finalizer import finalize_docx, is_red_font_value
 from word_formatter.core.word_converter import WordDocumentConverter
 from word_formatter.models.results import ChangeRecord, ProcessResult
 from word_formatter.models.rules import (
@@ -97,6 +100,7 @@ class DocumentProcessor:
                     start_index=content_start,
                 )
             self._apply_headings(document, rules, result, content_start)
+            self._start_chapters_on_new_pages(document, content_start, result)
             self._exclude_non_content_toc_entries(document, content_start)
             if rules.table.enabled:
                 self._apply_tables(document, rules.table, result, content_start)
@@ -112,16 +116,35 @@ class DocumentProcessor:
                 )
             self._request_field_update(document, result)
             document.save(output)
+            # Remove review-only package parts before Word opens the file.
+            # Some school templates contain stale comment extensions that make
+            # Word reject field updates until those parts are stripped.
+            cleanup = finalize_docx(output)
             if os.name == "nt":
-                try:
-                    WordDocumentConverter().update_fields_in_place(output)
-                    refreshed = Document(output)
-                    self._apply_toc(refreshed, rules, result)
-                    self._request_field_update(refreshed, result)
-                    refreshed.save(output)
-                    WordDocumentConverter().update_fields_in_place(output)
-                except Exception as exc:
-                    result.warnings.append(f"目录域已插入，但自动刷新失败：{exc}")
+                refresh_error = None
+                for attempt in range(2):
+                    try:
+                        WordDocumentConverter().update_fields_in_place(output)
+                        refreshed = Document(output)
+                        self._apply_toc(refreshed, rules, result)
+                        self._request_field_update(refreshed, result)
+                        refreshed.save(output)
+                        WordDocumentConverter().update_fields_in_place(output)
+                        refresh_error = None
+                        break
+                    except Exception as exc:
+                        refresh_error = exc
+                        if attempt == 0:
+                            time.sleep(0.75)
+                if refresh_error is not None:
+                    result.warnings.append(f"目录域已插入，但自动刷新失败：{refresh_error}")
+            final_cleanup = finalize_docx(output)
+            for key, value in final_cleanup.items():
+                cleanup[key] += value
+            if cleanup["comment_markup_removed"] or cleanup["comment_parts_removed"]:
+                result.records.append(ChangeRecord(None, "审阅批注", "模板或原稿含批注", "全部移除", "最终稿固定规则"))
+            if cleanup["red_fonts_blackened"]:
+                result.records.append(ChangeRecord(None, "红色字体", "原稿残留红色直接格式", "统一改为黑色", "最终稿固定规则"))
             result.save_log(output.with_suffix(".log.json"))
             return result
         except Exception as exc:
@@ -151,12 +174,138 @@ class DocumentProcessor:
             if template_start <= 1:
                 result.warnings.append("模板未识别到独立前置页，保留论文原有前置内容。")
                 return source_doc
+            removed_review_text = cls._remove_template_review_artifacts(template_doc, template_start)
+            if removed_review_text:
+                result.records.append(ChangeRecord(None, "模板红字说明", f"{removed_review_text} 个红色文字节点", "未复制到最终稿", "最终稿固定规则"))
+            added_sections = cls._isolate_front_matter_pages(template_doc, template_start)
+            if added_sections:
+                result.records.append(ChangeRecord(None, "前置页分节", "分页符或段前分页", f"新增 {added_sections} 个下一页分节符", "每个前置页独立成节"))
             cls._repair_missing_numbering_part(source_doc, result)
             cls._trim_body(template_doc, keep_before=template_start)
             cls._trim_body(source_doc, remove_before=source_start)
             Composer(template_doc).append(source_doc)
             result.records.append(ChangeRecord(None, "模板前置内容", f"论文原前置段落 {max(0, source_start - 1)} 个", f"复制模板前置段落 {template_start - 1} 个", "固定系统规则"))
             return template_doc
+
+    @staticmethod
+    def _remove_template_review_artifacts(document, content_start: int) -> int:
+        removed = 0
+        body = document.element.body
+        paragraph_number = 0
+        in_template_toc = False
+        instruction_pattern = re.compile(
+            r"(?:编写说明|提交时.{0,8}删除|请删除.{0,8}(?:提示|表格)|此页页码|白页.*偶数)",
+            re.I,
+        )
+        for child in list(body.iterchildren()):
+            if child.tag == qn("w:p"):
+                paragraph_number += 1
+            if paragraph_number >= content_start:
+                break
+            text = "".join(node.text or "" for node in child.xpath(".//w:t"))
+            if child.tag == qn("w:p") and re.fullmatch(r"\s*目\s*录\s*", text):
+                in_template_toc = True
+            if in_template_toc:
+                if child.tag == qn("w:p"):
+                    # The template's sample TOC often ends in its own section.
+                    # Once its visible contents are discarded, retaining that
+                    # section creates a completely blank page before the real
+                    # generated TOC.  The preceding abstract/front section is
+                    # already the required next-page boundary.
+                    p_pr = child.find(qn("w:pPr"))
+                    if p_pr is not None:
+                        section = p_pr.find(qn("w:sectPr"))
+                        if section is not None:
+                            p_pr.remove(section)
+                        paragraph_mark = p_pr.find(qn("w:rPr"))
+                        if paragraph_mark is None:
+                            paragraph_mark = OxmlElement("w:rPr")
+                            p_pr.append(paragraph_mark)
+                        if paragraph_mark.find(qn("w:vanish")) is None:
+                            paragraph_mark.append(OxmlElement("w:vanish"))
+                    for node in list(child):
+                        if node.tag != qn("w:pPr"):
+                            child.remove(node)
+                            removed += 1
+                else:
+                    body.remove(child)
+                    removed += max(1, len(child.xpath(".//w:t")))
+                continue
+            border_colors = [
+                element.get(qn("w:color"))
+                for element in child.xpath(".//w:tblBorders/* | .//w:tcBorders/* | .//w:pBdr/*")
+            ]
+            review_container = (
+                child.tag == qn("w:tbl")
+                and (
+                    any(is_red_font_value(value) for value in border_colors)
+                    or bool(instruction_pattern.search(text))
+                )
+            )
+            if review_container:
+                body.remove(child)
+                removed += max(1, len(child.xpath(".//w:t")))
+                continue
+            for run in list(child.xpath(".//w:r")):
+                colors = run.xpath("./w:rPr/w:color")
+                if not any(is_red_font_value(color.get(qn("w:val"))) for color in colors):
+                    continue
+                for text_node in list(run.xpath(".//w:t | .//w:delText")):
+                    parent = text_node.getparent()
+                    if parent is not None:
+                        parent.remove(text_node)
+                        removed += 1
+        return removed
+
+    @staticmethod
+    def _isolate_front_matter_pages(document, content_start: int) -> int:
+        """Turn front-matter page starts into next-page section boundaries."""
+        paragraphs = document.paragraphs
+        added = 0
+        for paragraph in paragraphs[: max(0, content_start - 1)]:
+            sections = paragraph._p.xpath("./w:pPr/w:sectPr")
+            if not sections:
+                continue
+            section_type = sections[0].find(qn("w:type"))
+            if section_type is None:
+                section_type = OxmlElement("w:type")
+                sections[0].insert_element_before(section_type, "w:pgSz")
+            section_type.set(qn("w:val"), "nextPage")
+        for index in range(1, min(content_start - 1, len(paragraphs))):
+            paragraph = paragraphs[index]
+            p_pr = paragraph._p.pPr
+            if p_pr is None or p_pr.find(qn("w:pageBreakBefore")) is None:
+                continue
+            previous = paragraphs[index - 1]
+            previous_p_pr = previous._p.get_or_add_pPr()
+            if previous_p_pr.find(qn("w:sectPr")) is not None:
+                p_pr.remove(p_pr.find(qn("w:pageBreakBefore")))
+                continue
+            following_section = None
+            for candidate in paragraphs[index - 1 :]:
+                candidates = candidate._p.xpath("./w:pPr/w:sectPr")
+                if candidates:
+                    following_section = candidates[0]
+                    break
+            if following_section is None:
+                following_section = document.element.body.sectPr
+            section = OxmlElement("w:sectPr")
+            section_type = OxmlElement("w:type")
+            section_type.set(qn("w:val"), "nextPage")
+            section.append(section_type)
+            # A minimal section inherits headers/footers through Word's normal
+            # linkage and avoids duplicating relationship-bound references.
+            for name in (
+                "pgSz", "pgMar", "paperSrc", "pgBorders", "pgNumType",
+                "cols", "vAlign", "titlePg", "textDirection", "docGrid",
+            ):
+                setting = following_section.find(qn(f"w:{name}"))
+                if setting is not None:
+                    section.append(deepcopy(setting))
+            previous_p_pr.append(section)
+            p_pr.remove(p_pr.find(qn("w:pageBreakBefore")))
+            added += 1
+        return added
 
     @staticmethod
     def _looks_like_format_specification(document) -> bool:
@@ -278,7 +427,11 @@ class DocumentProcessor:
 
         title = document.add_paragraph("目录")
         cls._format_paragraph(title, rules.toc_title)
-        title.paragraph_format.page_break_before = True
+        # The TOC is inserted exactly at the front/body boundary. A copied
+        # front already has a next-page section break; with no copied front,
+        # the TOC is the first page. In either case pageBreakBefore is both
+        # redundant and capable of creating a numbered blank page.
+        title.paragraph_format.page_break_before = None
         title._p.get_or_add_pPr().find(qn("w:outlineLvl")).set(qn("w:val"), "9")
 
         toc = document.add_paragraph()
@@ -435,6 +588,24 @@ class DocumentProcessor:
             result.records.append(
                 ChangeRecord(index, f"{level} 级标题", before, cls._rule_summary(rule),
                              f"段落通过{recognition}识别，并启用 heading_{level} 规则")
+            )
+
+    @staticmethod
+    def _start_chapters_on_new_pages(document, start_index: int, result: ProcessResult) -> None:
+        changed = 0
+        chapter_pattern = re.compile(
+            r"^\s*(?:第\s*[一二三四五六七八九十百零〇0-9]+\s*章|chapter\s+\d+)\b",
+            re.I,
+        )
+        for index, paragraph in enumerate(document.paragraphs, start=1):
+            if index < start_index or not chapter_pattern.match(paragraph.text.strip()):
+                continue
+            if not paragraph.paragraph_format.page_break_before:
+                paragraph.paragraph_format.page_break_before = True
+                changed += 1
+        if changed:
+            result.records.append(
+                ChangeRecord(None, "章节分页", "章节可能连续排版", f"{changed} 个章节强制另页开始", "每章末尾分页固定规则")
             )
 
     @classmethod

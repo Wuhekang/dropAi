@@ -187,7 +187,7 @@ class WordDocumentConverter:
             word.DisplayAlerts = WD_ALERTS_NONE
             document = word.Documents.Open(
                 FileName=str(target), ReadOnly=False, AddToRecentFiles=False,
-                Visible=False, OpenAndRepair=False,
+                Visible=False, OpenAndRepair=True,
             )
             document.Repaginate()
             document.Fields.Update()
