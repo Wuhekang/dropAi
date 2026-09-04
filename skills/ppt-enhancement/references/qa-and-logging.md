@@ -42,6 +42,8 @@ Save the plan as `<output-stem>-enhancement-plan.json`. Under `textPolicy: locke
 
 If the project already has a frame map or addition-allowlist contract, declare every new object there before rendering. Unplanned top-layer masks and large opaque shapes are prohibited.
 
+For a protected media slide, the plan must explicitly record `backgroundOnly: true` and use `recipeId: "IMAGE_BACKGROUND"`. Its inherited-edits list must be empty, and its additions may contain only text-free background-layer geometry whose z-order is below every inherited foreground object. It may be immediately above a trusted recurring template-background image. A foreground frame is never authorized.
+
 ## Required verification
 
 1. Re-import the output without repair warnings.
@@ -57,6 +59,9 @@ If the project already has a frame map or addition-allowlist contract, declare e
 11. Compare hidden-slide state, transitions, animations, sections, document properties, custom XML, OLE objects, embedded files, and other opaque package parts. Any unexplained removal or mutation fails validation.
 12. Record the renderer name, version, viewport or resolution, per-slide render path and hash, and a per-slide inspection result.
 13. Rerun the full check after an auto-fix. Do not mark the deck passed based on a pre-fix render.
+14. For every protected media slide, compare image relationship IDs and binary hashes; object IDs and order; x/y/width/height/rotation transforms; crop rectangles; image effects; text run and style fingerprints; charts, tables, captions, icons, hyperlinks, and foreground-decoration fingerprints. All inherited values must match exactly.
+15. Prove that every newly added object on a protected media slide is behind every inherited foreground object. Any new or changed foreground object, image-adjacent frame, overlay, mask, line, badge, shadow, or highlight is a blocking failure.
+16. Record `protectedMediaSlide`, `backgroundOnly`, `foregroundObjectsUnchanged`, `imageGeometryUnchanged`, `cropUnchanged`, and `newObjectsBehindInherited` for each protected media slide. Do not mark validation `PASSED` if any field is false or unverified.
 
 ## Output policy
 
@@ -74,13 +79,13 @@ Write UTF-8 JSON with at least these fields:
 ```json
 {
   "skillName": "ppt-enhancement",
-  "skillVersion": "1.0.0",
+  "skillVersion": "1.2.0",
   "source": {"path": "", "sha256": "", "slideCount": 0},
   "outputPptx": "",
   "request": {"mode": "polish", "profile": "balanced", "textPolicy": "preserve-original", "template": null},
   "contentPolicy": "preserve-source-content",
   "designSystem": {"palette": [], "fonts": [], "chapterAccents": []},
-  "slides": [{"page": 1, "pageType": "cover", "changes": [], "originalContentChanged": false}],
+  "slides": [{"page": 1, "pageType": "cover", "changes": [], "originalContentChanged": false, "protectedMediaSlide": false, "backgroundOnly": false}],
   "preservation": {
     "slideCountMatch": true,
     "slideOrderMatch": true,

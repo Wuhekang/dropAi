@@ -5,7 +5,7 @@ description: Polish and visually enhance an existing PPTX, especially a Dokiai-g
 
 # PPT Enhancement
 
-Skill version: 1.1.0
+Skill version: 1.2.0
 
 Enhance an existing presentation as a controlled visual post-processing stage. Improve hierarchy, rhythm, contrast, spacing, navigation, and editable decorative detail without rewriting the underlying research content.
 
@@ -29,7 +29,22 @@ The response must be one JSON object and nothing else:
 }
 ```
 
-Every slide number must appear exactly once and in source order. Allowed archetypes are `cover`, `catalog`, `section`, `content`, `image`, `table`, `summary`, and `closing`. Allowed recipe IDs are `COVER_ACCENT`, `AGENDA_RAIL`, `SECTION_MOTIF`, `CONTENT_RAIL`, `IMAGE_FRAME`, `TABLE_RAIL`, `SUMMARY_RAIL`, and `CLOSING_ECHO`. Use the matching recipe for the inferred archetype. Never return code, commands, XML, URLs, file paths, colors, coordinates, text additions, deletions, or content rewrites. The server validates the plan, expands it into bounded text-free geometry, renders a copy, and performs package and visual QA.
+Every slide number must appear exactly once and in source order. Allowed archetypes are `cover`, `catalog`, `section`, `content`, `image`, `table`, `summary`, and `closing`. Allowed recipe IDs are `COVER_ACCENT`, `AGENDA_RAIL`, `SECTION_MOTIF`, `CONTENT_RAIL`, `IMAGE_BACKGROUND`, `TABLE_RAIL`, `SUMMARY_RAIL`, and `CLOSING_ECHO`. Use the matching recipe for the inferred archetype. Never return code, commands, XML, URLs, file paths, colors, coordinates, text additions, deletions, or content rewrites. The server validates the plan, expands it into bounded text-free geometry, renders a copy, and performs package and visual QA.
+
+### Mandatory media-slide isolation
+
+A slide is a protected media slide when its archetype is `image`, or when the trusted baseline inventory marks it as containing a source-content image or screenshot. Template-owned background art and recurring master ornaments alone do not make a slide a protected media slide. A slide-local full-page image may be treated as template background only when the trusted baseline proves that the same image fingerprint recurs as a background across the deck; a unique or ambiguous full-page image remains protected media. This rule has priority over every other archetype or profile rule, including `showcase`.
+
+For every protected media slide, return `archetype: "image"` and `recipeId: "IMAGE_BACKGROUND"`. This is the only allowed recipe for an image or screenshot page, and it authorizes **background-layer enhancement only**. Doubao must not propose, imply, or describe any foreground edit on these slides.
+
+The server may add or adjust only slide-local background-layer geometry that remains behind every inherited foreground object. The new treatment may sit immediately above a trusted recurring template-background image so that the background change remains visible, but it must remain below titles, body text, screenshots, content images, tables, charts, captions, and every other foreground object. All inherited foreground objects are locked. In particular, it must preserve exactly:
+
+- every image or screenshot binary, relationship, object identity, z-order, position, size, rotation, crop rectangle, aspect ratio, opacity, border, shadow, recolor, and compression state;
+- every visible or hidden text string, run, style, position, size, rotation, margin, wrapping behavior, and z-order;
+- all charts, tables, diagrams, captions, logos, icons, hyperlinks, notes, and their coordinates;
+- all existing foreground decorations, including frames, corner marks, masks, labels, rails, badges, lines, and overlays.
+
+No new frame, corner bracket, badge, line, label, mask, translucent veil, highlight, foreground ornament, or image-adjacent decoration may be placed above or beside protected media content. No existing foreground object may be restyled or moved. If a background-only enhancement cannot be proven safe, select the same `IMAGE_BACKGROUND` recipe and allow the server to perform a no-op rather than relaxing these protections.
 
 For long decks, DokiAI may split the visual review into batches of at most eight independent full-slide previews. The operation message declares the inclusive `firstSlide` and `lastSlide` represented by that request. In a batched response, keep the same JSON envelope and return every slide in that declared range exactly once, using the original whole-deck slide numbers in strict order; do not return slides outside the range. The server merges all batches and then validates that the complete deck contains pages `1..N` exactly once. A contact sheet never substitutes for these independently labelled slide previews.
 <!-- DOUBAO_ENHANCEMENT_RULES_END -->
@@ -91,6 +106,8 @@ Classify every slide as cover, catalog, section, literature/research, quadrant, 
 
 Prefer restyling existing editable objects. Add new objects only when they clarify hierarchy, sequence, or navigation. Keep additions native to the template palette and geometry.
 
+Before applying those general rules, identify every protected media slide under the mandatory media-slide isolation contract. On those slides, do not restyle existing editable objects and do not add foreground objects. Limit the plan to background-layer treatment only. On all other slide types, continue to use the normal profile-specific recipes and enhancement budget.
+
 ### 3. Enhance a copy
 
 Work from a duplicate or a source-derived copy; do not rebuild the deck from scratch. Preserve:
@@ -101,6 +118,8 @@ Work from a duplicate or a source-derived copy; do not rebuild the deck from scr
 - page size, master, layouts, theme parts, and template identity.
 
 Under `preserve-original`, auxiliary text such as page numbers, chapter labels, or sequence markers may be added when it does not replace source text and is declared in the plan. Under `locked`, no auxiliary text is permitted. Never truncate, paraphrase, or shrink text merely to conceal overflow; repair the layout instead.
+
+Protected media slides are stricter than both text policies: their images, text, foreground objects, coordinates, crops, and sizes are immutable even when the request uses `preserve-original`. Only background-layer geometry behind all inherited foreground objects may change; a trusted recurring template background may remain underneath that new background treatment.
 
 Use only source-grounded assets, supplied template assets, or neutral editable geometry. Do not invent statistics, references, survey results, organizations, logos, screenshots, diagrams, or contact details.
 
@@ -115,6 +134,8 @@ Read [references/qa-and-logging.md](references/qa-and-logging.md) and complete e
 5. In `polish`, prove that every theme, slide-master, slide-layout, page-size, and related template part is byte-identical to the baseline. In `retemplate`, confirm that these parts match the explicitly selected template.
 6. Rerun validation after every fix until status is `PASSED`, or disclose any remaining warning precisely.
 
+For every protected media slide, validation must additionally prove that inherited foreground XML/object fingerprints, image relationships and binary hashes, text fingerprints, z-order, transforms, crop rectangles, and visual bounds are unchanged. Every newly added object must be below every inherited foreground object. A foreground change on one protected media slide is a blocking failure, not a warning.
+
 Deliver the enhanced PPTX, `<output-stem>-enhancement-plan.json`, and `<output-stem>-enhancement-log.json`. Never overwrite the source generation log.
 
 ## Visual guardrails
@@ -126,6 +147,7 @@ Deliver the enhanced PPTX, `<output-stem>-enhancement-plan.json`, and `<output-s
 - Do not treat references as a decorative directory chapter or remove citations for visual convenience.
 - In `polish`, never alter the master, layouts, theme, page size, or their relationship parts. In `retemplate`, use only the parts belonging to the explicitly selected template.
 - Do not add animations, audio, video, or external assets unless the user explicitly requests them.
+- On any protected media slide, modify only the background layer. Never modify or cover its images, screenshots, text, coordinates, crops, sizes, or foreground decorations.
 
 ## Handoff from PPT generation
 

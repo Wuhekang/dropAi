@@ -1,6 +1,7 @@
 package com.dropai.rewrite.service.ppt.enhancement;
 
 import org.apache.poi.xslf.usermodel.XMLSlideShow;
+import org.apache.poi.xslf.usermodel.XSLFGroupShape;
 import org.apache.poi.xslf.usermodel.XSLFPictureShape;
 import org.apache.poi.xslf.usermodel.XSLFShape;
 import org.apache.poi.xslf.usermodel.XSLFTable;
@@ -17,11 +18,13 @@ import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
@@ -52,6 +55,7 @@ public class PptxBaselineInspector {
             width = Math.round(pageSize.getWidth() * 12_700d);
             height = Math.round(pageSize.getHeight() * 12_700d);
             int count = show.getSlides().size();
+            Set<String> trustedTemplateBackgrounds = trustedTemplateBackgrounds(show, width, height);
             for (int index = 0; index < count; index++) {
                 List<XSLFShape> shapes = show.getSlides().get(index).getShapes();
                 int pictures = 0;
@@ -60,14 +64,22 @@ public class PptxBaselineInspector {
                 List<ShapeBox> shapeBoxes = new ArrayList<>();
                 for (int zOrder = 0; zOrder < shapes.size(); zOrder++) {
                     XSLFShape shape = shapes.get(zOrder);
-                    if (shape instanceof XSLFPictureShape) pictures++;
                     if (shape instanceof XSLFTable) tables++;
                     if (shape instanceof XSLFTextShape textShape && !textShape.getText().isBlank()) {
                         if (!text.isEmpty()) text.append(" | ");
                         text.append(textShape.getText().replaceAll("\\s+", " ").trim());
                     }
-                    ShapeBox box = shapeBox(shape, zOrder, width, height);
-                    if (box != null) shapeBoxes.add(box);
+                    ShapeBox box = shapeBox(shape, zOrder, width, height, trustedTemplateBackgrounds,
+                        eligibleTemplateBackgroundLayer(shapes, zOrder, width, height));
+                    if (box != null) {
+                        shapeBoxes.add(box);
+                        int nestedPictures = pictureCount(shape);
+                        if (shape instanceof XSLFPictureShape) {
+                            if (!box.trustedTemplateBackground()) pictures++;
+                        } else {
+                            pictures += nestedPictures;
+                        }
+                    }
                 }
                 String allText = text.toString();
                 String title = firstTitle(allText);
@@ -80,7 +92,42 @@ public class PptxBaselineInspector {
             templatePackId == null ? "" : templatePackId, palette(source), List.copyOf(slides));
     }
 
-    private ShapeBox shapeBox(XSLFShape shape, int zOrder, long slideWidth, long slideHeight) {
+    private Set<String> trustedTemplateBackgrounds(XMLSlideShow show, long width, long height) {
+        Map<String, Set<Integer>> fullBleedPagesByHash = new HashMap<>();
+        for (int slideIndex = 0; slideIndex < show.getSlides().size(); slideIndex++) {
+            List<XSLFShape> shapes = show.getSlides().get(slideIndex).getShapes();
+            for (int zOrder = 0; zOrder < shapes.size(); zOrder++) {
+                XSLFShape shape = shapes.get(zOrder);
+                if (!(shape instanceof XSLFPictureShape picture)) continue;
+                // A repeated full-bleed picture is trusted only when every object below it is itself
+                // a plain full-slide background layer. Repeated foreground media stays protected.
+                if (!eligibleTemplateBackgroundLayer(shapes, zOrder, width, height)) continue;
+                Rectangle2D anchor;
+                try {
+                    anchor = shape.getAnchor();
+                } catch (RuntimeException ignored) {
+                    continue;
+                }
+                if (!fullBleed(anchor, width, height)) continue;
+                String hash = sha256(picture.getPictureData().getData());
+                fullBleedPagesByHash.computeIfAbsent(hash, ignored -> new HashSet<>()).add(slideIndex + 1);
+            }
+        }
+        int threshold = Math.max(3, (int) Math.ceil(show.getSlides().size() * .10d));
+        return fullBleedPagesByHash.entrySet().stream()
+            .filter(entry -> entry.getValue().size() >= threshold)
+            .map(Map.Entry::getKey)
+            .collect(java.util.stream.Collectors.toUnmodifiableSet());
+    }
+
+    private ShapeBox shapeBox(
+        XSLFShape shape,
+        int zOrder,
+        long slideWidth,
+        long slideHeight,
+        Set<String> trustedTemplateBackgrounds,
+        boolean eligibleTemplateBackgroundLayer
+    ) {
         Rectangle2D anchor;
         try {
             anchor = shape.getAnchor();
@@ -92,14 +139,74 @@ public class PptxBaselineInspector {
         long y = Math.round(anchor.getY() * 12_700d);
         long width = Math.round(anchor.getWidth() * 12_700d);
         long height = Math.round(anchor.getHeight() * 12_700d);
-        boolean fullBleedBackground = x <= slideWidth * .03 && y <= slideHeight * .03
-            && width >= slideWidth * .94 && height >= slideHeight * .94;
+        boolean fullBleed = fullBleed(anchor, slideWidth, slideHeight);
         boolean textBearing = shape instanceof XSLFTextShape textShape && !textShape.getText().isBlank();
+        boolean containsNestedPicture = !(shape instanceof XSLFPictureShape) && pictureCount(shape) > 0;
         String type = shape instanceof XSLFPictureShape ? "PICTURE"
+            : containsNestedPicture ? "PICTURE_GROUP"
             : shape instanceof XSLFTable ? "TABLE"
             : textBearing ? "TEXT" : shape.getClass().getSimpleName().toUpperCase(Locale.ROOT);
+        String pictureHash = shape instanceof XSLFPictureShape picture
+            ? sha256(picture.getPictureData().getData()) : "";
+        boolean trustedTemplateBackground = fullBleed && eligibleTemplateBackgroundLayer && !pictureHash.isBlank()
+            && trustedTemplateBackgrounds.contains(pictureHash);
+        boolean protectedContent = shape instanceof XSLFPictureShape
+            ? !trustedTemplateBackground
+            : containsNestedPicture || !fullBleed;
         return new ShapeBox(shape.getShapeId(), safe(shape.getShapeName()), type, x, y, width, height,
-            zOrder, !fullBleedBackground, textBearing);
+            zOrder, protectedContent, textBearing, fullBleed, pictureHash, trustedTemplateBackground);
+    }
+
+    private int pictureCount(XSLFShape shape) {
+        if (shape instanceof XSLFPictureShape) return 1;
+        if (shape instanceof XSLFGroupShape group) {
+            return group.getShapes().stream().mapToInt(this::pictureCount).sum();
+        }
+        return 0;
+    }
+
+    private boolean eligibleTemplateBackgroundLayer(
+        List<XSLFShape> shapes,
+        int candidateZOrder,
+        long slideWidth,
+        long slideHeight
+    ) {
+        if (candidateZOrder < 0 || candidateZOrder >= shapes.size()) return false;
+        XSLFShape candidate = shapes.get(candidateZOrder);
+        if (!(candidate instanceof XSLFPictureShape)) return false;
+        Rectangle2D candidateAnchor;
+        try {
+            candidateAnchor = candidate.getAnchor();
+        } catch (RuntimeException ignored) {
+            return false;
+        }
+        if (!fullBleed(candidateAnchor, slideWidth, slideHeight)) return false;
+        for (int index = 0; index < candidateZOrder; index++) {
+            XSLFShape below = shapes.get(index);
+            Rectangle2D anchor;
+            try {
+                anchor = below.getAnchor();
+            } catch (RuntimeException ignored) {
+                return false;
+            }
+            boolean textBearing = below instanceof XSLFTextShape textShape && !textShape.getText().isBlank();
+            if (!fullBleed(anchor, slideWidth, slideHeight) || textBearing
+                || below instanceof XSLFTable || pictureCount(below) > 0) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean fullBleed(Rectangle2D anchor, long slideWidth, long slideHeight) {
+        if (anchor == null) return false;
+        long x = Math.round(anchor.getX() * 12_700d);
+        long y = Math.round(anchor.getY() * 12_700d);
+        long width = Math.round(anchor.getWidth() * 12_700d);
+        long height = Math.round(anchor.getHeight() * 12_700d);
+        return x <= slideWidth * .03 && y <= slideHeight * .03
+            && width >= slideWidth * .94 && height >= slideHeight * .94
+            && x + width >= slideWidth * .97 && y + height >= slideHeight * .97;
     }
 
     private String safe(String value) {
@@ -142,12 +249,14 @@ public class PptxBaselineInspector {
     }
 
     private String inferArchetype(int page, int total, String title, String allText, int pictures, int tables) {
+        // Media isolation has priority even on cover, agenda, and closing pages. Recurring template
+        // backgrounds have already been excluded from pictureCount before this decision.
+        if (pictures > 0) return "image";
         if (page == 1) return "cover";
         if (page == 2 || title.contains("目录")) return "catalog";
         if (page == total || title.contains("谢谢") || title.equalsIgnoreCase("THANKS")) return "closing";
         if (tables > 0) return "table";
         if (title.matches("^(0?[1-9]|[1-9][0-9])\\s+.+") && allText.length() < 120) return "section";
-        if (pictures > 0) return "image";
         if (title.contains("总结") || title.contains("展望") || title.contains("优化方向")) return "summary";
         return "content";
     }
@@ -190,6 +299,14 @@ public class PptxBaselineInspector {
         return HexFormat.of().formatHex(digest.digest());
     }
 
+    private static String sha256(byte[] value) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value));
+        } catch (Exception exception) {
+            throw new IllegalStateException("图片指纹计算失败", exception);
+        }
+    }
+
     public record SlideInventory(
         int slideNumber,
         String title,
@@ -211,7 +328,10 @@ public class PptxBaselineInspector {
         long height,
         int zOrder,
         boolean protectedContent,
-        boolean textBearing
+        boolean textBearing,
+        boolean fullBleed,
+        String pictureSha256,
+        boolean trustedTemplateBackground
     ) {
         public boolean intersects(long otherX, long otherY, long otherWidth, long otherHeight, long padding) {
             return x - padding < otherX + otherWidth && x + width + padding > otherX

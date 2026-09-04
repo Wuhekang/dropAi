@@ -275,17 +275,34 @@ public class PptEnhancementService {
             "requestId", aiResponse.requestId(), "providerInvoked", aiResponse.providerInvoked(), "status", aiResponse.providerStatus()));
         log.put("planHash", planHash);
         log.put("designSystem", Map.of("palette", inventory.palette(), "templatePackId", inventory.templatePackId()));
-        log.put("slides", plan.slides().stream().map(slide -> Map.of(
-            "page", slide.slideNumber(), "pageType", slide.archetype(), "recipeId", slide.recipeId(),
-            "changes", List.of(slide.focalEnhancement()), "originalContentChanged", false)).toList());
+        Map<Integer, PptEnhancementQualityGate.PageRender> qualityByPage = new LinkedHashMap<>();
+        quality.pageRenders().forEach(page -> qualityByPage.put(page.page(), page));
+        log.put("slides", plan.slides().stream().map(slide -> {
+            PptEnhancementQualityGate.PageRender page = qualityByPage.get(slide.slideNumber());
+            return Map.ofEntries(
+                Map.entry("page", slide.slideNumber()), Map.entry("pageType", slide.archetype()),
+                Map.entry("recipeId", slide.recipeId()),
+                Map.entry("changes", List.of(slide.focalEnhancement())),
+                Map.entry("originalContentChanged", false),
+                Map.entry("protectedMediaSlide", slide.backgroundOnly()),
+                Map.entry("backgroundOnly", slide.backgroundOnly()),
+                Map.entry("foregroundObjectsUnchanged", page != null && page.foregroundObjectsUnchanged()),
+                Map.entry("imageGeometryUnchanged", page != null && page.imageGeometryUnchanged()),
+                Map.entry("cropUnchanged", page != null && page.cropUnchanged()),
+                Map.entry("newObjectsBehindInherited", page != null && page.newObjectsBehindInherited()),
+                Map.entry("safeNoop", page != null && page.safeNoop()));
+        }).toList());
         log.put("executor", Map.of("name", execution.executorVersion(), "patchedSlides", execution.patchedSlides(),
             "addedShapes", execution.addedShapes(), "addedShapesBySlide", execution.addedShapesBySlide(),
             "safeGeometryValidated", execution.safeGeometryValidated()));
-        log.put("preservation", Map.of(
-            "slideCountMatch", true, "slideOrderMatch", true, "originalTextPreserved", true,
-            "notesPreserved", true, "citationsPreserved", true, "hyperlinksPreserved", true,
-            "numericalValuesPreserved", true, "hiddenContentPreserved", true,
-            "opaquePackagePartsPreserved", true, "protectedTemplatePartsByteIdentical", true));
+        log.put("preservation", Map.ofEntries(
+            Map.entry("slideCountMatch", true), Map.entry("slideOrderMatch", true),
+            Map.entry("originalTextPreserved", true), Map.entry("notesPreserved", true),
+            Map.entry("citationsPreserved", true), Map.entry("hyperlinksPreserved", true),
+            Map.entry("numericalValuesPreserved", true), Map.entry("hiddenContentPreserved", true),
+            Map.entry("opaquePackagePartsPreserved", true),
+            Map.entry("protectedTemplatePartsByteIdentical", true),
+            Map.entry("foregroundObjectsUnchanged", true)));
         log.put("validation", Map.of(
             "status", quality.status(), "renderedPages", quality.renderedPages(),
             "renderer", Map.of("name", PptEnhancementQualityGate.RENDERER_NAME,

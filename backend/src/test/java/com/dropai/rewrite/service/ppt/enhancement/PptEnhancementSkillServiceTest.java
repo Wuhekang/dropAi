@@ -13,7 +13,7 @@ class PptEnhancementSkillServiceTest {
         var second = service.requireBundle();
 
         assertEquals("ppt-enhancement", first.name());
-        assertEquals("1.1.0", first.version());
+        assertEquals("1.2.0", first.version());
         assertEquals(64, first.hash().length());
         assertEquals(first.hash(), second.hash());
         assertEquals(3, first.resources().size());

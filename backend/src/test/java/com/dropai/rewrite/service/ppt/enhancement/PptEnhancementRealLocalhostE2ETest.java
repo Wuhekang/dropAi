@@ -115,7 +115,7 @@ class PptEnhancementRealLocalhostE2ETest {
         assertEquals("SUCCESS", completed.path("providerStatus").asText());
         assertEquals("doubao_ark", completed.path("provider").asText());
         assertEquals("ppt-enhancement", completed.path("skillName").asText());
-        assertEquals("1.1.0", completed.path("skillVersion").asText());
+        assertEquals("1.2.0", completed.path("skillVersion").asText());
         assertEquals((baseCharged + 1) / 2, completed.path("costPoints").asInt());
         assertTrue(completed.path("pointsCharged").asBoolean());
         assertEquals(baseSlides, completed.path("slideCount").asInt());
@@ -141,7 +141,33 @@ class PptEnhancementRealLocalhostE2ETest {
         JsonNode log = mapper.readTree(taskRoot.resolve("enhancement-log.json").toFile());
         assertEquals("PASSED", log.path("validation").path("status").asText());
         assertEquals(baseSlides, log.path("validation").path("pageRenders").size());
-        assertTrue(log.path("validation").path("checks").toString().contains("NO_ADDED_GEOMETRY_OVERLAPS_INHERITED_OBJECTS"));
+        String checks = log.path("validation").path("checks").toString();
+        assertTrue(checks.contains("MEDIA_SLIDES_BACKGROUND_ONLY_OR_SAFE_NOOP"));
+        assertTrue(checks.contains("MEDIA_SLIDES_INHERITED_OBJECTS_EXACT_MATCH"));
+        assertTrue(checks.contains("MEDIA_SLIDES_NO_FOREGROUND_ADDITIONS"));
+        int mediaSlides = 0;
+        for (JsonNode slide : log.path("slides")) {
+            if (!slide.path("protectedMediaSlide").asBoolean()) continue;
+            mediaSlides++;
+            int page = slide.path("page").asInt(-1);
+            assertTrue(slide.path("backgroundOnly").asBoolean(), "第" + page + "页必须为backgroundOnly");
+            assertTrue(slide.path("foregroundObjectsUnchanged").asBoolean(), "第" + page + "页前景对象发生变化");
+            assertTrue(slide.path("imageGeometryUnchanged").asBoolean(), "第" + page + "页图片几何发生变化");
+            assertTrue(slide.path("cropUnchanged").asBoolean(), "第" + page + "页图片裁剪发生变化");
+            assertTrue(slide.path("newObjectsBehindInherited").asBoolean(), "第" + page + "页新增对象未位于继承对象后方");
+        }
+        assertEquals(25, mediaSlides, "健康管理固定论文应仅将25个正文图片页识别为受保护媒体页");
+        int mediaRenders = 0;
+        boolean changedNonNoopMedia = false;
+        for (JsonNode render : log.path("validation").path("pageRenders")) {
+            if (!render.path("protectedMediaSlide").asBoolean()) continue;
+            mediaRenders++;
+            if (!render.path("safeNoop").asBoolean() && render.path("visuallyChanged").asBoolean()) {
+                changedNonNoopMedia = true;
+            }
+        }
+        assertEquals(25, mediaRenders, "质量门禁中的媒体页数量必须与计划一致");
+        assertTrue(changedNonNoopMedia, "至少一个非safe-noop媒体页必须产生可见背景变化");
         assertFalse(log.toString().contains(password));
         assertFalse(log.toString().contains(token));
 

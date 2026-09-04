@@ -31,7 +31,7 @@ public class PptEnhancementAiService {
         "catalog", "AGENDA_RAIL",
         "section", "SECTION_MOTIF",
         "content", "CONTENT_RAIL",
-        "image", "IMAGE_FRAME",
+        "image", "IMAGE_BACKGROUND",
         "table", "TABLE_RAIL",
         "summary", "SUMMARY_RAIL",
         "closing", "CLOSING_ECHO"
@@ -184,6 +184,7 @@ public class PptEnhancementAiService {
                 当前是全稿第%d到%d页（全稿共%d页）的视觉批次。紧随提示词的每张独立图片均以BASELINE_SLIDE_N标记真实页码。
                 slides只允许包含第%d到%d页，每页恰好一次且严格升序。禁止输出Markdown、解释、代码、命令、XML、路径、URL、颜色和坐标。
                 每页archetype必须与inventory中同页的suggestedArchetype一致；只有content与summary可互换。recipeId必须使用该archetype唯一对应的配方。
+                image页的唯一配方是IMAGE_BACKGROUND，只允许在可信模板底图之上且所有原始前景之下增加无文字全页背景，不得规划任何前景装饰。
                 [/CURRENT_OPERATION]
 
                 [UNTRUSTED_BASELINE_INVENTORY]

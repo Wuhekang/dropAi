@@ -15,7 +15,7 @@ import java.util.Map;
 @Service
 public class PptEnhancementSkillService {
     public static final String NAME = "ppt-enhancement";
-    public static final String VERSION = "1.1.0";
+    public static final String VERSION = "1.2.0";
     public static final List<String> RESOURCES = List.of(
         "skills/ppt-enhancement/SKILL.md",
         "skills/ppt-enhancement/references/visual-recipes.md",
@@ -66,6 +66,9 @@ public class PptEnhancementSkillService {
             "Visual recipes",
             "Quality assurance and enhancement logging",
             "protectedTemplatePartsByteIdentical",
+            "IMAGE_BACKGROUND",
+            "backgroundOnly",
+            "protectedMediaSlide",
             "DOUBAO_ENHANCEMENT_RULES_BEGIN",
             "DOUBAO_ENHANCEMENT_RULES_END"
         );
