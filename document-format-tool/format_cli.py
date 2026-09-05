@@ -10,6 +10,7 @@ The complete success/failure payload is always written atomically to
 import argparse
 from dataclasses import asdict
 import json
+import math
 import os
 from pathlib import Path
 import sys
@@ -31,6 +32,7 @@ from word_formatter.core.integrity import (
 from word_formatter.core.processor import DocumentProcessor
 from word_formatter.core.rule_parser import NaturalLanguageRuleParser
 from word_formatter.core.template_extractor import TemplateRuleExtractor
+from word_formatter.core.template_text import read_template_text
 from word_formatter.core.word_converter import WordConversionError, WordDocumentConverter
 from word_formatter.models.rules import (
     LOCKED_DOCUMENT_POLICY_NOTES,
@@ -40,6 +42,7 @@ from word_formatter.models.rules import (
     TableRule,
     enforce_locked_table_policy,
     enforce_locked_document_policy,
+    font_size_name_for_points,
 )
 
 
@@ -234,6 +237,9 @@ def _apply_confirmed_rules(rules: DocumentRules, path: Path | None) -> None:
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise CliInputError("确认规则必须是 JSON 对象")
+    payload = payload.get("editableRules", payload)
+    if not isinstance(payload, dict):
+        raise CliInputError("确认规则必须是 JSON 对象")
     mapping = {
         ("body", "normal"): rules.normal_text,
         ("headings", "level1"): rules.heading_1, ("headings", "level2"): rules.heading_2,
@@ -248,12 +254,13 @@ def _apply_confirmed_rules(rules: DocumentRules, path: Path | None) -> None:
         "fixedLineSpacingPt": "fixed_line_spacing_pt",
         "minimumLineSpacingPt": "minimum_line_spacing_pt",
         "multipleLineSpacing": "multiple_line_spacing",
+        "bold": "bold", "alignment": "alignment",
     }
     for keys, rule in mapping.items():
         value = payload
         for key in keys:
             value = value.get(key, {}) if isinstance(value, dict) else {}
-        if not isinstance(value, dict):
+        if not isinstance(value, dict) or not value:
             continue
         for public, internal in allowed.items():
             if public not in value:
@@ -262,20 +269,53 @@ def _apply_confirmed_rules(rules: DocumentRules, path: Path | None) -> None:
                 spacing = value[public]
                 if isinstance(spacing, dict) and spacing.get("unit") in {"line", "pt"}:
                     unit = spacing["unit"]
-                    number = max(0.0, min(20.0, float(spacing.get("value", 0))))
+                    number = _confirmed_number(spacing.get("value", 0), 0.0, 20.0 if unit == "line" else 200.0)
                     setattr(rule, f"{internal}_unit", unit)
                     setattr(rule, f"{internal}_{'lines' if unit == 'line' else 'pt'}", number)
             elif internal == "font_size_pt":
-                rule.font_size_pt = max(5.0, min(72.0, float(value[public])))
+                rule.font_size_pt = _confirmed_number(value[public], 5.0, 72.0)
+                rule.font_size_name = font_size_name_for_points(rule.font_size_pt)
             elif internal in {"fixed_line_spacing_pt", "minimum_line_spacing_pt"}:
-                setattr(rule, internal, max(1.0, min(200.0, float(value[public]))))
+                setattr(rule, internal, _confirmed_number(value[public], 1.0, 200.0))
             elif internal == "multiple_line_spacing":
-                rule.multiple_line_spacing = max(0.5, min(10.0, float(value[public])))
+                rule.multiple_line_spacing = _confirmed_number(value[public], 0.5, 10.0)
+            elif internal == "bold":
+                if isinstance(value[public], bool):
+                    rule.bold = value[public]
+            elif internal == "alignment":
+                if value[public] in {"left", "center", "right", "justify"}:
+                    rule.alignment = value[public]
             elif internal == "line_spacing_mode" and value[public] in {"single", "1.5", "double", "at_least", "fixed", "multiple"}:
                 rule.line_spacing_mode = value[public]
             elif isinstance(value[public], str) and value[public].strip():
                 setattr(rule, internal, value[public].strip()[:80])
         rule.enabled = True
+
+
+def _confirmed_number(value: Any, minimum: float, maximum: float) -> float:
+    if isinstance(value, bool):
+        raise CliInputError("格式数值不能是布尔值")
+    number = float(value)
+    if not math.isfinite(number) or not minimum <= number <= maximum:
+        raise CliInputError(f"格式数值必须在 {minimum:g}–{maximum:g} 之间")
+    return number
+
+
+def _restore_analyzed_rules(path: Path | None, template_hash: str) -> tuple[DocumentRules, dict] | None:
+    """Restore the server-owned analysis snapshot, never re-infer confirmed values."""
+    if path is None:
+        return None
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise CliInputError("确认规则必须是 JSON 对象")
+    if "analyzedRules" not in payload:
+        return None  # Old jobs are reanalyzed, then their edits are applied.
+    if payload.get("templateSha256") != template_hash:
+        raise CliInputError("模板已变化，请重新分析并确认格式")
+    analysis = payload.get("templateAnalysis")
+    if not isinstance(analysis, dict) or not isinstance(payload["analyzedRules"], dict):
+        raise CliInputError("已分析规则不完整，请重新分析模板")
+    return DocumentRules.from_dict(payload["analyzedRules"]), analysis
 
 
 def _analysis_summary(info: DocumentInfo) -> dict[str, Any]:
@@ -380,6 +420,7 @@ def run_job(args: argparse.Namespace) -> dict[str, Any]:
     warnings: list[str] = []
     analysis: dict[str, Any] = {}
     rule_summary: dict[str, Any] = {}
+    template_analysis: dict[str, Any] = {}
     current_progress = 0
 
     try:
@@ -390,31 +431,62 @@ def run_job(args: argparse.Namespace) -> dict[str, Any]:
         template_hash_before = sha256_file(template)
         instructions = _read_instructions(instructions_file)
 
-        current_progress = 15
-        emit_progress(current_progress, "extracting_template", "正在从学校模板提取页面、标题、题注和表格规则")
-        extracted = TemplateRuleExtractor().extract(template)
-        rules = extracted.rules
-        template_notes = list(extracted.notes)
-
         api_key = os.getenv("ARK_API_KEY", "").strip() or os.getenv("DOUBAO_API_KEY", "").strip()
         model = os.getenv("DOUBAO_MODEL", "").strip() or os.getenv("DOUBAO_WEB_SEARCH_MODEL", "").strip() or None
-        if getattr(args, "analyze_only", False):
-            emit_progress(24, "ai_analyzing", "AI 正在以 9 条细分支并行复核标题、目录和图表题注")
-            rules, ai_notes = DoubaoRuleParser(api_key=api_key or None, model=model).analyze_template(rules, template_notes)
-            instruction_notes.extend(ai_notes)
+        restored = _restore_analyzed_rules(confirmed_rules_file, template_hash_before)
+        if restored is not None:
+            rules, template_analysis = restored
+            current_progress = 24
+            emit_progress(current_progress, "restoring_rules", "正在载入已分析并确认的模板规则与封面方案")
+            template_notes.append("已复用本次模板 AI 分析结果，确认后的处理不再重新猜测规则。")
+        else:
+            current_progress = 10
+            emit_progress(current_progress, "reading_template_text", "正在读取模板正文、规范表、红字和批注中的文字要求")
+            # Legacy templates need only one Word conversion for both readers.
+            with WordDocumentConverter().as_docx(template) as readable_template:
+                context = read_template_text(readable_template)
+                current_progress = 15
+                emit_progress(current_progress, "extracting_template", "文字读取完成，正在提取样式作为格式补充证据")
+                extracted = TemplateRuleExtractor().extract(readable_template)
+            rules = extracted.rules
+            rules.name = f"从模板识别：{template.stem}"
+            template_notes = list(context.get("notes", [])) + list(extracted.notes)
+            if getattr(args, "analyze_only", False) or confirmed_rules_file is not None:
+                current_progress = 24
+                emit_progress(current_progress, "ai_analyzing", "AI 正在先理解规范文字与封面用途，再并行填写正文、标题、目录和图表格式")
+                parser = DoubaoRuleParser(api_key=api_key or None, model=model)
+                try:
+                    rules, ai_notes = parser.analyze_template(rules, template_notes, context)
+                finally:
+                    template_analysis = parser.last_template_analysis
+                instruction_notes.extend(ai_notes)
+            else:
+                # Offline library/CLI use remains available, but it must not
+                # misrepresent defaults as AI-confirmed or copy spec prose.
+                candidate = context.get("copyCandidate")
+                can_copy = bool(candidate) and context.get("documentKindHint") != "specification"
+                template_analysis = {
+                    "documentKind": context.get("documentKindHint", "unknown"),
+                    "copyFrontMatter": can_copy,
+                    "frontMatterRange": candidate if can_copy else None,
+                    "reason": "本地识别到独立封面/声明页。" if can_copy else "未发现独立封面/声明页，保留原稿前置内容。",
+                    "ruleEvidence": {}, "warnings": ["本次为本地规则提取，未执行模板 AI 文字分析。"],
+                }
+        warnings.extend(template_analysis.get("warnings", []))
 
         current_progress = 30
-        if instructions:
+        if instructions and restored is None:
             if args.use_doubao:
                 emit_progress(current_progress, "applying_rules", "正在使用豆包解析附加格式要求")
-                rules, instruction_notes = DoubaoRuleParser(
+                rules, additional_notes = DoubaoRuleParser(
                     api_key=api_key or None, model=model
                 ).parse(instructions, rules)
+                instruction_notes.extend(additional_notes)
             else:
                 emit_progress(current_progress, "applying_rules", "正在本地解析附加格式要求")
-                instruction_notes = NaturalLanguageRuleParser().apply(instructions, rules)
+                instruction_notes.extend(NaturalLanguageRuleParser().apply(instructions, rules))
         else:
-            emit_progress(current_progress, "applying_rules", "未提供附加要求，直接采用模板识别规则")
+            emit_progress(current_progress, "applying_rules", "正在应用已识别规则与客户确认值")
         _apply_confirmed_rules(rules, confirmed_rules_file)
         enforce_locked_document_policy(rules)
         instruction_notes.append(LOCKED_TABLE_POLICY_NOTE)
@@ -429,9 +501,11 @@ def run_job(args: argparse.Namespace) -> dict[str, Any]:
         if getattr(args, "analyze_only", False):
             payload = {
                 "success": True, "analysisReady": True, "engineVersion": __version__,
-                "changedCount": 0, "warnings": [], "templateNotes": template_notes,
+                "changedCount": 0, "warnings": warnings, "templateNotes": template_notes,
                 "instructionNotes": instruction_notes, "analysis": analysis,
                 "ruleSummary": rule_summary, "editableRules": _editable_rules(rules),
+                "analyzedRules": rules.to_dict(), "templateSha256": template_hash_before,
+                "templateAnalysis": template_analysis,
                 "lockedRules": list(LOCKED_DOCUMENT_POLICY_NOTES),
                 "integrity": {"passed": True, "differences": {}},
                 "durationMs": round((time.perf_counter() - started) * 1000), "error": None,
@@ -447,9 +521,9 @@ def run_job(args: argparse.Namespace) -> dict[str, Any]:
         staging = output.with_name(
             f".{output.stem}.{uuid.uuid4().hex}.working.docx"
         )
-        processor_result = DocumentProcessor().process(source, rules, staging, template)
+        processor_result = DocumentProcessor().process(source, rules, staging, template, template_analysis=template_analysis)
         staging_log = staging.with_suffix(".log.json")
-        warnings = list(processor_result.warnings)
+        warnings.extend(processor_result.warnings)
 
         current_progress = 88
         emit_progress(current_progress, "integrity_check", "正在校验文字、图片、表格、域、书签和关系部件完整性")
@@ -485,6 +559,7 @@ def run_job(args: argparse.Namespace) -> dict[str, Any]:
             "instructionNotes": instruction_notes,
             "analysis": analysis,
             "ruleSummary": rule_summary,
+            "templateAnalysis": template_analysis,
             "integrity": integrity.summary(),
             "output": {
                 "fileName": output.name,
@@ -519,6 +594,7 @@ def run_job(args: argparse.Namespace) -> dict[str, Any]:
             "instructionNotes": instruction_notes,
             "analysis": analysis,
             "ruleSummary": rule_summary,
+            "templateAnalysis": template_analysis,
             "integrity": {"passed": False, "differences": {}},
             "durationMs": round((time.perf_counter() - started) * 1000),
             "error": message,

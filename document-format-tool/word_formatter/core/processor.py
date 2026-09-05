@@ -56,6 +56,7 @@ class DocumentProcessor:
         rules: DocumentRules,
         output_path: str | Path | None = None,
         template_path: str | Path | None = None,
+        template_analysis: dict | None = None,
     ) -> ProcessResult:
         source = Path(source_path).resolve()
         self._validate_source(source)
@@ -69,7 +70,7 @@ class DocumentProcessor:
             # summary. Enforce it again here so direct/library callers cannot
             # bypass the fixed table contract.
             enforce_locked_table_policy(rules)
-            document = self._compose_with_template_front(source, Path(template_path).resolve(), result) if template_path else Document(source)
+            document = self._compose_with_template_front(source, Path(template_path).resolve(), result, template_analysis) if template_path else Document(source)
             content_start = self._main_content_start(document)
             content_start += self._ensure_toc(document, rules, result, content_start)
             self._enforce_global_paragraph_policy(document, result)
@@ -156,7 +157,13 @@ class DocumentProcessor:
             ) from exc
 
     @classmethod
-    def _compose_with_template_front(cls, source: Path, template: Path, result: ProcessResult):
+    def _compose_with_template_front(cls, source: Path, template: Path, result: ProcessResult, template_analysis: dict | None = None):
+        if template_analysis is not None and (
+            template_analysis.get("copyFrontMatter") is not True
+            or template_analysis.get("documentKind") == "specification"
+        ):
+            result.warnings.append("根据模板文字分析保留原稿封面与声明；规范说明只用于格式核对。")
+            return Document(source)
         # Template extraction already supports legacy .doc/.dotx, but the
         # formatting phase must convert it as well. Passing an OLE .doc path
         # directly to python-docx produces a misleading missing-officeDocument
@@ -164,13 +171,26 @@ class DocumentProcessor:
         with WordDocumentConverter().as_docx(template) as readable_template:
             template_doc = Document(readable_template)
             source_doc = Document(source)
-            if cls._looks_like_format_specification(template_doc):
+            if template_analysis is None and cls._looks_like_format_specification(template_doc):
                 result.warnings.append(
                     "上传文件属于撰写/排版规范说明，仅提取格式规则，不复制其说明文字作为论文封面。"
                 )
                 return source_doc
             template_start = cls._main_content_start(template_doc)
             source_start = cls._main_content_start(source_doc)
+            if template_analysis is not None:
+                selection = template_analysis.get("frontMatterRange") or {}
+                end = selection.get("endParagraph")
+                if selection.get("startParagraph") != 1 or type(end) is not int or not 1 <= end <= len(template_doc.paragraphs):
+                    result.warnings.append("未确认可复制的前置页范围，已保留原稿封面与声明。")
+                    return source_doc
+                template_start = end + 1
+                # Never substitute the template's sample abstract for the
+                # author's abstract even when the source has a cached TOC.
+                for index, paragraph in enumerate(source_doc.paragraphs, 1):
+                    if re.fullmatch(r"(?:(?:中文|英文)?摘要|abstract)[:：]?", re.sub(r"\s+", "", paragraph.text), re.I):
+                        source_start = index
+                        break
             if template_start <= 1:
                 result.warnings.append("模板未识别到独立前置页，保留论文原有前置内容。")
                 return source_doc
@@ -182,6 +202,24 @@ class DocumentProcessor:
                 result.records.append(ChangeRecord(None, "前置页分节", "分页符或段前分页", f"新增 {added_sections} 个下一页分节符", "每个前置页独立成节"))
             cls._repair_missing_numbering_part(source_doc, result)
             cls._trim_body(template_doc, keep_before=template_start)
+            if template_analysis is not None:
+                retained = [child for child in template_doc.element.body if child.tag != qn("w:sectPr")]
+                # A cover often ends in a table. Its section must follow the
+                # table, not the earlier title paragraph.
+                if retained and retained[-1].tag == qn("w:p"):
+                    boundary = retained[-1]
+                else:
+                    boundary = template_doc.add_paragraph()._p
+                tail = boundary.get_or_add_pPr()
+                section = tail.find(qn("w:sectPr"))
+                if section is None:
+                    section = deepcopy(template_doc.element.body.sectPr)
+                    tail.append(section)
+                section_type = section.find(qn("w:type"))
+                if section_type is None:
+                    section_type = OxmlElement("w:type")
+                    section.insert_element_before(section_type, "w:pgSz")
+                section_type.set(qn("w:val"), "nextPage")
             cls._trim_body(source_doc, remove_before=source_start)
             Composer(template_doc).append(source_doc)
             result.records.append(ChangeRecord(None, "模板前置内容", f"论文原前置段落 {max(0, source_start - 1)} 个", f"复制模板前置段落 {template_start - 1} 个", "固定系统规则"))
@@ -427,11 +465,7 @@ class DocumentProcessor:
 
         title = document.add_paragraph("目录")
         cls._format_paragraph(title, rules.toc_title)
-        # The TOC is inserted exactly at the front/body boundary. A copied
-        # front already has a next-page section break; with no copied front,
-        # the TOC is the first page. In either case pageBreakBefore is both
-        # redundant and capable of creating a numbered blank page.
-        title.paragraph_format.page_break_before = None
+        title.paragraph_format.page_break_before = cls._needs_page_break_before(anchor)
         title._p.get_or_add_pPr().find(qn("w:outlineLvl")).set(qn("w:val"), "9")
 
         toc = document.add_paragraph()
@@ -462,6 +496,18 @@ class DocumentProcessor:
             ChangeRecord(None, "自动目录", "文档中无目录", "封面后插入 1–3 级 Word 目录并刷新页码", "固定系统规则")
         )
         return 3
+
+    @staticmethod
+    def _needs_page_break_before(element) -> bool:
+        """Do not double an existing page/section boundary before a TOC."""
+        previous = element.getprevious()
+        while previous is not None:
+            if previous.xpath(".//w:sectPr | .//w:br[@w:type='page']"):
+                return False
+            if previous.xpath(".//w:t[normalize-space(.) != ''] | .//w:drawing | .//w:pict"):
+                return True
+            previous = previous.getprevious()
+        return False
 
     @staticmethod
     def _exclude_front_matter_from_toc(document, content_start: int) -> None:
@@ -617,7 +663,7 @@ class DocumentProcessor:
             identity = f"{style.style_id if style else ''} {style.name if style else ''}"
             if re.fullmatch(r"(?:目\s*录|contents)", text, re.I):
                 cls._format_paragraph(paragraph, rules.toc_title)
-                paragraph.paragraph_format.page_break_before = True
+                paragraph.paragraph_format.page_break_before = cls._needs_page_break_before(paragraph._p)
                 # The TOC title is presentation text, not a chapter entry.
                 paragraph._p.get_or_add_pPr().find(qn("w:outlineLvl")).set(qn("w:val"), "9")
                 result.records.append(ChangeRecord(index, "目录标题", "原格式", cls._rule_summary(rules.toc_title), "目录标题规则"))

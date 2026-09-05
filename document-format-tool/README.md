@@ -11,6 +11,12 @@
   `.dotx`。
 - 自动提取模板的纸张、页边距、正文、1-4 级标题、图名、表名、参考文献、
   表格边框/字体/行距、重复表头和页码规则。
+- Web 分析先读取模板中的正文、规范表、文本框、红字和批注文字，再由豆包
+  判断文档用途并并行提取各项规则。明确的书面要求优先于说明文字自身的样式。
+- 纯撰写规范只用于提取规则；“封面见附件”等描述不会当成封面复制。
+  只有确认存在独立封面/声明页并确定范围后才复制，不复制模板的摘要样例。
+- 确认界面显示文字依据以及未确认项目；AI 超时的项目保留程序提取值供核对。
+  原文无依据的默认值不会标成 AI 已识别。
 - 正文数据表使用不可覆盖的固定规范：黑色三线表（1.5/0.75 磅）、
   表格与单元格内容居中、宋体小四、零缩进、全表不加粗；封面布局表和
   含公式的排版表继续保留原样。
@@ -28,7 +34,7 @@ Linux/macOS 不提供 Microsoft Word COM。上传 `.doc` 或 `.dotx` 模板时 C
 python -m pip install -r document-format-tool/requirements-web.txt
 ```
 
-Web 运行不需要 `PySide6` 或 `PyInstaller`。`openai` 仅供可选豆包规则解析；
+Web 运行不需要 `PySide6` 或 `PyInstaller`。`openai` 用于模板文字分析与豆包规则解析；
 `pywin32` 只会在 Windows 安装。
 
 启动前可检查 Python 依赖；Windows 需要直接处理 `.doc/.dotx` 时再加
@@ -51,11 +57,17 @@ python -X utf8 document-format-tool/format_cli.py `
 
 省略 `--instructions-file` 时完全采用模板识别规则。提供指令文件时默认使用
 确定性的本地解析器；再加 `--use-doubao` 则改用豆包解析。豆包只接收格式
-指令和规则 JSON，不读取论文正文，并从进程环境读取：
+指令、学校模板文字及规则 JSON，不读取待修改论文正文，并从进程环境读取：
 
 - `ARK_API_KEY` 或 `DOUBAO_API_KEY`
 - `DOUBAO_MODEL`
 - 可选 `DOUBAO_BASE_URL`；未设置时也会兼容项目已有的 `DOUBAO_ENDPOINT`，并自动去掉 `/chat/completions`
+
+Web 首次调用加 `--analyze-only`，结果包含 `editableRules`、`analyzedRules`、
+`templateAnalysis` 和 `templateSha256`。后端保存完整规则与用途判断，确认时将
+服务器保存的这三个分析字段和客户修改的 `editableRules` 写入 `--rules-file`。
+处理阶段先校验模板哈希，再载入分析快照并应用客户修改，不重新提取覆盖已确认值。
+前端不能替换服务器保存的分析快照或封面复制范围。
 
 ## 进程契约
 
@@ -69,7 +81,8 @@ stdout 只写逐行 UTF-8 JSON，并在每行后立即 flush：
 
 - `type`: 固定为 `progress`
 - `progress`: `0..100` 整数
-- `stage`: `validating`、`extracting_template`、`applying_rules`、
+- `stage`: `validating`、`reading_template_text`、`extracting_template`、
+  `ai_analyzing`、`awaiting_confirmation`、`restoring_rules`、`applying_rules`、
   `analyzing_source`、`processing`、`integrity_check`、`completed` 或 `failed`
 - `message`: 中文进度说明
 

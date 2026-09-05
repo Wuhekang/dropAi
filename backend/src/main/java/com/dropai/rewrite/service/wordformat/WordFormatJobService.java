@@ -21,6 +21,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -185,11 +186,20 @@ public class WordFormatJobService {
                 throw new JobNotReadyException("任务尚未完成 AI 分析或已经确认");
             }
             if (editableRules == null || editableRules.isEmpty()) {
-                throw new IllegalArgumentException("请提交需要确认的三类格式规则");
+                throw new IllegalArgumentException("请提交需要确认的正文、标题、目录和图表题注格式");
             }
             try {
-                byte[] json = objectMapper.writeValueAsBytes(editableRules);
-                if (json.length > 128 * 1024) throw new IllegalArgumentException("确认规则内容过大");
+                if (objectMapper.writeValueAsBytes(editableRules).length > 128 * 1024) {
+                    throw new IllegalArgumentException("确认规则内容过大");
+                }
+                Map<String, Object> envelope = new LinkedHashMap<>();
+                envelope.put("editableRules", validateEditableRules(editableRules));
+                if (!job.analyzedRules.isEmpty() && !job.templateSha256.isBlank()) {
+                    envelope.put("analyzedRules", job.analyzedRules);
+                    envelope.put("templateAnalysis", job.templateAnalysis);
+                    envelope.put("templateSha256", job.templateSha256);
+                }
+                byte[] json = objectMapper.writeValueAsBytes(envelope);
                 Files.write(job.rulesPath, json);
             } catch (IOException exception) {
                 throw new IllegalStateException("无法保存确认规则，请重试", exception);
@@ -226,14 +236,14 @@ public class WordFormatJobService {
     }
 
     private void analyze(JobState job) {
-        job.running(12, "extracting_template", "正在提取模板并进行 AI 分析");
+        job.running(12, "reading_template_text", "正在读取模板文字，由 AI 识别格式要求和封面用途");
         try {
             WordFormatProcessRunner.ProcessResult result = runner.run(
                     job.sourcePath, job.templatePath, job.outputPath, job.resultPath,
                     job.instructionsPath, true, true, null,
                     event -> job.progress(event.progress(), event.stage(), event.message())
             );
-            job.analysisReady(result.editableRules(), result.lockedRules(), result.analysis(), result.templateNotes());
+            job.analysisReady(result);
         } catch (Exception exception) {
             log.error("Word formatter analysis failed: jobId={}", job.jobId, exception);
             job.fail(userFacingWorkerError(exception));
@@ -241,7 +251,7 @@ public class WordFormatJobService {
     }
 
     private void process(JobState job) {
-        job.running(12, "starting", "已读取上传文件，准备提取学校模板格式");
+        job.running(45, "confirmed", "正在按已确认规则处理论文，并应用已识别的封面方案");
         try {
             WordFormatProcessRunner.ProcessResult result = runner.run(
                     job.sourcePath,
@@ -265,6 +275,78 @@ public class WordFormatJobService {
             );
             job.fail(userFacingWorkerError(exception));
         }
+    }
+
+    private static Map<String, Object> validateEditableRules(Map<String, Object> submitted) {
+        Map<String, List<String>> groups = Map.of(
+                "body", List.of("normal"),
+                "headings", List.of("level1", "level2", "level3"),
+                "toc", List.of("title", "level1", "level2", "level3"),
+                "captions", List.of("figure", "table")
+        );
+        Map<String, Object> validated = new LinkedHashMap<>();
+        groups.forEach((groupName, names) -> {
+            if (!submitted.containsKey(groupName)) return;
+            if (!(submitted.get(groupName) instanceof Map<?, ?> group)) {
+                throw new IllegalArgumentException("确认格式分组无效");
+            }
+            Map<String, Object> rules = new LinkedHashMap<>();
+            for (String name : names) {
+                if (!group.containsKey(name)) continue;
+                if (!(group.get(name) instanceof Map<?, ?> rule)) {
+                    throw new IllegalArgumentException("确认段落格式无效");
+                }
+                Map<String, Object> fields = new LinkedHashMap<>();
+                for (String field : List.of("chineseFont", "latinFont")) {
+                    if (!rule.containsKey(field)) continue;
+                    if (!(rule.get(field) instanceof String text) || text.isBlank() || text.length() > 80) {
+                        throw new IllegalArgumentException("请填写有效的字体名称");
+                    }
+                    fields.put(field, text.trim());
+                }
+                for (String field : List.of("fontSizePt", "fixedLineSpacingPt", "minimumLineSpacingPt", "multipleLineSpacing")) {
+                    if (!rule.containsKey(field)) continue;
+                    double min = field.equals("fontSizePt") ? 5 : field.equals("multipleLineSpacing") ? 0.5 : 1;
+                    double max = field.equals("fontSizePt") ? 72 : field.equals("multipleLineSpacing") ? 10 : 200;
+                    fields.put(field, formatNumber(rule.get(field), min, max));
+                }
+                validateChoice(rule, fields, "alignment", Set.of("left", "center", "right", "justify"));
+                validateChoice(rule, fields, "lineSpacingMode", Set.of("single", "1.5", "double", "multiple", "fixed", "at_least"));
+                if (rule.containsKey("bold")) {
+                    if (!(rule.get("bold") instanceof Boolean)) throw new IllegalArgumentException("加粗设置无效");
+                    fields.put("bold", rule.get("bold"));
+                }
+                for (String field : List.of("spaceBefore", "spaceAfter")) {
+                    if (!rule.containsKey(field)) continue;
+                    if (!(rule.get(field) instanceof Map<?, ?> spacing)
+                            || !(spacing.get("unit") instanceof String unit)
+                            || !Set.of("line", "pt").contains(unit)) {
+                        throw new IllegalArgumentException("段落间距单位无效");
+                    }
+                    fields.put(field, Map.of("unit", unit, "value", formatNumber(spacing.get("value"), 0, unit.equals("pt") ? 200 : 20)));
+                }
+                if (!fields.isEmpty()) rules.put(name, fields);
+            }
+            if (!rules.isEmpty()) validated.put(groupName, rules);
+        });
+        if (validated.isEmpty()) throw new IllegalArgumentException("请提交有效的可编辑格式规则");
+        return validated;
+    }
+
+    private static double formatNumber(Object value, double min, double max) {
+        if (!(value instanceof Number number) || !Double.isFinite(number.doubleValue())
+                || number.doubleValue() < min || number.doubleValue() > max) {
+            throw new IllegalArgumentException("字号或间距数值超出可用范围，请核对后重试");
+        }
+        return number.doubleValue();
+    }
+
+    private static void validateChoice(Map<?, ?> rule, Map<String, Object> fields, String key, Set<String> allowed) {
+        if (!rule.containsKey(key)) return;
+        if (!(rule.get(key) instanceof String value) || !allowed.contains(value)) {
+            throw new IllegalArgumentException("对齐方式或行距设置无效");
+        }
+        fields.put(key, value);
     }
 
     private void verifyRuntimeBeforeAccepting(Upload templateUpload, boolean requireDoubao) {
@@ -562,6 +644,9 @@ public class WordFormatJobService {
         private Map<String, Object> editableRules = Map.of();
         private List<String> lockedRules = List.of();
         private Map<String, Object> analysis = Map.of();
+        private Map<String, Object> analyzedRules = Map.of();
+        private Map<String, Object> templateAnalysis = Map.of();
+        private String templateSha256 = "";
         private LocalDateTime updatedAt = createdAt;
 
         private JobState(
@@ -624,16 +709,18 @@ public class WordFormatJobService {
             updatedAt = LocalDateTime.now();
         }
 
-        private synchronized void analysisReady(Map<String, Object> editable, List<String> locked,
-                                                Map<String, Object> analysis, List<String> notes) {
+        private synchronized void analysisReady(WordFormatProcessRunner.ProcessResult result) {
             status = "AWAITING_CONFIRMATION";
             progress = 40;
             currentStage = "awaiting_confirmation";
-            message = "AI 分析完成，请核对并确认三类可编辑格式";
-            editableRules = editable == null ? Map.of() : Map.copyOf(editable);
-            lockedRules = immutable(locked);
-            this.analysis = analysis == null ? Map.of() : Map.copyOf(analysis);
-            templateNotes = immutable(notes);
+            message = "模板分析完成，请核对格式依据、封面方案和四类可编辑规则";
+            editableRules = result.editableRules() == null ? Map.of() : new LinkedHashMap<>(result.editableRules());
+            lockedRules = immutable(result.lockedRules());
+            analysis = result.analysis() == null ? Map.of() : new LinkedHashMap<>(result.analysis());
+            analyzedRules = result.analyzedRules() == null ? Map.of() : new LinkedHashMap<>(result.analyzedRules());
+            templateAnalysis = result.templateAnalysis() == null ? Map.of() : new LinkedHashMap<>(result.templateAnalysis());
+            templateSha256 = result.templateSha256() == null ? "" : result.templateSha256();
+            templateNotes = immutable(result.templateNotes());
             updatedAt = LocalDateTime.now();
         }
 
@@ -660,7 +747,8 @@ public class WordFormatJobService {
                     "summary", message,
                     "editableRules", editableRules,
                     "lockedRules", lockedRules,
-                    "analysis", analysis
+                    "analysis", analysis,
+                    "templateAnalysis", templateAnalysis
             )
                     : Map.of();
             return new WordFormatJobVO(

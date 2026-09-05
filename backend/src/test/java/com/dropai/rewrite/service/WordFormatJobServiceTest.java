@@ -5,6 +5,8 @@ import com.dropai.rewrite.config.WordFormatProperties;
 import com.dropai.rewrite.service.wordformat.WordFormatJobService;
 import com.dropai.rewrite.service.wordformat.WordFormatProcessRunner;
 import com.dropai.rewrite.vo.WordFormatJobVO;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -18,6 +20,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -29,6 +32,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -53,14 +57,18 @@ class WordFormatJobServiceTest {
     void createsIsolatedAsyncJobAndDownloadsVerifiedDocx() throws Exception {
         byte[] docx = document("真实论文内容");
         WordFormatProcessRunner runner = mock(WordFormatProcessRunner.class);
-        when(runner.run(any(), any(), any(), any(), any(), anyBoolean(), any()))
+        when(runner.run(any(), any(), any(), any(), any(), anyBoolean(), eq(false), any(), any()))
                 .thenAnswer(invocation -> {
                     Path source = invocation.getArgument(0);
                     Path output = invocation.getArgument(2);
+                    Path confirmedRules = invocation.getArgument(7);
+                    JsonNode legacyEnvelope = new ObjectMapper().readTree(confirmedRules.toFile());
+                    assertTrue(legacyEnvelope.has("editableRules"));
+                    assertEquals(false, legacyEnvelope.has("analyzedRules"));
                     WordFormatProcessRunner.ProgressEvent event =
                             new WordFormatProcessRunner.ProgressEvent(68, "processing", "正在套用模板");
                     @SuppressWarnings("unchecked")
-                    java.util.function.Consumer<WordFormatProcessRunner.ProgressEvent> consumer = invocation.getArgument(6);
+                    java.util.function.Consumer<WordFormatProcessRunner.ProgressEvent> consumer = invocation.getArgument(8);
                     consumer.accept(event);
                     Files.copy(source, output);
                     return new WordFormatProcessRunner.ProcessResult(
@@ -80,9 +88,10 @@ class WordFormatJobServiceTest {
         );
         verify(runner).verifyRuntime(false, true);
 
+        confirmWhenReady(created.id());
         WordFormatJobVO completed = waitForTerminal(created.id());
         assertEquals("SUCCESS", completed.status());
-        verify(runner).run(any(), any(), any(), any(), any(), eq(true), any());
+        verify(runner).run(any(), any(), any(), any(), any(), eq(true), eq(false), any(), any());
         assertEquals(100, completed.progress());
         assertEquals("论文原稿.docx", completed.sourceName());
         assertEquals("学校模板.docx", completed.templateName());
@@ -112,7 +121,7 @@ class WordFormatJobServiceTest {
         WordFormatProcessRunner runner = mock(WordFormatProcessRunner.class);
         doThrow(new IllegalStateException(
                 "Traceback: C:\\Users\\Administrator\\dropAi\\document-format-tool\\format_cli.py"
-        )).when(runner).verifyRuntime(true, false);
+        )).when(runner).verifyRuntime(true, true);
         service = service(runner);
         AuthContext.setUserId(11L);
 
@@ -128,12 +137,12 @@ class WordFormatJobServiceTest {
 
         assertEquals(WordFormatProcessRunner.RUNTIME_UNAVAILABLE_MESSAGE, error.getMessage());
         assertTrue(Files.notExists(tempDir.resolve("11")));
-        verify(runner).verifyRuntime(true, false);
-        verify(runner, never()).run(any(), any(), any(), any(), any(), anyBoolean(), any());
+        verify(runner).verifyRuntime(true, true);
+        verify(runner, never()).run(any(), any(), any(), any(), any(), anyBoolean(), anyBoolean(), any(), any());
     }
 
     @Test
-    void rejectsExtensionSpoofingBeforeWorkerExecution() {
+    void rejectsExtensionSpoofingBeforeWorkerExecution() throws Exception {
         service = service(mock(WordFormatProcessRunner.class));
         AuthContext.setUserId(7L);
         byte[] invalid = "not-a-docx".getBytes(java.nio.charset.StandardCharsets.UTF_8);
@@ -176,8 +185,8 @@ class WordFormatJobServiceTest {
 
         assertEquals("上传文件保存失败，请重试", error.getMessage());
         assertTrue(Files.notExists(tempDir.resolve("12")));
-        verify(runner).verifyRuntime(false, false);
-        verify(runner, never()).run(any(), any(), any(), any(), any(), anyBoolean(), any());
+        verify(runner).verifyRuntime(false, true);
+        verify(runner, never()).run(any(), any(), any(), any(), any(), anyBoolean(), anyBoolean(), any(), any());
     }
 
     @Test
@@ -186,16 +195,13 @@ class WordFormatJobServiceTest {
         CountDownLatch started = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
         WordFormatProcessRunner runner = mock(WordFormatProcessRunner.class);
-        when(runner.run(any(), any(), any(), any(), any(), anyBoolean(), any()))
+        service = service(runner, 1);
+        when(runner.run(any(), any(), any(), any(), any(), anyBoolean(), eq(true), any(), any()))
                 .thenAnswer(invocation -> {
                     started.countDown();
                     assertTrue(release.await(5, TimeUnit.SECONDS));
-                    Path source = invocation.getArgument(0);
-                    Path output = invocation.getArgument(2);
-                    Files.copy(source, output);
-                    return new WordFormatProcessRunner.ProcessResult(1, List.of(), List.of());
+                    return analysisResult();
                 });
-        service = service(runner, 1);
         AuthContext.setUserId(9L);
 
         WordFormatJobVO first = service.submit(
@@ -221,20 +227,20 @@ class WordFormatJobServiceTest {
                         false
                 )
         );
-        verify(runner, times(2)).verifyRuntime(false, false);
+        verify(runner, times(2)).verifyRuntime(false, true);
         try (var userDirectories = Files.list(tempDir.resolve("9"))) {
             assertEquals(2, userDirectories.count());
         }
         release.countDown();
-        assertEquals("SUCCESS", waitForTerminal(first.id()).status());
-        assertEquals("SUCCESS", waitForTerminal(second.id()).status());
+        assertEquals("AWAITING_CONFIRMATION", waitForStatus(first.id(), "AWAITING_CONFIRMATION").status());
+        assertEquals("AWAITING_CONFIRMATION", waitForStatus(second.id(), "AWAITING_CONFIRMATION").status());
     }
 
     @Test
     void removesUndeliverableOutputAndWorkingFilesAfterFailure() throws Exception {
         byte[] docx = document("失败清理测试");
         WordFormatProcessRunner runner = mock(WordFormatProcessRunner.class);
-        when(runner.run(any(), any(), any(), any(), any(), anyBoolean(), any()))
+        when(runner.run(any(), any(), any(), any(), any(), anyBoolean(), eq(false), any(), any()))
                 .thenAnswer(invocation -> {
                     Path output = invocation.getArgument(2);
                     Files.write(output, new byte[]{1, 2, 3});
@@ -253,6 +259,7 @@ class WordFormatJobServiceTest {
                 "",
                 false
         );
+        confirmWhenReady(created.id());
         WordFormatJobVO failed = waitForTerminal(created.id());
 
         assertEquals("FAILED", failed.status());
@@ -264,11 +271,66 @@ class WordFormatJobServiceTest {
         }
     }
 
-    private WordFormatJobService service(WordFormatProcessRunner runner) {
+    @Test
+    void confirmationKeepsServerAnalysisAndCoverDecisionInsteadOfClientOverrides() throws Exception {
+        byte[] docx = document("规范正文");
+        WordFormatProcessRunner runner = mock(WordFormatProcessRunner.class);
+        service = service(runner);
+        Map<String, Object> snapshot = Map.of("normal_text", Map.of("font_size_pt", 12), "page_setup", Map.of("margin_top_mm", 30));
+        Map<String, Object> decision = new java.util.LinkedHashMap<>();
+        decision.put("documentKind", "specification");
+        decision.put("copyFrontMatter", false);
+        decision.put("reason", "仅含文字撰写要求，没有独立封面页");
+        decision.put("frontMatterRange", null);
+        when(runner.run(any(), any(), any(), any(), any(), anyBoolean(), eq(true), any(), any()))
+                .thenReturn(new WordFormatProcessRunner.ProcessResult(0, List.of(), List.of(),
+                        editableRules(), List.of(), Map.of(), snapshot, decision, "abc123"));
+        when(runner.run(any(), any(), any(), any(), any(), anyBoolean(), eq(false), any(), any()))
+                .thenAnswer(invocation -> {
+                    Path rulesPath = invocation.getArgument(7);
+                    JsonNode confirmed = new ObjectMapper().readTree(rulesPath.toFile());
+                    assertEquals(15, confirmed.path("editableRules").path("body").path("normal").path("fontSizePt").asInt());
+                    assertEquals(24, confirmed.path("editableRules").path("body").path("normal").path("spaceBefore").path("value").asInt());
+                    assertEquals(12, confirmed.path("analyzedRules").path("normal_text").path("font_size_pt").asInt());
+                    assertEquals(30, confirmed.path("analyzedRules").path("page_setup").path("margin_top_mm").asInt());
+                    assertEquals(false, confirmed.path("templateAnalysis").path("copyFrontMatter").asBoolean());
+                    assertEquals("abc123", confirmed.path("templateSha256").asText());
+                    assertEquals(false, confirmed.path("editableRules").has("templateAnalysis"));
+                    Files.copy((Path) invocation.getArgument(0), (Path) invocation.getArgument(2));
+                    return new WordFormatProcessRunner.ProcessResult(3, List.of(), List.of());
+                });
+        AuthContext.setUserId(15L);
+        WordFormatJobVO submitted = service.submit(upload("template", "规范.docx", docx), upload("source", "论文.docx", docx), "", true);
+        WordFormatJobVO ready = waitForStatus(submitted.id(), "AWAITING_CONFIRMATION");
+        assertEquals(decision, ready.result().get("templateAnalysis"));
+        service.confirm(submitted.id(), Map.of(
+                "body", Map.of("normal", Map.of("fontSizePt", 15, "bold", false, "alignment", "justify", "spaceBefore", Map.of("unit", "pt", "value", 24))),
+                "templateAnalysis", Map.of("copyFrontMatter", true),
+                "analyzedRules", Map.of("normal_text", Map.of("font_size_pt", 72)),
+                "templateSha256", "client-override"));
+        assertEquals("SUCCESS", waitForTerminal(submitted.id()).status());
+    }
+
+    @Test
+    void invalidEditableValueStaysAtConfirmationWithoutLaunchingProcessing() throws Exception {
+        byte[] docx = document("确认格式测试");
+        WordFormatProcessRunner runner = mock(WordFormatProcessRunner.class);
+        service = service(runner);
+        AuthContext.setUserId(16L);
+        WordFormatJobVO submitted = service.submit(upload("template", "规范.docx", docx), upload("source", "论文.docx", docx), "", true);
+        waitForStatus(submitted.id(), "AWAITING_CONFIRMATION");
+        assertThrows(IllegalArgumentException.class, () -> service.confirm(submitted.id(), Map.of("body", Map.of("normal", Map.of("fontSizePt", "")))));
+        assertEquals("AWAITING_CONFIRMATION", service.get(submitted.id()).status());
+        verify(runner, never()).run(any(), any(), any(), any(), any(), anyBoolean(), eq(false), any(), any());
+    }
+
+    private WordFormatJobService service(WordFormatProcessRunner runner) throws Exception {
         return service(runner, 2);
     }
 
-    private WordFormatJobService service(WordFormatProcessRunner runner, int queueCapacity) {
+    private WordFormatJobService service(WordFormatProcessRunner runner, int queueCapacity) throws Exception {
+        doReturn(analysisResult()).when(runner)
+                .run(any(), any(), any(), any(), any(), anyBoolean(), eq(true), any(), any());
         MockEnvironment environment = new MockEnvironment()
                 .withProperty("word-format.data-dir", tempDir.toString())
                 .withProperty("word-format.max-concurrent", "1")
@@ -277,16 +339,33 @@ class WordFormatJobServiceTest {
     }
 
     private WordFormatJobVO waitForTerminal(String id) throws Exception {
+        return waitForStatus(id, "SUCCESS");
+    }
+
+    private WordFormatJobVO waitForStatus(String id, String status) throws Exception {
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
         WordFormatJobVO current;
         do {
             current = service.get(id);
-            if ("SUCCESS".equals(current.status()) || "FAILED".equals(current.status())) {
+            if (status.equals(current.status()) || "FAILED".equals(current.status())) {
                 return current;
             }
             Thread.sleep(20);
         } while (System.nanoTime() < deadline);
         throw new AssertionError("Word format job did not finish in time");
+    }
+
+    private void confirmWhenReady(String id) throws Exception {
+        assertEquals("AWAITING_CONFIRMATION", waitForStatus(id, "AWAITING_CONFIRMATION").status());
+        service.confirm(id, editableRules());
+    }
+
+    private static Map<String, Object> editableRules() {
+        return Map.of("body", Map.of("normal", Map.of("fontSizePt", 12)));
+    }
+
+    private static WordFormatProcessRunner.ProcessResult analysisResult() {
+        return new WordFormatProcessRunner.ProcessResult(0, List.of(), List.of(), editableRules(), List.of(), Map.of());
     }
 
     private static MockMultipartFile upload(String field, String name, byte[] bytes) {

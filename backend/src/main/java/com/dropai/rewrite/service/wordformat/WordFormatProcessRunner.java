@@ -266,9 +266,12 @@ public class WordFormatProcessRunner {
                     changedCount,
                     strings(payload, "warnings"),
                     strings(payload, "templateNotes", "template_notes", "notes"),
-                    objectMapper.convertValue(payload.path("editableRules"), Map.class),
+                    object(payload, "editableRules"),
                     strings(payload, "lockedRules"),
-                    objectMapper.convertValue(payload.path("analysis"), Map.class)
+                    object(payload, "analysis"),
+                    object(payload, "analyzedRules"),
+                    object(payload, "templateAnalysis"),
+                    text(payload, "templateSha256")
             );
         } finally {
             streams.shutdownNow();
@@ -455,6 +458,12 @@ public class WordFormatProcessRunner {
         return List.of();
     }
 
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> object(JsonNode node, String name) {
+        JsonNode value = node.path(name);
+        return value.isObject() ? objectMapper.convertValue(value, Map.class) : Map.of();
+    }
+
     private static String compact(String text, int limit) {
         if (text == null) {
             return "";
@@ -468,7 +477,14 @@ public class WordFormatProcessRunner {
 
     public record ProcessResult(int changedCount, List<String> warnings, List<String> templateNotes,
                                 Map<String, Object> editableRules, List<String> lockedRules,
-                                Map<String, Object> analysis) {
+                                Map<String, Object> analysis, Map<String, Object> analyzedRules,
+                                Map<String, Object> templateAnalysis, String templateSha256) {
+        public ProcessResult(int changedCount, List<String> warnings, List<String> templateNotes,
+                             Map<String, Object> editableRules, List<String> lockedRules,
+                             Map<String, Object> analysis) {
+            this(changedCount, warnings, templateNotes, editableRules, lockedRules, analysis,
+                    Map.of(), Map.of(), "");
+        }
         public ProcessResult(int changedCount, List<String> warnings, List<String> templateNotes) {
             this(changedCount, warnings, templateNotes, Map.of(), List.of(), Map.of());
         }

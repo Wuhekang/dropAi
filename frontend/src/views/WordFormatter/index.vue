@@ -14,7 +14,7 @@
     <header class="hero">
       <div class="eyebrow"><i></i>DOKIAI WORD FORMAT WORKFLOW</div>
       <h1>上传学校模板，自动得到<br /><em>规范格式的论文 DOCX</em></h1>
-      <p>识别模板中的标题、正文、图名、表名与表格规则，在保留论文内容的前提下一键完成格式整理。</p>
+      <p>先理解学校撰写规范中的文字要求，再确认标题、正文、目录与图表格式；同时判断模板封面是否需要复制。</p>
       <div class="hero-actions">
         <button class="primary" type="button" @click="scrollToWorkspace">开始修改格式　→</button>
         <button class="secondary" type="button" @click="showFlow = !showFlow">查看处理流程　⌄</button>
@@ -56,7 +56,7 @@
               <button type="button" @click.prevent.stop="clearFile('template')">重新选择</button>
             </template>
           </label>
-          <p class="card-note"><i>✓</i> 系统将从模板中提取版式，不会修改模板文件。</p>
+          <p class="card-note"><i>✓</i> 支持撰写规范和排版模板，先读取文字要求，再识别可用样例。</p>
         </article>
 
         <article class="glass upload-card">
@@ -109,13 +109,13 @@
           <div class="doubao-option">
             <div class="doubao-heading">
               <i>D</i>
-              <span><b>Doki 理解补充要求</b><small>适合较复杂的自然语言规则</small></span>
+              <span><b>Doki 理解学校格式要求</b><small>文字规范、版式样例与封面用途一并识别</small></span>
               <span class="ai-required">必经步骤</span>
             </div>
             <ul>
-              <li><i>✓</i> 9 条格式细分支并行分析，最长等待约 25 秒</li>
-              <li><i>✓</i> 单分支超时自动保留本地精确提取结果</li>
-              <li><i>✓</i> 论文与模板始终作为独立文件处理</li>
+              <li><i>✓</i> 先读取模板文字，由 AI 分项理解格式要求</li>
+              <li><i>✓</i> 每项展示识别依据，未明确的项目提示核对</li>
+              <li><i>✓</i> 识别封面用途，确认后按本次规则处理论文</li>
             </ul>
           </div>
         </div>
@@ -127,18 +127,35 @@
     </section>
 
     <section v-else-if="screen === 'review'" ref="workspaceSection" class="review-center">
-      <article class="glass review-hero"><small>AI TEMPLATE ANALYSIS COMPLETE</small><h2>AI 已分析模板，请先确认关键格式</h2><p>下面四类规则可修改；正文仅固定首行缩进 2 字符。确认后才会正式处理论文。</p></article>
+      <article class="glass review-hero">
+        <small>TEMPLATE ANALYSIS REVIEW</small><h2>模板分析完成，请先确认关键格式</h2>
+        <p>下面四类规则可修改；正文仅固定首行缩进 2 字符。确认后才会正式处理论文。</p>
+        <div v-if="hasTemplateAnalysis" class="template-analysis">
+          <div><span>文件类型</span><strong>{{ templateKindLabel }}</strong></div>
+          <div><span>封面处理</span><strong>{{ frontMatterLabel }}</strong></div>
+          <p v-if="templateAnalysis.reason">{{ templateAnalysis.reason }}</p>
+          <ul v-if="analysisWarnings.length"><li v-for="warning in analysisWarnings" :key="warning">{{ warning }}</li></ul>
+        </div>
+      </article>
       <article v-for="group in ruleGroups" :key="group.key" class="glass rule-group">
         <header><div><small>{{ group.eyebrow }}</small><h2>{{ group.title }}</h2></div><span>可修改</span></header>
         <div class="rule-grid"><section v-for="item in group.items" :key="item.key" class="rule-card"><h3>{{ item.label }}</h3>
+          <div v-if="item.evidence" class="rule-evidence" :class="item.evidence.status">
+            <b>{{ evidenceStatusLabel(item.evidence.status) }}</b>
+            <small v-if="evidenceFields(item.evidence)">已识别：{{ evidenceFields(item.evidence) }}；其他设置请一并核对。</small>
+            <p v-for="(quote, index) in evidenceQuotes(item.evidence)" :key="index">{{ quote }}</p>
+            <small v-if="item.evidence.status === 'unconfirmed'">模板未明确说明此项，当前值供核对，可直接修改。</small>
+          </div>
           <label>中文字体<input v-model.trim="item.rule.chineseFont" /></label><label>英文字体<input v-model.trim="item.rule.latinFont" /></label>
           <label>字号<select v-model.number="item.rule.fontSizePt"><option v-if="!isStandardFontSize(item.rule.fontSizePt)" :value="item.rule.fontSizePt">自定义字号</option><option v-for="size in fontSizeOptions" :key="size.name" :value="size.pt">{{ size.name }}</option></select></label>
+          <label>加粗<select v-model="item.rule.bold"><option :value="false">不加粗</option><option :value="true">加粗</option></select></label>
+          <label>对齐方式<select v-model="item.rule.alignment"><option value="left">左对齐</option><option value="center">居中</option><option value="right">右对齐</option><option value="justify">两端对齐</option></select></label>
           <label>行距<select v-model="item.rule.lineSpacingMode"><option value="single">单倍</option><option value="1.5">1.5 倍</option><option value="double">2 倍</option><option value="multiple">多倍</option><option value="fixed">固定值</option><option value="at_least">最小值</option></select></label>
           <label v-if="item.rule.lineSpacingMode === 'fixed'">固定行距（磅）<input v-model.number="item.rule.fixedLineSpacingPt" type="number" min="1" max="200" step="0.5" /></label>
           <label v-else-if="item.rule.lineSpacingMode === 'multiple'">多倍行距（倍）<input v-model.number="item.rule.multipleLineSpacing" type="number" min="0.5" max="10" step="0.05" /></label>
           <label v-else-if="item.rule.lineSpacingMode === 'at_least'">最小行距（磅）<input v-model.number="item.rule.minimumLineSpacingPt" type="number" min="1" max="200" step="0.5" /></label>
-          <label>段前（{{ item.rule.spaceBefore?.unit === 'pt' ? '磅' : '行' }}）<input v-model.number="item.rule.spaceBefore.value" type="number" min="0" max="20" step="0.25" /></label>
-          <label>段后（{{ item.rule.spaceAfter?.unit === 'pt' ? '磅' : '行' }}）<input v-model.number="item.rule.spaceAfter.value" type="number" min="0" max="20" step="0.25" /></label>
+          <label>段前（{{ item.rule.spaceBefore?.unit === 'pt' ? '磅' : '行' }}）<input v-model.number="item.rule.spaceBefore.value" type="number" min="0" :max="item.rule.spaceBefore?.unit === 'pt' ? 200 : 20" step="0.25" /></label>
+          <label>段后（{{ item.rule.spaceAfter?.unit === 'pt' ? '磅' : '行' }}）<input v-model.number="item.rule.spaceAfter.value" type="number" min="0" :max="item.rule.spaceAfter?.unit === 'pt' ? 200 : 20" step="0.25" /></label>
         </section></div>
       </article>
       <article class="glass locked-rules"><header><div><small>SYSTEM LOCKED POLICY</small><h2>固定执行规则</h2></div><span>不可修改</span></header><ul><li v-for="rule in lockedRules" :key="rule">✓ {{ rule }}</li></ul></article>
@@ -281,7 +298,7 @@ let pollFailures = 0
 
 const stepData = [
   { no: '01', key: 'upload', title: '文件上传', description: '安全接收模板与论文原稿' },
-  { no: '02', key: 'template', title: '模板提取', description: '读取页面、标题、正文与图表规则' },
+  { no: '02', key: 'template', title: '文字要求识别', description: '先理解撰写规范，判断格式要求和封面用途' },
   { no: '03', key: 'analyze', title: '结构识别', description: '识别论文正文、标题、图表与参考文献' },
   { no: '04', key: 'format', title: '格式套用', description: '按模板规则修改论文格式' },
   { no: '05', key: 'validate', title: '完整校验', description: '检查内容、图片、表格与版式完整性' },
@@ -343,16 +360,42 @@ const resultChangedCount = computed(() => {
   return Number.isFinite(number) && number >= 0 ? Math.round(number) : null
 })
 const lockedRules = computed(() => parseResult(job.value.result).lockedRules || [])
+const templateAnalysis = computed(() => parseResult(job.value.result).templateAnalysis || {})
+const hasTemplateAnalysis = computed(() => Boolean(templateAnalysis.value.documentKind))
+const templateKindLabel = computed(() => ({ specification: '文字撰写规范', template: '排版模板', mixed: '文字规范与排版样例混合', unknown: '需要核对的模板' })[templateAnalysis.value.documentKind] || '尚未识别')
+const frontMatterLabel = computed(() => templateAnalysis.value.copyFrontMatter === true ? '复制模板中已识别的封面、声明页' : '保留论文原有前置页，不复制规范说明页')
+const analysisWarnings = computed(() => Array.isArray(templateAnalysis.value.warnings) ? templateAnalysis.value.warnings.filter(value => typeof value === 'string' && value.trim()) : [])
 const ruleGroups = computed(() => {
   const rules = editableRules.value
-  const make = (key, label, rule) => ({ key, label, rule })
+  const make = (key, label, rule, internalKey) => ({ key, label, rule, evidence: templateAnalysis.value.ruleEvidence?.[internalKey] })
   return [
-    { key: 'body', eyebrow: '01 · BODY TEXT', title: '正文格式（首行缩进固定为 2 字符）', items: [make('normal', '正文', rules.body?.normal)] },
-    { key: 'headings', eyebrow: '02 · HEADINGS', title: '一级、二级、三级标题', items: [make('level1', '一级标题', rules.headings?.level1), make('level2', '二级标题', rules.headings?.level2), make('level3', '三级标题', rules.headings?.level3)] },
-    { key: 'toc', eyebrow: '03 · TABLE OF CONTENTS', title: '目录格式', items: [make('title', '目录标题', rules.toc?.title), make('level1', '一级目录', rules.toc?.level1), make('level2', '二级目录', rules.toc?.level2), make('level3', '三级目录', rules.toc?.level3)] },
-    { key: 'captions', eyebrow: '04 · CAPTIONS', title: '图标题、表标题', items: [make('figure', '图标题', rules.captions?.figure), make('table', '表标题', rules.captions?.table)] }
+    { key: 'body', eyebrow: '01 · BODY TEXT', title: '正文格式（首行缩进固定为 2 字符）', items: [make('normal', '正文', rules.body?.normal, 'normal_text')] },
+    { key: 'headings', eyebrow: '02 · HEADINGS', title: '一级、二级、三级标题', items: [make('level1', '一级标题', rules.headings?.level1, 'heading_1'), make('level2', '二级标题', rules.headings?.level2, 'heading_2'), make('level3', '三级标题', rules.headings?.level3, 'heading_3')] },
+    { key: 'toc', eyebrow: '03 · TABLE OF CONTENTS', title: '目录格式', items: [make('title', '目录标题', rules.toc?.title, 'toc_title'), make('level1', '一级目录', rules.toc?.level1, 'toc_1'), make('level2', '二级目录', rules.toc?.level2, 'toc_2'), make('level3', '三级目录', rules.toc?.level3, 'toc_3')] },
+    { key: 'captions', eyebrow: '04 · CAPTIONS', title: '图标题、表标题', items: [make('figure', '图标题', rules.captions?.figure, 'figure_caption'), make('table', '表标题', rules.captions?.table, 'table_caption')] }
   ].map(group => ({ ...group, items: group.items.filter(item => item.rule) }))
 })
+
+function evidenceStatusLabel(status) {
+  return ({ recognized: '来自模板文字要求', sample: '程序识别，待核对', unconfirmed: '未识别，请核对默认值' })[status] || '识别依据'
+}
+
+function evidenceFields(evidence) {
+  const labels = {
+    chinese_font: '中文字体', latin_font: '英文字体', number_font: '数字字体', font_size_pt: '字号', font_size_name: '字号',
+    bold: '加粗', alignment: '对齐', line_spacing_mode: '行距方式', fixed_line_spacing_pt: '固定行距',
+    minimum_line_spacing_pt: '最小行距', multiple_line_spacing: '多倍行距', space_before_pt: '段前',
+    space_before_lines: '段前', space_after_pt: '段后', space_after_lines: '段后',
+    space_before_unit: '段前单位', space_after_unit: '段后单位', special_indent_chars: '缩进', special_indent_mode: '缩进方式'
+  }
+  const fields = Array.isArray(evidence?.fields) ? evidence.fields : Object.keys(evidence?.fields || {})
+  return [...new Set(fields.map(field => labels[field]).filter(Boolean))].join('、')
+}
+
+function evidenceQuotes(evidence) {
+  const values = Array.isArray(evidence?.evidence) ? evidence.evidence : []
+  return values.filter(value => typeof value === 'string' && value.trim()).slice(0, 3)
+}
 
 function clampProgress(value) {
   const number = Number(value)
@@ -374,6 +417,9 @@ function inferStepIndex(currentJob, currentScreen, progress) {
     STARTING: 0,
     VALIDATING: 0,
     EXTRACTING_TEMPLATE: 1,
+    READING_TEMPLATE_TEXT: 1,
+    ANALYZING_TEMPLATE_TEXT: 1,
+    ANALYZING_TEMPLATE: 1,
     APPLYING_RULES: 1,
     ANALYZING_SOURCE: 2,
     PROCESSING: 3,
@@ -710,6 +756,14 @@ onBeforeUnmount(stopPolling)
 .review-hero, .rule-group, .locked-rules { padding: 26px; }
 .review-hero h2, .rule-group h2, .locked-rules h2 { margin: 5px 0 8px; }
 .review-hero p { margin: 0; color: var(--muted); }
+.template-analysis { display: grid; gap: 10px; margin-top: 18px; padding: 16px; border-radius: 14px; background: #f4f2fc; font-size: 13px; line-height: 1.7; }
+.template-analysis > div { display: flex; flex-wrap: wrap; gap: 14px; }
+.template-analysis > div > span { min-width: 56px; color: var(--muted); }
+.template-analysis ul { margin: 0; padding-left: 20px; color: #866022; }
+.rule-evidence { padding: 10px; border-radius: 9px; color: #4a6376; background: #eef4fb; font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
+.rule-evidence.unconfirmed { color: #876023; background: #fff4dc; }
+.rule-evidence p { margin: 5px 0 0; }
+.rule-evidence small { display: block; margin-top: 5px; }
 .rule-group header, .locked-rules header { display: flex; justify-content: space-between; align-items: center; }
 .rule-group header > span { color: #674fe1; background: #eeeaff; padding: 6px 12px; border-radius: 99px; }
 .locked-rules header > span { color: #a34e69; background: #fff0f5; padding: 6px 12px; border-radius: 99px; }
