@@ -25,7 +25,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletionService;
 import java.util.concurrent.ExecutionException;
@@ -104,7 +103,7 @@ public class PlatformDoubaoDocumentProcessor {
             if (targets.isEmpty()) {
                 throw new IllegalArgumentException("未识别到可处理的正文自然语言段落");
             }
-            progress.update(targets.size(), 0, 0, "已筛选正文段落，正在加载平台 Skill");
+            progress.update(targets.size(), 0, 0, "已收集全文可处理段落，正在加载平台 Skill");
 
             List<Batch> batches = batches(targets);
             AtomicInteger tokenSequence = new AtomicInteger();
@@ -121,6 +120,7 @@ public class PlatformDoubaoDocumentProcessor {
             int rewritten = 0;
             int failed = 0;
             List<String> failureMessages = new ArrayList<>();
+            List<ParagraphRewrite> acceptedRewrites = new ArrayList<>();
             for (BatchResult batchResult : completedBatches) {
                 processed += batchResult.targetCount();
                 rewritten += batchResult.rewrites().size();
@@ -129,15 +129,18 @@ public class PlatformDoubaoDocumentProcessor {
                     if (failureMessages.size() >= 3) break;
                     failureMessages.add(message);
                 }
-                for (ParagraphRewrite rewrite : batchResult.rewrites()) {
-                    replaceParagraphText(rewrite.target().paragraph(), rewrite.restored());
-                    removeMergedListStructure(rewrite.target());
-                }
+                acceptedRewrites.addAll(batchResult.rewrites());
             }
 
-            if (rewritten == 0 && failed > 0) {
-                throw new IllegalStateException("平台 Skill 未生成任何通过保护校验的段落"
+            int incomplete = Math.max(failed, processed - rewritten);
+            if (failed > 0 || rewritten != processed) {
+                throw new IllegalStateException("大雅全文改写尚有 " + incomplete
+                        + " 段未生成可用结果；为避免夹带未改原文，本次不生成部分文档"
                         + (failureMessages.isEmpty() ? "" : "：" + String.join("；", failureMessages)));
+            }
+            for (ParagraphRewrite rewrite : acceptedRewrites) {
+                replaceParagraphText(rewrite.target().paragraph(), rewrite.restored());
+                removeMergedListStructure(rewrite.target());
             }
             tableSnapshot.validate(document);
             writeAtomically(document, output, tableSnapshot);
@@ -313,21 +316,10 @@ public class PlatformDoubaoDocumentProcessor {
         Batch batch = prepared.batch();
         List<ParagraphRewrite> rewrites = new ArrayList<>();
         List<RetryTarget> retryTargets = new ArrayList<>();
-        List<PlatformDoubaoRewriteGateway.Segment> highRiskSegments = prepared.segments().stream()
-                .filter(segment -> DayaRewriteQualityRules.shouldRewriteSource(
-                        segment.text(), segment.context()))
-                .toList();
-        if (highRiskSegments.isEmpty()) {
-            return new BatchResult(prepared.index(), batch.targets().size(),
-                    List.of(), 0, List.of(), List.of());
-        }
-        Set<String> highRiskIds = highRiskSegments.stream()
-                .map(PlatformDoubaoRewriteGateway.Segment::id)
-                .collect(java.util.stream.Collectors.toUnmodifiableSet());
         try {
-            Map<String, String> responses = gateway.rewriteBatch(highRiskSegments, platform, mode);
+            Map<String, String> responses = gateway.rewriteBatch(
+                    prepared.segments(), platform, mode);
             for (Target target : batch.targets()) {
-                if (!highRiskIds.contains(target.id())) continue;
                 RewriteAttempt attempt = validateResponse(prepared, target, responses.get(target.id()));
                 if (attempt.failure() == null) {
                     if (attempt.rewrite() != null) rewrites.add(attempt.rewrite());
@@ -338,7 +330,6 @@ public class PlatformDoubaoDocumentProcessor {
         } catch (RuntimeException batchFailure) {
             String failure = compact(batchFailure.getMessage());
             for (Target target : batch.targets()) {
-                if (!highRiskIds.contains(target.id())) continue;
                 retryTargets.add(retryTarget(prepared, target, failure));
             }
         }
@@ -375,9 +366,7 @@ public class PlatformDoubaoDocumentProcessor {
             StyledRestore restored = prepared.styledById().get(target.id())
                     .restore(protectedStylesRestored);
             validateCandidate(target, restored.text());
-            ParagraphRewrite rewrite = target.originalText().equals(restored.text())
-                    ? null : new ParagraphRewrite(target, restored);
-            return new RewriteAttempt(rewrite, null);
+            return new RewriteAttempt(new ParagraphRewrite(target, restored), null);
         } catch (RuntimeException validationFailure) {
             return new RewriteAttempt(null, compact(validationFailure.getMessage()));
         }

@@ -195,19 +195,15 @@ public class XuejieExternalDocumentRewriteService {
 
     void finalizeSuccessfulJob(String jobId, String platformName,
                                PlatformDoubaoDocumentProcessor.ProcessingResult result) {
-        int unchanged = Math.max(0, result.processedParagraphs()
-                - result.rewrittenParagraphs() - result.failedParagraphs());
-        StringBuilder warning = new StringBuilder();
-        if (unchanged > 0) {
-            warning.append("；").append(unchanged).append(" 个模型未实质改写的段落已保留原文");
-        }
-        if (result.failedParagraphs() > 0) {
-            warning.append("；").append(result.failedParagraphs())
-                    .append(" 个未通过保护校验的段落已保留原文");
+        if (result.totalParagraphs() != result.processedParagraphs()
+                || result.processedParagraphs() != result.rewrittenParagraphs()
+                || result.failedParagraphs() != 0) {
+            throw new IllegalStateException("大雅全文改写结果不完整，拒绝发布夹带原文的部分文档");
         }
         update(jobId, "SUCCESS", result.totalParagraphs(), result.processedParagraphs(),
                 result.rewrittenParagraphs(), true,
-                platformName + " Skill 适配完成，结果文件已生成" + warning);
+                platformName + " Skill 全文适配完成，"
+                        + result.rewrittenParagraphs() + " 个可处理段落均已实质改写，结果文件已生成");
         stateRepository.stage(jobId, XuejieExternalJobStateRepository.COMPLETED,
                 null, "doubao_completed");
     }

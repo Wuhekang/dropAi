@@ -14,9 +14,10 @@ import java.util.regex.Pattern;
 final class DayaRewriteQualityRules {
     private static final int MIN_SIMILARITY_CHARACTERS = 40;
     private static final double RETRY_SIMILARITY = 0.72;
-    private static final double FINAL_SIMILARITY = 0.82;
-    private static final double MIN_LENGTH_RATIO = 0.85;
-    private static final double MAX_LENGTH_RATIO = 1.15;
+    private static final double RETRY_SHORT_RETAINED = 0.78;
+    private static final double RETRY_SHORT_STRUCTURAL_RETAINED = 0.66;
+    private static final double RETRY_SHORT_MAX_EDIT_SHARE = 0.48;
+    private static final double RETRY_COPY_CONTAINMENT = 0.86;
     private static final Pattern PLACEHOLDER = Pattern.compile(
             "\\[\\[DROP_(?:AI|STYLE)_PROTECTED_[0-9]+]]");
     private static final Pattern REPEATED_PHRASE = Pattern.compile(
@@ -204,13 +205,6 @@ final class DayaRewriteQualityRules {
         return new Assessment(similarity, risks);
     }
 
-    static boolean shouldRewriteSource(String text, String context) {
-        return assess(text, text, context).risks().stream()
-                .anyMatch(risk -> risk != Risk.HIGH_SIMILARITY
-                        && risk != Risk.LONG_STRUCTURED_BODY
-                        && risk != Risk.METHOD_TUTORIAL_CHAIN);
-    }
-
     static int comparableLength(String text) {
         return comparableText(text).length();
     }
@@ -252,6 +246,33 @@ final class DayaRewriteQualityRules {
     }
 
     static void validateFinal(String original, String rewritten, String context) {
+        validateRequiredRewrite(original, rewritten);
+        Assessment assessment = assess(original, rewritten, context);
+        if (assessment.risks().contains(Risk.RESIDUAL_SEQUENCE)) {
+            throw new IllegalStateException("大雅改写仍含成组顺序词");
+        }
+        if (assessment.risks().contains(Risk.IMPLICIT_ENUMERATION)) {
+            throw new IllegalStateException("大雅改写仍含报数式隐性列举");
+        }
+        if (assessment.risks().contains(Risk.ISOMORPHIC_SHORT_SENTENCES)) {
+            throw new IllegalStateException("大雅改写仍含连续同构短句");
+        }
+        boolean enumeration = DayaEnumerationRules.requiresBreak(original);
+        if (!enumeration && assessment.risks().contains(Risk.FRAGMENTED_LINE_CHAIN)) {
+            throw new IllegalStateException("大雅普通段仍被改成连续短句列举");
+        }
+        if (containsBlockingStyleRisk(assessment.risks())) {
+            throw new IllegalStateException("大雅改写仍含完整报告链或过度专业的并列结构："
+                    + String.join(",", assessment.reasonCodes()));
+        }
+    }
+
+    /**
+     * Non-negotiable acceptance checks for every narrative segment written to the document.
+     * Heuristic risk labels are intentionally absent: they choose the review strategy, while
+     * this gate ensures the result is a substantive, structurally safe rewrite.
+     */
+    static void validateRequiredRewrite(String original, String rewritten) {
         if (containsLineBreak(rewritten)) {
             throw new IllegalStateException("大雅改写结果含回车、软换行或制表符");
         }
@@ -265,27 +286,8 @@ final class DayaRewriteQualityRules {
         DayaEnumerationRules.validateRewrite(original, rewritten);
 
         double similarity = trigramDice(source, candidate);
-        if (Math.min(source.length(), candidate.length()) >= MIN_SIMILARITY_CHARACTERS
-                && isComparableLength(source, candidate)
-                && similarity >= FINAL_SIMILARITY) {
+        if (isRetrySimilarity(source, candidate, similarity)) {
             throw new IllegalStateException("大雅改写与原段高度相似，仍属于近义词式微调");
-        }
-        Assessment assessment = assess(original, rewritten, context);
-        if (assessment.risks().contains(Risk.RESIDUAL_SEQUENCE)) {
-            throw new IllegalStateException("大雅改写仍含成组顺序词");
-        }
-        if (assessment.risks().contains(Risk.IMPLICIT_ENUMERATION)) {
-            throw new IllegalStateException("大雅改写仍含报数式隐性列举");
-        }
-        if (assessment.risks().contains(Risk.ISOMORPHIC_SHORT_SENTENCES)) {
-            throw new IllegalStateException("大雅改写仍含连续同构短句");
-        }
-        if (!enumeration && assessment.risks().contains(Risk.FRAGMENTED_LINE_CHAIN)) {
-            throw new IllegalStateException("大雅普通段仍被改成连续短句列举");
-        }
-        if (containsBlockingStyleRisk(assessment.risks())) {
-            throw new IllegalStateException("大雅改写仍含完整报告链或过度专业的并列结构："
-                    + String.join(",", assessment.reasonCodes()));
         }
     }
 
@@ -547,15 +549,15 @@ final class DayaRewriteQualityRules {
     private static boolean isRetrySimilarity(String source, String candidate, double similarity) {
         if (source.isEmpty() || candidate.isEmpty()) return false;
         if (source.equals(candidate)) return true;
-        return Math.min(source.length(), candidate.length()) >= MIN_SIMILARITY_CHARACTERS
-                && isComparableLength(source, candidate)
-                && similarity >= RETRY_SIMILARITY;
-    }
-
-    private static boolean isComparableLength(String source, String candidate) {
-        if (source.isEmpty() || candidate.isEmpty()) return false;
-        double ratio = (double) candidate.length() / source.length();
-        return ratio >= MIN_LENGTH_RATIO && ratio <= MAX_LENGTH_RATIO;
+        int comparableCharacters = Math.min(source.length(), candidate.length());
+        if (trigramContainment(source, candidate) >= RETRY_COPY_CONTAINMENT) return true;
+        if (comparableCharacters < MIN_SIMILARITY_CHARACTERS) {
+            return isShortSurfaceEdit(source, candidate,
+                    RETRY_SHORT_RETAINED,
+                    RETRY_SHORT_STRUCTURAL_RETAINED,
+                    RETRY_SHORT_MAX_EDIT_SHARE);
+        }
+        return similarity >= RETRY_SIMILARITY;
     }
 
     private static String comparableText(String text) {
@@ -579,6 +581,75 @@ final class DayaRewriteQualityRules {
             intersection += Math.min(entry.getValue(), rightCounts.getOrDefault(entry.getKey(), 0));
         }
         return (2.0 * intersection) / ((left.length() - 2) + (right.length() - 2));
+    }
+
+    /**
+     * Detects an original span copied intact into a much longer or shorter candidate. Dice alone
+     * can be diluted by appending text, so compare the shared trigrams with the shorter side too.
+     */
+    private static double trigramContainment(String left, String right) {
+        if (left.length() < 3 || right.length() < 3) return 0;
+        Map<String, Integer> leftCounts = trigramCounts(left);
+        Map<String, Integer> rightCounts = trigramCounts(right);
+        int intersection = 0;
+        for (Map.Entry<String, Integer> entry : leftCounts.entrySet()) {
+            intersection += Math.min(entry.getValue(), rightCounts.getOrDefault(entry.getKey(), 0));
+        }
+        return (double) intersection / Math.min(left.length() - 2, right.length() - 2);
+    }
+
+    /**
+     * Short paragraphs need both retention and edit-distance checks because replacing a few nouns
+     * can disrupt trigrams while leaving the original sentence skeleton intact.
+     */
+    private static boolean isShortSurfaceEdit(String left, String right,
+                                              double retainedLimit,
+                                              double structuralRetainedLimit,
+                                              double maximumEditShare) {
+        int shortest = Math.min(left.length(), right.length());
+        int longest = Math.max(left.length(), right.length());
+        if (shortest == 0 || longest == 0) return false;
+        double retained = (double) longestCommonSubsequenceLength(left, right) / shortest;
+        double editShare = (double) levenshteinDistance(left, right) / longest;
+        return retained >= retainedLimit
+                || (retained >= structuralRetainedLimit && editShare <= maximumEditShare);
+    }
+
+    private static int levenshteinDistance(String left, String right) {
+        int[] previous = new int[right.length() + 1];
+        int[] current = new int[right.length() + 1];
+        for (int column = 0; column <= right.length(); column++) previous[column] = column;
+        for (int row = 1; row <= left.length(); row++) {
+            current[0] = row;
+            for (int column = 1; column <= right.length(); column++) {
+                int substitution = previous[column - 1]
+                        + (left.charAt(row - 1) == right.charAt(column - 1) ? 0 : 1);
+                current[column] = Math.min(
+                        Math.min(previous[column] + 1, current[column - 1] + 1),
+                        substitution);
+            }
+            int[] swap = previous;
+            previous = current;
+            current = swap;
+        }
+        return previous[right.length()];
+    }
+
+    private static int longestCommonSubsequenceLength(String left, String right) {
+        int[] previous = new int[right.length() + 1];
+        int[] current = new int[right.length() + 1];
+        for (int row = 1; row <= left.length(); row++) {
+            for (int column = 1; column <= right.length(); column++) {
+                current[column] = left.charAt(row - 1) == right.charAt(column - 1)
+                        ? previous[column - 1] + 1
+                        : Math.max(previous[column], current[column - 1]);
+            }
+            int[] swap = previous;
+            previous = current;
+            current = swap;
+            java.util.Arrays.fill(current, 0);
+        }
+        return previous[right.length()];
     }
 
     private static Map<String, Integer> trigramCounts(String value) {

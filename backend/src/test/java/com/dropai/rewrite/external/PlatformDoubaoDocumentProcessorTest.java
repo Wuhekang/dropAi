@@ -285,10 +285,11 @@ class PlatformDoubaoDocumentProcessorTest {
     }
 
     @Test
-    void dayaLeavesLowRiskOrdinaryParagraphOutOfTheModel() throws Exception {
+    void dayaRewritesLowRiskOrdinaryParagraphInsteadOfUsingRiskAsAnAdmissionGate() throws Exception {
         Path source = temporaryDirectory.resolve("daya-ordinary-growth-source.docx");
         Path output = temporaryDirectory.resolve("daya-ordinary-growth-result.docx");
         String original = "项目现场已有核验记录，处理时间和复核结论均保存在原始台账中。";
+        String rewritten = "原始台账留有项目现场的核验情况，也写下了处理时间和复核结论。";
         writeSingleBodyFixture(source, "第一章 绪论", original);
 
         PlatformDoubaoRewriteGateway gateway = mock(PlatformDoubaoRewriteGateway.class);
@@ -297,19 +298,23 @@ class PlatformDoubaoDocumentProcessorTest {
         when(gateway.rewriteBatch(anyList(), eq(XuejiePlatform.DAYA), eq(XuejieRewriteMode.HUMANIZE)))
                 .thenAnswer(invocation -> {
                     calls.incrementAndGet();
-                    throw new AssertionError("低风险普通段不应提交给模型");
+                    List<PlatformDoubaoRewriteGateway.Segment> segments = invocation.getArgument(0);
+                    assertThat(segments).hasSize(1);
+                    return Map.of(segments.get(0).id(), rewritten);
                 });
         PlatformDoubaoDocumentProcessor processor = processor(gateway);
 
         PlatformDoubaoDocumentProcessor.ProcessingResult result = processor.process(
                 source, output, XuejiePlatform.DAYA, XuejieRewriteMode.HUMANIZE, null);
 
-        assertThat(calls).hasValue(0);
-        assertThat(result.rewrittenParagraphs()).isZero();
+        assertThat(calls).hasValue(1);
+        assertThat(result.totalParagraphs()).isEqualTo(1);
+        assertThat(result.processedParagraphs()).isEqualTo(1);
+        assertThat(result.rewrittenParagraphs()).isEqualTo(1);
         assertThat(result.failedParagraphs()).isZero();
         try (InputStream stream = Files.newInputStream(output);
              XWPFDocument document = new XWPFDocument(stream)) {
-            assertThat(document.getParagraphs().get(1).getText()).isEqualTo(original);
+            assertThat(document.getParagraphs().get(1).getText()).isEqualTo(rewritten);
         }
     }
 
@@ -343,7 +348,7 @@ class PlatformDoubaoDocumentProcessorTest {
     }
 
     @Test
-    void highSimilarityModelOutputFailsFinalGateAndIsNotReportedAsRewritten() throws Exception {
+    void highSimilarityModelOutputPreventsPublishingAPartiallyRewrittenDocument() throws Exception {
         Path source = temporaryDirectory.resolve("same-output-source.docx");
         Path output = temporaryDirectory.resolve("same-output-result.docx");
         writeTwoBodyParagraphFixture(source);
@@ -366,14 +371,39 @@ class PlatformDoubaoDocumentProcessorTest {
                 });
         PlatformDoubaoDocumentProcessor processor = processor(gateway);
 
-        PlatformDoubaoDocumentProcessor.ProcessingResult result = processor.process(
-                source, output, XuejiePlatform.DAYA, XuejieRewriteMode.HUMANIZE, null);
-
-        assertThat(result.totalParagraphs()).isEqualTo(2);
-        assertThat(result.processedParagraphs()).isEqualTo(2);
-        assertThat(result.rewrittenParagraphs()).isEqualTo(1);
-        assertThat(result.failedParagraphs()).isEqualTo(1);
+        assertThatThrownBy(() -> processor.process(
+                source, output, XuejiePlatform.DAYA, XuejieRewriteMode.HUMANIZE, null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("不生成部分文档");
         assertThat(calls).hasValue(2);
+        assertThat(output).doesNotExist();
+    }
+
+    @Test
+    void finalStyleRiskPreventsPublishingEvenWhenEveryWordWasChanged() throws Exception {
+        Path source = temporaryDirectory.resolve("style-risk-source.docx");
+        Path output = temporaryDirectory.resolve("style-risk-result.docx");
+        String original = "现场资料由项目负责人核对，复核意见保存在当天台账中。";
+        String risky = "建设单位负责核对资料，监理单位负责复查台账，项目部负责保存签字记录，"
+                + "负责人负责处理问题。资料确保记录完整并形成核查依据，也能保障后续追查。";
+        writeSingleBodyFixture(source, "第三章 管理措施", original);
+        PlatformDoubaoRewriteGateway gateway = mock(PlatformDoubaoRewriteGateway.class);
+        when(gateway.configured()).thenReturn(true);
+        AtomicInteger calls = new AtomicInteger();
+        when(gateway.rewriteBatch(anyList(), eq(XuejiePlatform.DAYA), eq(XuejieRewriteMode.HUMANIZE)))
+                .thenAnswer(invocation -> {
+                    calls.incrementAndGet();
+                    List<PlatformDoubaoRewriteGateway.Segment> segments = invocation.getArgument(0);
+                    return Map.of(segments.get(0).id(), risky);
+                });
+        PlatformDoubaoDocumentProcessor processor = processor(gateway);
+
+        assertThatThrownBy(() -> processor.process(
+                source, output, XuejiePlatform.DAYA, XuejieRewriteMode.HUMANIZE, null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("不生成部分文档");
+        assertThat(calls).hasValue(2);
+        assertThat(output).doesNotExist();
     }
 
     @Test
@@ -541,10 +571,11 @@ class PlatformDoubaoDocumentProcessorTest {
     }
 
     @Test
-    void dayaIncludesUnnumberedContinuationsBetweenItemsButLeavesFollowingProseAlone() throws Exception {
+    void dayaIncludesUnnumberedContinuationsAndAlsoRewritesFollowingOrdinaryProse() throws Exception {
         Path source = temporaryDirectory.resolve("daya-list-continuations.docx");
         Path output = temporaryDirectory.resolve("daya-list-continuations-result.docx");
         String followingProse = "列表结束后的普通正文只说明现场变化，不属于前面的分条内容。";
+        String listRewrite = "台账写清责任主体和复核人员。当天签字单独留存，现场资料按日期核验。核验时还要对照照片和记录。";
         try (XWPFDocument document = new XWPFDocument()) {
             var heading = document.createParagraph();
             heading.setStyle("Heading1");
@@ -564,15 +595,18 @@ class PlatformDoubaoDocumentProcessorTest {
         when(gateway.rewriteBatch(anyList(), eq(XuejiePlatform.DAYA), eq(XuejieRewriteMode.HUMANIZE)))
                 .thenAnswer(invocation -> {
                     List<PlatformDoubaoRewriteGateway.Segment> segments = invocation.getArgument(0);
-                    assertThat(segments).hasSize(1);
+                    assertThat(segments).hasSize(2);
                     assertThat(segments.get(0).text())
                             .containsOnlyOnce("第一项")
                             .containsOnlyOnce("第二项")
                             .containsOnlyOnce("第三项")
                             .contains("本项还要求当天留下签字记录。", "这里补充说明照片应与记录对应。")
                             .doesNotContain("第二项，本项还要求", "第三项，这里补充说明");
-                    return Map.of(segments.get(0).id(),
-                            "责任已经写入台账。签字当天留存。资料按日核验。照片对应记录。复核写明人员。");
+                    return Map.of(
+                            segments.get(0).id(),
+                            listRewrite,
+                            segments.get(1).id(),
+                            "现场变化写在分条之后，这段内容与前面的事项无关。");
                 });
         PlatformDoubaoDocumentProcessor processor = processor(gateway);
 
@@ -590,6 +624,7 @@ class PlatformDoubaoDocumentProcessorTest {
                             "第二项，现场资料需要按日期核验。这里补充说明照片应与记录对应。",
                             "第三项，复核结论应注明具体人员。")
                     .doesNotContain("第二项，本项还要求", "第三项，这里补充说明");
+            DayaRewriteQualityRules.validateFinal(list.originalText(), listRewrite, list.context());
             assertThat(targets.get(1).originalText()).isEqualTo(followingProse);
         }
 
@@ -597,13 +632,14 @@ class PlatformDoubaoDocumentProcessorTest {
                 source, output, XuejiePlatform.DAYA, XuejieRewriteMode.HUMANIZE, null);
 
         assertThat(result.totalParagraphs()).isEqualTo(2);
-        assertThat(result.rewrittenParagraphs()).isEqualTo(1);
+        assertThat(result.rewrittenParagraphs()).isEqualTo(2);
         try (InputStream stream = Files.newInputStream(output);
              XWPFDocument document = new XWPFDocument(stream)) {
             assertThat(document.getParagraphs()).hasSize(3);
             assertThat(document.getParagraphs().get(1).getText())
-                    .isEqualTo("责任已经写入台账。签字当天留存。资料按日核验。照片对应记录。复核写明人员。");
-            assertThat(document.getParagraphs().get(2).getText()).isEqualTo(followingProse);
+                    .isEqualTo(listRewrite);
+            assertThat(document.getParagraphs().get(2).getText())
+                    .isEqualTo("现场变化写在分条之后，这段内容与前面的事项无关。");
         }
     }
 
@@ -657,7 +693,7 @@ class PlatformDoubaoDocumentProcessorTest {
                     assertThat(segments.get(0).text())
                             .contains("第一项", "第二项", "第三项");
                     return Map.of(segments.get(0).id(),
-                            "责任主体已经明确。现场台账每天核验。处置结果当天留痕。");
+                            "人员姓名记在责任栏。每日检查写入现场记录。当天处置另附复核人。");
                 });
         PlatformDoubaoDocumentProcessor processor = processor(gateway);
 
@@ -670,26 +706,39 @@ class PlatformDoubaoDocumentProcessorTest {
              XWPFDocument document = new XWPFDocument(stream)) {
             assertThat(document.getParagraphs()).hasSize(2);
             assertThat(document.getParagraphs().get(1).getText())
-                    .isEqualTo("责任主体已经明确。现场台账每天核验。处置结果当天留痕。");
+                    .isEqualTo("人员姓名记在责任栏。每日检查写入现场记录。当天处置另附复核人。");
             assertThat(document.getParagraphs().get(1).getCTP().getPPr().isSetNumPr()).isFalse();
         }
     }
 
     @Test
-    void dayaRewritesOnlyPlainNarrativeBodyTableCellAndPreservesTableShape() throws Exception {
+    void dayaRewritesEveryEligibleNarrativeTableCellAndPreservesTableShape() throws Exception {
         Path source = temporaryDirectory.resolve("daya-table-source.docx");
         Path output = temporaryDirectory.resolve("daya-table-result.docx");
         writeDayaTableFixture(source);
         PlatformDoubaoRewriteGateway gateway = mock(PlatformDoubaoRewriteGateway.class);
+        List<List<String>> observedBatches = new CopyOnWriteArrayList<>();
         when(gateway.configured()).thenReturn(true);
         when(gateway.rewriteBatch(anyList(), eq(XuejiePlatform.DAYA), eq(XuejieRewriteMode.HUMANIZE)))
                 .thenAnswer(invocation -> {
                     List<PlatformDoubaoRewriteGateway.Segment> segments = invocation.getArgument(0);
-                    assertThat(segments).extracting(PlatformDoubaoRewriteGateway.Segment::id)
-                            .containsExactly("t0r7c2");
+                    observedBatches.add(segments.stream()
+                            .map(PlatformDoubaoRewriteGateway.Segment::id).toList());
                     Map<String, String> rewritten = new LinkedHashMap<>();
-                    rewritten.put(segments.get(0).id(),
-                            "责任主体尚未写入原台账。相关资料未完整记录。");
+                    for (PlatformDoubaoRewriteGateway.Segment segment : segments) {
+                        String value = switch (segment.id()) {
+                            case "t0r1c1" -> "现有记录并不完整，材料目前还看不出资金安排是否稳定。";
+                            case "t0r1c2" -> {
+                                String protectedInvestment = segment.text().replaceAll(
+                                        ".*?(\\[\\[DROP_AI_PROTECTED_[0-9]+]]).*", "$1");
+                                yield "四批修缮的估算投资合计" + protectedInvestment + "万元。"
+                                        + "投融资构成、回收期和后续运维资金尚未见于公开材料。";
+                            }
+                            case "t0r7c2" -> "原台账尚未写明谁负责。配套资料仍未收齐。";
+                            default -> throw new AssertionError("unexpected segment " + segment.id());
+                        };
+                        rewritten.put(segment.id(), value);
+                    }
                     return rewritten;
                 });
         PlatformDoubaoDocumentProcessor processor = processor(gateway);
@@ -698,8 +747,10 @@ class PlatformDoubaoDocumentProcessorTest {
                 source, output, XuejiePlatform.DAYA, XuejieRewriteMode.HUMANIZE, null);
 
         assertThat(result.totalParagraphs()).isEqualTo(3);
-        assertThat(result.rewrittenParagraphs()).isEqualTo(1);
+        assertThat(result.rewrittenParagraphs()).isEqualTo(3);
         assertThat(result.failedParagraphs()).isZero();
+        assertThat(observedBatches).containsExactly(
+                List.of("t0r1c1", "t0r1c2", "t0r7c2"));
         try (InputStream sourceStream = Files.newInputStream(source);
              XWPFDocument sourceDocument = new XWPFDocument(sourceStream);
              InputStream outputStream = Files.newInputStream(output);
@@ -712,11 +763,12 @@ class PlatformDoubaoDocumentProcessorTest {
                         .hasSameSizeAs(sourceDocument.getTables().get(0).getRow(row).getTableCells());
             }
             assertThat(outputDocument.getTables().get(0).getRow(1).getCell(2).getText())
-                    .isEqualTo(sourceDocument.getTables().get(0).getRow(1).getCell(2).getText());
+                    .isNotEqualTo(sourceDocument.getTables().get(0).getRow(1).getCell(2).getText())
+                    .contains("5000万元", "投融资构成", "回收期", "后续运维资金", "尚未");
             assertThat(outputDocument.getTables().get(0).getRow(1).getCell(1).getText())
-                    .isEqualTo(sourceDocument.getTables().get(0).getRow(1).getCell(1).getText());
+                    .isEqualTo("现有记录并不完整，材料目前还看不出资金安排是否稳定。");
             assertThat(outputDocument.getTables().get(0).getRow(7).getCell(2).getText())
-                    .isEqualTo("责任主体尚未写入原台账。相关资料未完整记录。");
+                    .isEqualTo("原台账尚未写明谁负责。配套资料仍未收齐。");
             assertThat(outputDocument.getTables().get(0).getRow(2).getCell(2).getText())
                     .isEqualTo(sourceDocument.getTables().get(0).getRow(2).getCell(2).getText());
             for (int row : List.of(3, 4, 6)) {
@@ -769,7 +821,19 @@ class PlatformDoubaoDocumentProcessorTest {
         when(gateway.rewriteBatch(anyList(), eq(XuejiePlatform.DAYA), eq(XuejieRewriteMode.HUMANIZE)))
                 .thenAnswer(invocation -> {
                     List<PlatformDoubaoRewriteGateway.Segment> segments = invocation.getArgument(0);
-                    return Map.of(segments.get(0).id(), segments.get(0).text() + "\n补充说明");
+                    Map<String, String> rewritten = new LinkedHashMap<>();
+                    for (PlatformDoubaoRewriteGateway.Segment segment : segments) {
+                        rewritten.put(segment.id(), switch (segment.id()) {
+                            case "t0r1c1" -> "现有材料只展示部分记录，资金安排是否稳定还不能完全看清。";
+                            case "t0r1c2" -> segment.text()
+                                    .replace("已公开四批次修缮工程估算投资", "公开材料列有四批次修缮工程，估算投资")
+                                    .replace("，但完整投融资结构、回收期和后续运维资金",
+                                            "。完整投融资结构、回收期与后续运维资金");
+                            case "t0r7c2" -> segment.text() + "\n补充说明";
+                            default -> throw new AssertionError("unexpected segment " + segment.id());
+                        });
+                    }
+                    return rewritten;
                 });
         PlatformDoubaoDocumentProcessor processor = processor(gateway);
 
@@ -790,8 +854,16 @@ class PlatformDoubaoDocumentProcessorTest {
         when(gateway.rewriteBatch(anyList(), eq(XuejiePlatform.DAYA), eq(XuejieRewriteMode.HUMANIZE)))
                 .thenAnswer(invocation -> {
                     List<PlatformDoubaoRewriteGateway.Segment> segments = invocation.getArgument(0);
-                    return Map.of(segments.get(0).id(),
-                            segments.get(0).text().replace("尚未", "已经"));
+                    Map<String, String> rewritten = new LinkedHashMap<>();
+                    for (PlatformDoubaoRewriteGateway.Segment segment : segments) {
+                        rewritten.put(segment.id(), switch (segment.id()) {
+                            case "t0r1c1" -> "现有材料只展示部分记录，资金安排是否稳定还不能完全看清。";
+                            case "t0r1c2" -> segment.text().replace("尚未", "已经");
+                            case "t0r7c2" -> "责任主体尚未写入原台账。相关资料未完整记录。";
+                            default -> throw new AssertionError("unexpected segment " + segment.id());
+                        });
+                    }
+                    return rewritten;
                 });
         PlatformDoubaoDocumentProcessor processor = processor(gateway);
 

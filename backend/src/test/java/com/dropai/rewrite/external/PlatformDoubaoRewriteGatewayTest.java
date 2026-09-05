@@ -61,7 +61,7 @@ class PlatformDoubaoRewriteGatewayTest {
                 .contains("\"rule\":\"enumeration\"")
                 .contains("\"original\":\"第一，核对台账。第二，复查现场。第三，记录结果。\"")
                 .contains("\"draft\":\"首先核对台账，其次复查现场，最后记录结果。\"")
-                .contains("\"reasons\":\"RESIDUAL_SEQUENCE\"")
+                .contains("HIGH_SIMILARITY", "RESIDUAL_SEQUENCE")
                 .doesNotContain("allowExpansion", "DISALLOWED_EXPANSION");
     }
 
@@ -153,8 +153,9 @@ class PlatformDoubaoRewriteGatewayTest {
         ArgumentCaptor<String> user = ArgumentCaptor.forClass(String.class);
         verify(doubao, times(1)).complete(system.capture(), user.capture(), anyInt());
         assertThat(system.getValue())
-                .contains("profile-id: daya-report-segment-rebuild-v8")
+                .contains("profile-id: daya-full-narrative-rebuild-v9")
                 .contains("不得套用普通降 AI 的轻改逻辑")
+                .contains("每个输入段都必须实质改写", "风险标签只决定重组策略，不决定跳过")
                 .doesNotContain("PHASE=DAYA_TARGETED_RECHECK", "allowExpansion");
         assertThat(user.getValue())
                 .contains("\"id\":\"p1\"", "\"context\":\"第二章 需求分析\"",
@@ -176,9 +177,10 @@ class PlatformDoubaoRewriteGatewayTest {
         ArgumentCaptor<String> system = ArgumentCaptor.forClass(String.class);
         verify(doubao, times(1)).complete(system.capture(), anyString(), anyInt());
         assertThat(system.getValue())
-                .contains("profile-id: daya-report-segment-rebuild-v8")
+                .contains("profile-id: daya-full-narrative-rebuild-v9")
                 .contains("当前为大雅独立双降模式")
                 .contains("不得套用普通降重或普通降 AI 的轻改逻辑")
+                .contains("每个输入段都必须实质改写", "风险标签只决定重组策略，不决定跳过")
                 .contains("允许明显压缩、整段重组并删除重复解释");
     }
 
@@ -216,7 +218,7 @@ class PlatformDoubaoRewriteGatewayTest {
     }
 
     @Test
-    void dayaUsesAReviewThatPassesFinalGateWhenTheFirstDraftDoesNot() {
+    void dayaRejectsAReviewedDraftThatOnlySwapsSynonyms() {
         String original = "县域水利部门依托现场台账建立了造价审核流程，工作人员结合施工图纸、验收记录和签证资料核对工程量，确认结果后保存全部复核依据。";
         String firstDraft = "县域水利部门依托现场台账建立了造价审核流程。工作人员结合施工图纸、验收记录和签证资料核对工程量。确认结果后保存全部复核依据。";
         String secondDraft = "县域水利部门借助现场台账建立起造价审核流程。工作人员结合施工图纸、验收记录和签证资料复核工程量。确认结论后保存全部复核依据。";
@@ -230,7 +232,7 @@ class PlatformDoubaoRewriteGatewayTest {
                         "p12", original, "4.1 造价审核")),
                 XuejiePlatform.DAYA,
                 XuejieRewriteMode.HUMANIZE))
-                .containsExactly(Map.entry("p12", secondDraft));
+                .containsExactly(Map.entry("p12", original));
         verify(doubao, times(2)).complete(anyString(), anyString(), anyInt());
     }
 
@@ -257,6 +259,57 @@ class PlatformDoubaoRewriteGatewayTest {
         assertThat(user.getAllValues().get(1))
                 .contains("ABSTRACT_MODULE_CHAIN")
                 .contains("背景—对象—方法—结果—建议—价值");
+    }
+
+    @Test
+    void dayaKeepsOnlyAReviewedParagraphThatPassesTheFinalLowRiskGate() {
+        String original = "建设单位核对现场资料，监理单位复查台账，项目部保存签字记录，"
+                + "负责人处理发现的问题，归档资料用于后续追查。";
+        String firstDraft = "建设单位负责核对现场资料，监理单位负责复查台账，"
+                + "项目部负责保存签字记录，负责人负责处理问题。资料确保记录完整并形成核查依据，也能保障后续追查。";
+        String reviewed = "签字记录仍由项目部保管。建设和监理人员核对现场材料与台账，"
+                + "发现的问题交给负责人处理，原有资料留作后续追查。";
+        when(doubao.complete(anyString(), anyString(), anyInt()))
+                .thenReturn(
+                        "{\"segments\":[{\"id\":\"p20\",\"text\":\"" + firstDraft + "\"}]}",
+                        "{\"segments\":[{\"id\":\"p20\",\"text\":\"" + reviewed + "\"}]}");
+
+        assertThat(gateway.rewriteBatch(
+                List.of(new PlatformDoubaoRewriteGateway.Segment(
+                        "p20", original, "第四章 管理措施")),
+                XuejiePlatform.DAYA, XuejieRewriteMode.HUMANIZE))
+                .containsExactly(Map.entry("p20", reviewed))
+                .doesNotContainValue(original);
+        assertThat(DayaRewriteQualityRules.assess(original, reviewed, "第四章 管理措施").riskScore())
+                .isLessThanOrEqualTo(DayaRewriteQualityRules.assess(
+                        original, firstDraft, "第四章 管理措施").riskScore());
+        assertThat(DayaRewriteQualityRules.assess(
+                original, reviewed, "第四章 管理措施").similarity())
+                .isLessThan(DayaRewriteQualityRules.assess(
+                        original, firstDraft, "第四章 管理措施").similarity());
+    }
+
+    @Test
+    void dayaReturnsTheOriginalToTriggerRetryWhenBothDraftsRemainHighRisk() {
+        String original = "建设单位核对现场资料，监理单位复查台账，项目部保存签字记录，"
+                + "负责人处理发现的问题，归档资料用于后续追查。";
+        String firstDraft = "建设单位负责核对现场资料，监理单位负责复查台账，"
+                + "项目部负责保存签字记录，负责人负责处理问题。资料确保记录完整并形成核查依据，也能保障后续追查。";
+        String reviewed = "项目部留着签字记录，现场材料和台账交给建设、监理人员核对。"
+                + "负责人处理发现的问题，这些资料能够确保记录完整，形成核查依据，也可保障后续追查。";
+        when(doubao.complete(anyString(), anyString(), anyInt()))
+                .thenReturn(
+                        "{\"segments\":[{\"id\":\"p21\",\"text\":\"" + firstDraft + "\"}]}",
+                        "{\"segments\":[{\"id\":\"p21\",\"text\":\"" + reviewed + "\"}]}");
+
+        assertThat(gateway.rewriteBatch(
+                List.of(new PlatformDoubaoRewriteGateway.Segment(
+                        "p21", original, "第四章 管理措施")),
+                XuejiePlatform.DAYA, XuejieRewriteMode.HUMANIZE))
+                .containsExactly(Map.entry("p21", original))
+                .doesNotContainValue(firstDraft)
+                .doesNotContainValue(reviewed);
+        verify(doubao, times(2)).complete(anyString(), anyString(), anyInt());
     }
 
     @Test

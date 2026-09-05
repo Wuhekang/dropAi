@@ -36,7 +36,10 @@ class PlatformRewriteSkillCatalogTest {
     @Test
     void dayaProfileContainsTheSevenReportAndEnumerationRules() {
         assertThat(catalog.load(XuejiePlatform.DAYA))
-                .contains("profile-id: daya-report-segment-rebuild-v8")
+                .contains("profile-id: daya-full-narrative-rebuild-v9")
+                .contains("每个输入 `id` 都必须实质改写")
+                .contains("风险识别只用于选择基础重构")
+                .contains("未命中标签", "允许不改")
                 .contains("正文表格长说明")
                 .contains("不得在一个正文段内输出回车、软换行或制表符")
                 .contains("同一表中相邻说明格会被平台连起来判断")
@@ -53,6 +56,7 @@ class PlatformRewriteSkillCatalogTest {
                 .contains("不是大雅官方规则")
                 .contains("不得新增原文没有的数据、案例、引用、作者、年份、系统功能、测试结果或性能结论");
         assertThat(catalog.load(XuejiePlatform.DAYA))
-                .doesNotContain("允许扩写", "扩写预算", "6000 个字符");
+                .doesNotContain("允许扩写", "扩写预算", "6000 个字符",
+                        "没有分条和完整报告链的段落，不要为了统一风格而过度改写");
     }
 }

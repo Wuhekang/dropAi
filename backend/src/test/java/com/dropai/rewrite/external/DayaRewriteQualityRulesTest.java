@@ -203,17 +203,16 @@ class DayaRewriteQualityRulesTest {
     }
 
     @Test
-    void sourceSelectionKeepsConcreteLowRiskProseOutOfTheModel() {
-        assertThat(DayaRewriteQualityRules.shouldRewriteSource(
-                "雨后两天，监理在北侧基坑发现一处积水。", "3.2 现场记录"))
-                .isFalse();
-        assertThat(DayaRewriteQualityRules.shouldRewriteSource(
-                "研究内容包括投资决策，设计控制以及结算审核。", "2.1 研究内容"))
-                .isTrue();
+    void requiredGateRejectsAnUnchangedConcreteLowRiskParagraph() {
+        String original = "雨后两天，监理在北侧基坑发现一处积水。";
+
+        assertThatIllegalStateException()
+                .isThrownBy(() -> DayaRewriteQualityRules.validateRequiredRewrite(original, original))
+                .withMessageContaining("未重建段落表达");
     }
 
     @Test
-    void sourceSelectionDoesNotTreatLengthAloneAsARewriteReason() {
+    void riskLabelsDoNotExemptALongConcreteParagraphFromSubstantiveRewrite() {
         String concrete = "六月十二日雨停后，北侧基坑仍有积水，监理在照片上圈出了位置。"
                 + "当天的施工记录写明抽水泵从下午两点开始工作，傍晚复查时水位已经下降，"
                 + "现场人员把同一组照片和记录放回原档案袋，第二天只补签了缺少的日期。"
@@ -221,8 +220,9 @@ class DayaRewriteQualityRulesTest {
 
         assertThat(DayaRewriteQualityRules.assess(concrete, concrete, "3.2 现场记录").risks())
                 .contains(DayaRewriteQualityRules.Risk.LONG_STRUCTURED_BODY);
-        assertThat(DayaRewriteQualityRules.shouldRewriteSource(concrete, "3.2 现场记录"))
-                .isFalse();
+        assertThatIllegalStateException()
+                .isThrownBy(() -> DayaRewriteQualityRules.validateRequiredRewrite(concrete, concrete))
+                .withMessageContaining("未重建段落表达");
     }
 
     @Test
@@ -265,9 +265,6 @@ class DayaRewriteQualityRulesTest {
         assertThatCode(() -> DayaRewriteQualityRules.validateFinal(
                 original, unmarked, "2.1 AHP-模糊综合评价方法"))
                 .doesNotThrowAnyException();
-        assertThat(DayaRewriteQualityRules.shouldRewriteSource(
-                unmarked, "2.1 AHP-模糊综合评价方法"))
-                .isFalse();
     }
 
     @Test
@@ -312,11 +309,62 @@ class DayaRewriteQualityRulesTest {
     void finalGateRejectsNearSimilarityAfterTheReviewStages() {
         String original = "县域水利部门依托现场台账建立了造价审核流程，工作人员结合施工图纸、验收记录和签证资料核对工程量，确认结果后保存全部复核依据。";
         String nearSynonym = "县域水利部门依托现场台账建立了造价审核流程，工作人员结合施工图纸、验收记录和签证资料核对工程量，确认结果后保存全部复核材料。";
+        String severalSynonyms = "县域水利部门借助现场台账建立起造价审核流程，工作人员结合施工图纸、验收记录和签证资料复核工程量，确认结论后保存全部复核依据。";
 
         assertThat(DayaRewriteQualityRules.assess(original, nearSynonym).risks())
                 .contains(DayaRewriteQualityRules.Risk.HIGH_SIMILARITY);
         assertThatIllegalStateException()
                 .isThrownBy(() -> DayaRewriteQualityRules.validateFinal(original, nearSynonym))
+                .withMessageContaining("高度相似");
+        assertThat(DayaRewriteQualityRules.assess(original, severalSynonyms).risks())
+                .contains(DayaRewriteQualityRules.Risk.HIGH_SIMILARITY);
+        assertThatIllegalStateException()
+                .isThrownBy(() -> DayaRewriteQualityRules.validateFinal(original, severalSynonyms))
+                .withMessageContaining("高度相似");
+    }
+
+    @Test
+    void requiredGateRejectsOneWordReplacementInAShortParagraph() {
+        String original = "现场资料归入项目档案，复核意见仍留在台账中。";
+        String oneWordReplacement = "现场资料放入项目档案，复核意见仍留在台账中。";
+        String rebuilt = "台账留着复核意见，现场材料另存项目档案。";
+        String parallelOriginal = "建设单位核对现场资料，监理单位复查台账。";
+        String localNounReplacement = "建设方核对现场材料，监理方复查工作台账。";
+
+        assertThatIllegalStateException()
+                .isThrownBy(() -> DayaRewriteQualityRules.validateRequiredRewrite(
+                        original, oneWordReplacement))
+                .withMessageContaining("高度相似");
+        assertThatIllegalStateException()
+                .isThrownBy(() -> DayaRewriteQualityRules.validateRequiredRewrite(
+                        parallelOriginal, localNounReplacement))
+                .withMessageContaining("高度相似");
+        assertThatCode(() -> DayaRewriteQualityRules.validateRequiredRewrite(original, rebuilt))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void requiredGateAcceptsAShortFactRebuildThatMovesProtectedNumbers() {
+        String original = "项目投资5000万元，工期为30天。";
+        String rebuilt = "工期定为30天，项目投资仍是5000万元。";
+
+        assertThatCode(() -> DayaRewriteQualityRules.validateRequiredRewrite(original, rebuilt))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void requiredGateRejectsCopyingTheOriginalIntoDifferentLengthText() {
+        String original = "监理查看施工图和现场签证，工程量复核意见记在当天台账中，相关凭证仍由项目部保存。";
+        String copiedThenExpanded = original + "这些材料以后还可继续查看。";
+        String copiedExcerpt = "监理查看施工图和现场签证，工程量复核意见记在当天台账中。";
+
+        assertThatIllegalStateException()
+                .isThrownBy(() -> DayaRewriteQualityRules.validateRequiredRewrite(
+                        original, copiedThenExpanded))
+                .withMessageContaining("高度相似");
+        assertThatIllegalStateException()
+                .isThrownBy(() -> DayaRewriteQualityRules.validateRequiredRewrite(
+                        original, copiedExcerpt))
                 .withMessageContaining("高度相似");
     }
 }
