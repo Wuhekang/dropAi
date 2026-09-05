@@ -1025,9 +1025,12 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
     }
 
     private boolean isCaptionOrFormulaLine(String text) {
-        return text.matches("^(图|表)\\s*\\d+(\\.\\d+)*\\s+.*$")
-                || text.matches("^公式\\s*\\d+(\\.\\d+)*\\s+.*$")
-                || text.matches("^\\(?\\d+(\\.\\d+)*\\)?\\s*.*[=＋+\\-*/×÷].*$");
+        return text.matches("^(图|表)\\s*\\d+([.．\\-—]\\d+)*\\s+.*$")
+                || text.matches("^(图|表)\\s*\\d+([.．\\-—]\\d+)+\\s*[^。！？!?；;\\r\\n]{1,80}$")
+                || text.matches("^公式\\s*\\d+([.．\\-—]\\d+)*\\s+.*$")
+                || text.matches("^公式\\s*\\d+([.．\\-—]\\d+)+\\s*[^。！？!?；;\\r\\n]{1,80}$")
+                || text.matches("^\\(\\d+([.．]\\d+)*\\)\\s*[^。！？!?；;\\r\\n]{1,160}[=＋+\\-*/×÷][^。！？!?；;\\r\\n]{0,160}$")
+                || text.matches("^\\d+([.．]\\d+)*\\s+[^。！？!?；;\\r\\n]{1,160}[=＋+\\-*/×÷][^。！？!?；;\\r\\n]{0,160}$");
     }
 
     private boolean isHeadingParagraph(XWPFParagraph paragraph, String text) {
@@ -1050,7 +1053,9 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
     private boolean isHeadingLikeNumberedTitle(String text) {
         return text.matches("^(第[一二三四五六七八九十百]+[章节篇].*)$")
                 || text.matches("^([一二三四五六七八九十]+、).{1,40}$")
-                || text.matches("^(\\d+(\\.\\d+){0,3}\\s+).{1,60}$");
+                || text.matches("^(\\d+([.．]\\d+){0,3}\\s+).{1,60}$")
+                || text.matches("^\\d{1,2}[.．、]\\s*[\\p{IsHan}A-Za-z][^。！？!?；;\\r\\n]{0,59}$")
+                || text.matches("^\\d{1,2}([.．]\\d{1,2}){1,3}\\s*[\\p{IsHan}A-Za-z][^。！？!?；;\\r\\n]{0,59}$");
     }
 
     private boolean isCatalogLine(String text) {
