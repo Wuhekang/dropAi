@@ -54,15 +54,15 @@ class PlatformDoubaoRewriteGatewayTest {
                 .contains("PHASE=DAYA_TARGETED_RECHECK", "从原稿事实重新组织");
         assertThat(users.getAllValues().get(0))
                 .contains("\"context\":\"4.2 风险控制\"")
-                .contains("\"allowExpansion\":true")
-                .contains("\"text\":\"第一，核对台账。第二，复查现场。第三，记录结果。\"");
+                .contains("\"text\":\"第一，核对台账。第二，复查现场。第三，记录结果。\"")
+                .doesNotContain("allowExpansion");
         assertThat(users.getAllValues().get(1))
                 .contains("\"context\":\"4.2 风险控制\"")
                 .contains("\"rule\":\"enumeration\"")
-                .contains("\"allowExpansion\":true")
                 .contains("\"original\":\"第一，核对台账。第二，复查现场。第三，记录结果。\"")
                 .contains("\"draft\":\"首先核对台账，其次复查现场，最后记录结果。\"")
-                .contains("\"reasons\":\"RESIDUAL_SEQUENCE\"");
+                .contains("\"reasons\":\"RESIDUAL_SEQUENCE\"")
+                .doesNotContain("allowExpansion", "DISALLOWED_EXPANSION");
     }
 
     @Test
@@ -153,14 +153,13 @@ class PlatformDoubaoRewriteGatewayTest {
         ArgumentCaptor<String> user = ArgumentCaptor.forClass(String.class);
         verify(doubao, times(1)).complete(system.capture(), user.capture(), anyInt());
         assertThat(system.getValue())
-                .contains("profile-id: daya-report-segment-rebuild-v7")
+                .contains("profile-id: daya-report-segment-rebuild-v8")
                 .contains("不得套用普通降 AI 的轻改逻辑")
-                .contains("只有 true 才能围绕原段已有事实适当补写")
-                .doesNotContain("PHASE=DAYA_TARGETED_RECHECK");
+                .doesNotContain("PHASE=DAYA_TARGETED_RECHECK", "allowExpansion");
         assertThat(user.getValue())
                 .contains("\"id\":\"p1\"", "\"context\":\"第二章 需求分析\"",
-                        "\"text\":\"大雅原始正文保持既有事实。\"", "\"allowExpansion\":false")
-                .doesNotContain("\"original\"", "\"draft\"");
+                        "\"text\":\"大雅原始正文保持既有事实。\"")
+                .doesNotContain("\"original\"", "\"draft\"", "allowExpansion");
     }
 
     @Test
@@ -177,7 +176,7 @@ class PlatformDoubaoRewriteGatewayTest {
         ArgumentCaptor<String> system = ArgumentCaptor.forClass(String.class);
         verify(doubao, times(1)).complete(system.capture(), anyString(), anyInt());
         assertThat(system.getValue())
-                .contains("profile-id: daya-report-segment-rebuild-v7")
+                .contains("profile-id: daya-report-segment-rebuild-v8")
                 .contains("当前为大雅独立双降模式")
                 .contains("不得套用普通降重或普通降 AI 的轻改逻辑")
                 .contains("允许明显压缩、整段重组并删除重复解释");
@@ -187,7 +186,7 @@ class PlatformDoubaoRewriteGatewayTest {
     void dayaRechecksOnlyTheHighSimilarityOrdinarySegmentAndUsesTheSaferDraft() {
         String original = "县域水利部门依托现场台账建立了造价审核流程，工作人员结合施工图纸、验收记录和签证资料核对工程量，确认结果后保存全部复核依据。";
         String punctuationOnly = "县域水利部门依托现场台账建立了造价审核流程。工作人员结合施工图纸、验收记录和签证资料核对工程量。确认结果后保存全部复核依据。";
-        String rebuilt = "复核依据与台账一并归档。项目负责人回到施工图和验收记录核实工程量，现场签证只用于确认施工事实。县域水利部门据此完成造价审核。";
+        String rebuilt = "施工图、验收记录和现场签证放在一起核实工程量。县域水利部门保存这次核对所用的材料。";
         when(doubao.complete(anyString(), anyString(), anyInt()))
                 .thenReturn(
                         "{\"segments\":["
@@ -295,11 +294,10 @@ class PlatformDoubaoRewriteGatewayTest {
     }
 
     @Test
-    void dayaAllowsOnlyRiskEligibleParagraphsToGrowWithoutAPerParagraphCap() {
-        String original = "第一，核对台账。第二，复查现场。第三，记录结果。";
+    void dayaAllowsRelatedReviewedParagraphsToGrowWithoutAnExpansionFlagOrPerParagraphCap() {
+        String original = "第一，核对台账。第二，复查现场资料。第三，记录处理结果。";
         String firstDraft = "首先核对台账，其次复查现场，最后记录结果。";
-        String expanded = "项目负责人当天核对台账。原有登记内容继续沿用。现场资料交给监理复查。"
-                + "复查只确认已有记录。处理结果写回项目台账。相关内容仍以原件为准。";
+        String expanded = "台账需要核对，现场资料另行复查。得到的结果仍写入原有记录。";
         when(doubao.complete(anyString(), anyString(), anyInt()))
                 .thenReturn(
                         "{\"segments\":[{\"id\":\"p18\",\"text\":\"" + firstDraft + "\"}]}",
@@ -311,38 +309,32 @@ class PlatformDoubaoRewriteGatewayTest {
                 XuejiePlatform.DAYA, XuejieRewriteMode.HUMANIZE))
                 .containsExactly(Map.entry("p18", expanded));
         assertThat(DayaRewriteQualityRules.comparableLength(expanded))
-                .isGreaterThan(DayaRewriteQualityRules.comparableLength(original) * 2);
+                .isGreaterThan(DayaRewriteQualityRules.comparableLength(original));
 
         ArgumentCaptor<String> users = ArgumentCaptor.forClass(String.class);
         verify(doubao, times(2)).complete(anyString(), users.capture(), anyInt());
-        assertThat(users.getAllValues().get(0)).contains("\"allowExpansion\":true");
+        assertThat(users.getAllValues().get(0)).doesNotContain("allowExpansion");
         assertThat(users.getAllValues().get(1))
-                .contains("\"allowExpansion\":true")
-                .contains("不得新增事实、数据、案例或结论");
+                .doesNotContain("allowExpansion", "DISALLOWED_EXPANSION", "不得增长");
     }
 
     @Test
-    void dayaRejectsGrowthForAnOrdinaryParagraphAndRequestsANonGrowingReview() {
+    void dayaAllowsRelatedOrdinaryRewordingToGrowWithoutAnEligibilityGate() {
         String original = "现场资料由负责人核对，结果记入台账。";
-        String firstDraft = "现场资料由负责人核对，所有结果均记入项目台账并交给相关人员保存。";
-        String reviewed = "负责人核对现场资料后，将全部结果写入项目台账，并把现有记录交给相关人员统一保存。";
+        String firstDraft = "负责人需要核对现有的现场资料。核对得出的结果仍然写入原来的台账。";
         when(doubao.complete(anyString(), anyString(), anyInt()))
-                .thenReturn(
-                        "{\"segments\":[{\"id\":\"p19\",\"text\":\"" + firstDraft + "\"}]}",
-                        "{\"segments\":[{\"id\":\"p19\",\"text\":\"" + reviewed + "\"}]}");
+                .thenReturn("{\"segments\":[{\"id\":\"p19\",\"text\":\"" + firstDraft + "\"}]}");
 
         assertThat(gateway.rewriteBatch(
                 List.of(new PlatformDoubaoRewriteGateway.Segment(
-                        "p19", original, "第二章 项目概况")),
-                XuejiePlatform.DAYA, XuejieRewriteMode.HUMANIZE))
-                .containsExactly(Map.entry("p19", original));
+                         "p19", original, "第二章 项目概况")),
+                 XuejiePlatform.DAYA, XuejieRewriteMode.HUMANIZE))
+                .containsExactly(Map.entry("p19", firstDraft));
 
         ArgumentCaptor<String> users = ArgumentCaptor.forClass(String.class);
-        verify(doubao, times(2)).complete(anyString(), users.capture(), anyInt());
-        assertThat(users.getAllValues().get(0)).contains("\"allowExpansion\":false");
-        assertThat(users.getAllValues().get(1))
-                .contains("\"allowExpansion\":false")
-                .contains("DISALLOWED_EXPANSION", "不得增长");
+        verify(doubao, times(1)).complete(anyString(), users.capture(), anyInt());
+        assertThat(users.getValue())
+                .doesNotContain("allowExpansion", "DISALLOWED_EXPANSION", "不得增长");
     }
 
     @Test

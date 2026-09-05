@@ -21,11 +21,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletionService;
 import java.util.concurrent.ExecutionException;
@@ -48,9 +48,6 @@ public class PlatformDoubaoDocumentProcessor {
     static final int DAYA_MAX_BATCH_PARAGRAPHS = 4;
     static final int DAYA_MAX_BATCH_CHARACTERS = 1800;
     static final int DAYA_MAX_CONCURRENCY = 32;
-    static final int DAYA_MAX_TOTAL_EXPANSION_CHARACTERS = 6000;
-    private static final String DAYA_EXPANSION_BUDGET_CONTEXT =
-            "扩写预算已满：仅重构句式，不增加字数";
     private static final int MIN_PARAGRAPH_CHARACTERS = 8;
     private static final int DAYA_TABLE_MIN_CHARACTERS = 18;
     private static final int DAYA_TABLE_MIN_CJK = 8;
@@ -120,8 +117,6 @@ public class PlatformDoubaoDocumentProcessor {
 
             BatchResult[] completedBatches = rewriteBatchesConcurrently(
                     preparedBatches, targets.size(), platform, mode, progress);
-            completedBatches = enforceDayaExpansionBudget(
-                    completedBatches, preparedBatches, targets.size(), platform, mode, progress);
             int processed = 0;
             int rewritten = 0;
             int failed = 0;
@@ -140,7 +135,7 @@ public class PlatformDoubaoDocumentProcessor {
                 }
             }
 
-            if (rewritten == 0) {
+            if (rewritten == 0 && failed > 0) {
                 throw new IllegalStateException("平台 Skill 未生成任何通过保护校验的段落"
                         + (failureMessages.isEmpty() ? "" : "：" + String.join("；", failureMessages)));
             }
@@ -213,137 +208,6 @@ public class PlatformDoubaoDocumentProcessor {
             throw failure;
         }
         return retryFailedTargetsConcurrently(results, totalTargets, platform, mode, progress);
-    }
-
-    /**
-     * Daya may add natural explanatory wording only to paragraphs selected by its risk rules.
-     * The document-level allowance is consumed in source order.  Once the allowance is full,
-     * only the rewrite that would cross the limit is submitted again with a no-growth context;
-     * a failed contraction falls back to that one original paragraph and never discards other
-     * accepted work.
-     */
-    private BatchResult[] enforceDayaExpansionBudget(
-            BatchResult[] initialResults,
-            List<PreparedBatch> preparedBatches,
-            int totalTargets,
-            XuejiePlatform platform,
-            XuejieRewriteMode mode,
-            ProgressListener progress) {
-        List<BudgetRewrite> ordered = new ArrayList<>();
-        Map<Integer, LinkedHashMap<String, ParagraphRewrite>> rewritesByBatch = new LinkedHashMap<>();
-        Map<Integer, List<String>> failuresByBatch = new LinkedHashMap<>();
-        Map<Integer, Integer> addedFailuresByBatch = new LinkedHashMap<>();
-        Map<Integer, PreparedBatch> preparedByIndex = new LinkedHashMap<>();
-        Map<String, Integer> sourceOrderByTargetId = new LinkedHashMap<>();
-        int sourceOrder = 0;
-        for (PreparedBatch prepared : preparedBatches) {
-            preparedByIndex.put(prepared.index(), prepared);
-            for (Target target : prepared.batch().targets()) {
-                sourceOrderByTargetId.put(target.id(), sourceOrder++);
-            }
-        }
-        for (BatchResult result : initialResults) {
-            LinkedHashMap<String, ParagraphRewrite> rewrites = new LinkedHashMap<>();
-            for (ParagraphRewrite rewrite : result.rewrites()) {
-                rewrites.put(rewrite.target().id(), rewrite);
-                ordered.add(new BudgetRewrite(result.index(), rewrite));
-            }
-            rewritesByBatch.put(result.index(), rewrites);
-            failuresByBatch.put(result.index(), new ArrayList<>(result.failureMessages()));
-        }
-        ordered.sort(Comparator.comparingInt(rewrite ->
-                sourceOrderByTargetId.getOrDefault(rewrite.rewrite().target().id(), Integer.MAX_VALUE)));
-
-        int consumedExpansion = 0;
-        int adjusted = 0;
-        for (BudgetRewrite budgetRewrite : ordered) {
-            ParagraphRewrite rewrite = budgetRewrite.rewrite();
-            int expansion = positiveExpansion(rewrite);
-            if (expansion == 0) continue;
-            if (consumedExpansion + expansion <= DAYA_MAX_TOTAL_EXPANSION_CHARACTERS) {
-                consumedExpansion += expansion;
-                continue;
-            }
-
-            int batchIndex = budgetRewrite.batchIndex();
-            PreparedBatch prepared = preparedByIndex.get(batchIndex);
-            BudgetRetryResult retry = retryWithinExpansionBudget(
-                    prepared, rewrite.target(), platform, mode);
-            LinkedHashMap<String, ParagraphRewrite> rewrites = rewritesByBatch.get(batchIndex);
-            if (retry.rewrite() == null) {
-                rewrites.remove(rewrite.target().id());
-                addedFailuresByBatch.merge(batchIndex, 1, Integer::sum);
-                failuresByBatch.get(batchIndex).add(retry.failure());
-            } else {
-                rewrites.put(rewrite.target().id(), retry.rewrite());
-            }
-            adjusted++;
-            int accepted = rewritesByBatch.values().stream().mapToInt(Map::size).sum();
-            progress.update(totalTargets, totalTargets, accepted,
-                    platform.remoteName() + " Skill 扩写预算收缩：" + adjusted + " 段");
-        }
-
-        BatchResult[] adjustedResults = new BatchResult[initialResults.length];
-        for (BatchResult initial : initialResults) {
-            List<String> failures = failuresByBatch.get(initial.index());
-            adjustedResults[initial.index()] = new BatchResult(
-                    initial.index(),
-                    initial.targetCount(),
-                    List.copyOf(rewritesByBatch.get(initial.index()).values()),
-                    initial.failed() + addedFailuresByBatch.getOrDefault(initial.index(), 0),
-                    List.copyOf(failures),
-                    List.of());
-        }
-        return adjustedResults;
-    }
-
-    private BudgetRetryResult retryWithinExpansionBudget(
-            PreparedBatch prepared,
-            Target target,
-            XuejiePlatform platform,
-            XuejieRewriteMode mode) {
-        if (prepared == null) {
-            return new BudgetRetryResult(null, "扩写预算收缩失败：未找到原段保护信息");
-        }
-        PlatformDoubaoRewriteGateway.Segment originalSegment = prepared.segments().stream()
-                .filter(candidate -> candidate.id().equals(target.id()))
-                .findFirst()
-                .orElse(null);
-        if (originalSegment == null) {
-            return new BudgetRetryResult(null, "扩写预算收缩失败：未找到原段保护文本");
-        }
-        String budgetContext = originalSegment.context() + "；" + DAYA_EXPANSION_BUDGET_CONTEXT;
-        PlatformDoubaoRewriteGateway.Segment budgetSegment =
-                new PlatformDoubaoRewriteGateway.Segment(
-                        originalSegment.id(), originalSegment.text(), budgetContext);
-        try {
-            Map<String, String> response = gateway.rewriteBatch(
-                    List.of(budgetSegment), platform, mode);
-            RewriteAttempt attempt = validateResponse(
-                    prepared, target, response.get(target.id()));
-            if (attempt.failure() != null || attempt.rewrite() == null) {
-                String failure = attempt.failure() == null
-                        ? "模型未生成有效的收缩改写" : attempt.failure();
-                return new BudgetRetryResult(null,
-                        compact("扩写预算收缩失败：" + failure));
-            }
-            if (DayaRewriteQualityRules.comparableLength(attempt.rewrite().restored().text())
-                    > DayaRewriteQualityRules.comparableLength(target.originalText())) {
-                return new BudgetRetryResult(null,
-                        "扩写预算收缩失败：结果仍长于原段");
-            }
-            return new BudgetRetryResult(attempt.rewrite(), null);
-        } catch (RuntimeException retryFailure) {
-            return new BudgetRetryResult(null,
-                    compact("扩写预算收缩失败：" + retryFailure.getMessage()));
-        }
-    }
-
-    private int positiveExpansion(ParagraphRewrite rewrite) {
-        return Math.max(0,
-                DayaRewriteQualityRules.comparableLength(rewrite.restored().text())
-                        - DayaRewriteQualityRules.comparableLength(
-                                rewrite.target().originalText()));
     }
 
     /**
@@ -449,9 +313,21 @@ public class PlatformDoubaoDocumentProcessor {
         Batch batch = prepared.batch();
         List<ParagraphRewrite> rewrites = new ArrayList<>();
         List<RetryTarget> retryTargets = new ArrayList<>();
+        List<PlatformDoubaoRewriteGateway.Segment> highRiskSegments = prepared.segments().stream()
+                .filter(segment -> DayaRewriteQualityRules.shouldRewriteSource(
+                        segment.text(), segment.context()))
+                .toList();
+        if (highRiskSegments.isEmpty()) {
+            return new BatchResult(prepared.index(), batch.targets().size(),
+                    List.of(), 0, List.of(), List.of());
+        }
+        Set<String> highRiskIds = highRiskSegments.stream()
+                .map(PlatformDoubaoRewriteGateway.Segment::id)
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
         try {
-            Map<String, String> responses = gateway.rewriteBatch(prepared.segments(), platform, mode);
+            Map<String, String> responses = gateway.rewriteBatch(highRiskSegments, platform, mode);
             for (Target target : batch.targets()) {
+                if (!highRiskIds.contains(target.id())) continue;
                 RewriteAttempt attempt = validateResponse(prepared, target, responses.get(target.id()));
                 if (attempt.failure() == null) {
                     if (attempt.rewrite() != null) rewrites.add(attempt.rewrite());
@@ -462,6 +338,7 @@ public class PlatformDoubaoDocumentProcessor {
         } catch (RuntimeException batchFailure) {
             String failure = compact(batchFailure.getMessage());
             for (Target target : batch.targets()) {
+                if (!highRiskIds.contains(target.id())) continue;
                 retryTargets.add(retryTarget(prepared, target, failure));
             }
         }
@@ -1059,13 +936,7 @@ public class PlatformDoubaoDocumentProcessor {
 
     private void validateCandidate(Target target, String rewritten) {
         String original = target.originalText();
-        int originalLength = DayaRewriteQualityRules.comparableLength(original);
-        int rewrittenLength = DayaRewriteQualityRules.comparableLength(rewritten);
         boolean dayaTableText = target.preparation() == DayaPreparation.TABLE_TEXT;
-        if (rewrittenLength > originalLength
-                && !DayaRewriteQualityRules.isExpansionEligible(original, target.context())) {
-            throw new IllegalStateException("大雅普通段落不得增加文字");
-        }
         if (rewritten.startsWith("```") || rewritten.contains("以下是改写") || rewritten.contains("改写结果：")) {
             throw new IllegalStateException("改写段落包含模型说明文字");
         }
@@ -1078,7 +949,7 @@ public class PlatformDoubaoDocumentProcessor {
                 throw new IllegalStateException("大雅表格说明未完整保留编号、数据、单位或否定条件");
             }
         }
-        DayaRewriteQualityRules.validateFinal(original, rewritten);
+        DayaRewriteQualityRules.validateFinal(original, rewritten, target.context());
     }
 
     private List<String> dayaTableInvariants(String text) {
@@ -1362,10 +1233,6 @@ public class PlatformDoubaoDocumentProcessor {
             List<PlatformDoubaoRewriteGateway.Segment> segments) { }
 
     private record ParagraphRewrite(Target target, StyledRestore restored) { }
-
-    private record BudgetRewrite(int batchIndex, ParagraphRewrite rewrite) { }
-
-    private record BudgetRetryResult(ParagraphRewrite rewrite, String failure) { }
 
     private record RewriteAttempt(ParagraphRewrite rewrite, String failure) { }
 

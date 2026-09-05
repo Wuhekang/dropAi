@@ -134,23 +134,22 @@ class DayaRewriteQualityRulesTest {
     }
 
     @Test
-    void permitsExpansionOnlyForAConcreteDayaRiskAndHonorsTheBudgetStopMarker() {
-        String ordinary = "现场记录由项目负责人核对，确认结果后写入原有台账。";
-        String structured = "第一，核对台账。第二，复查现场。第三，记录结果。";
-        String abstractChain = "本文以学校改扩建工程为对象，采用AHP分析施工风险。"
-                + "结果显示现场管理仍有不足，据此提出整改建议，为同类项目提供参考。";
+    void detectsReportSevenPolishedProcessAndResponsibilityChains() {
+        String polished = "站在施工质量管控立场上，材料对应进场记录，设备对应验收资料，"
+                + "项目部负责复核，形成资料—指标—评分—结论的完整路径，确保结果可核对，"
+                + "实现证据归档并为后续评价提供支撑。";
 
-        assertThat(DayaRewriteQualityRules.assess(ordinary, ordinary, "正文").risks())
-                .containsExactly(DayaRewriteQualityRules.Risk.HIGH_SIMILARITY);
-        assertThat(DayaRewriteQualityRules.isExpansionEligible(ordinary, "正文")).isFalse();
-        assertThat(DayaRewriteQualityRules.isExpansionEligible(structured, "4.2 风险控制")).isTrue();
-        assertThat(DayaRewriteQualityRules.isExpansionEligible(abstractChain, "中文摘要")).isTrue();
-        assertThat(DayaRewriteQualityRules.isExpansionEligible(
-                structured, "4.2 风险控制；扩写预算已满：仅重构句式，不增加字数")).isFalse();
+        assertThat(DayaRewriteQualityRules.assess(
+                "现场资料用于核对施工质量。", polished, "3.3 指标体系").risks())
+                .contains(
+                        DayaRewriteQualityRules.Risk.POLISHED_META_OPENING,
+                        DayaRewriteQualityRules.Risk.ROLE_ACTION_CHAIN,
+                        DayaRewriteQualityRules.Risk.OUTCOME_CLAIM_CHAIN,
+                        DayaRewriteQualityRules.Risk.SCHEMA_CHAIN);
     }
 
     @Test
-    void contextualTieBreakerAcceptsASecondMeaningfulCompressionButNotASynonymSwap() {
+    void contextualRiskMustActuallyFallAndCompressionAloneIsNotAnImprovement() {
         String original = "本文以学校改扩建工程为对象，项目资料来自施工记录、签证台账和验收文件。"
                 + "研究采用AHP评价施工风险，结果显示进度和现场管理仍有明显不足，随后提出整改建议。"
                 + "这些内容用于说明项目当前情况，并为同类工程提供参考。";
@@ -170,7 +169,105 @@ class DayaRewriteQualityRulesTest {
         assertThat(DayaRewriteQualityRules.assess(original, compressed, "中文摘要").risks())
                 .contains(DayaRewriteQualityRules.Risk.ABSTRACT_MODULE_CHAIN);
         assertThat(DayaRewriteQualityRules.hasLowerRisk(
-                original, firstDraft, compressed, "中文摘要")).isTrue();
+                original, firstDraft, compressed, "中文摘要")).isFalse();
+    }
+
+    @Test
+    void detectsReportSevenUnnumberedMappingArgumentAndDataChains() {
+        String mapping = "目标输入决定评价范围，资源投入决定现场条件，检测验证反映质量结果，"
+                + "组织制度属于管理基础，各项材料用于核对项目事实。";
+        String argument = "现有资料看似完整，但部分记录却没有签字。若仅查看汇总表就难以确认现场情况，"
+                + "也难以判断差额来源，因此本段只保留能够核实的结论。";
+        String data = "表中权重为[[DROP_AI_PROTECTED_1]]，得分为[[DROP_AI_PROTECTED_2]]，"
+                + "隶属度为[[DROP_AI_PROTECTED_3]]，排序又给出[[DROP_AI_PROTECTED_4]]，随后逐项解释评价结果。";
+
+        assertThat(DayaRewriteQualityRules.assess("原段。", mapping, "3.3 指标体系").risks())
+                .contains(DayaRewriteQualityRules.Risk.ROLE_ACTION_CHAIN);
+        assertThat(DayaRewriteQualityRules.assess("原段。", argument, "正文").risks())
+                .contains(DayaRewriteQualityRules.Risk.ARGUMENT_CLOSURE_CHAIN);
+        assertThat(DayaRewriteQualityRules.assess("原段。", data, "表格长说明").risks())
+                .contains(DayaRewriteQualityRules.Risk.RESULT_DATA_CHAIN);
+    }
+
+    @Test
+    void detectsCommaAndConjunctionEnumerationButLeavesOrdinaryTransitionAlone() {
+        assertThat(DayaRewriteQualityRules.hasImplicitEnumeration(
+                "研究内容包括投资决策，设计控制以及结算审核。"))
+                .isTrue();
+        assertThat(DayaRewriteQualityRules.hasImplicitEnumeration(
+                "研究内容包括投资决策、设计控制和结算审核。"))
+                .isTrue();
+        assertThat(DayaRewriteQualityRules.hasImplicitEnumeration(
+                "本项目包括BIM技术，现场数据仍以验收记录为准。"))
+                .isFalse();
+    }
+
+    @Test
+    void sourceSelectionKeepsConcreteLowRiskProseOutOfTheModel() {
+        assertThat(DayaRewriteQualityRules.shouldRewriteSource(
+                "雨后两天，监理在北侧基坑发现一处积水。", "3.2 现场记录"))
+                .isFalse();
+        assertThat(DayaRewriteQualityRules.shouldRewriteSource(
+                "研究内容包括投资决策，设计控制以及结算审核。", "2.1 研究内容"))
+                .isTrue();
+    }
+
+    @Test
+    void sourceSelectionDoesNotTreatLengthAloneAsARewriteReason() {
+        String concrete = "六月十二日雨停后，北侧基坑仍有积水，监理在照片上圈出了位置。"
+                + "当天的施工记录写明抽水泵从下午两点开始工作，傍晚复查时水位已经下降，"
+                + "现场人员把同一组照片和记录放回原档案袋，第二天只补签了缺少的日期。"
+                + "南侧道路仍可通行，围挡没有移动。材料车在原定入口停了十分钟，门卫在纸上写下车牌，照片里的天空已经放晴。";
+
+        assertThat(DayaRewriteQualityRules.assess(concrete, concrete, "3.2 现场记录").risks())
+                .contains(DayaRewriteQualityRules.Risk.LONG_STRUCTURED_BODY);
+        assertThat(DayaRewriteQualityRules.shouldRewriteSource(concrete, "3.2 现场记录"))
+                .isFalse();
+    }
+
+    @Test
+    void sectionContextMarksACompleteMethodChainForTargetedReview() {
+        String original = "本节说明AHP在项目中的使用情况。";
+        String tutorial = "AHP用于建立指标模型，判断矩阵计算权重并完成一致性检验。"
+                + "权重与隶属度组合后产生风险等级，评价结果用于项目排序。项目据此确认重点风险。";
+
+        assertThat(DayaRewriteQualityRules.assess(
+                original, tutorial, "2.2 AHP评价方法").risks())
+                .contains(DayaRewriteQualityRules.Risk.METHOD_TUTORIAL_CHAIN);
+    }
+
+    @Test
+    void finalGateRejectsTwoRedPatternsFromReportSeven() {
+        String polishedArgument = "从福建林业职业技术学院已公开的建设资料来看，A楼与B楼已开工建设。"
+                + "尽管公开信息能够核验建设背景，但网页并未披露验收结果，因而无法据此推断实体质量等级。";
+        String mapping = "图2-1按质量逻辑把指标归入五个领域。B1对应管理责任，B2覆盖材料设备，"
+                + "B3对应实体质量，B4反映现场环境，B5用于检测和资料闭环。依托这套指标结构，结果形成责任清单。";
+
+        assertThatIllegalStateException()
+                .isThrownBy(() -> DayaRewriteQualityRules.validateFinal(
+                        "公开资料只说明项目已经开工，网页没有验收结果。", polishedArgument, "3.1 项目概况"))
+                .withMessageContaining("完整报告链");
+        assertThatIllegalStateException()
+                .isThrownBy(() -> DayaRewriteQualityRules.validateFinal(
+                        "图中给出了指标分组。", mapping, "3.3 指标体系"))
+                .withMessageContaining("完整报告链");
+    }
+
+    @Test
+    void finalGateKeepsAnEmpiricallyUnmarkedMethodParagraph() {
+        String original = "本段讨论绿色建筑施工质量评价的层级指标、量化与定性判断、施工证据状态，"
+                + "并说明AHP和模糊综合评价在本项目中的用途。";
+        String unmarked = "绿色建筑施工质量评价覆盖目标层—准则层—指标层的多层级指标体系，"
+                + "结构安全、材料性能等可通过实测数据完成量化判定，制度执行、协同管理等内容需要结合定性分析。"
+                + "评价证据会随施工推进逐步形成，部分事项仍处于已明确要求但尚未验证的状态。"
+                + "AHP用于确定指标的重要程度，模糊综合评价处理等级边界和多源信息。";
+
+        assertThatCode(() -> DayaRewriteQualityRules.validateFinal(
+                original, unmarked, "2.1 AHP-模糊综合评价方法"))
+                .doesNotThrowAnyException();
+        assertThat(DayaRewriteQualityRules.shouldRewriteSource(
+                unmarked, "2.1 AHP-模糊综合评价方法"))
+                .isFalse();
     }
 
     @Test
@@ -209,5 +306,17 @@ class DayaRewriteQualityRulesTest {
                 .withMessageContaining("标点或空白");
         assertThatCode(() -> DayaRewriteQualityRules.validateFinal(original, rebuilt))
                 .doesNotThrowAnyException();
+    }
+
+    @Test
+    void finalGateRejectsNearSimilarityAfterTheReviewStages() {
+        String original = "县域水利部门依托现场台账建立了造价审核流程，工作人员结合施工图纸、验收记录和签证资料核对工程量，确认结果后保存全部复核依据。";
+        String nearSynonym = "县域水利部门依托现场台账建立了造价审核流程，工作人员结合施工图纸、验收记录和签证资料核对工程量，确认结果后保存全部复核材料。";
+
+        assertThat(DayaRewriteQualityRules.assess(original, nearSynonym).risks())
+                .contains(DayaRewriteQualityRules.Risk.HIGH_SIMILARITY);
+        assertThatIllegalStateException()
+                .isThrownBy(() -> DayaRewriteQualityRules.validateFinal(original, nearSynonym))
+                .withMessageContaining("高度相似");
     }
 }

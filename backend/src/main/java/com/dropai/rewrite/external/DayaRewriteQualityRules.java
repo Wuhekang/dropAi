@@ -10,7 +10,7 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** Output-only safety checks for the opt-in Daya rewrite route. */
+/** Source selection and output safety checks for the opt-in Daya rewrite route. */
 final class DayaRewriteQualityRules {
     private static final int MIN_SIMILARITY_CHARACTERS = 40;
     private static final double RETRY_SIMILARITY = 0.72;
@@ -38,7 +38,8 @@ final class DayaRewriteQualityRules {
     private static final Pattern AXIS_WORD = Pattern.compile("(?:方面|层面|阶段|环节|步骤|维度|模块)");
     private static final Pattern PREDICATE_ANCHOR = Pattern.compile(
             "(?:需要|应当|应由|应按|应将|可以|可由|可按|可将|可在|可对|需由|需按|需将|"
-                    + "通过|采用|用于|形成|实现|保障|提升|降低|减少|完成|建立|设置|负责|开展|进行)");
+                    + "通过|采用|用于|形成|实现|保障|提升|降低|减少|完成|建立|设置|负责|开展|进行|"
+                    + "决定|对应|覆盖|反映|属于)");
     private static final String RESEARCH_CLAUSE = "[^。！？!?；;\\r\\n]";
     private static final Pattern RESEARCH_SCOPE_SHELL = Pattern.compile(
             "(?:本文|本研究)" + RESEARCH_CLAUSE + "{0,24}(?:围绕|聚焦|基于)");
@@ -88,8 +89,39 @@ final class DayaRewriteQualityRules {
             "(?:由表|表中|图中|如表|如图|数据显示|数值|均值|评分|占比|权重|排名|说明|表明)");
     private static final Pattern CONCLUSION_ANCHOR = Pattern.compile(
             "(?:研究|模型|指标|结果|发现|问题|建议|措施|不足|局限|展望|参考|价值)");
+    private static final Pattern POLISHED_META_OPENING = Pattern.compile(
+            "(?:^|[。！？!?])\\s*(?:站在[^，。！？!?]{1,18}(?:立场|角度|层面)上?"
+                    + "|从[^，。！？!?]{1,24}(?:来看|角度看|层面看)"
+                    + "|在具体应用中|为(?:了)?提高[^，。！？!?]{1,20}"
+                    + "|依托(?:这套|上述|该)[^，。！？!?]{1,16}"
+                    + "|这(?:套|一)(?:路线|机制|体系|路径|安排|做法)[^，。！？!?]{0,12})");
+    private static final Pattern ROLE_OR_OBJECT = Pattern.compile(
+            "(?:建设单位|施工单位|监理单位|设计单位|项目部|班组|部门|人员|负责人|主体|模块|"
+                    + "材料|设备|记录|台账|指标|证据|数据|环节|目标|输入|资源|投入|检测|验证|组织|制度)");
+    private static final Pattern ROLE_OR_OBJECT_ACTION = Pattern.compile(
+            "(?:决定|对应|负责|承担|核对|核查|检查|归档|关联|映射|控制|验证|"
+                    + "审核|复核|整改|签认|落实|覆盖|反映|属于|用于)");
+    private static final Pattern REPEATED_MAPPING_PREDICATE = Pattern.compile(
+            "(?:决定|对应|覆盖|反映|属于|用于)");
+    private static final Pattern OUTCOME_CLAIM = Pattern.compile(
+            "(?:确保|实现|形成|推动|支撑|保障|促进|提升|完善|弥补|减少)");
+    private static final Pattern SCHEMA_SEPARATOR = Pattern.compile("[—－→⇒⟶⟹↦]");
+    private static final Pattern ARGUMENT_CONTRAST = Pattern.compile("(?:尽管|虽然|但是|但|却)");
+    private static final Pattern ARGUMENT_LIMIT = Pattern.compile("(?:若仅|如果只|难以|无法|不能仅)");
+    private static final Pattern ARGUMENT_CONSEQUENCE = Pattern.compile("(?:因此|因而|所以|从而|由此|进而)");
+    private static final Pattern ARGUMENT_ADDITION = Pattern.compile("(?:不仅|而且|同时|此外)");
+    private static final Pattern RESULT_DATA_WORD = Pattern.compile(
+            "(?:权重|得分|隶属度|一致性|敏感性|变化幅度|排序|排名|评价结果|计算结果)");
+    private static final Pattern DIGIT_OR_PLACEHOLDER = Pattern.compile(
+            "(?:[0-9０-９]|\\[\\[DROP_AI_PROTECTED_[0-9]+\\]\\])");
+    private static final Pattern ENUMERATION_CONJUNCTION = Pattern.compile("(?:以及|还有|及|与|和)");
+    private static final Pattern ABSTRACT_PROCESS_NOUN = Pattern.compile(
+            "(?:体系|机制|路径|框架|流程|链条|闭环|矩阵|节点|环节|模块|接口|证据链|责任链)");
+    private static final Pattern ABSTRACT_PROCESS_ACTION = Pattern.compile(
+            "(?:构建|搭建|建立|形成|完善|衔接|联动|关联|映射|转化|闭合|贯通|嵌入|融入|"
+                    + "推动|支撑|保障|实现|确保|落实|覆盖|跟踪|控制|设置|识别|提出|计算|"
+                    + "编码|评级|评价|制定|推进)");
     private static final Pattern LINE_BREAK = Pattern.compile("[\\r\\n\\t\\u000B\\u000C\\u0085\\u2028\\u2029]");
-    private static final String EXPANSION_BUDGET_EXHAUSTED = "扩写预算已满";
 
     private DayaRewriteQualityRules() {
     }
@@ -107,6 +139,14 @@ final class DayaRewriteQualityRules {
         CONCLUSION_RECAP_CHAIN(4),
         LITERATURE_REVIEW_CHAIN(3),
         DENSE_PARALLEL_CHAIN(3),
+        POLISHED_META_OPENING(3),
+        ROLE_ACTION_CHAIN(3),
+        OUTCOME_CLAIM_CHAIN(3),
+        SCHEMA_CHAIN(3),
+        ARGUMENT_CLOSURE_CHAIN(3),
+        RESULT_DATA_CHAIN(3),
+        ABSTRACT_PROCESS_CHAIN(3),
+        LONG_STRUCTURED_BODY(1),
         FRAGMENTED_LINE_CHAIN(3);
 
         private final int weight;
@@ -148,21 +188,27 @@ final class DayaRewriteQualityRules {
         if (hasIsomorphicShortSentences(candidate)) risks.add(Risk.ISOMORPHIC_SHORT_SENTENCES);
         if (DayaEnumerationRules.containsOrderingRisk(candidate)) risks.add(Risk.RESIDUAL_SEQUENCE);
         if (hasFormulaicResearchChain(candidate)) risks.add(Risk.FORMULAIC_RESEARCH_CHAIN);
+        if (hasPolishedMetaOpening(candidate)) {
+            risks.add(Risk.POLISHED_META_OPENING);
+        }
+        if (hasRoleActionChain(candidate)) risks.add(Risk.ROLE_ACTION_CHAIN);
+        if (hasOutcomeClaimChain(candidate)) risks.add(Risk.OUTCOME_CLAIM_CHAIN);
+        if (matcherCount(SCHEMA_SEPARATOR, candidate == null ? "" : candidate) >= 3) {
+            risks.add(Risk.SCHEMA_CHAIN);
+        }
+        if (hasArgumentClosureChain(candidate)) risks.add(Risk.ARGUMENT_CLOSURE_CHAIN);
+        if (hasResultDataChain(candidate)) risks.add(Risk.RESULT_DATA_CHAIN);
+        if (hasAbstractProcessChain(candidate)) risks.add(Risk.ABSTRACT_PROCESS_CHAIN);
+        if (hasLongStructuredBody(candidate)) risks.add(Risk.LONG_STRUCTURED_BODY);
         addContextualRisks(risks, candidate, context);
         return new Assessment(similarity, risks);
     }
 
-    /**
-     * Only paragraphs with a concrete Daya structure or context risk may grow. Similarity to the
-     * source alone is not an expansion reason because every untouched paragraph is necessarily
-     * identical to itself. The processor appends the budget marker after the document-level
-     * expansion allowance is exhausted, which always disables further growth.
-     */
-    static boolean isExpansionEligible(String original, String context) {
-        String section = context == null ? "" : context.trim();
-        if (section.contains(EXPANSION_BUDGET_EXHAUSTED)) return false;
-        return assess(original, original, section).risks().stream()
-                .anyMatch(risk -> risk != Risk.HIGH_SIMILARITY);
+    static boolean shouldRewriteSource(String text, String context) {
+        return assess(text, text, context).risks().stream()
+                .anyMatch(risk -> risk != Risk.HIGH_SIMILARITY
+                        && risk != Risk.LONG_STRUCTURED_BODY
+                        && risk != Risk.METHOD_TUTORIAL_CHAIN);
     }
 
     static int comparableLength(String text) {
@@ -176,20 +222,7 @@ final class DayaRewriteQualityRules {
     static boolean hasLowerRisk(String original, String before, String after, String context) {
         Assessment beforeAssessment = assess(original, before, context);
         Assessment afterAssessment = assess(original, after, context);
-        if (afterAssessment.riskScore() < beforeAssessment.riskScore()) return true;
-        if (afterAssessment.riskScore() != beforeAssessment.riskScore()
-                || !hasContextualSoftRisk(beforeAssessment.risks())) {
-            return false;
-        }
-
-        String source = comparableText(original);
-        String first = comparableText(before);
-        String reviewed = comparableText(after);
-        if (source.isEmpty() || first.isEmpty() || reviewed.isEmpty()) return false;
-        boolean compressedByAnotherTenth = (double) reviewed.length() / source.length()
-                <= ((double) first.length() / source.length()) - 0.10;
-        return compressedByAnotherTenth
-                && afterAssessment.similarity() <= beforeAssessment.similarity();
+        return substantiveRiskScore(afterAssessment) < substantiveRiskScore(beforeAssessment);
     }
 
     static void validateRewrite(String original, String rewritten, boolean enumeration) {
@@ -215,6 +248,10 @@ final class DayaRewriteQualityRules {
 
     /** Final gate available to the Daya document processor after placeholders are restored. */
     static void validateFinal(String original, String rewritten) {
+        validateFinal(original, rewritten, "正文");
+    }
+
+    static void validateFinal(String original, String rewritten, String context) {
         if (containsLineBreak(rewritten)) {
             throw new IllegalStateException("大雅改写结果含回车、软换行或制表符");
         }
@@ -233,7 +270,7 @@ final class DayaRewriteQualityRules {
                 && similarity >= FINAL_SIMILARITY) {
             throw new IllegalStateException("大雅改写与原段高度相似，仍属于近义词式微调");
         }
-        Assessment assessment = assess(original, rewritten);
+        Assessment assessment = assess(original, rewritten, context);
         if (assessment.risks().contains(Risk.RESIDUAL_SEQUENCE)) {
             throw new IllegalStateException("大雅改写仍含成组顺序词");
         }
@@ -243,8 +280,12 @@ final class DayaRewriteQualityRules {
         if (assessment.risks().contains(Risk.ISOMORPHIC_SHORT_SENTENCES)) {
             throw new IllegalStateException("大雅改写仍含连续同构短句");
         }
-        if (assessment.risks().contains(Risk.FORMULAIC_RESEARCH_CHAIN)) {
-            throw new IllegalStateException("大雅改写仍保留研究套路链");
+        if (!enumeration && assessment.risks().contains(Risk.FRAGMENTED_LINE_CHAIN)) {
+            throw new IllegalStateException("大雅普通段仍被改成连续短句列举");
+        }
+        if (containsBlockingStyleRisk(assessment.risks())) {
+            throw new IllegalStateException("大雅改写仍含完整报告链或过度专业的并列结构："
+                    + String.join(",", assessment.reasonCodes()));
         }
     }
 
@@ -253,13 +294,13 @@ final class DayaRewriteQualityRules {
         if (value.isEmpty()) return false;
         Matcher shell = ENUMERATION_SHELL.matcher(value);
         while (shell.find()) {
-            String tail = value.substring(shell.end(), Math.min(value.length(), shell.end() + 180));
-            if (COUNTED_GROUP.matcher(tail).find() || separatorCount(tail) >= 2) return true;
+            String tail = firstSentenceTail(value, shell.end(), 120);
+            if (COUNTED_GROUP.matcher(tail).find() || looksLikeEnumerationTail(tail)) return true;
         }
         Matcher counted = COUNTED_GROUP.matcher(value);
         if (counted.find()) {
-            String tail = value.substring(counted.end(), Math.min(value.length(), counted.end() + 180));
-            if (tail.startsWith("：") || tail.startsWith(":") || separatorCount(tail) >= 2) return true;
+            String tail = firstSentenceTail(value, counted.end(), 120);
+            if (tail.startsWith("：") || tail.startsWith(":") || looksLikeEnumerationTail(tail)) return true;
         }
         return matcherCount(AXIS_WORD, value) >= 3 && separatorCount(value) >= 2;
     }
@@ -302,10 +343,68 @@ final class DayaRewriteQualityRules {
         return categories >= 3;
     }
 
-    /**
-     * Context risks are deliberately soft: they request one focused rewrite, but the document
-     * processor does not reject an otherwise valid paragraph merely because a heuristic remains.
-     */
+    private static boolean hasRoleActionChain(String text) {
+        String value = text == null ? "" : text.trim();
+        if (comparableText(value).length() < 45) return false;
+        int matchedClauses = 0;
+        for (String clause : value.split("[，,；;。！？!?]+")) {
+            if (ROLE_OR_OBJECT.matcher(clause).find()
+                    && ROLE_OR_OBJECT_ACTION.matcher(clause).find()) {
+                matchedClauses++;
+            }
+        }
+        return matchedClauses >= 4 || matcherCount(REPEATED_MAPPING_PREDICATE, value) >= 3;
+    }
+
+    private static boolean hasPolishedMetaOpening(String text) {
+        String value = text == null ? "" : text.trim();
+        return comparableText(value).length() >= 45
+                && POLISHED_META_OPENING.matcher(value).find();
+    }
+
+    private static boolean hasOutcomeClaimChain(String text) {
+        String value = text == null ? "" : text.trim();
+        return comparableText(value).length() >= 60
+                && matcherCount(OUTCOME_CLAIM, value) >= 3;
+    }
+
+    private static boolean hasArgumentClosureChain(String text) {
+        String value = text == null ? "" : text.trim();
+        if (comparableText(value).length() < 45) return false;
+        int categories = 0;
+        if (ARGUMENT_CONTRAST.matcher(value).find()) categories++;
+        if (ARGUMENT_LIMIT.matcher(value).find()) categories++;
+        if (ARGUMENT_CONSEQUENCE.matcher(value).find()) categories++;
+        if (ARGUMENT_ADDITION.matcher(value).find()) categories++;
+        return categories >= 3;
+    }
+
+    private static boolean hasResultDataChain(String text) {
+        String value = text == null ? "" : text.trim();
+        return comparableText(value).length() >= 20
+                && DIGIT_OR_PLACEHOLDER.matcher(value).find()
+                && matcherCount(RESULT_DATA_WORD, value) >= 3;
+    }
+
+    private static boolean hasAbstractProcessChain(String text) {
+        String value = text == null ? "" : text.trim();
+        return comparableText(value).length() >= 60
+                && matcherCount(ABSTRACT_PROCESS_NOUN, value) >= 3
+                && matcherCount(ABSTRACT_PROCESS_ACTION, value) >= 3;
+    }
+
+    private static boolean hasLongStructuredBody(String text) {
+        String value = text == null ? "" : text.trim();
+        if (comparableText(value).length() < 120) return false;
+        return sentenceCount(value) >= 2
+                || matcherCount(DENSE_SEPARATOR, value) >= 4
+                || matcherCount(PREDICATE_ANCHOR, value) >= 2
+                || matcherCount(ABSTRACT_PROCESS_NOUN, value) >= 2
+                || (DIGIT_OR_PLACEHOLDER.matcher(value).find()
+                && RESULT_DATA_WORD.matcher(value).find());
+    }
+
+    /** Context-aware report chains are rechecked and must be removed before a paragraph is stored. */
     private static void addContextualRisks(EnumSet<Risk> risks, String text, String context) {
         String value = text == null ? "" : text.trim();
         String section = context == null ? "" : context.trim();
@@ -399,17 +498,30 @@ final class DayaRewriteQualityRules {
         return sentences >= 5 && shortSentences >= 5;
     }
 
-    private static boolean hasContextualSoftRisk(Set<Risk> risks) {
+    private static boolean containsBlockingStyleRisk(Set<Risk> risks) {
         return risks.stream().anyMatch(risk -> switch (risk) {
-            case ABSTRACT_MODULE_CHAIN,
-                    METHOD_TUTORIAL_CHAIN,
+            case FORMULAIC_RESEARCH_CHAIN,
+                    ABSTRACT_MODULE_CHAIN,
                     SOP_CONTROL_CHAIN,
                     TABLE_EXPLANATION_CHAIN,
                     CONCLUSION_RECAP_CHAIN,
-                    LITERATURE_REVIEW_CHAIN,
-                    DENSE_PARALLEL_CHAIN -> true;
+                    DENSE_PARALLEL_CHAIN,
+                    POLISHED_META_OPENING,
+                    ROLE_ACTION_CHAIN,
+                    OUTCOME_CLAIM_CHAIN,
+                    SCHEMA_CHAIN,
+                    ARGUMENT_CLOSURE_CHAIN,
+                    RESULT_DATA_CHAIN,
+                    ABSTRACT_PROCESS_CHAIN -> true;
             default -> false;
         });
+    }
+
+    private static int substantiveRiskScore(Assessment assessment) {
+        return assessment.risks().stream()
+                .filter(risk -> risk != Risk.LONG_STRUCTURED_BODY)
+                .mapToInt(risk -> risk.weight)
+                .sum();
     }
 
     private static boolean containsLineBreak(String text) {
@@ -481,9 +593,27 @@ final class DayaRewriteQualityRules {
         int count = 0;
         for (int index = 0; index < value.length(); index++) {
             char current = value.charAt(index);
-            if (current == '、' || current == '；' || current == ';') count++;
+            if (current == '、' || current == '；' || current == ';'
+                    || current == '，' || current == ',') count++;
         }
         return count;
+    }
+
+    private static boolean looksLikeEnumerationTail(String value) {
+        int separators = separatorCount(value);
+        return separators >= 2
+                || (separators >= 1 && ENUMERATION_CONJUNCTION.matcher(value).find());
+    }
+
+    private static String firstSentenceTail(String value, int start, int limit) {
+        int end = Math.min(value.length(), start + limit);
+        for (int index = start; index < end; index++) {
+            if ("。！？!?；;\r\n".indexOf(value.charAt(index)) >= 0) {
+                end = index;
+                break;
+            }
+        }
+        return value.substring(start, end);
     }
 
     private static int commaCount(String value) {
