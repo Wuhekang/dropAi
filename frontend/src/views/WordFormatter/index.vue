@@ -215,9 +215,9 @@
       <article v-if="screen === 'done'" class="glass result-card">
         <div class="result-mark">✓</div>
         <div class="result-copy">
-          <small>FORMATTED DOCUMENT READY</small><h2>论文格式修改完成</h2><p>{{ resultMessage }}</p>
+          <small>FORMATTED DOCUMENT READY</small><h2>格式处理结果已生成，可下载</h2><p>{{ resultMessage }}</p>
           <div v-if="resultChangedCount !== null || resultWarnings.length || resultTemplateNotes.length" class="result-notices">
-            <b v-if="resultChangedCount !== null">已完成 {{ resultChangedCount }} 项格式调整</b>
+            <b v-if="resultChangedCount !== null">已执行 {{ resultChangedCount }} 项格式调整</b>
             <ul v-if="resultWarnings.length"><li v-for="warning in resultWarnings" :key="warning">{{ warning }}</li></ul>
             <details v-if="resultTemplateNotes.length">
               <summary>查看模板识别说明（{{ resultTemplateNotes.length }}）</summary>
@@ -226,13 +226,23 @@
           </div>
         </div>
         <div class="result-stats">
-          <span><b>100%</b>处理完成</span>
+          <span><b>100%</b>处理流程结束</span>
           <span><b>DOCX</b>输出格式</span>
           <span><b>{{ formattedUpdatedAt }}</b>完成时间</span>
         </div>
         <div class="result-actions">
           <button class="primary" type="button" :disabled="downloading" @click="downloadResult">{{ downloading ? '正在下载…' : '下载格式化论文 ↓' }}</button>
           <button class="text-button" type="button" @click="reset">处理另一篇论文</button>
+        </div>
+        <div v-if="hasFormatReport" class="format-report">
+          <section><h3>已处理项目</h3>
+            <ul v-if="appliedFormatItems.length"><li v-for="(item, index) in appliedFormatItems" :key="index"><span>{{ item.item }}</span><b>{{ item.count }} 处</b></li></ul>
+            <p v-else>本次报告未记录已应用的格式调整，请下载后核对。</p>
+          </section>
+          <section class="pending-format-items"><h3>待人工核对项目</h3>
+            <ul v-if="pendingFormatItems.length"><li v-for="(item, index) in pendingFormatItems" :key="index"><strong>{{ item.item }}</strong><span>{{ item.reason || '请在下载的文档中核对此项。' }}</span></li></ul>
+            <p v-else>报告未列出待处理项目，建议核对最终文档的实际分页和版式。</p>
+          </section>
         </div>
       </article>
 
@@ -301,7 +311,7 @@ const stepData = [
   { no: '02', key: 'template', title: '文字要求识别', description: '先理解撰写规范，判断格式要求和封面用途' },
   { no: '03', key: 'analyze', title: '结构识别', description: '识别论文正文、标题、图表与参考文献' },
   { no: '04', key: 'format', title: '格式套用', description: '按模板规则修改论文格式' },
-  { no: '05', key: 'validate', title: '完整校验', description: '检查内容、图片、表格与版式完整性' },
+  { no: '05', key: 'validate', title: '结果文件检查', description: '检查结果文件是否可读取，并汇总待核对项目' },
   { no: '06', key: 'output', title: '成果输出', description: '生成可下载的规范 DOCX' }
 ]
 
@@ -332,7 +342,7 @@ const statusLabel = computed(() => ({
   FAILED: '处理失败'
 })[normalizedStatus.value] || (screen.value === 'submitting' ? '上传中' : '准备中'))
 const taskEyebrow = computed(() => screen.value === 'done' ? 'FORMAT COMPLETE' : screen.value === 'error' ? 'TASK INTERRUPTED' : screen.value === 'submitting' ? 'FILES ARE UPLOADING' : 'SERVER IS PROCESSING')
-const taskTitle = computed(() => screen.value === 'done' ? '规范格式论文已准备好' : screen.value === 'error' ? '任务需要处理' : screen.value === 'submitting' ? '正在上传模板与论文' : `正在进行${activeStepLabel.value}`)
+const taskTitle = computed(() => screen.value === 'done' ? '格式处理结果已可下载' : screen.value === 'error' ? '任务需要处理' : screen.value === 'submitting' ? '正在上传模板与论文' : `正在进行${activeStepLabel.value}`)
 const taskDescription = computed(() => job.value.message || (screen.value === 'submitting' ? '正在将两个文件完整上传至格式处理服务。' : stepData[activeStepIndex.value]?.description || '等待服务端任务状态更新。'))
 const currentTemplateName = computed(() => job.value.templateName || templateFile.value?.name || '学校格式模板')
 const currentSourceName = computed(() => job.value.sourceName || sourceFile.value?.name || '论文原稿.docx')
@@ -346,8 +356,17 @@ const resultMessage = computed(() => {
 const resultWarnings = computed(() => {
   const result = parseResult(job.value.result)
   const values = Array.isArray(job.value.warnings) ? job.value.warnings : result.warnings
-  return Array.isArray(values) ? values.filter(Boolean).slice(0, 20) : []
+  const reportWarnings = Array.isArray(result.formatReport?.warnings) ? result.formatReport.warnings : []
+  return [...new Set([...(Array.isArray(values) ? values : []), ...reportWarnings].filter(value => typeof value === 'string' && value.trim()))]
 })
+const formatReport = computed(() => parseResult(job.value.result).formatReport || {})
+const hasFormatReport = computed(() => Object.keys(formatReport.value).length > 0)
+const appliedFormatItems = computed(() => (Array.isArray(formatReport.value.applied) ? formatReport.value.applied : [])
+  .filter(item => item && typeof item.item === 'string' && item.item.trim())
+  .map(item => ({ item: item.item, count: Math.max(0, Number(item.count) || 0) })))
+const pendingFormatItems = computed(() => (Array.isArray(formatReport.value.notApplied) ? formatReport.value.notApplied : [])
+  .filter(item => item && typeof item.item === 'string' && item.item.trim())
+  .map(item => ({ item: item.item, reason: typeof item.reason === 'string' ? item.reason : '' })))
 const resultTemplateNotes = computed(() => {
   const result = parseResult(job.value.result)
   const values = Array.isArray(job.value.templateNotes) ? job.value.templateNotes : result.templateNotes
@@ -424,6 +443,7 @@ function inferStepIndex(currentJob, currentScreen, progress) {
     ANALYZING_SOURCE: 2,
     PROCESSING: 3,
     INTEGRITY_CHECK: 4,
+    FILE_CHECK: 4,
     COMPLETED: 5,
     FAILED: Math.min(4, Math.max(0, Math.floor(progress / 20)))
   }
@@ -764,6 +784,16 @@ onBeforeUnmount(stopPolling)
 .rule-evidence.unconfirmed { color: #876023; background: #fff4dc; }
 .rule-evidence p { margin: 5px 0 0; }
 .rule-evidence small { display: block; margin-top: 5px; }
+.format-report { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.format-report section { padding: 16px; border: 1px solid #dbeee4; border-radius: 14px; background: #f4fbf7; }
+.format-report h3 { margin: 0 0 12px; font-size: 15px; }
+.format-report ul { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; font-size: 12px; line-height: 1.6; }
+.format-report li { display: flex; justify-content: space-between; gap: 12px; overflow-wrap: anywhere; }
+.format-report li b { white-space: nowrap; }
+.format-report p { margin: 0; color: #747b91; font-size: 12px; line-height: 1.7; }
+.format-report .pending-format-items { background: #fffaf0; border-color: #eee2c6; }
+.pending-format-items li { display: grid; gap: 3px; }
+@media (max-width: 700px) { .format-report { grid-template-columns: 1fr; } }
 .rule-group header, .locked-rules header { display: flex; justify-content: space-between; align-items: center; }
 .rule-group header > span { color: #674fe1; background: #eeeaff; padding: 6px 12px; border-radius: 99px; }
 .locked-rules header > span { color: #a34e69; background: #fff0f5; padding: 6px 12px; border-radius: 99px; }

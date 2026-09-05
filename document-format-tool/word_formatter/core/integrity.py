@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-"""Strict, content-preservation checks for formatted DOCX files.
+"""Content-preservation diagnostics and delivery checks for formatted DOCX files.
 
-Formatting is allowed to change document/style/settings/footer XML, but it must
-not change the source's visible body text, semantic object counts, media,
-embedded objects, charts, or relationship graph.
+Strict callers reject detailed content differences. Format-first callers keep
+those diagnostics while permitting delivery after package validation and the
+unchanged-source check succeed.
 """
 
 from dataclasses import dataclass
@@ -62,10 +62,14 @@ class IntegrityResult:
     differences: dict[str, dict[str, Any]]
     source_sha256: str
     output_sha256: str
+    strict: bool = True
 
     def summary(self) -> dict[str, Any]:
         return {
             "passed": self.passed,
+            "mode": "strict" if self.strict else "format_first",
+            "basicChecksPassed": True,
+            "deliveryAllowed": self.passed or not self.strict,
             "differences": self.differences,
             "sourceSha256": self.source_sha256,
             "outputSha256": self.output_sha256,
@@ -205,7 +209,7 @@ def _relationships(package: zipfile.ZipFile, names: set[str]) -> dict[str, list[
     return result
 
 
-def inspect_docx(path: str | Path) -> dict[str, Any]:
+def inspect_docx(path: str | Path, *, validate_all_xml: bool = False) -> dict[str, Any]:
     source = Path(path)
     if not source.is_file() or source.stat().st_size == 0:
         raise IntegrityValidationError(f"DOCX 文件不存在或为空：{source.name}")
@@ -233,6 +237,15 @@ def inspect_docx(path: str | Path) -> dict[str, Any]:
                 raise IntegrityValidationError(f"DOCX ZIP 校验失败：{broken}")
 
             root = ET.fromstring(package.read("word/document.xml"))
+            # Generated output must be well-formed throughout. Input templates
+            # retain the existing inspection scope so repairable extension
+            # parts do not acquire a new pre-processing rejection condition.
+            if validate_all_xml:
+                for name in sorted(names):
+                    if name != "word/document.xml" and name.endswith((".xml", ".rels")):
+                        ET.fromstring(package.read(name))
+            if root.find("w:body", NS) is None:
+                raise IntegrityValidationError("DOCX 缺少正文 body")
             return {
                 "body_text_sha256": _text_hash(root),
                 "text_node_count": len(root.findall(".//w:t", NS)),
@@ -265,7 +278,9 @@ def validate_preservation(
     expected_source_sha256: str | None = None,
     allow_front_matter: bool = False,
     source_body_start: int = 1,
+    strict: bool = True,
 ) -> IntegrityResult:
+    """Always validate files; optionally make detailed differences non-blocking."""
     source = Path(source_path)
     output = Path(output_path)
     source_hash = sha256_file(source)
@@ -273,7 +288,7 @@ def validate_preservation(
         raise IntegrityValidationError("处理期间源文件发生变化，已拒绝交付输出")
 
     before = inspect_docx(source)
-    after = inspect_docx(output)
+    after = inspect_docx(output, validate_all_xml=True)
     differences = {
         key: {"before": before[key], "after": after[key]}
         for key in before
@@ -311,8 +326,9 @@ def validate_preservation(
         differences=differences,
         source_sha256=source_hash,
         output_sha256=sha256_file(output),
+        strict=strict,
     )
-    if not result.passed:
+    if strict and not result.passed:
         labels = "、".join(sorted(differences))
         raise IntegrityValidationError(f"严格完整性校验未通过：{labels}")
     return result

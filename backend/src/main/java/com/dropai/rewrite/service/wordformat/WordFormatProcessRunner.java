@@ -242,37 +242,7 @@ public class WordFormatProcessRunner {
                 );
                 throw new ProcessingException();
             }
-            JsonNode success = payload.get("success");
-            if (success == null || !success.isBoolean()) {
-                log.error("Word formatter result is missing a valid success flag: resultJson={}, payload={}", resultJson, payload);
-                throw new ProcessingException();
-            }
-            if (!success.asBoolean()) {
-                String failure = text(payload, "error", "message");
-                log.error("Word formatter reported a task failure: resultJson={}, reportedError={}, payload={}", resultJson, failure, payload);
-                throw new ProcessingException();
-            }
-            JsonNode integrityPassed = payload.path("integrity").get("passed");
-            if (integrityPassed == null || !integrityPassed.isBoolean() || !integrityPassed.asBoolean()) {
-                log.error("Word formatter integrity validation failed: resultJson={}, payload={}", resultJson, payload);
-                throw new ProcessingException();
-            }
-            int changedCount = integer(payload, "changedCount", "changed_count");
-            if (changedCount < 0) {
-                log.error("Word formatter returned an invalid changedCount: resultJson={}, payload={}", resultJson, payload);
-                throw new ProcessingException();
-            }
-            return new ProcessResult(
-                    changedCount,
-                    strings(payload, "warnings"),
-                    strings(payload, "templateNotes", "template_notes", "notes"),
-                    object(payload, "editableRules"),
-                    strings(payload, "lockedRules"),
-                    object(payload, "analysis"),
-                    object(payload, "analyzedRules"),
-                    object(payload, "templateAnalysis"),
-                    text(payload, "templateSha256")
-            );
+            return parseSuccessfulPayload(payload);
         } finally {
             streams.shutdownNow();
             if (process.isAlive()) {
@@ -286,6 +256,39 @@ public class WordFormatProcessRunner {
                              Consumer<ProgressEvent> progressConsumer) throws Exception {
         return run(source, template, output, resultJson, instructionsFile, useDoubao,
                 false, null, progressConsumer);
+    }
+
+    ProcessResult parseSuccessfulPayload(JsonNode payload) {
+        if (!isTrue(payload.get("success"))) {
+            log.error("Word formatter result does not report successful processing: payload={}", payload);
+            throw new ProcessingException();
+        }
+        JsonNode integrity = payload.path("integrity");
+        JsonNode passed = integrity.get("passed");
+        boolean formatFirst = "format_first".equals(integrity.path("mode").asText());
+        boolean deliverable = isTrue(integrity.get("basicChecksPassed")) && isTrue(integrity.get("deliveryAllowed"));
+        if (passed == null || !passed.isBoolean()
+                || (formatFirst ? !deliverable : !passed.asBoolean())) {
+            log.error("Word formatter result does not permit delivery: integrity={}", integrity);
+            throw new ProcessingException();
+        }
+        int changedCount = integer(payload, "changedCount", "changed_count");
+        if (changedCount < 0) {
+            log.error("Word formatter returned an invalid changedCount: payload={}", payload);
+            throw new ProcessingException();
+        }
+        return new ProcessResult(
+                changedCount, strings(payload, "warnings"),
+                strings(payload, "templateNotes", "template_notes", "notes"),
+                object(payload, "editableRules"), strings(payload, "lockedRules"),
+                object(payload, "analysis"), object(payload, "analyzedRules"),
+                object(payload, "templateAnalysis"), text(payload, "templateSha256"),
+                object(payload, "formatReport"), object(payload, "integrity")
+        );
+    }
+
+    private static boolean isTrue(JsonNode value) {
+        return value != null && value.isBoolean() && value.asBoolean();
     }
 
     private static void terminateProcessTree(Process process) {
@@ -478,7 +481,15 @@ public class WordFormatProcessRunner {
     public record ProcessResult(int changedCount, List<String> warnings, List<String> templateNotes,
                                 Map<String, Object> editableRules, List<String> lockedRules,
                                 Map<String, Object> analysis, Map<String, Object> analyzedRules,
-                                Map<String, Object> templateAnalysis, String templateSha256) {
+                                Map<String, Object> templateAnalysis, String templateSha256,
+                                Map<String, Object> formatReport, Map<String, Object> integrity) {
+        public ProcessResult(int changedCount, List<String> warnings, List<String> templateNotes,
+                             Map<String, Object> editableRules, List<String> lockedRules,
+                             Map<String, Object> analysis, Map<String, Object> analyzedRules,
+                             Map<String, Object> templateAnalysis, String templateSha256) {
+            this(changedCount, warnings, templateNotes, editableRules, lockedRules, analysis,
+                    analyzedRules, templateAnalysis, templateSha256, Map.of(), Map.of());
+        }
         public ProcessResult(int changedCount, List<String> warnings, List<String> templateNotes,
                              Map<String, Object> editableRules, List<String> lockedRules,
                              Map<String, Object> analysis) {

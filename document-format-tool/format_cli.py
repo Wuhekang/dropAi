@@ -9,6 +9,7 @@ The complete success/failure payload is always written atomically to
 
 import argparse
 from dataclasses import asdict
+from collections import Counter
 import json
 import math
 import os
@@ -37,9 +38,11 @@ from word_formatter.core.word_converter import WordConversionError, WordDocument
 from word_formatter.models.rules import (
     LOCKED_DOCUMENT_POLICY_NOTES,
     LOCKED_TABLE_POLICY_NOTE,
+    DEFAULT_LATIN_FONT,
     DocumentRules,
     ParagraphRule,
     TableRule,
+    apply_default_latin_fonts,
     enforce_locked_table_policy,
     enforce_locked_document_policy,
     font_size_name_for_points,
@@ -237,16 +240,22 @@ def _apply_confirmed_rules(rules: DocumentRules, path: Path | None) -> None:
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise CliInputError("确认规则必须是 JSON 对象")
+    analyzed_rules = payload.get("analyzedRules")
+    analyzed_rules = analyzed_rules if isinstance(analyzed_rules, dict) else {}
     payload = payload.get("editableRules", payload)
     if not isinstance(payload, dict):
         raise CliInputError("确认规则必须是 JSON 对象")
     mapping = {
-        ("body", "normal"): rules.normal_text,
-        ("headings", "level1"): rules.heading_1, ("headings", "level2"): rules.heading_2,
-        ("headings", "level3"): rules.heading_3, ("captions", "figure"): rules.figure_caption,
-        ("captions", "table"): rules.table_caption,
-        ("toc", "title"): rules.toc_title, ("toc", "level1"): rules.toc_1,
-        ("toc", "level2"): rules.toc_2, ("toc", "level3"): rules.toc_3,
+        ("body", "normal"): (rules.normal_text, "normal_text"),
+        ("headings", "level1"): (rules.heading_1, "heading_1"),
+        ("headings", "level2"): (rules.heading_2, "heading_2"),
+        ("headings", "level3"): (rules.heading_3, "heading_3"),
+        ("captions", "figure"): (rules.figure_caption, "figure_caption"),
+        ("captions", "table"): (rules.table_caption, "table_caption"),
+        ("toc", "title"): (rules.toc_title, "toc_title"),
+        ("toc", "level1"): (rules.toc_1, "toc_1"),
+        ("toc", "level2"): (rules.toc_2, "toc_2"),
+        ("toc", "level3"): (rules.toc_3, "toc_3"),
     }
     allowed = {
         "chineseFont": "chinese_font", "latinFont": "latin_font", "fontSizePt": "font_size_pt",
@@ -256,7 +265,7 @@ def _apply_confirmed_rules(rules: DocumentRules, path: Path | None) -> None:
         "multipleLineSpacing": "multiple_line_spacing",
         "bold": "bold", "alignment": "alignment",
     }
-    for keys, rule in mapping.items():
+    for keys, (rule, snapshot_key) in mapping.items():
         value = payload
         for key in keys:
             value = value.get(key, {}) if isinstance(value, dict) else {}
@@ -288,8 +297,34 @@ def _apply_confirmed_rules(rules: DocumentRules, path: Path | None) -> None:
             elif internal == "line_spacing_mode" and value[public] in {"single", "1.5", "double", "at_least", "fixed", "multiple"}:
                 rule.line_spacing_mode = value[public]
             elif isinstance(value[public], str) and value[public].strip():
-                setattr(rule, internal, value[public].strip()[:80])
+                requested = value[public].strip()[:80]
+                if internal == "latin_font":
+                    original_rule = analyzed_rules.get(snapshot_key, {})
+                    original = original_rule.get("latin_font") if isinstance(original_rule, dict) else None
+                    # Older forms submit every field even when untouched. The
+                    # unchanged inferred font migrates to the new default;
+                    # a different value is a customer edit and remains intact.
+                    if isinstance(original, str) and requested == original.strip():
+                        requested = DEFAULT_LATIN_FONT
+                setattr(rule, internal, requested)
+                if internal == "latin_font":
+                    # The formatter writes English and digits through the same
+                    # run font; keep the fallback consistent with a manual edit.
+                    rule.number_font = rule.latin_font
         rule.enabled = True
+
+
+def _forward_template_progress(event: dict[str, Any]) -> None:
+    """Show completed requests independently from successful rule recognition."""
+    total = max(0, int(event.get("total", 0)))
+    completed = max(0, min(total, int(event.get("completed", 0))))
+    if event.get("stage") == "map":
+        progress = 24 + (4 * completed // total if total else 0)
+        message = f"已完成 {completed}/{total} 个模板段落分析请求，正在核对返回结果"
+    else:
+        progress = 29
+        message = f"已完成 {completed}/{total} 个模板段落分析请求，正在整合格式要求"
+    emit_progress(progress, "analyzing_template", message)
 
 
 def _confirmed_number(value: Any, minimum: float, maximum: float) -> float:
@@ -334,6 +369,62 @@ def _analysis_summary(info: DocumentInfo) -> dict[str, Any]:
         "uncertainHeadingCount": len(info.uncertain_headings),
         "figureCaptionCount": len(info.figure_captions),
         "tableCaptionCount": len(info.table_captions),
+    }
+
+
+def _delivery_warnings(differences: dict[str, Any]) -> list[str]:
+    """Keep detailed comparisons visible without turning them into job failures."""
+    warnings = []
+    if "body_text_sha256" in differences:
+        warnings.append(
+            "文字对比存在差异，可能涉及封面替换、目录或交叉引用更新。"
+            "已按格式优先模式生成可下载文档，请核对摘要、正文和参考文献内容。"
+        )
+    object_keys = {"preserved_parts", "drawing_count", "pict_count", "blip_count", "table_count"}
+    if object_keys.intersection(differences):
+        warnings.append("图片、表格或嵌入对象的对比存在差异，请下载后核对相应内容；本项仅作提醒，不阻止下载。")
+    remaining = differences.keys() - object_keys - {"body_text_sha256"}
+    if remaining:
+        warnings.append("段落、分节、域或关系部件发生变化，已作为排版差异记录，不再阻止下载。")
+    return warnings
+
+
+def _format_report(result, rules: DocumentRules, warnings: list[str]) -> dict[str, Any]:
+    """Report executed operations, never imply that every issue was verified fixed."""
+    counts: Counter[str] = Counter()
+    seen = set()
+    not_applied = []
+    for record in result.records:
+        if record.status != "success":
+            not_applied.append({"item": record.item, "reason": record.reason or "未自动处理，请人工核对。"})
+            continue
+        # Word may cause the same TOC paragraph to be formatted twice.
+        identity = (record.item, record.paragraph_index)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        counts[record.item] += 1
+    expected = [
+        ("普通正文", rules.normal_text),
+        *[(f"{level} 级标题", getattr(rules, f"heading_{level}")) for level in range(1, 4)],
+        ("目录标题", rules.toc_title),
+        *[(f"目录 {level} 级", getattr(rules, f"toc_{level}")) for level in range(1, 4)],
+        ("图名", rules.figure_caption), ("表名", rules.table_caption),
+        ("参考文献条目", rules.reference),
+    ]
+    for item, rule in expected:
+        if counts[item]:
+            continue
+        reason = (
+            "未确认或启用此类格式，未自动套用，请按需核对。" if not rule.enabled
+            else "未定位到可处理的此类内容；原稿没有此项时可忽略，否则请人工核对。"
+        )
+        not_applied.append({"item": item, "reason": reason})
+    return {
+        "applied": [{"item": item, "count": count} for item, count in counts.items()],
+        "notApplied": not_applied,
+        "warnings": list(dict.fromkeys(warnings)),
+        "changedCount": result.changed_count,
     }
 
 
@@ -453,8 +544,9 @@ def run_job(args: argparse.Namespace) -> dict[str, Any]:
             template_notes = list(context.get("notes", [])) + list(extracted.notes)
             if getattr(args, "analyze_only", False) or confirmed_rules_file is not None:
                 current_progress = 24
-                emit_progress(current_progress, "ai_analyzing", "AI 正在先理解规范文字与封面用途，再并行填写正文、标题、目录和图表格式")
+                emit_progress(current_progress, "analyzing_template", "AI 正在按段落并发提取模板要求，随后统一整合（最多 32 路）")
                 parser = DoubaoRuleParser(api_key=api_key or None, model=model)
+                parser.template_progress_callback = _forward_template_progress
                 try:
                     rules, ai_notes = parser.analyze_template(rules, template_notes, context)
                 finally:
@@ -487,6 +579,9 @@ def run_job(args: argparse.Namespace) -> dict[str, Any]:
                 instruction_notes.extend(NaturalLanguageRuleParser().apply(instructions, rules))
         else:
             emit_progress(current_progress, "applying_rules", "正在应用已识别规则与客户确认值")
+        # Normalize template/AI/local-parser defaults (including old snapshots)
+        # before the final customer edit, so explicit latinFont stays editable.
+        apply_default_latin_fonts(rules)
         _apply_confirmed_rules(rules, confirmed_rules_file)
         enforce_locked_document_policy(rules)
         instruction_notes.append(LOCKED_TABLE_POLICY_NOTE)
@@ -526,14 +621,21 @@ def run_job(args: argparse.Namespace) -> dict[str, Any]:
         warnings.extend(processor_result.warnings)
 
         current_progress = 88
-        emit_progress(current_progress, "integrity_check", "正在校验文字、图片、表格、域、书签和关系部件完整性")
+        emit_progress(current_progress, "integrity_check", "正在检查输出文件可读取性并整理格式处理记录")
         integrity = validate_preservation(
             source,
             staging,
             expected_source_sha256=source_hash_before,
             allow_front_matter=True,
             source_body_start=source_body_start,
+            strict=False,
         )
+        # A valid ZIP alone is not enough: the main Word document must load.
+        Document(staging)
+        warnings.extend(_delivery_warnings(integrity.differences))
+        if not processor_result.changed_count:
+            warnings.append("格式流程已执行，但未记录新的格式调整；请核对原稿是否已符合确认规则。")
+        warnings = list(dict.fromkeys(warnings))
         if sha256_file(template) != template_hash_before:
             raise IntegrityValidationError("处理期间格式模板发生变化，已拒绝交付输出")
 
@@ -561,6 +663,7 @@ def run_job(args: argparse.Namespace) -> dict[str, Any]:
             "ruleSummary": rule_summary,
             "templateAnalysis": template_analysis,
             "integrity": integrity.summary(),
+            "formatReport": _format_report(processor_result, rules, warnings),
             "output": {
                 "fileName": output.name,
                 "sizeBytes": output.stat().st_size,
@@ -572,7 +675,7 @@ def run_job(args: argparse.Namespace) -> dict[str, Any]:
         _write_json_atomic(result_json, payload)
         delivery_committed = True
         try:
-            emit_progress(100, "completed", "格式处理和完整性校验已完成")
+            emit_progress(100, "completed", "格式处理完成，文档已可下载；请查看处理记录与核对提醒")
         except BrokenPipeError:
             pass
         return payload

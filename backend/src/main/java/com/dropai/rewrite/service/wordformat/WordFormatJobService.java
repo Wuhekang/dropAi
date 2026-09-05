@@ -264,9 +264,9 @@ public class WordFormatJobService {
                     job.rulesPath,
                     event -> job.progress(event.progress(), event.stage(), event.message())
             );
-            job.running(96, "integrity_check", "格式修改已完成，正在检查 DOCX 完整性");
+            job.running(96, "file_check", "格式处理已结束，正在检查结果文件是否可下载");
             validateStoredFile(job.outputPath, "docx", false);
-            job.success(Math.max(0, result.changedCount()), result.warnings(), result.templateNotes());
+            job.success(result);
         } catch (Exception exception) {
             cleanupFailedArtifacts(job);
             log.error(
@@ -646,6 +646,8 @@ public class WordFormatJobService {
         private Map<String, Object> analysis = Map.of();
         private Map<String, Object> analyzedRules = Map.of();
         private Map<String, Object> templateAnalysis = Map.of();
+        private Map<String, Object> formatReport = Map.of();
+        private Map<String, Object> integrity = Map.of();
         private String templateSha256 = "";
         private LocalDateTime updatedAt = createdAt;
 
@@ -696,16 +698,16 @@ public class WordFormatJobService {
             running(normalized, stage, detail);
         }
 
-        private synchronized void success(int changes, List<String> warnings, List<String> notes) {
+        private synchronized void success(WordFormatProcessRunner.ProcessResult result) {
             status = "SUCCESS";
             progress = 100;
             currentStage = "completed";
-            changedCount = changes;
-            this.warnings = immutable(warnings);
-            this.templateNotes = immutable(notes);
-            message = this.warnings.isEmpty()
-                    ? "论文已按学校模板完成格式修改"
-                    : "格式修改完成，请查看处理提示";
+            changedCount = Math.max(0, result.changedCount());
+            warnings = immutable(result.warnings());
+            templateNotes = immutable(result.templateNotes());
+            formatReport = result.formatReport() == null ? Map.of() : new LinkedHashMap<>(result.formatReport());
+            integrity = result.integrity() == null ? Map.of() : new LinkedHashMap<>(result.integrity());
+            message = "格式处理结果已生成，可下载；请按处理报告核对待处理项目";
             updatedAt = LocalDateTime.now();
         }
 
@@ -748,7 +750,9 @@ public class WordFormatJobService {
                     "editableRules", editableRules,
                     "lockedRules", lockedRules,
                     "analysis", analysis,
-                    "templateAnalysis", templateAnalysis
+                    "templateAnalysis", templateAnalysis,
+                    "formatReport", formatReport,
+                    "integrity", integrity
             )
                     : Map.of();
             return new WordFormatJobVO(

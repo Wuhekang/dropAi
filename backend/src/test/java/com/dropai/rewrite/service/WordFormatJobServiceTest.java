@@ -324,6 +324,58 @@ class WordFormatJobServiceTest {
         verify(runner, never()).run(any(), any(), any(), any(), any(), anyBoolean(), eq(false), any(), any());
     }
 
+    @Test
+    void deliverableFormatFirstResultHasDownloadAndPreservesPendingItems() throws Exception {
+        byte[] docx = document("已完成主要格式调整的论文");
+        WordFormatProcessRunner runner = mock(WordFormatProcessRunner.class);
+        service = service(runner);
+        Map<String, Object> report = Map.of("applied", List.of(Map.of("item", "正文", "count", 12)),
+                "notApplied", List.of(Map.of("item", "复杂域", "reason", "请人工核对")),
+                "warnings", List.of("部分内容保留原格式"), "changedCount", 12);
+        Map<String, Object> integrity = Map.of("passed", false, "mode", "format_first",
+                "basicChecksPassed", true, "deliveryAllowed", true);
+        when(runner.run(any(), any(), any(), any(), any(), anyBoolean(), eq(false), any(), any()))
+                .thenAnswer(invocation -> {
+                    Files.copy((Path) invocation.getArgument(0), (Path) invocation.getArgument(2));
+                    return new WordFormatProcessRunner.ProcessResult(12, List.of("部分内容保留原格式"), List.of(),
+                            Map.of(), List.of(), Map.of(), Map.of(), Map.of(), "", report, integrity);
+                });
+        AuthContext.setUserId(17L);
+        WordFormatJobVO submitted = service.submit(upload("template", "规范.docx", docx), upload("source", "论文.docx", docx), "", true);
+        confirmWhenReady(submitted.id());
+        WordFormatJobVO completed = waitForTerminal(submitted.id());
+        assertEquals("SUCCESS", completed.status());
+        assertNotNull(completed.downloadUrl());
+        assertEquals(report, completed.result().get("formatReport"));
+        assertEquals(integrity, completed.result().get("integrity"));
+        assertTrue(completed.message().contains("可下载"));
+        assertEquals(docx.length, service.download(submitted.id()).size());
+    }
+
+    @Test
+    void deliverableMarkerCannotMakeMissingOrBrokenOutputDownloadable() throws Exception {
+        byte[] docx = document("检查结果文件");
+        WordFormatProcessRunner runner = mock(WordFormatProcessRunner.class);
+        service = service(runner);
+        java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
+        when(runner.run(any(), any(), any(), any(), any(), anyBoolean(), eq(false), any(), any()))
+                .thenAnswer(invocation -> {
+                    if (calls.incrementAndGet() == 2) Files.write((Path) invocation.getArgument(2), new byte[]{1, 2, 3});
+                    return new WordFormatProcessRunner.ProcessResult(12, List.of(), List.of(),
+                            Map.of(), List.of(), Map.of(), Map.of(), Map.of(), "", Map.of(),
+                            Map.of("passed", false, "mode", "format_first", "basicChecksPassed", true, "deliveryAllowed", true));
+                });
+        AuthContext.setUserId(18L);
+        for (int index = 0; index < 2; index++) {
+            WordFormatJobVO submitted = service.submit(upload("template", "规范.docx", docx), upload("source", "论文.docx", docx), "", true);
+            confirmWhenReady(submitted.id());
+            WordFormatJobVO failed = waitForTerminal(submitted.id());
+            assertEquals("FAILED", failed.status());
+            assertEquals(null, failed.downloadUrl());
+            assertThrows(WordFormatJobService.JobNotReadyException.class, () -> service.download(submitted.id()));
+        }
+    }
+
     private WordFormatJobService service(WordFormatProcessRunner runner) throws Exception {
         return service(runner, 2);
     }

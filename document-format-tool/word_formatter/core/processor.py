@@ -24,6 +24,7 @@ from docxcompose.composer import Composer
 
 from word_formatter.core.analyzer import DocumentAnalyzer
 from word_formatter.core.finalizer import finalize_docx, is_red_font_value
+from word_formatter.core.template_text import known_content_title
 from word_formatter.core.word_converter import WordDocumentConverter
 from word_formatter.models.results import ChangeRecord, ProcessResult
 from word_formatter.models.rules import (
@@ -185,12 +186,9 @@ class DocumentProcessor:
                     result.warnings.append("未确认可复制的前置页范围，已保留原稿封面与声明。")
                     return source_doc
                 template_start = end + 1
-                # Never substitute the template's sample abstract for the
-                # author's abstract even when the source has a cached TOC.
-                for index, paragraph in enumerate(source_doc.paragraphs, 1):
-                    if re.fullmatch(r"(?:(?:中文|英文)?摘要|abstract)[:：]?", re.sub(r"\s+", "", paragraph.text), re.I):
-                        source_start = index
-                        break
+                # Preserve the author's abstract/preface even if the numbered
+                # body starts later. Cached TOC titles are not source content.
+                source_start = cls._retained_content_start(source_doc, source_start)
             if template_start <= 1:
                 result.warnings.append("模板未识别到独立前置页，保留论文原有前置内容。")
                 return source_doc
@@ -224,6 +222,43 @@ class DocumentProcessor:
             Composer(template_doc).append(source_doc)
             result.records.append(ChangeRecord(None, "模板前置内容", f"论文原前置段落 {max(0, source_start - 1)} 个", f"复制模板前置段落 {template_start - 1} 个", "固定系统规则"))
             return template_doc
+
+    @staticmethod
+    def _retained_content_start(document, fallback: int) -> int:
+        paragraphs = document.paragraphs
+        index = 0
+        field_depth = 0
+        for child in document.element.body:
+            in_field = field_depth > 0
+            field_nodes = child.xpath(".//w:fldChar | .//w:fldSimple | .//w:instrText")
+            for node in field_nodes:
+                if node.tag != qn("w:fldChar"):
+                    continue
+                kind = node.get(qn("w:fldCharType"))
+                if kind == "begin":
+                    field_depth += 1
+                elif kind == "end":
+                    field_depth = max(0, field_depth - 1)
+            if child.tag != qn("w:p"):
+                continue
+            index += 1
+            # This helper may move the retained range earlier to include the
+            # author's abstract/preface, never later into an existing chapter.
+            if index > fallback:
+                break
+            paragraph = paragraphs[index - 1]
+            style = paragraph.style
+            identity = f"{style.style_id if style else ''} {style.name if style else ''}"
+            if in_field or field_nodes or re.search(r"(?:^|\s)TOC\s*\d+|目录\s*\d+", identity, re.I):
+                continue
+            title = known_content_title(paragraph.text)
+            if title is not None and title not in {"目录", "contents", "tableofcontents"}:
+                return index
+            # A later cached TOC can make _main_content_start's fallback too
+            # late. Stop at the first real heading outside fields/TOC styles.
+            if DocumentAnalyzer.recognized_heading_level(paragraph) == 1:
+                return index
+        return fallback
 
     @staticmethod
     def _remove_template_review_artifacts(document, content_start: int) -> int:
@@ -430,6 +465,25 @@ class DocumentProcessor:
         paragraphs = document.paragraphs
         if not paragraphs:
             return 1
+        # Cached field results may contain "摘要"/"Abstract" or heading-like
+        # text. They are not the author's real content start.
+        field_paragraphs = set()
+        field_depth = 0
+        paragraph_index = 0
+        for child in document.element.body:
+            in_field = field_depth > 0
+            nodes = child.xpath(".//w:fldChar | .//w:fldSimple | .//w:instrText")
+            for node in nodes:
+                if node.tag == qn("w:fldChar"):
+                    kind = node.get(qn("w:fldCharType"))
+                    if kind == "begin":
+                        field_depth += 1
+                    elif kind == "end":
+                        field_depth = max(0, field_depth - 1)
+            if child.tag == qn("w:p"):
+                paragraph_index += 1
+                if in_field or nodes:
+                    field_paragraphs.add(paragraph_index)
         toc_indexes = []
         for index, paragraph in enumerate(paragraphs, start=1):
             style = paragraph.style
@@ -441,6 +495,8 @@ class DocumentProcessor:
         # level-3 numbered heading. Anchor the body at a top-level heading so
         # the complete cover/statement section survives the merge.
         for index in range(search_from, len(paragraphs) + 1):
+            if index in field_paragraphs:
+                continue
             paragraph = paragraphs[index - 1]
             text = paragraph.text.strip()
             if not text:

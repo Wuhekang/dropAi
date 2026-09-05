@@ -82,9 +82,29 @@ def _table_text(table) -> str:
     return "\n".join(rows)
 
 
+def known_content_title(text: str) -> str | None:
+    """Recognize standalone content titles, allowing a trailing formatting note.
+
+    Parentheses on arbitrary headings or prose are not stripped. This only
+    accepts a known title and an annotation that actually mentions formatting.
+    """
+    compact = re.sub(r"\s+", "", text)
+    match = re.fullmatch(
+        r"((?:中文|英文)?摘要|abstract|目录|contents|tableofcontents|绪论|引言|前言|preface|introduction)"
+        r"[:：]?(?:（([^（）]{1,100})）|\(([^()]{1,100})\))?[:：]?",
+        compact, re.I,
+    )
+    if match is None:
+        return None
+    annotation = match.group(2) or match.group(3)
+    if annotation and not _RULE.search(annotation):
+        return None
+    return match.group(1).casefold()
+
+
 def _content_boundary(text: str) -> bool:
     compact = re.sub(r"\s+", "", text)
-    if re.fullmatch(r"(?:中文|英文)?摘要[:：]?|Abstract[:：]?|目录[:：]?|绪论|引言|前言", compact, re.I):
+    if known_content_title(text) is not None:
         return True
     if len(compact) < 90 and _SPEC_TITLE.search(compact):
         return True
@@ -138,7 +158,7 @@ def _front_candidate(body_blocks: list[dict], paragraph_count: int) -> tuple[dic
         candidate = {"startParagraph": 1, "endParagraph": end, "evidenceIds": list(dict.fromkeys(evidence))}
     if candidate:
         hint = "mixed" if rule_blocks >= 3 else "template"
-        notes = ["已确认文档开头存在真实封面/声明内容；仅允许 AI 决定是否使用该前置范围，不能自行扩大复制范围。"]
+        notes = ["已从模板正文验证可复制的真实封面/声明范围；AI 可进一步核对，未完成时仍采用已验证范围，不能扩大范围或复制规范正文。"]
     elif spec_at_start or rule_blocks >= 3:
         hint = "specification"
         notes = ["未确认可复制的真实前置页：此文档按撰写规范读取，封面要求及“见附件”说明不会作为封面粘贴。"]

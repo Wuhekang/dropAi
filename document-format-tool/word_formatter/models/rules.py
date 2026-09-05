@@ -13,6 +13,7 @@ SpecialIndentMode = Literal["none", "first_line", "hanging"]
 SpacingUnit = Literal["line", "pt"]
 TableBorderStyle = Literal["three_line", "grid", "none"]
 VerticalAlignment = Literal["top", "center", "bottom"]
+DEFAULT_LATIN_FONT = "Times New Roman"
 
 # 中国大陆 WPS“字号”下拉框使用的标准字号与磅值映射。
 CHINESE_FONT_SIZES: dict[str, float] = {
@@ -63,8 +64,8 @@ class PageSetupRule(RuleBase):
 @dataclass(slots=True)
 class ParagraphRule(RuleBase):
     chinese_font: str = "宋体"
-    latin_font: str = "Times New Roman"
-    number_font: str = "Times New Roman"
+    latin_font: str = DEFAULT_LATIN_FONT
+    number_font: str = DEFAULT_LATIN_FONT
     font_size_name: str = "小四"
     font_size_pt: float = 12.0
     bold: bool = False
@@ -252,6 +253,21 @@ LOCKED_TABLE_POLICY_NOTE = (
 )
 
 
+def apply_default_latin_fonts(rules: DocumentRules) -> DocumentRules:
+    """Normalize inferred defaults before applying the customer's explicit edits.
+
+    A school's Chinese font declaration or a Word run's ASCII fallback must
+    not become the English default. This is intentionally separate from the
+    locked policies so a later latinFont confirmation remains editable.
+    """
+    for item in fields(rules):
+        rule = getattr(rules, item.name)
+        if isinstance(rule, ParagraphRule):
+            rule.latin_font = DEFAULT_LATIN_FONT
+            rule.number_font = DEFAULT_LATIN_FONT
+    return rules
+
+
 def enforce_locked_table_policy(rules: DocumentRules) -> DocumentRules:
     """Apply the non-overridable formatting contract for body data tables.
 
@@ -264,8 +280,8 @@ def enforce_locked_table_policy(rules: DocumentRules) -> DocumentRules:
     table = rules.table
     table.enabled = True
     table.chinese_font = "宋体"
-    table.latin_font = "宋体"
-    table.number_font = "宋体"
+    table.latin_font = DEFAULT_LATIN_FONT
+    table.number_font = DEFAULT_LATIN_FONT
     table.font_size_name = "小四"
     table.font_size_pt = 12.0
     table.bold = False

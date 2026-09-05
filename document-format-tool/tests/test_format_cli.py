@@ -231,7 +231,7 @@ class FormatCliTests(unittest.TestCase):
             table_rule = payload["ruleSummary"]["table"]
             self.assertEqual(table_rule["borderStyle"], "three_line")
             self.assertEqual(table_rule["chineseFont"], "宋体")
-            self.assertEqual(table_rule["latinFont"], "宋体")
+            self.assertEqual(table_rule["latinFont"], "Times New Roman")
             self.assertEqual(table_rule["fontSizeName"], "小四")
             self.assertEqual(table_rule["fontSizePt"], 12.0)
             self.assertFalse(table_rule["bold"])
@@ -298,7 +298,7 @@ class FormatCliTests(unittest.TestCase):
             self.assertTrue(table_rule["enabled"])
             self.assertEqual(table_rule["borderStyle"], "three_line")
             self.assertEqual(table_rule["chineseFont"], "宋体")
-            self.assertEqual(table_rule["latinFont"], "宋体")
+            self.assertEqual(table_rule["latinFont"], "Times New Roman")
             self.assertEqual(table_rule["fontSizeName"], "小四")
             self.assertEqual(table_rule["fontSizePt"], 12.0)
             self.assertFalse(table_rule["bold"])

@@ -21,8 +21,12 @@
   表格与单元格内容居中、宋体小四、零缩进、全表不加粗；封面布局表和
   含公式的排版表继续保留原样。
 - 原稿始终只读，输出必须使用一个尚不存在的新路径。
-- 完成前严格比较正文文字、图片、嵌入对象、图表、表格/分节、域、书签、
-  内容控件和 OOXML 关系；任何内容丢失都会以非零退出码结束。
+- Web/CLI 默认采用“格式优先”交付：处理完成且输出 DOCX 可读取、原稿与模板
+  未被改动时即可下载。正文文字哈希、图表/分节、域、书签和关系部件等细致
+  比较仅作为风险提醒，不再把这些差异直接变成任务失败。
+- `formatReport` 按实际执行记录列出已处理项，以及未确认/未匹配的待人工核对项；
+  它是处理记录，不代表系统已人工验收每个格式问题。坏文件、处理异常、输出
+  覆盖冲突等仍会拒绝交付，原稿不会被覆盖。
 
 Linux/macOS 不提供 Microsoft Word COM。上传 `.doc` 或 `.dotx` 模板时 CLI
 会明确返回 `LEGACY_TEMPLATE_UNSUPPORTED`，不会尝试低保真转换。生产容器
@@ -63,6 +67,34 @@ python -X utf8 document-format-tool/format_cli.py `
 - `DOUBAO_MODEL`
 - 可选 `DOUBAO_BASE_URL`；未设置时也会兼容项目已有的 `DOUBAO_ENDPOINT`，并自动去掉 `/chat/completions`
 
+模板 AI 使用“段落并行提取 → 总体整合”，不再先串行等待整份文档用途判断。
+相邻短段按最多 4 段、合计最多 160 字的小批派发，每段仍保留独立证据编号，
+封面候选与正文、批注分别分组；长段分片。超过 64 个批次时按相邻文字量分组，每份模板最多
+64 个分段请求及 1 个整合请求，同时在途最多 32 个。单次读取前 48000 字符，
+超出部分明确提示人工核对。总体整合只能选择已经校验过的字段值与证据；
+某段或整合超时时保留其余有效结果，不将空 JSON 计为成功识别的格式。
+一次任务共用一个线程安全的 HTTP 客户端与连接池，所有分段及整合结束后才关闭。
+无字段冲突时由本地索引直接完成总体整合（`local_complete`），不重复请求 AI 确认
+相同结果；只有冲突字段才进入一次 AI 裁决。裁决返回紧凑的事实编号列表，由本地
+索引恢复字段，不会改动已有确定结果。
+
+- `DOUBAO_FORMAT_AI_CONCURRENCY`：单个模板的并发上限，默认 32，范围 1–32。
+  这是每个模板内部的并发，与服务端同时处理的任务数不同；多任务时应按 API 配额调低。
+- `DOUBAO_FORMAT_AI_TIMEOUT_SECONDS`：每个请求的超时，默认 45 秒，范围 8–60。
+  不自动重试超时请求；32 路并发不代表不会限流或超时。
+- `DOUBAO_FORMAT_AI_FAST_MODE`：默认 true，请求关闭深度思考、使用 JSON 对象输出；
+  不支持这些参数的兼容模型可设为 false。输出上限为 4096 tokens。
+- 分段进度实时写入 `analyzing_template` 事件，分析结果的
+  `templateAnalysis.parallelAnalysis` 保存请求数、成功返回数、整合状态、耗时与脱敏异常类型。
+
+若部分 AI 用途分析未完成，已经由程序验证边界及真实文字证据的封面/声明范围
+仍可供客户确认；无可靠候选范围的规范说明不会复制。模板识别结束后英文与数字
+默认使用 Times New Roman，再应用客户明确修改的字体值。
+
+字号名称与磅值按同一字段合并证据和优先级（例如“小二”与 18 磅），避免全文
+通用字号覆盖某一级标题的专门要求。替换封面时需保护原稿最早正文起点，后续
+章节中出现“引言”等标题不能成为删除前文的依据。
+
 Web 首次调用加 `--analyze-only`，结果包含 `editableRules`、`analyzedRules`、
 `templateAnalysis` 和 `templateSha256`。后端保存完整规则与用途判断，确认时将
 服务器保存的这三个分析字段和客户修改的 `editableRules` 写入 `--rules-file`。
@@ -100,11 +132,17 @@ stdout 只写逐行 UTF-8 JSON，并在每行后立即 flush：
   "instructionNotes": [],
   "analysis": {},
   "ruleSummary": {},
-  "integrity": {"passed": true},
+  "integrity": {"passed": true, "mode": "format_first", "basicChecksPassed": true, "deliveryAllowed": true, "differences": {}},
+  "formatReport": {"applied": [{"item": "普通正文", "count": 12}], "notApplied": [], "warnings": [], "changedCount": 12},
   "output": {"fileName": "result.docx", "sizeBytes": 1234, "sha256": "..."},
   "error": null
 }
 ```
+
+`integrity.passed` 表示细致比较是否一致，不等同于是否可交付。新模式下后端必须
+同时确认 `mode=format_first`、`basicChecksPassed=true` 和 `deliveryAllowed=true`；
+旧版严格模式仍要求 `passed=true`。核心库 `validate_preservation` 的默认严格行为
+不变，只有显式 `strict=False` 才将细致差异降级为提示。
 
 失败结果仍保留相同的核心字段，并增加 `errorCode`、`errorType`，其中
 `error` 是可直接展示的简短字符串。Java 后端不得依赖服务器绝对路径；CLI

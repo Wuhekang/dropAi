@@ -210,7 +210,8 @@ class DocumentProcessorTableTests(unittest.TestCase):
                 self.assertIsNotNone(fonts)
                 assert fonts is not None
                 for slot in ("eastAsia", "ascii", "hAnsi", "cs"):
-                    self.assertEqual(fonts.get(qn(f"w:{slot}")), "宋体", slot)
+                    expected_font = "宋体" if slot == "eastAsia" else "Times New Roman"
+                    self.assertEqual(fonts.get(qn(f"w:{slot}")), expected_font, slot)
                 for theme_slot in (
                     "asciiTheme",
                     "hAnsiTheme",
@@ -226,7 +227,7 @@ class DocumentProcessorTableTests(unittest.TestCase):
             self.assertTrue(rules.table.enabled)
             self.assertEqual(rules.table.border_style, "three_line")
             self.assertEqual(rules.table.chinese_font, "宋体")
-            self.assertEqual(rules.table.latin_font, "宋体")
+            self.assertEqual(rules.table.latin_font, "Times New Roman")
             self.assertEqual(rules.table.font_size_pt, 12.0)
             self.assertFalse(rules.table.bold)
             self.assertFalse(rules.table.header_row_bold)
