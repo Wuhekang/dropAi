@@ -14,10 +14,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 class PlatformRouteIsolationTest {
     private static final String DEFAULT_SKILL_RESOURCE = "skills/humanize-zh-academic/SKILL.md";
     private static final String DEFAULT_SKILL_SHA256 =
-            "87e97ce28ac8a8b2995e8c03a4020f0b976762388467a5d3c518aef1e5e3bcf6";
+            "440a5e76f540cf5dfaaf9c89f5b1585d339b7772b14ba12307cc71d22a974d39";
+    private static final String DAYA_SKILL_SHA256 =
+            "c51fc3653c43b2a77de721c75bd419f7a1d22f7528a9dfb4d5562485a4a49d56";
 
     @Test
-    void generalKeepsTheExistingDefaultSkillGoldenWhileDayaStaysIsolated() throws Exception {
+    void nativeSkillCanChangeWhileTheDayaSkillRemainsGoldenAndIsolated() throws Exception {
         String defaultSkill = new ClassPathResource(DEFAULT_SKILL_RESOURCE)
                 .getContentAsString(StandardCharsets.UTF_8)
                 .replace("\r\n", "\n")
@@ -34,7 +36,9 @@ class PlatformRouteIsolationTest {
         String dayaSkillHash = sha256(catalog.load(XuejiePlatform.DAYA)
                 .replace("\r\n", "\n").replace('\r', '\n'));
 
-        assertThat(dayaSkillHash).isNotEqualTo(DEFAULT_SKILL_SHA256);
+        assertThat(dayaSkillHash)
+                .isEqualTo(DAYA_SKILL_SHA256)
+                .isNotEqualTo(DEFAULT_SKILL_SHA256);
     }
 
     private String sha256(String value) {

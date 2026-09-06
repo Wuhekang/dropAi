@@ -464,10 +464,12 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
     private List<RewriteTarget> collectRewriteTargets(DocumentRewriteJobVO job, XWPFDocument document) {
         List<XWPFParagraph> paragraphs = collectParagraphs(document);
         List<RewriteTarget> targets = new ArrayList<>();
+        boolean rewriteAbstractBody = shouldRewriteAbstractBody(job);
         boolean useAbstractBoundary = paragraphs.stream()
                 .map(XWPFParagraph::getText)
                 .map(text -> text == null ? "" : text.trim())
-                .anyMatch(this::isAbstractSectionTitle);
+                .anyMatch(text -> isAbstractSectionTitle(text)
+                        || (rewriteAbstractBody && isInlineAbstractParagraph(text)));
         if (!useAbstractBoundary && !hasCatalogBoundary(document)) {
             throw new IllegalArgumentException("未识别到摘要或目录，无法确定正文处理起点");
         }
@@ -481,6 +483,12 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
                 if (useAbstractBoundary && isAbstractSectionTitle(trimmed)) {
                     boundaryReached = true;
                     inBody = true;
+                } else if (useAbstractBoundary && rewriteAbstractBody && isInlineAbstractParagraph(trimmed)) {
+                    boundaryReached = true;
+                    inBody = true;
+                    if (shouldRewriteBodyParagraph(paragraph, trimmed, job.getMode())) {
+                        targets.add(new RewriteTarget(index, paragraph, trimmed));
+                    }
                 } else if (!useAbstractBoundary && isBodyStartTitle(trimmed)) {
                     boundaryReached = true;
                     inBody = true;
@@ -492,6 +500,15 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             }
             if (isAbstractSectionTitle(trimmed) || isBodyStartTitle(trimmed)) {
                 inBody = true;
+                continue;
+            }
+            if (isInlineAbstractParagraph(trimmed)) {
+                inBody = rewriteAbstractBody;
+                if (rewriteAbstractBody) {
+                    if (shouldRewriteBodyParagraph(paragraph, trimmed, job.getMode())) {
+                        targets.add(new RewriteTarget(index, paragraph, trimmed));
+                    }
+                }
                 continue;
             }
             if (isFrontMatterSectionTitle(trimmed) || isKeywordLine(trimmed)) {
@@ -1008,14 +1025,23 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
         return text.matches("^(摘要|摘\\s*要|Abstract|ABSTRACT)$");
     }
 
+    private boolean isInlineAbstractParagraph(String text) {
+        return text.matches("^(摘\\s*要|Abstract|ABSTRACT)\\s*[:：]\\s*\\S.*$");
+    }
+
+    private boolean shouldRewriteAbstractBody(DocumentRewriteJobVO job) {
+        String mode = job == null || job.getMode() == null ? "" : job.getMode().trim();
+        String platform = job == null || job.getPlatform() == null ? "GENERAL" : job.getPlatform().trim();
+        return ("humanize".equals(mode) || "double".equals(mode))
+                && !"DAYA".equalsIgnoreCase(platform);
+    }
+
     private boolean isTrailingProtectedSectionTitle(String text) {
         return text.matches("^(参考文献|致谢|附录|作者简介|声明|原创性声明|学位论文原创性声明|评阅意见|学术评价)$");
     }
 
     private boolean isFrontMatterLine(String text) {
         return isKeywordLine(text)
-                || text.matches("^摘\\s*要[:：].*$")
-                || text.matches("^Abstract[:：].*$")
                 || text.matches("^.{0,12}(学院|专业|班级|学生|姓名|学号|指导教师|导师|日期)[:：].*$")
                 || text.matches("^第\\s*\\d+\\s*页\\s*(共\\s*\\d+\\s*页)?$");
     }

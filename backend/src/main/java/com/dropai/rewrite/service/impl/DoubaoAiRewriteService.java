@@ -25,6 +25,8 @@ import java.util.Map;
 @Service
 public class DoubaoAiRewriteService implements AiRewriteService {
 
+    private static final String NATIVE_HUMANIZE_SKILL = "humanize-zh-academic";
+
     private final ThreadLocal<String> lastCallProvider = new ThreadLocal<>();
     private final DoubaoProperties properties;
     private final ObjectMapper objectMapper;
@@ -140,9 +142,17 @@ public class DoubaoAiRewriteService implements AiRewriteService {
             return bodyOnlyProtectionPrompt() + "\n" + rewriteSystemPrompt();
         }
         if (isHumanizeMode(baseRewriteType)) {
+            if (usesNativeAcademicSkill(rewriteType)) {
+                return nativeHumanizeProtectionPrompt() + "\n"
+                        + skillPromptService.loadSkill(NATIVE_HUMANIZE_SKILL);
+            }
             return bodyOnlyProtectionPrompt() + "\n" + humanizeSystemPrompt();
         }
         if (isDoubleMode(baseRewriteType)) {
+            if (usesNativeAcademicSkill(rewriteType)) {
+                return nativeHumanizeProtectionPrompt() + "\n"
+                        + skillPromptService.loadSkill(NATIVE_HUMANIZE_SKILL);
+            }
             return bodyOnlyProtectionPrompt() + "\n" + doubleSystemPrompt();
         }
         return bodyOnlyProtectionPrompt() + "\n" + """
@@ -176,6 +186,22 @@ public class DoubaoAiRewriteService implements AiRewriteService {
                 @RestController、@Service、@Component、@Mapper、@RequestMapping、@GetMapping、@PostMapping、public class、private、protected、SELECT、INSERT、UPDATE、DELETE、<template>、<script>、<style>。
 
                 仅处理正文自然语言段落。
+                """;
+    }
+
+    private String nativeHumanizeProtectionPrompt() {
+        return """
+                【DropAI 原生降AI内容保护：最高优先级规则】
+                当前输入若属于自然语言段落，必须按以下规则改写；结构性内容保持原样。
+
+                允许改写：
+                中文摘要正文、英文摘要正文以及各章节正文自然语言段落。
+
+                必须原样保留：
+                封面、目录、摘要标题、英文摘要标题、关键词、英文关键词、参考文献、致谢、声明页、代码块、表格、图片说明、图标题、图注、表标题、公式、图表编号、引用编号、章节标题、小节标题、编号体系、页眉页脚、页码和格式。
+
+                对当前合格自然语言段落必须产生真实文字变化，至少调整一处词语、语序或句式。
+                只改变标点、空白或换行不算完成；不得直接返回原文。
                 """;
     }
 
@@ -307,6 +333,13 @@ public class DoubaoAiRewriteService implements AiRewriteService {
 
     private boolean isLengthControlMode(String rewriteType) {
         return "字数控制压缩".equals(rewriteType);
+    }
+
+    private boolean usesNativeAcademicSkill(String rewriteType) {
+        return switch (platformCode(rewriteType)) {
+            case "GENERAL", "CNKI", "WEIPU", "WANFANG", "GEZIDA" -> true;
+            default -> false;
+        };
     }
 
     private String displayModeName(String rewriteType) {

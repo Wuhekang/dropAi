@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 
 @Service
 public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
@@ -36,14 +37,20 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
     public WorkflowRewriteResult execute(String originalText, String rewriteType) {
         List<WorkflowStepVO> steps = new ArrayList<>();
         String preparedText = preprocess(originalText);
-        TextStructureProtector.ProtectedText protectedText = textStructureProtector.protect(preparedText);
+        boolean requireSubstantiveRewrite = requiresSubstantiveNativeRewrite(rewriteType);
+        TextStructureProtector.ProtectedText protectedText = textStructureProtector.protect(
+                preparedText, requireSubstantiveRewrite
+        );
         String baseRewriteType = baseRewriteType(rewriteType);
         String platformName = platformName(platformCode(rewriteType));
         steps.add(new WorkflowStepVO("TEXT_PREPROCESS", "文本预处理", "清理多余空白并保留原始语义边界"));
+        String protectedContentName = requireSubstantiveRewrite
+                ? "数字、引用、摘要标签、表格、代码或URL"
+                : "参考文献、表格、代码或URL";
         steps.add(new WorkflowStepVO("STRUCTURE_PROTECT", "结构保护",
                 protectedText.protectedCount() == 0
-                        ? "未发现需要保护的表格、代码、URL 或参考文献"
-                        : "已锁定 " + protectedText.protectedCount() + " 处表格、代码、URL 或参考文献，改写后原样恢复"));
+                        ? "未发现需要保护的" + protectedContentName
+                        : "已锁定 " + protectedText.protectedCount() + " 处" + protectedContentName + "，改写后原样恢复"));
 
         AiAnalyzeVO originalRisk = AiRiskAnalyzeUtil.analyze(preparedText);
         steps.add(new WorkflowStepVO("AI_TRACE_ANALYZE", "AI痕迹分析 Skill",
@@ -54,6 +61,17 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
 
         String sentenceRewritten = rewriteSentences(protectedText.text(), rewriteType, originalRisk.getScore(), "");
         sentenceRewritten = protectedText.restore(sentenceRewritten);
+        if (requireSubstantiveRewrite && !hasSubstantiveTextChange(preparedText, sentenceRewritten)) {
+            String retryFeedback = "上一版与原文相同或只调整了标点、空白。当前段落已经由系统筛选为可改写正文，"
+                    + "必须按照原生降AI Skill至少重组一处词语、语序或句式；仅改标点和空白不算完成，不得返回原文。";
+            String retried = rewriteSentences(protectedText.text(), rewriteType, originalRisk.getScore(), retryFeedback);
+            sentenceRewritten = protectedText.restore(retried);
+            steps.add(new WorkflowStepVO("UNCHANGED_RETRY", "原文返回重试",
+                    "首轮没有产生真实文字变化，已携带明确反馈重试一次"));
+            if (!hasSubstantiveTextChange(preparedText, sentenceRewritten)) {
+                throw new IllegalStateException("模型连续两次未产生真实文字变化，当前段落未计为改写成功");
+            }
+        }
         String sentenceProvider = aiRewriteService.lastCallProvider();
         steps.add(new WorkflowStepVO("SENTENCE_REWRITE", "分句改写 Skill",
                 "按句处理，约束为不改变核心含义、不新增虚假案例、不只做同义词替换；调用：" + sentenceProvider));
@@ -113,12 +131,11 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
                 || "深度降低AI写作痕迹".equals(rewriteType)
                 || "双降".equals(rewriteType)
                 || (!rewriteOnlyType && risk.getScore() >= 45)) {
-            rules.add("低扰动局部改写");
+            rules.add("逐段进行实质改写");
             rules.add("禁止语义扩写");
-            rules.add("仅处理正文自然语言段落");
-            rules.add("保护摘要关键词标题代码表格公式引用");
-            rules.add("每300字最多新增约30字");
-            rules.add("保留原句结构可还原");
+            rules.add("处理摘要正文和各章节正文自然语言段落");
+            rules.add("保护摘要标题、关键词、章节标题、代码、表格、公式和引用");
+            rules.add("不允许原样返回或只改变标点空白");
             rules.add("减少模板化连接词");
             rules.add("避免句式完全对齐");
         }
@@ -216,6 +233,39 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
             case "GEZIDA" -> "格子达";
             default -> "通用";
         };
+    }
+
+    private boolean requiresSubstantiveNativeRewrite(String rewriteType) {
+        String baseRewriteType = baseRewriteType(rewriteType);
+        boolean aiReductionType = "humanize".equals(baseRewriteType)
+                || "double".equals(baseRewriteType)
+                || "智能降AI".equals(baseRewriteType)
+                || "降低AI写作痕迹".equals(baseRewriteType)
+                || "深度降低AI写作痕迹".equals(baseRewriteType)
+                || "双降增强".equals(baseRewriteType)
+                || "双降".equals(baseRewriteType);
+        if (!aiReductionType) {
+            return false;
+        }
+        return switch (platformCode(rewriteType)) {
+            case "GENERAL", "CNKI", "WEIPU", "WANFANG", "GEZIDA" -> true;
+            default -> false;
+        };
+    }
+
+    private boolean hasSubstantiveTextChange(String originalText, String rewrittenText) {
+        if (rewrittenText == null || rewrittenText.isBlank()) {
+            return false;
+        }
+        return !comparableText(originalText).equals(comparableText(rewrittenText));
+    }
+
+    private String comparableText(String text) {
+        if (text == null) {
+            return "";
+        }
+        return text.replaceAll("[\\p{P}\\p{Z}\\p{C}\\s]+", "")
+                .toLowerCase(Locale.ROOT);
     }
 
     private QualityCheckVO qualityCheck(String originalText, String rewrittenText) {

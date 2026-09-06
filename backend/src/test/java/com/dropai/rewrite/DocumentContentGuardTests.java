@@ -93,6 +93,48 @@ class DocumentContentGuardTests {
     }
 
     @Test
+    void rewritesInlineChineseAndEnglishAbstractBodies() throws Exception {
+        try (XWPFDocument document = new XWPFDocument()) {
+            document.createParagraph().createRun().setText("封面文字");
+            document.createParagraph().createRun().setText("摘要：本文围绕平台资料核对流程展开研究。 ");
+            document.createParagraph().createRun().setText("关键词：平台；资料");
+            document.createParagraph().createRun().setText("Abstract: This study examines the document review workflow.");
+            document.createParagraph().createRun().setText("Keywords: platform; document");
+            document.createParagraph().createRun().setText("1.绪论");
+            document.createParagraph().createRun().setText("这是需要处理的第一章正文段落。");
+            document.createParagraph().createRun().setText("参考文献");
+
+            List<?> targets = collectRewriteTargets(document);
+
+            assertThat(targets).hasSize(3);
+        }
+    }
+
+    @Test
+    void pureRewriteDoesNotExpandItsScopeToInlineAbstractBodies() throws Exception {
+        try (XWPFDocument document = new XWPFDocument()) {
+            document.createParagraph().createRun().setText("封面文字");
+            document.createParagraph().createRun().setText("目录");
+            document.createParagraph().createRun().setText("摘要：本文围绕平台资料核对流程展开研究。");
+            document.createParagraph().createRun().setText("关键词：平台；资料");
+            document.createParagraph().createRun().setText("1.绪论");
+            document.createParagraph().createRun().setText("这是需要处理的第一章正文段落。");
+            document.createParagraph().createRun().setText("参考文献");
+
+            Method method = DocumentRewriteServiceImpl.class.getDeclaredMethod(
+                    "collectRewriteTargets", DocumentRewriteJobVO.class, XWPFDocument.class
+            );
+            method.setAccessible(true);
+            DocumentRewriteJobVO job = new DocumentRewriteJobVO();
+            job.setMode("rewrite");
+
+            List<?> targets = (List<?>) method.invoke(service, job, document);
+
+            assertThat(targets).hasSize(1);
+        }
+    }
+
+    @Test
     void fallsBackToCatalogAndStartsAtFirstBodyHeadingWhenAbstractIsMissing() throws Exception {
         try (XWPFDocument document = new XWPFDocument()) {
             document.createParagraph().createRun().setText("封面文字");
