@@ -269,8 +269,9 @@ final class DayaRewriteQualityRules {
 
     /**
      * Non-negotiable acceptance checks for every narrative segment written to the document.
-     * Heuristic risk labels are intentionally absent: they choose the review strategy, while
-     * this gate ensures the result is a substantive, structurally safe rewrite.
+     * Similarity is intentionally not a final rejection condition: it requests a review pass,
+     * while this gate only blocks unchanged text and violations of the Skill's hard structure
+     * rules.
      */
     static void validateRequiredRewrite(String original, String rewritten) {
         if (containsLineBreak(rewritten)) {
@@ -281,14 +282,12 @@ final class DayaRewriteQualityRules {
         if (!source.isEmpty() && source.equals(candidate)) {
             throw new IllegalStateException("大雅改写仅调整了标点或空白，未重建段落表达");
         }
+        if (!source.isEmpty() && candidate.contains(source)) {
+            throw new IllegalStateException("大雅改写完整保留原段后追加内容，未按 Skill 重组原句");
+        }
         boolean enumeration = DayaEnumerationRules.requiresBreak(original);
         validateRewrite(original, rewritten, enumeration);
         DayaEnumerationRules.validateRewrite(original, rewritten);
-
-        double similarity = trigramDice(source, candidate);
-        if (isRetrySimilarity(source, candidate, similarity)) {
-            throw new IllegalStateException("大雅改写与原段高度相似，仍属于近义词式微调");
-        }
     }
 
     static boolean hasImplicitEnumeration(String text) {

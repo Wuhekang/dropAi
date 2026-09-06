@@ -348,10 +348,12 @@ class PlatformDoubaoDocumentProcessorTest {
     }
 
     @Test
-    void highSimilarityModelOutputPreventsPublishingAPartiallyRewrittenDocument() throws Exception {
-        Path source = temporaryDirectory.resolve("same-output-source.docx");
-        Path output = temporaryDirectory.resolve("same-output-result.docx");
-        writeTwoBodyParagraphFixture(source);
+    void modifiedHighSimilarityOutputIsAcceptedWhenItPassesTheSkillRules() throws Exception {
+        Path source = temporaryDirectory.resolve("similar-output-source.docx");
+        Path output = temporaryDirectory.resolve("similar-output-result.docx");
+        String original = "雨后两天，监理在北侧基坑发现一处积水。";
+        String rewritten = "雨后两天，监理在北侧基坑看到一处积水。";
+        writeSingleBodyFixture(source, "第一章 绪论", original);
         PlatformDoubaoRewriteGateway gateway = mock(PlatformDoubaoRewriteGateway.class);
         when(gateway.configured()).thenReturn(true);
         AtomicInteger calls = new AtomicInteger();
@@ -359,24 +361,58 @@ class PlatformDoubaoDocumentProcessorTest {
                 .thenAnswer(invocation -> {
                     calls.incrementAndGet();
                     List<PlatformDoubaoRewriteGateway.Segment> segments = invocation.getArgument(0);
-                    Map<String, String> rewritten = new LinkedHashMap<>();
-                    rewritten.put(segments.get(0).id(),
-                            segments.get(0).text().replace("足够多", "较多"));
-                    if (segments.size() > 1) {
-                        rewritten.put(segments.get(1).id(), segments.get(1).text()
-                                .replace("第二段研究内容主要包括现场记录、原始依据以及复核结论，只有真正发生变化时才增加改写计数。",
-                                        "只有中文事实确实经过重新组织，第二段正文才应纳入改写数量。"));
-                    }
-                    return rewritten;
+                    assertThat(segments).hasSize(1);
+                    return Map.of(segments.get(0).id(), rewritten);
                 });
         PlatformDoubaoDocumentProcessor processor = processor(gateway);
 
-        assertThatThrownBy(() -> processor.process(
-                source, output, XuejiePlatform.DAYA, XuejieRewriteMode.HUMANIZE, null))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("不生成部分文档");
-        assertThat(calls).hasValue(2);
-        assertThat(output).doesNotExist();
+        PlatformDoubaoDocumentProcessor.ProcessingResult result = processor.process(
+                source, output, XuejiePlatform.DAYA, XuejieRewriteMode.HUMANIZE, null);
+
+        assertThat(calls).hasValue(1);
+        assertThat(result.rewrittenParagraphs()).isEqualTo(1);
+        assertThat(result.failedParagraphs()).isZero();
+        assertThat(output).exists();
+        try (InputStream stream = Files.newInputStream(output);
+             XWPFDocument document = new XWPFDocument(stream)) {
+            assertThat(document.getParagraphs().get(1).getText()).isEqualTo(rewritten);
+        }
+    }
+
+    @Test
+    void restoredProtectedFactsDoNotTurnAModifiedHighSimilarityDraftIntoAFailure() throws Exception {
+        Path source = temporaryDirectory.resolve("protected-similar-output-source.docx");
+        Path output = temporaryDirectory.resolve("protected-similar-output-result.docx");
+        String original = "项目采用AHP模型，投资5000万元，工期为30天，复核记录仍保存在台账中。";
+        String rewritten = "项目采用AHP模型，投资5000万元，工期为30天，复核意见仍保存在台账中。";
+        writeSingleBodyFixture(source, "第一章 绪论", original);
+        PlatformDoubaoRewriteGateway gateway = mock(PlatformDoubaoRewriteGateway.class);
+        when(gateway.configured()).thenReturn(true);
+        when(gateway.rewriteBatch(anyList(), eq(XuejiePlatform.DAYA), eq(XuejieRewriteMode.HUMANIZE)))
+                .thenAnswer(invocation -> {
+                    List<PlatformDoubaoRewriteGateway.Segment> segments = invocation.getArgument(0);
+                    assertThat(segments).hasSize(1);
+                    assertThat(segments.get(0).text())
+                            .contains("[[DROP_AI_PROTECTED_0]]", "[[DROP_AI_PROTECTED_1]]",
+                                    "[[DROP_AI_PROTECTED_2]]")
+                            .doesNotContain("AHP", "5000", "30");
+                    return Map.of(segments.get(0).id(),
+                            segments.get(0).text().replace("复核记录", "复核意见"));
+                });
+        PlatformDoubaoDocumentProcessor processor = processor(gateway);
+
+        assertThat(DayaRewriteQualityRules.assess(original, rewritten).risks())
+                .contains(DayaRewriteQualityRules.Risk.HIGH_SIMILARITY);
+        PlatformDoubaoDocumentProcessor.ProcessingResult result = processor.process(
+                source, output, XuejiePlatform.DAYA, XuejieRewriteMode.HUMANIZE, null);
+
+        assertThat(result.rewrittenParagraphs()).isEqualTo(1);
+        assertThat(result.failedParagraphs()).isZero();
+        assertThat(output).exists();
+        try (InputStream stream = Files.newInputStream(output);
+             XWPFDocument document = new XWPFDocument(stream)) {
+            assertThat(document.getParagraphs().get(1).getText()).isEqualTo(rewritten);
+        }
     }
 
     @Test

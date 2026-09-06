@@ -306,39 +306,33 @@ class DayaRewriteQualityRulesTest {
     }
 
     @Test
-    void finalGateRejectsNearSimilarityAfterTheReviewStages() {
+    void similarityTriggersReviewButDoesNotRejectAModifiedCandidate() {
         String original = "县域水利部门依托现场台账建立了造价审核流程，工作人员结合施工图纸、验收记录和签证资料核对工程量，确认结果后保存全部复核依据。";
         String nearSynonym = "县域水利部门依托现场台账建立了造价审核流程，工作人员结合施工图纸、验收记录和签证资料核对工程量，确认结果后保存全部复核材料。";
         String severalSynonyms = "县域水利部门借助现场台账建立起造价审核流程，工作人员结合施工图纸、验收记录和签证资料复核工程量，确认结论后保存全部复核依据。";
 
         assertThat(DayaRewriteQualityRules.assess(original, nearSynonym).risks())
                 .contains(DayaRewriteQualityRules.Risk.HIGH_SIMILARITY);
-        assertThatIllegalStateException()
-                .isThrownBy(() -> DayaRewriteQualityRules.validateFinal(original, nearSynonym))
-                .withMessageContaining("高度相似");
+        assertThatCode(() -> DayaRewriteQualityRules.validateFinal(original, nearSynonym))
+                .doesNotThrowAnyException();
         assertThat(DayaRewriteQualityRules.assess(original, severalSynonyms).risks())
                 .contains(DayaRewriteQualityRules.Risk.HIGH_SIMILARITY);
-        assertThatIllegalStateException()
-                .isThrownBy(() -> DayaRewriteQualityRules.validateFinal(original, severalSynonyms))
-                .withMessageContaining("高度相似");
+        assertThatCode(() -> DayaRewriteQualityRules.validateFinal(original, severalSynonyms))
+                .doesNotThrowAnyException();
     }
 
     @Test
-    void requiredGateRejectsOneWordReplacementInAShortParagraph() {
+    void requiredGateAcceptsModifiedShortParagraphsDespiteSimilarity() {
         String original = "现场资料归入项目档案，复核意见仍留在台账中。";
         String oneWordReplacement = "现场资料放入项目档案，复核意见仍留在台账中。";
         String rebuilt = "台账留着复核意见，现场材料另存项目档案。";
         String parallelOriginal = "建设单位核对现场资料，监理单位复查台账。";
         String localNounReplacement = "建设方核对现场材料，监理方复查工作台账。";
 
-        assertThatIllegalStateException()
-                .isThrownBy(() -> DayaRewriteQualityRules.validateRequiredRewrite(
-                        original, oneWordReplacement))
-                .withMessageContaining("高度相似");
-        assertThatIllegalStateException()
-                .isThrownBy(() -> DayaRewriteQualityRules.validateRequiredRewrite(
-                        parallelOriginal, localNounReplacement))
-                .withMessageContaining("高度相似");
+        assertThatCode(() -> DayaRewriteQualityRules.validateRequiredRewrite(
+                original, oneWordReplacement)).doesNotThrowAnyException();
+        assertThatCode(() -> DayaRewriteQualityRules.validateRequiredRewrite(
+                parallelOriginal, localNounReplacement)).doesNotThrowAnyException();
         assertThatCode(() -> DayaRewriteQualityRules.validateRequiredRewrite(original, rebuilt))
                 .doesNotThrowAnyException();
     }
@@ -353,18 +347,20 @@ class DayaRewriteQualityRulesTest {
     }
 
     @Test
-    void requiredGateRejectsCopyingTheOriginalIntoDifferentLengthText() {
+    void requiredGateAllowsSimilarCompressionButRejectsCopyThenAppend() {
         String original = "监理查看施工图和现场签证，工程量复核意见记在当天台账中，相关凭证仍由项目部保存。";
         String copiedThenExpanded = original + "这些材料以后还可继续查看。";
         String copiedExcerpt = "监理查看施工图和现场签证，工程量复核意见记在当天台账中。";
 
+        assertThat(DayaRewriteQualityRules.assess(original, copiedThenExpanded).risks())
+                .contains(DayaRewriteQualityRules.Risk.HIGH_SIMILARITY);
+        assertThat(DayaRewriteQualityRules.assess(original, copiedExcerpt).risks())
+                .contains(DayaRewriteQualityRules.Risk.HIGH_SIMILARITY);
         assertThatIllegalStateException()
                 .isThrownBy(() -> DayaRewriteQualityRules.validateRequiredRewrite(
                         original, copiedThenExpanded))
-                .withMessageContaining("高度相似");
-        assertThatIllegalStateException()
-                .isThrownBy(() -> DayaRewriteQualityRules.validateRequiredRewrite(
-                        original, copiedExcerpt))
-                .withMessageContaining("高度相似");
+                .withMessageContaining("完整保留原段后追加内容");
+        assertThatCode(() -> DayaRewriteQualityRules.validateRequiredRewrite(
+                original, copiedExcerpt)).doesNotThrowAnyException();
     }
 }

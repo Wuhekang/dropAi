@@ -218,7 +218,7 @@ class PlatformDoubaoRewriteGatewayTest {
     }
 
     @Test
-    void dayaRejectsAReviewedDraftThatOnlySwapsSynonyms() {
+    void dayaAcceptsAReviewedDraftThatChangesTextDespiteHighSimilarity() {
         String original = "县域水利部门依托现场台账建立了造价审核流程，工作人员结合施工图纸、验收记录和签证资料核对工程量，确认结果后保存全部复核依据。";
         String firstDraft = "县域水利部门依托现场台账建立了造价审核流程。工作人员结合施工图纸、验收记录和签证资料核对工程量。确认结果后保存全部复核依据。";
         String secondDraft = "县域水利部门借助现场台账建立起造价审核流程。工作人员结合施工图纸、验收记录和签证资料复核工程量。确认结论后保存全部复核依据。";
@@ -232,7 +232,28 @@ class PlatformDoubaoRewriteGatewayTest {
                         "p12", original, "4.1 造价审核")),
                 XuejiePlatform.DAYA,
                 XuejieRewriteMode.HUMANIZE))
-                .containsExactly(Map.entry("p12", original));
+                .containsExactly(Map.entry("p12", secondDraft));
+        verify(doubao, times(2)).complete(anyString(), anyString(), anyInt());
+    }
+
+    @Test
+    void dayaKeepsAModifiedHighSimilarityFirstDraftWhenReviewFails() {
+        String original = "现场资料归入项目档案，复核意见仍留在台账中。";
+        String firstDraft = "现场资料放入项目档案，复核意见仍留在台账中。";
+        when(doubao.complete(anyString(), anyString(), anyInt()))
+                .thenReturn(
+                        "{\"segments\":[{\"id\":\"p13\",\"text\":\"" + firstDraft + "\"}]}",
+                        "{\"segments\":[]}");
+
+        assertThat(DayaRewriteQualityRules.assess(original, firstDraft).risks())
+                .contains(DayaRewriteQualityRules.Risk.HIGH_SIMILARITY);
+        assertThat(gateway.rewriteBatch(
+                List.of(new PlatformDoubaoRewriteGateway.Segment(
+                        "p13", original, "4.1 档案管理")),
+                XuejiePlatform.DAYA,
+                XuejieRewriteMode.HUMANIZE))
+                .containsExactly(Map.entry("p13", firstDraft))
+                .doesNotContainValue(original);
         verify(doubao, times(2)).complete(anyString(), anyString(), anyInt());
     }
 
