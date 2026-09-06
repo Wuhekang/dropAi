@@ -59,6 +59,8 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
         String strategy = planStrategy(baseRewriteType, originalRisk) + "；平台约束：" + platformName;
         steps.add(new WorkflowStepVO("REWRITE_PLAN", "改写策略规划 Skill", strategy));
 
+        boolean unchangedRetryUsed = false;
+        String unchangedRetryDescription = "";
         String sentenceRewritten = rewriteSentences(protectedText.text(), rewriteType, originalRisk.getScore(), "");
         sentenceRewritten = protectedText.restore(sentenceRewritten);
         if (requireSubstantiveRewrite && !hasSubstantiveTextChange(preparedText, sentenceRewritten)) {
@@ -66,19 +68,12 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
                     + "必须按照原生降AI Skill至少重组一处词语、语序或句式；仅改标点和空白不算完成，不得返回原文。";
             String retried = rewriteSentences(protectedText.text(), rewriteType, originalRisk.getScore(), retryFeedback);
             sentenceRewritten = protectedText.restore(retried);
-            steps.add(new WorkflowStepVO("UNCHANGED_RETRY", "原文返回重试",
-                    "首轮没有产生真实文字变化，已携带明确反馈重试一次"));
+            unchangedRetryUsed = true;
+            unchangedRetryDescription = "首轮模型输出没有产生真实文字变化，已携带明确反馈重试一次";
             if (!hasSubstantiveTextChange(preparedText, sentenceRewritten)) {
                 throw new IllegalStateException("模型连续两次未产生真实文字变化，当前段落未计为改写成功");
             }
         }
-        String sentenceProvider = aiRewriteService.lastCallProvider();
-        steps.add(new WorkflowStepVO("SENTENCE_REWRITE", "分句改写 Skill",
-                "按句处理，约束为不改变核心含义、不新增虚假案例、不只做同义词替换；调用：" + sentenceProvider));
-
-        String polished = academicPolish(sentenceRewritten, baseRewriteType);
-        steps.add(new WorkflowStepVO("ACADEMIC_POLISH", "学术风格润色 Skill",
-                "统一论文语气，减少口语化和过度扩写"));
 
         boolean aiReductionType = "humanize".equals(baseRewriteType)
                 || "double".equals(baseRewriteType)
@@ -89,8 +84,34 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
                 || "智能降重".equals(baseRewriteType)
                 || "降重复改写".equals(baseRewriteType);
         boolean useModelHumanize = !aiReductionType && !rewriteOnlyType && originalRisk.getScore() >= 45;
+        String polished = academicPolish(sentenceRewritten, baseRewriteType);
         String finalText = humanizeExpression(polished, useModelHumanize);
-        String finalProvider = useModelHumanize ? aiRewriteService.lastCallProvider() : sentenceProvider;
+        if (requireSubstantiveRewrite && !hasSubstantiveTextChange(preparedText, finalText)) {
+            if (unchangedRetryUsed) {
+                throw new IllegalStateException("最终清洗后仍未产生真实文字变化，当前段落未计为改写成功");
+            }
+            String retryFeedback = "上一版虽然返回了内容，但经格式恢复和模板词清理后与原文相同。"
+                    + "请改动正文中的实际词语、语序或句式，不要只新增会被清理的连接词，也不得返回原文。";
+            String retried = rewriteSentences(protectedText.text(), rewriteType, originalRisk.getScore(), retryFeedback);
+            sentenceRewritten = protectedText.restore(retried);
+            unchangedRetryUsed = true;
+            unchangedRetryDescription = "首轮最终结果经清洗后回到原文，已携带明确反馈重试一次";
+            polished = academicPolish(sentenceRewritten, baseRewriteType);
+            finalText = humanizeExpression(polished, useModelHumanize);
+            if (!hasSubstantiveTextChange(preparedText, finalText)) {
+                throw new IllegalStateException("模型重试后的最终结果仍未产生真实文字变化，当前段落未计为改写成功");
+            }
+        }
+
+        String sentenceProvider = aiRewriteService.lastCallProvider();
+        String finalProvider = sentenceProvider;
+        if (unchangedRetryUsed) {
+            steps.add(new WorkflowStepVO("UNCHANGED_RETRY", "原文返回重试", unchangedRetryDescription));
+        }
+        steps.add(new WorkflowStepVO("SENTENCE_REWRITE", "分句改写 Skill",
+                "按句处理，约束为不改变核心含义、不新增虚假案例、不只做同义词替换；调用：" + sentenceProvider));
+        steps.add(new WorkflowStepVO("ACADEMIC_POLISH", "学术风格润色 Skill",
+                "统一论文语气，减少口语化和过度扩写"));
         steps.add(new WorkflowStepVO("HUMAN_EXPRESSION_ADJUST", "人工化表达调整 Skill",
                 useModelHumanize
                         ? "调用模型进行自然化表达调整，再用规则移除高频模板词；调用：" + finalProvider
@@ -264,7 +285,7 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
         if (text == null) {
             return "";
         }
-        return text.replaceAll("[\\p{P}\\p{Z}\\p{C}\\s]+", "")
+        return text.replaceAll("[\\p{P}\\p{S}\\p{Z}\\p{C}\\s]+", "")
                 .toLowerCase(Locale.ROOT);
     }
 

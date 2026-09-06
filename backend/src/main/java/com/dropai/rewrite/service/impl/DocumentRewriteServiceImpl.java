@@ -39,6 +39,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.ArrayList;
@@ -564,7 +565,10 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             List<RewriteResult> mergedResults = new ArrayList<>();
             mergedResults.addAll(failedRewriteResults);
             mergedResults.addAll(humanizeResults);
-            return applyLengthControl(job, humanizeTargets, mergedResults, rule, "double_final", 1);
+            List<RewriteResult> finalResults = applyLengthControl(
+                    job, targets, mergedResults, rule, "double_final", 1
+            );
+            return rejectUnchangedFinalResults(job, targets, finalResults);
         }
 
         List<RewriteResult> results = rewriteTargetsConcurrently(job, targets, job.getMode(), job.getModeName());
@@ -572,7 +576,8 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             logLengthMetrics(job, "rewrite_no_retry", lengthMetrics(rule.originalLength(), results), 0);
             return results;
         }
-        return applyLengthControl(job, targets, results, rule, job.getMode(), 1);
+        List<RewriteResult> finalResults = applyLengthControl(job, targets, results, rule, job.getMode(), 1);
+        return rejectUnchangedFinalResults(job, targets, finalResults);
     }
 
     private List<RewriteResult> applyLengthControl(
@@ -641,7 +646,9 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             int originalLength = textLength(originalText);
             if (!compressed.isBlank()
                     && compressedLength < beforeLength
-                    && compressedLength >= Math.max(1, (int) Math.floor(originalLength * 0.55))) {
+                    && compressedLength >= Math.max(1, (int) Math.floor(originalLength * 0.55))
+                    && (!requiresSubstantiveFinalRewrite(job)
+                    || hasSubstantiveDocumentChange(originalText, compressed))) {
                 int resultIndex = adjusted.indexOf(candidate);
                 adjusted.set(resultIndex, new RewriteResult(
                         candidate.index(),
@@ -656,6 +663,58 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             }
         }
         return adjusted;
+    }
+
+    private List<RewriteResult> rejectUnchangedFinalResults(
+            DocumentRewriteJobVO job,
+            List<RewriteTarget> originalTargets,
+            List<RewriteResult> results
+    ) {
+        if (!requiresSubstantiveFinalRewrite(job)) {
+            return results;
+        }
+        Map<Integer, String> originalTextByIndex = originalTargets.stream()
+                .collect(Collectors.toMap(RewriteTarget::index, RewriteTarget::text, (left, right) -> left));
+        List<RewriteResult> guarded = new ArrayList<>(results.size());
+        for (RewriteResult result : results) {
+            String originalText = originalTextByIndex.getOrDefault(result.index(), "");
+            if (result.success() && !hasSubstantiveDocumentChange(originalText, result.rewrittenText())) {
+                String message = "最终结果与原文相同或只改变了标点空白，未计为改写成功";
+                updateParagraphStatus(job, result.index(), "FAILED", originalText, message);
+                guarded.add(new RewriteResult(
+                        result.index(), result.paragraph(), originalText, false, message
+                ));
+            } else {
+                guarded.add(result);
+            }
+        }
+        return guarded;
+    }
+
+    private boolean requiresSubstantiveFinalRewrite(DocumentRewriteJobVO job) {
+        if (job == null || !("humanize".equals(job.getMode()) || "double".equals(job.getMode()))) {
+            return false;
+        }
+        String platform = job.getPlatform() == null ? "GENERAL" : job.getPlatform().trim().toUpperCase(Locale.ROOT);
+        return switch (platform) {
+            case "GENERAL", "CNKI", "WEIPU", "WANFANG", "GEZIDA" -> true;
+            default -> false;
+        };
+    }
+
+    private boolean hasSubstantiveDocumentChange(String originalText, String rewrittenText) {
+        if (rewrittenText == null || rewrittenText.isBlank()) {
+            return false;
+        }
+        return !comparableDocumentText(originalText).equals(comparableDocumentText(rewrittenText));
+    }
+
+    private String comparableDocumentText(String text) {
+        if (text == null) {
+            return "";
+        }
+        return text.replaceAll("[\\p{P}\\p{S}\\p{Z}\\p{C}\\s]+", "")
+                .toLowerCase(Locale.ROOT);
     }
 
     private String compressForLength(String text, String originalText, int targetLength) {

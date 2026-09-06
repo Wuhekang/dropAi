@@ -437,8 +437,8 @@ async function handleDocumentAction() {
 
 async function submitDocument() {
   if (!selectedDocument.value || !documentPrecheck.ready) return
-  const retryingFailedDaya = externalDocumentPlatform.value && documentJob.status === 'FAILED'
-  if (retryingFailedDaya) documentPrecheck.requestId = createRequestId()
+  const retryingFailedDocument = documentJob.status === 'FAILED'
+  if (retryingFailedDocument) documentPrecheck.requestId = createRequestId()
   documentUploading.value = true
   resetDocumentJob()
   setDocProgress(10, '正在拆分文本段落...')

@@ -54,6 +54,19 @@ class DefaultWorkflowRewriteServiceTest {
     }
 
     @Test
+    void nativeHumanizeDoesNotTreatAnAddedSymbolAsARealRewrite() {
+        AiRewriteService aiRewriteService = mock(AiRewriteService.class);
+        when(aiRewriteService.rewriteWithFeedback(anyString(), anyString(), anyInt(), anyString()))
+                .thenReturn(ORIGINAL + "✅", "平台复核资料，现场情况另行记录。");
+        DefaultWorkflowRewriteService service = service(aiRewriteService);
+
+        assertThat(service.execute(ORIGINAL, "humanize").getRewrittenText())
+                .isEqualTo("平台复核资料，现场情况另行记录。");
+        verify(aiRewriteService, times(2))
+                .rewriteWithFeedback(anyString(), anyString(), anyInt(), anyString());
+    }
+
+    @Test
     void nativeHumanizeFailsWhenRetryStillHasNoSubstantiveChange() {
         AiRewriteService aiRewriteService = mock(AiRewriteService.class);
         when(aiRewriteService.rewriteWithFeedback(anyString(), anyString(), anyInt(), anyString()))
@@ -77,6 +90,41 @@ class DefaultWorkflowRewriteServiceTest {
 
         assertThat(service.execute(ORIGINAL, "humanize@CNKI").getRewrittenText()).isEqualTo(changed);
         verify(aiRewriteService, times(1))
+                .rewriteWithFeedback(anyString(), anyString(), anyInt(), anyString());
+    }
+
+    @Test
+    void nativeHumanizeRetriesWhenAcademicPolishTurnsTheDraftBackIntoTheOriginal() {
+        AiRewriteService aiRewriteService = mock(AiRewriteService.class);
+        String original = "该平台记录了较多资料。";
+        when(aiRewriteService.rewriteWithFeedback(anyString(), anyString(), anyInt(), anyString()))
+                .thenReturn("该平台记录了很多资料。", "较多资料由该平台记录。 ");
+        DefaultWorkflowRewriteService service = service(aiRewriteService);
+
+        WorkflowRewriteService.WorkflowRewriteResult result = service.execute(original, "humanize");
+
+        assertThat(result.getRewrittenText()).isEqualTo("较多资料由该平台记录。 ".trim());
+        ArgumentCaptor<String> feedback = ArgumentCaptor.forClass(String.class);
+        verify(aiRewriteService, times(2))
+                .rewriteWithFeedback(anyString(), anyString(), anyInt(), feedback.capture());
+        assertThat(feedback.getAllValues().get(1)).contains("格式恢复和模板词清理后与原文相同");
+        assertThat(result.getWorkflowSteps())
+                .extracting(step -> step.getNodeType())
+                .contains("UNCHANGED_RETRY");
+    }
+
+    @Test
+    void nativeHumanizeFailsWhenBothFinalDraftsCollapseBackIntoTheOriginal() {
+        AiRewriteService aiRewriteService = mock(AiRewriteService.class);
+        String original = "该平台记录了较多资料。";
+        when(aiRewriteService.rewriteWithFeedback(anyString(), anyString(), anyInt(), anyString()))
+                .thenReturn("该平台记录了很多资料。", "该平台记录了很多资料。");
+        DefaultWorkflowRewriteService service = service(aiRewriteService);
+
+        assertThatThrownBy(() -> service.execute(original, "humanize"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("重试后的最终结果仍未产生真实文字变化");
+        verify(aiRewriteService, times(2))
                 .rewriteWithFeedback(anyString(), anyString(), anyInt(), anyString());
     }
 
