@@ -154,7 +154,15 @@ public class XuejieExternalDocumentRewriteService {
             deleteQuietly(resultPath(jobId));
             boolean refunded = refund(jobId, featureCode, featureName, costPoints,
                     "本机豆包平台适配处理失败");
-            update(jobId, "FAILED", null, 0, 0, !refunded,
+            Integer failedTotal = null;
+            int failedProcessed = 0;
+            int failedRewritten = 0;
+            if (exception instanceof PlatformDoubaoDocumentProcessor.DayaProcessingException failure) {
+                failedTotal = failure.totalParagraphs();
+                failedProcessed = failure.processedParagraphs();
+                failedRewritten = failure.rewrittenParagraphs();
+            }
+            update(jobId, "FAILED", failedTotal, failedProcessed, failedRewritten, !refunded,
                     "平台适配处理失败：" + compact(exception.getMessage())
                             + (refunded ? "；DropAI 预扣积分已退回" : ""));
             stateRepository.stage(jobId, XuejieExternalJobStateRepository.FAILED,
@@ -195,15 +203,24 @@ public class XuejieExternalDocumentRewriteService {
 
     void finalizeSuccessfulJob(String jobId, String platformName,
                                PlatformDoubaoDocumentProcessor.ProcessingResult result) {
-        if (result.totalParagraphs() != result.processedParagraphs()
-                || result.processedParagraphs() != result.rewrittenParagraphs()
+        if (result.totalParagraphs() <= 0
+                || result.processedParagraphs() < 0
+                || result.rewrittenParagraphs() < 0
+                || result.failedParagraphs() < 0
+                || result.totalParagraphs() != result.processedParagraphs()
+                || result.rewrittenParagraphs() > result.processedParagraphs()
+                || result.rewrittenParagraphs() + result.failedParagraphs()
+                > result.processedParagraphs()
                 || result.failedParagraphs() != 0) {
-            throw new IllegalStateException("大雅全文改写结果不完整，拒绝发布夹带原文的部分文档");
+            throw new IllegalStateException("大雅结果状态不完整：存在未处理段或硬失败，拒绝发布");
         }
+        int preserved = result.preservedParagraphs();
+        String completion = result.processedParagraphs() + " 个可处理段落均已获得有效模型结果，"
+                + result.rewrittenParagraphs() + " 段文字有修改，"
+                + preserved + " 段经模型处理后文字保持不变";
         update(jobId, "SUCCESS", result.totalParagraphs(), result.processedParagraphs(),
                 result.rewrittenParagraphs(), true,
-                platformName + " Skill 全文适配完成，"
-                        + result.rewrittenParagraphs() + " 个可处理段落均已实质改写，结果文件已生成");
+                platformName + " Skill 全文适配完成，" + completion + "，结果文件已生成");
         stateRepository.stage(jobId, XuejieExternalJobStateRepository.COMPLETED,
                 null, "doubao_completed");
     }

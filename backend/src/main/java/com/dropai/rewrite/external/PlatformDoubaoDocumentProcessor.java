@@ -119,24 +119,26 @@ public class PlatformDoubaoDocumentProcessor {
             int processed = 0;
             int rewritten = 0;
             int failed = 0;
-            List<String> failureMessages = new ArrayList<>();
+            List<String> preservationMessages = new ArrayList<>();
             List<ParagraphRewrite> acceptedRewrites = new ArrayList<>();
             for (BatchResult batchResult : completedBatches) {
                 processed += batchResult.targetCount();
                 rewritten += batchResult.rewrites().size();
                 failed += batchResult.failed();
-                for (String message : batchResult.failureMessages()) {
-                    if (failureMessages.size() >= 3) break;
-                    failureMessages.add(message);
+                for (String message : batchResult.preservationMessages()) {
+                    if (preservationMessages.size() >= 3) break;
+                    preservationMessages.add(message);
                 }
                 acceptedRewrites.addAll(batchResult.rewrites());
             }
 
-            int incomplete = Math.max(failed, processed - rewritten);
-            if (failed > 0 || rewritten != processed) {
-                throw new IllegalStateException("大雅全文改写尚有 " + incomplete
-                        + " 段未生成可用结果；为避免夹带未改原文，本次不生成部分文档"
-                        + (failureMessages.isEmpty() ? "" : "：" + String.join("；", failureMessages)));
+            if (failed > 0) {
+                throw new DayaProcessingException(
+                        "大雅全文改写尚有 " + failed
+                                + " 段未通过不可放宽的完整性校验；本次不生成包含未校验内容或损坏事实的文档"
+                                + (preservationMessages.isEmpty()
+                                ? "" : "：" + String.join("；", preservationMessages)),
+                        targets.size(), processed, rewritten, failed);
             }
             for (ParagraphRewrite rewrite : acceptedRewrites) {
                 replaceParagraphText(rewrite.target().paragraph(), rewrite.restored());
@@ -144,7 +146,8 @@ public class PlatformDoubaoDocumentProcessor {
             }
             tableSnapshot.validate(document);
             writeAtomically(document, output, tableSnapshot);
-            return new ProcessingResult(targets.size(), processed, rewritten, failed, List.copyOf(failureMessages));
+            return new ProcessingResult(targets.size(), processed, rewritten, failed,
+                    List.copyOf(preservationMessages));
         } catch (RuntimeException exception) {
             throw exception;
         } catch (Exception exception) {
@@ -255,7 +258,7 @@ public class PlatformDoubaoDocumentProcessor {
                             () -> retryFailedTarget(next, platform, mode)));
                 }
                 progress.update(totalTargets, totalTargets, initialRewrites + retryRewrites,
-                        platform.remoteName() + " Skill 失败段单段重试（32 路）："
+                        platform.remoteName() + " Skill 待复核段单段处理（32 路）："
                                 + (completed + 1) + "/" + retryTargets.size() + " 段");
             }
         } catch (RuntimeException | Error failure) {
@@ -266,18 +269,17 @@ public class PlatformDoubaoDocumentProcessor {
         BatchResult[] merged = new BatchResult[initialResults.length];
         for (BatchResult initial : initialResults) {
             List<ParagraphRewrite> rewrites = new ArrayList<>(initial.rewrites());
-            List<String> failures = new ArrayList<>();
+            List<String> preservations = new ArrayList<>();
             int failed = 0;
             for (RetryResult retry : resultsByBatch.getOrDefault(initial.index(), List.of())) {
-                if (retry.failure() == null) {
-                    if (retry.rewrite() != null) rewrites.add(retry.rewrite());
-                } else {
+                if (retry.rewrite() != null) rewrites.add(retry.rewrite());
+                if (retry.preservationReason() != null) {
                     failed++;
-                    if (failures.size() < 3) failures.add(retry.failure());
+                    if (preservations.size() < 3) preservations.add(retry.preservationReason());
                 }
             }
             merged[initial.index()] = new BatchResult(initial.index(), initial.targetCount(),
-                    List.copyOf(rewrites), failed, List.copyOf(failures), List.of());
+                    List.copyOf(rewrites), failed, List.copyOf(preservations), List.of());
         }
         return merged;
     }
@@ -324,13 +326,14 @@ public class PlatformDoubaoDocumentProcessor {
                 if (attempt.failure() == null) {
                     if (attempt.rewrite() != null) rewrites.add(attempt.rewrite());
                 } else {
-                    retryTargets.add(retryTarget(prepared, target, attempt.failure()));
+                    retryTargets.add(retryTarget(
+                            prepared, target, responses.get(target.id()), attempt.failure()));
                 }
             }
         } catch (RuntimeException batchFailure) {
             String failure = compact(batchFailure.getMessage());
             for (Target target : batch.targets()) {
-                retryTargets.add(retryTarget(prepared, target, failure));
+                retryTargets.add(retryTarget(prepared, target, null, failure));
             }
         }
         return new BatchResult(prepared.index(), batch.targets().size(),
@@ -341,21 +344,23 @@ public class PlatformDoubaoDocumentProcessor {
                                           XuejiePlatform platform,
                                           XuejieRewriteMode mode) {
         try {
-            Map<String, String> response = gateway.rewriteBatch(
-                    List.of(retryTarget.segment()), platform, mode);
+            String response = gateway.rewriteRecovery(
+                    retryTarget.segment(), retryTarget.rejectedCandidate(),
+                    retryTarget.firstFailure(), platform, mode);
             RewriteAttempt attempt = validateResponse(
                     retryTarget.prepared(), retryTarget.target(),
-                    response.get(retryTarget.target().id()));
+                    response);
             if (attempt.failure() == null) {
                 return new RetryResult(retryTarget.batchIndex(), attempt.rewrite(), null);
             }
             return new RetryResult(retryTarget.batchIndex(), null,
-                    compact("首轮：" + retryTarget.firstFailure()
-                            + "；单段重试：" + attempt.failure()));
+                    compact("未取得通过完整性校验的模型结果：首轮："
+                            + retryTarget.firstFailure() + "；单段重试：" + attempt.failure()));
         } catch (RuntimeException retryFailure) {
             return new RetryResult(retryTarget.batchIndex(), null,
-                    compact("首轮：" + retryTarget.firstFailure()
-                            + "；单段重试：" + compact(retryFailure.getMessage())));
+                    compact("未取得通过完整性校验的模型结果：首轮："
+                            + retryTarget.firstFailure() + "；单段重试："
+                            + compact(retryFailure.getMessage())));
         }
     }
 
@@ -366,18 +371,23 @@ public class PlatformDoubaoDocumentProcessor {
             StyledRestore restored = prepared.styledById().get(target.id())
                     .restore(protectedStylesRestored);
             validateCandidate(target, restored.text());
-            return new RewriteAttempt(new ParagraphRewrite(target, restored), null);
+            // A valid response proves this target was processed, even when its text is equal.
+            // Do not rebuild unchanged runs or strip an unchanged automatic list's structure.
+            return new RewriteAttempt(target.originalText().equals(restored.text())
+                    ? null : new ParagraphRewrite(target, restored), null);
         } catch (RuntimeException validationFailure) {
             return new RewriteAttempt(null, compact(validationFailure.getMessage()));
         }
     }
 
-    private RetryTarget retryTarget(PreparedBatch prepared, Target target, String firstFailure) {
+    private RetryTarget retryTarget(PreparedBatch prepared, Target target,
+                                    String rejectedCandidate, String firstFailure) {
         PlatformDoubaoRewriteGateway.Segment segment = prepared.segments().stream()
                 .filter(candidate -> candidate.id().equals(target.id()))
                 .findFirst()
                 .orElseThrow(() -> new IllegalStateException("未找到大雅失败段保护文本"));
-        return new RetryTarget(prepared.index(), prepared, target, segment, firstFailure);
+        return new RetryTarget(prepared.index(), prepared, target, segment,
+                rejectedCandidate, firstFailure);
     }
 
     @PreDestroy
@@ -926,9 +936,6 @@ public class PlatformDoubaoDocumentProcessor {
     private void validateCandidate(Target target, String rewritten) {
         String original = target.originalText();
         boolean dayaTableText = target.preparation() == DayaPreparation.TABLE_TEXT;
-        if (rewritten.startsWith("```") || rewritten.contains("以下是改写") || rewritten.contains("改写结果：")) {
-            throw new IllegalStateException("改写段落包含模型说明文字");
-        }
         if (dayaTableText) {
             if (rewritten.indexOf('\r') >= 0 || rewritten.indexOf('\n') >= 0
                     || rewritten.indexOf('\t') >= 0) {
@@ -938,7 +945,7 @@ public class PlatformDoubaoDocumentProcessor {
                 throw new IllegalStateException("大雅表格说明未完整保留编号、数据、单位或否定条件");
             }
         }
-        DayaRewriteQualityRules.validateFinal(original, rewritten, target.context());
+        DayaRewriteQualityRules.validatePublishableChange(original, rewritten);
     }
 
     private List<String> dayaTableInvariants(String text) {
@@ -1230,16 +1237,17 @@ public class PlatformDoubaoDocumentProcessor {
             PreparedBatch prepared,
             Target target,
             PlatformDoubaoRewriteGateway.Segment segment,
+            String rejectedCandidate,
             String firstFailure) { }
 
-    private record RetryResult(int batchIndex, ParagraphRewrite rewrite, String failure) { }
+    private record RetryResult(int batchIndex, ParagraphRewrite rewrite, String preservationReason) { }
 
     private record BatchResult(
             int index,
             int targetCount,
             List<ParagraphRewrite> rewrites,
             int failed,
-            List<String> failureMessages,
+            List<String> preservationMessages,
             List<RetryTarget> retryTargets) { }
 
     private enum DayaSection {
@@ -1311,7 +1319,43 @@ public class PlatformDoubaoDocumentProcessor {
 
     public record ProcessingResult(int totalParagraphs, int processedParagraphs,
                                    int rewrittenParagraphs, int failedParagraphs,
-                                   List<String> failureMessages) { }
+                                   List<String> preservationMessages) {
+        public int preservedParagraphs() {
+            return Math.max(0, processedParagraphs - rewrittenParagraphs - failedParagraphs);
+        }
+    }
+
+    static final class DayaProcessingException extends IllegalStateException {
+        private final int totalParagraphs;
+        private final int processedParagraphs;
+        private final int rewrittenParagraphs;
+        private final int failedParagraphs;
+
+        DayaProcessingException(String message, int totalParagraphs, int processedParagraphs,
+                                int rewrittenParagraphs, int failedParagraphs) {
+            super(message);
+            this.totalParagraphs = totalParagraphs;
+            this.processedParagraphs = processedParagraphs;
+            this.rewrittenParagraphs = rewrittenParagraphs;
+            this.failedParagraphs = failedParagraphs;
+        }
+
+        int totalParagraphs() {
+            return totalParagraphs;
+        }
+
+        int processedParagraphs() {
+            return processedParagraphs;
+        }
+
+        int rewrittenParagraphs() {
+            return rewrittenParagraphs;
+        }
+
+        int failedParagraphs() {
+            return failedParagraphs;
+        }
+    }
 
     @FunctionalInterface
     public interface ProgressListener {

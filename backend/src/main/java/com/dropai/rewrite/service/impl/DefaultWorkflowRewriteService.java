@@ -12,7 +12,6 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Locale;
 
 @Service
 public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
@@ -37,14 +36,14 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
     public WorkflowRewriteResult execute(String originalText, String rewriteType) {
         List<WorkflowStepVO> steps = new ArrayList<>();
         String preparedText = preprocess(originalText);
-        boolean requireSubstantiveRewrite = requiresSubstantiveNativeRewrite(rewriteType);
+        boolean strictNativeProtection = requiresStrictNativeProtection(rewriteType);
         TextStructureProtector.ProtectedText protectedText = textStructureProtector.protect(
-                preparedText, requireSubstantiveRewrite
+                preparedText, strictNativeProtection
         );
         String baseRewriteType = baseRewriteType(rewriteType);
         String platformName = platformName(platformCode(rewriteType));
         steps.add(new WorkflowStepVO("TEXT_PREPROCESS", "文本预处理", "清理多余空白并保留原始语义边界"));
-        String protectedContentName = requireSubstantiveRewrite
+        String protectedContentName = strictNativeProtection
                 ? "数字、引用、摘要标签、表格、代码或URL"
                 : "参考文献、表格、代码或URL";
         steps.add(new WorkflowStepVO("STRUCTURE_PROTECT", "结构保护",
@@ -59,20 +58,18 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
         String strategy = planStrategy(baseRewriteType, originalRisk) + "；平台约束：" + platformName;
         steps.add(new WorkflowStepVO("REWRITE_PLAN", "改写策略规划 Skill", strategy));
 
-        boolean unchangedRetryUsed = false;
-        String unchangedRetryDescription = "";
         String sentenceRewritten = rewriteSentences(protectedText.text(), rewriteType, originalRisk.getScore(), "");
-        sentenceRewritten = protectedText.restore(sentenceRewritten);
-        if (requireSubstantiveRewrite && !hasSubstantiveTextChange(preparedText, sentenceRewritten)) {
-            String retryFeedback = "上一版与原文相同或只调整了标点、空白。当前段落已经由系统筛选为可改写正文，"
-                    + "必须按照原生降AI Skill至少重组一处词语、语序或句式；仅改标点和空白不算完成，不得返回原文。";
+        try {
+            sentenceRewritten = protectedText.restore(sentenceRewritten);
+        } catch (TextStructureProtector.ProtectedContentIntegrityException ex) {
+            String retryFeedback = "上一版未通过受保护内容完整性检查：" + ex.getMessage() + "。"
+                    + "请重新处理本段并完整输出正文；所有 [[DROP_AI_PROTECTED_数字]] 占位符必须逐字保留，"
+                    + "每个恰好出现一次且保持原顺序。不要自行还原数字，不得删除、重复或移动占位符。"
+                    + "按照 Skill 处理后的有效正文可以与原文相同，不要为了制造差异改变受保护内容。";
             String retried = rewriteSentences(protectedText.text(), rewriteType, originalRisk.getScore(), retryFeedback);
             sentenceRewritten = protectedText.restore(retried);
-            unchangedRetryUsed = true;
-            unchangedRetryDescription = "首轮模型输出没有产生真实文字变化，已携带明确反馈重试一次";
-            if (!hasSubstantiveTextChange(preparedText, sentenceRewritten)) {
-                throw new IllegalStateException("模型连续两次未产生真实文字变化，当前段落未计为改写成功");
-            }
+            steps.add(new WorkflowStepVO("PROTECTED_CONTENT_RETRY", "受保护内容重试",
+                    "首轮输出遗漏、重复或调换了受保护内容占位符，已携带具体错误重试一次并通过完整性检查"));
         }
 
         boolean aiReductionType = "humanize".equals(baseRewriteType)
@@ -86,28 +83,10 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
         boolean useModelHumanize = !aiReductionType && !rewriteOnlyType && originalRisk.getScore() >= 45;
         String polished = academicPolish(sentenceRewritten, baseRewriteType);
         String finalText = humanizeExpression(polished, useModelHumanize);
-        if (requireSubstantiveRewrite && !hasSubstantiveTextChange(preparedText, finalText)) {
-            if (unchangedRetryUsed) {
-                throw new IllegalStateException("最终清洗后仍未产生真实文字变化，当前段落未计为改写成功");
-            }
-            String retryFeedback = "上一版虽然返回了内容，但经格式恢复和模板词清理后与原文相同。"
-                    + "请改动正文中的实际词语、语序或句式，不要只新增会被清理的连接词，也不得返回原文。";
-            String retried = rewriteSentences(protectedText.text(), rewriteType, originalRisk.getScore(), retryFeedback);
-            sentenceRewritten = protectedText.restore(retried);
-            unchangedRetryUsed = true;
-            unchangedRetryDescription = "首轮最终结果经清洗后回到原文，已携带明确反馈重试一次";
-            polished = academicPolish(sentenceRewritten, baseRewriteType);
-            finalText = humanizeExpression(polished, useModelHumanize);
-            if (!hasSubstantiveTextChange(preparedText, finalText)) {
-                throw new IllegalStateException("模型重试后的最终结果仍未产生真实文字变化，当前段落未计为改写成功");
-            }
-        }
+        requireNonBlankOutput(finalText, "模型输出经清理后为空");
 
         String sentenceProvider = aiRewriteService.lastCallProvider();
         String finalProvider = sentenceProvider;
-        if (unchangedRetryUsed) {
-            steps.add(new WorkflowStepVO("UNCHANGED_RETRY", "原文返回重试", unchangedRetryDescription));
-        }
         steps.add(new WorkflowStepVO("SENTENCE_REWRITE", "分句改写 Skill",
                 "按句处理，约束为不改变核心含义、不新增虚假案例、不只做同义词替换；调用：" + sentenceProvider));
         steps.add(new WorkflowStepVO("ACADEMIC_POLISH", "学术风格润色 Skill",
@@ -152,11 +131,11 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
                 || "深度降低AI写作痕迹".equals(rewriteType)
                 || "双降".equals(rewriteType)
                 || (!rewriteOnlyType && risk.getScore() >= 45)) {
-            rules.add("逐段进行实质改写");
+            rules.add("每个送入段落都由模型按 Skill 完整处理");
             rules.add("禁止语义扩写");
             rules.add("处理摘要正文和各章节正文自然语言段落");
             rules.add("保护摘要标题、关键词、章节标题、代码、表格、公式和引用");
-            rules.add("不允许原样返回或只改变标点空白");
+            rules.add("完成处理的有效输出可以与原文相同，不以文字差异代替处理凭据");
             rules.add("减少模板化连接词");
             rules.add("避免句式完全对齐");
         }
@@ -171,7 +150,16 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
 
     private String rewriteSentences(String text, String rewriteType, int beforeScore, String feedback) {
         String rawRewrite = aiRewriteService.rewriteWithFeedback(text, rewriteType, beforeScore, feedback);
-        return cleanupTemplatePhrases(normalizeAiOutput(rawRewrite, rewriteType));
+        requireNonBlankOutput(rawRewrite, "模型返回空内容，当前段落未完成处理");
+        String rewritten = cleanupTemplatePhrases(normalizeAiOutput(rawRewrite, rewriteType));
+        requireNonBlankOutput(rewritten, "模型输出经清理后为空");
+        return rewritten;
+    }
+
+    private void requireNonBlankOutput(String text, String message) {
+        if (text == null || text.isBlank()) {
+            throw new IllegalStateException(message);
+        }
     }
 
     private String academicPolish(String text, String rewriteType) {
@@ -190,7 +178,9 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
     private String humanizeExpression(String text, boolean useModelHumanize) {
         String adjusted = text;
         if (useModelHumanize) {
-            adjusted = normalizeAiOutput(aiRewriteService.rewrite(text, "降低AI写作痕迹"), "降低AI写作痕迹");
+            String modelOutput = aiRewriteService.rewrite(text, "降低AI写作痕迹");
+            requireNonBlankOutput(modelOutput, "自然化处理模型返回空内容，当前段落未完成处理");
+            adjusted = normalizeAiOutput(modelOutput, "降低AI写作痕迹");
         }
         adjusted = cleanupTemplatePhrases(adjusted);
         for (String word : BANNED_TEMPLATE_WORDS) {
@@ -256,7 +246,7 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
         };
     }
 
-    private boolean requiresSubstantiveNativeRewrite(String rewriteType) {
+    private boolean requiresStrictNativeProtection(String rewriteType) {
         String baseRewriteType = baseRewriteType(rewriteType);
         boolean aiReductionType = "humanize".equals(baseRewriteType)
                 || "double".equals(baseRewriteType)
@@ -272,21 +262,6 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
             case "GENERAL", "CNKI", "WEIPU", "WANFANG", "GEZIDA" -> true;
             default -> false;
         };
-    }
-
-    private boolean hasSubstantiveTextChange(String originalText, String rewrittenText) {
-        if (rewrittenText == null || rewrittenText.isBlank()) {
-            return false;
-        }
-        return !comparableText(originalText).equals(comparableText(rewrittenText));
-    }
-
-    private String comparableText(String text) {
-        if (text == null) {
-            return "";
-        }
-        return text.replaceAll("[\\p{P}\\p{S}\\p{Z}\\p{C}\\s]+", "")
-                .toLowerCase(Locale.ROOT);
     }
 
     private QualityCheckVO qualityCheck(String originalText, String rewrittenText) {

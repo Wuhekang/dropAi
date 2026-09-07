@@ -21,7 +21,7 @@ class PlatformRewriteSkillCatalogTest {
                 .contains("不得新增原文没有的数据、案例、引用、作者、年份、系统功能、测试结果或性能结论")
                 .contains("[[DROP_AI_PROTECTED_数字]]")
                 .contains("不承诺检测结果、通过率或具体百分比")
-                .contains("只输出改写后的正文");
+                .contains("只输出处理后的正文");
         assertThat(first).contains("大雅");
         assertThat(second).isSameAs(first);
     }
@@ -37,9 +37,9 @@ class PlatformRewriteSkillCatalogTest {
     void dayaProfileContainsTheSevenReportAndEnumerationRules() {
         assertThat(catalog.load(XuejiePlatform.DAYA))
                 .contains("profile-id: daya-full-narrative-rebuild-v9")
-                .contains("每个输入 `id` 都必须实质改写")
+                .contains("每个输入 `id` 都必须实际提交给模型")
                 .contains("风险识别只用于选择基础重构")
-                .contains("未命中标签", "允许不改")
+                .contains("未命中标签", "允许跳过处理")
                 .contains("正文表格长说明")
                 .contains("不得在一个正文段内输出回车、软换行或制表符")
                 .contains("同一表中相邻说明格会被平台连起来判断")
@@ -47,7 +47,9 @@ class PlatformRewriteSkillCatalogTest {
                 .contains("不得为了稀释比例或补齐结构添加与原句无关的内容")
                 .contains("公式、变量、编号、输入数字和计算结果保持原样")
                 .contains("工程概况与参数清单")
-                .contains("高相似微改")
+                .contains("相似度和改动量不作为是否实际完成模型处理的判据")
+                .contains("有效结果即使与原文相同也允许提交")
+                .contains("调用失败、空响应或内容损坏不得用原文冒充处理成功")
                 .contains("重度疑似占比", "轻度疑似单列参考")
                 .contains("第一/第二/第三", "每句不超过 20 个汉字")
                 .contains("中文摘要、英文摘要、正文自然语言段落")

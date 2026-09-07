@@ -11,27 +11,32 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 class DocumentRewriteFinalGuardTest {
 
     @Test
-    void unchangedFinalParagraphCannotRemainSuccessful() throws Exception {
+    void validUnchangedFinalParagraphIsSuccessfulAfterOneWorkflowCall() throws Exception {
         String original = "该平台负责核对资料，并记录现场处理情况。";
         WorkflowRewriteService workflow = workflowReturning(original);
 
         try (XWPFDocument document = documentWithBody(original)) {
             GuardResult result = runMode(workflow, document, original.length(), "humanize");
 
-            assertThat(result.success()).isFalse();
+            assertThat(result.success()).isTrue();
             assertThat(result.rewrittenText()).isEqualTo(original);
-            assertThat(result.errorMessage()).contains("最终结果与原文相同");
+            assertThat(result.errorMessage()).isEmpty();
+            verify(workflow).execute(original, "humanize");
+            verifyNoMoreInteractions(workflow);
         }
     }
 
     @Test
-    void lengthCompressionCannotTurnAChangedParagraphBackIntoTheOriginal() throws Exception {
+    void lengthCompressionMayReturnToOriginalAfterSuccessfulModelProcessing() throws Exception {
         String original = "该平台负责核对资料，并记录现场处理情况，同时保留必要的核验记录供后续复查。";
         String expanded = original + "这项补充说明具有重要意义，可以为后续工作提供参考，并进一步体现整体优化效果。";
         WorkflowRewriteService workflow = workflowReturning(expanded);
@@ -40,12 +45,13 @@ class DocumentRewriteFinalGuardTest {
             GuardResult result = runMode(workflow, document, original.length(), "humanize");
 
             assertThat(result.success()).isTrue();
-            assertThat(result.rewrittenText()).isEqualTo(expanded).isNotEqualTo(original);
+            assertThat(result.rewrittenText()).isEqualTo(original);
+            verify(workflow).execute(original, "humanize");
         }
     }
 
     @Test
-    void doubleModeCannotTravelFromOriginalToDraftAndBackToOriginalAsSuccess() throws Exception {
+    void doubleModeCanTravelFromOriginalToDraftAndBackAfterBothStagesProcessIt() throws Exception {
         String original = "该平台负责核对资料，并记录现场处理情况。";
         WorkflowRewriteService workflow = mock(WorkflowRewriteService.class);
         WorkflowRewriteService.WorkflowRewriteResult rewriteDraft = workflowResult("资料由平台核对，现场情况同步记录。");
@@ -55,9 +61,51 @@ class DocumentRewriteFinalGuardTest {
         try (XWPFDocument document = documentWithBody(original)) {
             GuardResult result = runMode(workflow, document, original.length(), "double");
 
+            assertThat(result.success()).isTrue();
+            assertThat(result.rewrittenText()).isEqualTo(original);
+            assertThat(result.errorMessage()).isEmpty();
+            verify(workflow).execute(original, "rewrite");
+            verify(workflow).execute(rewriteDraft.getRewrittenText(), "humanize");
+            verifyNoMoreInteractions(workflow);
+        }
+    }
+
+    @Test
+    void doubleModeStillRunsSecondStageWhenFirstStageReturnsOriginal() throws Exception {
+        String original = "该平台负责核对资料，并记录现场处理情况。";
+        WorkflowRewriteService workflow = workflowReturning(original);
+        try (XWPFDocument document = documentWithBody(original)) {
+            assertThat(runMode(workflow, document, original.length(), "double").success()).isTrue();
+            verify(workflow).execute(original, "rewrite");
+            verify(workflow).execute(original, "humanize");
+            verifyNoMoreInteractions(workflow);
+        }
+    }
+
+    @Test
+    void emptyWorkflowResponseCannotBeCountedAsProcessedSuccessfully() throws Exception {
+        String original = "该平台负责核对资料，并记录现场处理情况。";
+        WorkflowRewriteService workflow = workflowReturning("  ");
+        try (XWPFDocument document = documentWithBody(original)) {
+            GuardResult result = runMode(workflow, document, original.length(), "humanize");
+            assertThat(result.success()).isFalse();
+            assertThat(result.errorMessage()).contains("未返回有效段落内容");
+            assertThat(result.rewrittenText()).isEqualTo(original);
+        }
+    }
+
+    @Test
+    void failedRewriteStageCannotBecomeSameTextSuccessOrProceedToHumanize() throws Exception {
+        String original = "该平台负责核对资料，并记录现场处理情况。";
+        WorkflowRewriteService workflow = mock(WorkflowRewriteService.class);
+        when(workflow.execute(anyString(), eq("rewrite"))).thenThrow(new IllegalStateException("模型调用超时"));
+        try (XWPFDocument document = documentWithBody(original)) {
+            GuardResult result = runMode(workflow, document, original.length(), "double");
             assertThat(result.success()).isFalse();
             assertThat(result.rewrittenText()).isEqualTo(original);
-            assertThat(result.errorMessage()).contains("最终结果与原文相同");
+            assertThat(result.errorMessage()).contains("模型调用超时");
+            verify(workflow).execute(original, "rewrite");
+            verifyNoMoreInteractions(workflow);
         }
     }
 

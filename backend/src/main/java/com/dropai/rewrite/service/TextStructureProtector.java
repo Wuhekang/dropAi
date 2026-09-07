@@ -55,13 +55,13 @@ public class TextStructureProtector {
                 for (String token : segments.keySet()) {
                     int tokenIndex = restored.indexOf(token);
                     if (tokenIndex < 0) {
-                        throw new IllegalStateException("模型输出缺少受保护内容占位符：" + token);
+                        throw new ProtectedContentIntegrityException("模型输出缺少受保护内容占位符：" + token);
                     }
                     if (restored.indexOf(token, tokenIndex + token.length()) >= 0) {
-                        throw new IllegalStateException("模型输出重复了受保护内容占位符：" + token);
+                        throw new ProtectedContentIntegrityException("模型输出重复了受保护内容占位符：" + token);
                     }
                     if (tokenIndex < previousIndex) {
-                        throw new IllegalStateException("模型输出改变了受保护内容占位符顺序");
+                        throw new ProtectedContentIntegrityException("模型输出改变了受保护内容占位符顺序");
                     }
                     previousIndex = tokenIndex;
                 }
@@ -74,6 +74,13 @@ public class TextStructureProtector {
 
         public int protectedCount() {
             return segments.size();
+        }
+    }
+
+    public static class ProtectedContentIntegrityException extends IllegalStateException {
+
+        public ProtectedContentIntegrityException(String message) {
+            super(message);
         }
     }
 }

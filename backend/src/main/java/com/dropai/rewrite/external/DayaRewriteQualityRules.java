@@ -26,6 +26,11 @@ final class DayaRewriteQualityRules {
             "(?:的的|将将|能能|仍然仍|能够能|可以可|需要需|已经已|这套这套|所有的所有|参考依据参考依据)");
     private static final Pattern DOUBLE_PUNCTUATION = Pattern.compile(
             "[。！？!?；;，、,:：]{2,}");
+    private static final Pattern MODEL_META_RESPONSE = Pattern.compile(
+            "(?is)^\\s*(?:```|(?:以下|下面)(?:是|为|给出)?(?:改写|修改|处理)(?:后的)?(?:结果|内容|版本|建议)"
+                    + "|(?:改写|修改)(?:后的)?(?:结果|内容|版本|如下)\\s*[:：]"
+                    + "|原文[^。！？!?]{0,30}(?:无需|不需要|不必)(?:进行)?(?:改写|修改)"
+                    + "|作为(?:一名|一个)?(?:AI|人工智能)[^。！？!?]{0,30})");
     private static final Pattern SENTENCE = Pattern.compile(
             "[^。！？!?；;\\r\\n]+(?:[。！？!?；;]+|$)");
     private static final Pattern SENTENCE_BOUNDARY = Pattern.compile("[。！？!?；;\\r\\n]+");
@@ -209,6 +214,16 @@ final class DayaRewriteQualityRules {
         return comparableText(text).length();
     }
 
+    /**
+     * Treats punctuation, whitespace and protected placeholders as surface-only differences.
+     * This is diagnostic information only. Text equality never proves a model call was skipped
+     * and must not reject a valid model response or trigger a retry by itself.
+     */
+    static boolean isUnchangedAfterNormalization(String original, String rewritten) {
+        String source = comparableText(original);
+        return !source.isEmpty() && source.equals(comparableText(rewritten));
+    }
+
     static boolean hasLowerRisk(String original, String before, String after) {
         return hasLowerRisk(original, before, after, "正文");
     }
@@ -240,7 +255,7 @@ final class DayaRewriteQualityRules {
         }
     }
 
-    /** Final gate available to the Daya document processor after placeholders are restored. */
+    /** Strict Skill conformance check used by diagnostics and focused rule tests. */
     static void validateFinal(String original, String rewritten) {
         validateFinal(original, rewritten, "正文");
     }
@@ -267,27 +282,39 @@ final class DayaRewriteQualityRules {
         }
     }
 
-    /**
-     * Non-negotiable acceptance checks for every narrative segment written to the document.
-     * Similarity is intentionally not a final rejection condition: it requests a review pass,
-     * while this gate only blocks unchanged text and violations of the Skill's hard structure
-     * rules.
-     */
+    /** Preferred Daya wording gate used to decide whether a model result deserves a review pass. */
     static void validateRequiredRewrite(String original, String rewritten) {
-        if (containsLineBreak(rewritten)) {
-            throw new IllegalStateException("大雅改写结果含回车、软换行或制表符");
-        }
+        validatePublishableChange(original, rewritten);
+        if (isUnchangedAfterNormalization(original, rewritten)) return;
         String source = comparableText(original);
         String candidate = comparableText(rewritten);
-        if (!source.isEmpty() && source.equals(candidate)) {
-            throw new IllegalStateException("大雅改写仅调整了标点或空白，未重建段落表达");
-        }
         if (!source.isEmpty() && candidate.contains(source)) {
             throw new IllegalStateException("大雅改写完整保留原段后追加内容，未按 Skill 重组原句");
         }
         boolean enumeration = DayaEnumerationRules.requiresBreak(original);
         validateRewrite(original, rewritten, enumeration);
         DayaEnumerationRules.validateRewrite(original, rewritten);
+    }
+
+    /**
+     * Final publication boundary after the gateway has already attempted the Daya Skill and its
+     * targeted review. A valid model response is publishable even if it still misses a preferred
+     * Daya wording rule; those rules must guide/review the model, not discard the whole document.
+     */
+    static void validatePublishableChange(String original, String rewritten) {
+        validateHardSafety(rewritten);
+    }
+
+    static void validateHardSafety(String rewritten) {
+        if (rewritten == null || rewritten.isBlank()) {
+            throw new IllegalStateException("大雅模型未返回可用段落正文");
+        }
+        if (containsLineBreak(rewritten)) {
+            throw new IllegalStateException("大雅改写结果含回车、软换行或制表符");
+        }
+        if (MODEL_META_RESPONSE.matcher(rewritten).find()) {
+            throw new IllegalStateException("大雅模型返回了改写说明而非正文");
+        }
     }
 
     static boolean hasImplicitEnumeration(String text) {

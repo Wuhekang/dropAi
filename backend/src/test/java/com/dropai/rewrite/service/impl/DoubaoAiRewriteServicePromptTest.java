@@ -30,8 +30,8 @@ class DoubaoAiRewriteServicePromptTest {
         assertThat(prompt)
                 .contains(SKILL_MARKER)
                 .contains("中文摘要正文、英文摘要正文")
-                .contains("必须产生真实文字变化")
-                .doesNotContain("如果一句话已经自然、简短、信息明确，可以原样保留");
+                .contains("每个送入的段落都必须完整阅读", "处理后的有效正文可以与原文相同")
+                .doesNotContain("必须产生真实文字变化", "不得直接返回原文");
         verify(skillPromptService).loadSkill("humanize-zh-academic");
     }
 
@@ -44,8 +44,8 @@ class DoubaoAiRewriteServicePromptTest {
         String prompt = systemPrompt(service, "double@GENERAL");
 
         assertThat(prompt)
-                .contains(SKILL_MARKER, "必须产生真实文字变化")
-                .doesNotContain("DropAI V6", "可以原样保留");
+                .contains(SKILL_MARKER, "处理后的有效正文可以与原文相同")
+                .doesNotContain("DropAI V6", "必须产生真实文字变化", "不得直接返回原文");
         verify(skillPromptService).loadSkill("humanize-zh-academic");
     }
 

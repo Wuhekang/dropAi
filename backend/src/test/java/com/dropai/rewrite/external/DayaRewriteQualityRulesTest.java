@@ -203,16 +203,15 @@ class DayaRewriteQualityRulesTest {
     }
 
     @Test
-    void requiredGateRejectsAnUnchangedConcreteLowRiskParagraph() {
+    void requiredGateAcceptsAnUnchangedConcreteLowRiskParagraph() {
         String original = "雨后两天，监理在北侧基坑发现一处积水。";
 
-        assertThatIllegalStateException()
-                .isThrownBy(() -> DayaRewriteQualityRules.validateRequiredRewrite(original, original))
-                .withMessageContaining("未重建段落表达");
+        assertThatCode(() -> DayaRewriteQualityRules.validateRequiredRewrite(original, original))
+                .doesNotThrowAnyException();
     }
 
     @Test
-    void riskLabelsDoNotExemptALongConcreteParagraphFromSubstantiveRewrite() {
+    void riskLabelsDoNotRejectAValidUnchangedModelResponse() {
         String concrete = "六月十二日雨停后，北侧基坑仍有积水，监理在照片上圈出了位置。"
                 + "当天的施工记录写明抽水泵从下午两点开始工作，傍晚复查时水位已经下降，"
                 + "现场人员把同一组照片和记录放回原档案袋，第二天只补签了缺少的日期。"
@@ -220,9 +219,8 @@ class DayaRewriteQualityRulesTest {
 
         assertThat(DayaRewriteQualityRules.assess(concrete, concrete, "3.2 现场记录").risks())
                 .contains(DayaRewriteQualityRules.Risk.LONG_STRUCTURED_BODY);
-        assertThatIllegalStateException()
-                .isThrownBy(() -> DayaRewriteQualityRules.validateRequiredRewrite(concrete, concrete))
-                .withMessageContaining("未重建段落表达");
+        assertThatCode(() -> DayaRewriteQualityRules.validateRequiredRewrite(concrete, concrete))
+                .doesNotThrowAnyException();
     }
 
     @Test
@@ -293,16 +291,48 @@ class DayaRewriteQualityRulesTest {
     }
 
     @Test
-    void finalGateRejectsFakeEditsAndAcceptsARealRebuild() {
+    void publicationAcceptsBothPunctuationChangesAndRebuiltTextAfterModelProcessing() {
         String original = "项目负责人依据施工图核对现场签证，工程量还要结合验收记录复查，确认无误后写入台账并保存对应凭证，所有材料均由专人归档。";
         String punctuationOnly = "项目负责人依据施工图核对现场签证。工程量还要结合验收记录复查。确认无误后写入台账并保存对应凭证。所有材料均由专人归档。";
         String rebuilt = "现场签证由项目负责人核实。施工图和验收记录是工程量的复查依据，台账写明确认结果，相关凭证交由专人归档。";
 
-        assertThatIllegalStateException()
-                .isThrownBy(() -> DayaRewriteQualityRules.validateFinal(original, punctuationOnly))
-                .withMessageContaining("标点或空白");
-        assertThatCode(() -> DayaRewriteQualityRules.validateFinal(original, rebuilt))
+        assertThatCode(() -> DayaRewriteQualityRules.validatePublishableChange(original, punctuationOnly))
                 .doesNotThrowAnyException();
+        assertThatCode(() -> DayaRewriteQualityRules.validatePublishableChange(original, rebuilt))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void classifiesOnlySurfaceChangesWithoutTreatingAWordChangeAsUnchanged() {
+        String original = "项目资料已经复核，结果记在当天台账中。";
+        String punctuationOnly = "项目资料已经复核。结果记在当天台账中！";
+        String wordChanged = "项目材料已经复核，结果记在当天台账中。";
+
+        assertThat(DayaRewriteQualityRules.isUnchangedAfterNormalization(
+                original, punctuationOnly)).isTrue();
+        assertThat(DayaRewriteQualityRules.isUnchangedAfterNormalization(
+                original, wordChanged)).isFalse();
+    }
+
+    @Test
+    void publicationBoundaryAcceptsValidUnchangedTextButRejectsUnsafeText() {
+        String original = "第一，核对台账。第二，复查现场。第三，记录结果。";
+        String changedButStillRisky = "第一项继续核对台账与现场记录，第二项仍要保存当天结果。";
+
+        assertThatCode(() -> DayaRewriteQualityRules.validatePublishableChange(
+                original, changedButStillRisky)).doesNotThrowAnyException();
+        assertThatCode(() -> DayaRewriteQualityRules.validatePublishableChange(
+                original, original)).doesNotThrowAnyException();
+        assertThatCode(() -> DayaRewriteQualityRules.validatePublishableChange(
+                original, original.replace("。", "；"))).doesNotThrowAnyException();
+        assertThatIllegalStateException()
+                .isThrownBy(() -> DayaRewriteQualityRules.validatePublishableChange(
+                        original, "台账已经核对。\n现场另行复查。"))
+                .withMessageContaining("回车、软换行或制表符");
+        assertThatIllegalStateException()
+                .isThrownBy(() -> DayaRewriteQualityRules.validatePublishableChange(
+                        original, "原文已经符合要求，无需改写。"))
+                .withMessageContaining("改写说明而非正文");
     }
 
     @Test

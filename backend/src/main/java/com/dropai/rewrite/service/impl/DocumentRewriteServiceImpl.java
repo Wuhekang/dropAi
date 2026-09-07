@@ -318,6 +318,7 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             List<RewriteTarget> targets = collectRewriteTargets(job, document);
             job.setParagraphs(targets.stream().map(this::toParagraphJob).collect(Collectors.toList()));
             job.setProcessedParagraphs(0);
+            job.setRewrittenParagraphs(0);
             job.setTotalParagraphs(targets.size());
             if (targets.isEmpty()) {
                 update(job, "FAILED", "未识别到可优化正文段落，未生成优化结果。请检查文档是否包含目录后的正文内容。");
@@ -328,6 +329,9 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
 
             List<RewriteResult> results = rewriteTargetsWithLengthControl(job, targets, originalTextLength);
             long failedParagraphs = results.stream().filter(result -> !result.success()).count();
+            long successfulParagraphs = results.size() - failedParagraphs;
+            Map<Integer, String> originalTextByIndex = targets.stream()
+                    .collect(Collectors.toMap(RewriteTarget::index, RewriteTarget::text));
             String firstFailure = results.stream()
                     .filter(result -> !result.success())
                     .map(RewriteResult::errorMessage)
@@ -337,11 +341,14 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             results.stream()
                     .sorted(Comparator.comparingInt(RewriteResult::index))
                     .forEach(result -> {
-                        if (result.success() && result.rewrittenText() != null && !result.rewrittenText().isBlank()) {
+                        if (result.success() && !result.rewrittenText().equals(originalTextByIndex.get(result.index()))) {
                             replaceParagraphText(result.paragraph(), result.rewrittenText());
                             job.setRewrittenParagraphs(job.getRewrittenParagraphs() + 1);
                         }
                     });
+            long unchangedParagraphs = successfulParagraphs - job.getRewrittenParagraphs();
+            log.info("DocumentProcessingSummary jobId={} total={} successful={} changed={} unchanged={} failed={}",
+                    jobId, targets.size(), successfulParagraphs, job.getRewrittenParagraphs(), unchangedParagraphs, failedParagraphs);
             long docxStartedAt = System.currentTimeMillis();
             log.info("docx生成开始 jobId={} outputPath={} startTime={}",
                     jobId, outputPath.toAbsolutePath(), LocalDateTime.now());
@@ -358,7 +365,7 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             log.info("docx生成结束 jobId={} outputPath={} fileSize={} elapsedMs={}",
                     jobId, outputPath.toAbsolutePath(), fileSize, System.currentTimeMillis() - docxStartedAt);
             if (failedParagraphs > 0) {
-                update(job, "FAILED", job.getModeName() + "未完成：已处理 " + job.getRewrittenParagraphs()
+                update(job, "FAILED", job.getModeName() + "未完成：已成功处理 " + successfulParagraphs
                         + " 个段落，失败 " + failedParagraphs + " 个段落；首个失败原因：" + firstFailure
                         + "；模型状态：" + aiRewriteService.lastCallProvider());
             } else {
@@ -366,8 +373,9 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
                 job.setUpdatedAt(LocalDateTime.now());
                 persistJobSafely(job, null, null);
 
-                String successMessage = completedMessage(job.getMode()) + "；已处理 " + job.getRewrittenParagraphs()
-                        + " 个段落；模型状态：" + aiRewriteService.lastCallProvider();
+                String successMessage = completedMessage(job.getMode()) + "；已成功处理 " + successfulParagraphs
+                        + " 个段落，其中修改 " + job.getRewrittenParagraphs() + " 段、处理后内容相同 " + unchangedParagraphs
+                        + " 段；模型状态：" + aiRewriteService.lastCallProvider();
                 job.setStatus("SUCCESS");
                 job.setMessage(successMessage);
                 job.setUpdatedAt(LocalDateTime.now());
@@ -568,16 +576,16 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             List<RewriteResult> finalResults = applyLengthControl(
                     job, targets, mergedResults, rule, "double_final", 1
             );
-            return rejectUnchangedFinalResults(job, targets, finalResults);
+            return validateCompletedResults(targets, finalResults);
         }
 
         List<RewriteResult> results = rewriteTargetsConcurrently(job, targets, job.getMode(), job.getModeName());
         if ("rewrite".equals(job.getMode())) {
             logLengthMetrics(job, "rewrite_no_retry", lengthMetrics(rule.originalLength(), results), 0);
-            return results;
+            return validateCompletedResults(targets, results);
         }
         List<RewriteResult> finalResults = applyLengthControl(job, targets, results, rule, job.getMode(), 1);
-        return rejectUnchangedFinalResults(job, targets, finalResults);
+        return validateCompletedResults(targets, finalResults);
     }
 
     private List<RewriteResult> applyLengthControl(
@@ -646,9 +654,7 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             int originalLength = textLength(originalText);
             if (!compressed.isBlank()
                     && compressedLength < beforeLength
-                    && compressedLength >= Math.max(1, (int) Math.floor(originalLength * 0.55))
-                    && (!requiresSubstantiveFinalRewrite(job)
-                    || hasSubstantiveDocumentChange(originalText, compressed))) {
+                    && compressedLength >= Math.max(1, (int) Math.floor(originalLength * 0.55))) {
                 int resultIndex = adjusted.indexOf(candidate);
                 adjusted.set(resultIndex, new RewriteResult(
                         candidate.index(),
@@ -665,56 +671,27 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
         return adjusted;
     }
 
-    private List<RewriteResult> rejectUnchangedFinalResults(
-            DocumentRewriteJobVO job,
+    private List<RewriteResult> validateCompletedResults(
             List<RewriteTarget> originalTargets,
             List<RewriteResult> results
     ) {
-        if (!requiresSubstantiveFinalRewrite(job)) {
-            return results;
-        }
-        Map<Integer, String> originalTextByIndex = originalTargets.stream()
-                .collect(Collectors.toMap(RewriteTarget::index, RewriteTarget::text, (left, right) -> left));
-        List<RewriteResult> guarded = new ArrayList<>(results.size());
+        // Completion comes from the workflow result, not a text-difference heuristic.
+        // Verify coverage without turning failed calls into source-text successes.
+        java.util.Set<Integer> expected = originalTargets.stream()
+                .map(RewriteTarget::index).collect(Collectors.toSet());
+        java.util.Set<Integer> completed = new java.util.HashSet<>();
         for (RewriteResult result : results) {
-            String originalText = originalTextByIndex.getOrDefault(result.index(), "");
-            if (result.success() && !hasSubstantiveDocumentChange(originalText, result.rewrittenText())) {
-                String message = "最终结果与原文相同或只改变了标点空白，未计为改写成功";
-                updateParagraphStatus(job, result.index(), "FAILED", originalText, message);
-                guarded.add(new RewriteResult(
-                        result.index(), result.paragraph(), originalText, false, message
-                ));
-            } else {
-                guarded.add(result);
+            if (!expected.contains(result.index()) || !completed.add(result.index())) {
+                throw new IllegalStateException("段落处理记录重复或与待处理段落不匹配");
+            }
+            if (result.success() && (result.rewrittenText() == null || result.rewrittenText().isBlank())) {
+                throw new IllegalStateException("已完成段落缺少有效模型结果");
             }
         }
-        return guarded;
-    }
-
-    private boolean requiresSubstantiveFinalRewrite(DocumentRewriteJobVO job) {
-        if (job == null || !("humanize".equals(job.getMode()) || "double".equals(job.getMode()))) {
-            return false;
+        if (!completed.equals(expected)) {
+            throw new IllegalStateException("部分段落缺少处理记录，不能标记为全部完成");
         }
-        String platform = job.getPlatform() == null ? "GENERAL" : job.getPlatform().trim().toUpperCase(Locale.ROOT);
-        return switch (platform) {
-            case "GENERAL", "CNKI", "WEIPU", "WANFANG", "GEZIDA" -> true;
-            default -> false;
-        };
-    }
-
-    private boolean hasSubstantiveDocumentChange(String originalText, String rewrittenText) {
-        if (rewrittenText == null || rewrittenText.isBlank()) {
-            return false;
-        }
-        return !comparableDocumentText(originalText).equals(comparableDocumentText(rewrittenText));
-    }
-
-    private String comparableDocumentText(String text) {
-        if (text == null) {
-            return "";
-        }
-        return text.replaceAll("[\\p{P}\\p{S}\\p{Z}\\p{C}\\s]+", "")
-                .toLowerCase(Locale.ROOT);
+        return results;
     }
 
     private String compressForLength(String text, String originalText, int targetLength) {
@@ -920,9 +897,19 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             for (RewriteTarget target : targets) {
                 completionService.submit(() -> {
                     updateParagraphStatus(job, target.index(), "RUNNING", null, stageName + "处理中");
+                    long startedAt = System.currentTimeMillis();
+                    log.info("ParagraphProcessingStart jobId={} paragraphIndex={} stage={} originalLength={}",
+                            job.getJobId(), target.index(), stageMode, target.text().length());
                     try {
                         String rewritten = rewriteByMode(target.text(), stageMode, job.getPlatform());
-                        updateParagraphStatus(job, target.index(), "SUCCESS", rewritten, stageName + "已完成");
+                        if (rewritten == null || rewritten.isBlank()) {
+                            throw new IllegalStateException("模型未返回有效段落内容");
+                        }
+                        boolean changed = !target.text().equals(rewritten);
+                        updateParagraphStatus(job, target.index(), "SUCCESS", rewritten, stageName
+                                + (changed ? "已完成，内容已修改" : "已完成，模型处理后内容相同"));
+                        log.info("ParagraphProcessingResult jobId={} paragraphIndex={} stage={} status=SUCCESS changed={} resultLength={} elapsedMs={}",
+                                job.getJobId(), target.index(), stageMode, changed, rewritten.length(), System.currentTimeMillis() - startedAt);
                         return new RewriteResult(
                                 target.index(),
                                 target.paragraph(),
@@ -933,6 +920,8 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
                     } catch (Exception exception) {
                         updateParagraphStatus(job, target.index(), "FAILED", target.text(), "处理失败，保留原文：" + readableMessage(exception));
                         String message = readableMessage(exception);
+                        log.warn("ParagraphProcessingResult jobId={} paragraphIndex={} stage={} status=FAILED errorType={} elapsedMs={}",
+                                job.getJobId(), target.index(), stageMode, exception.getClass().getSimpleName(), System.currentTimeMillis() - startedAt);
                         return new RewriteResult(target.index(), target.paragraph(), target.text(), false, message);
                     }
                 });
