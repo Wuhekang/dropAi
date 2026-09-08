@@ -207,9 +207,10 @@ public class XuejieExternalDocumentRewriteService {
                 || result.processedParagraphs() < 0
                 || result.rewrittenParagraphs() < 0
                 || result.failedParagraphs() < 0
+                || result.protectedParagraphs() < 0
                 || result.totalParagraphs() != result.processedParagraphs()
                 || result.rewrittenParagraphs() > result.processedParagraphs()
-                || result.rewrittenParagraphs() + result.failedParagraphs()
+                || (long) result.rewrittenParagraphs() + result.failedParagraphs() + result.protectedParagraphs()
                 > result.processedParagraphs()
                 || result.failedParagraphs() >= result.processedParagraphs()) {
             throw new IllegalStateException("大雅结果状态不完整：存在未处理段或全部段落失败，拒绝发布");
@@ -218,25 +219,21 @@ public class XuejieExternalDocumentRewriteService {
         boolean partial = result.failedParagraphs() > 0;
         String completion;
         if (partial) {
-            completion = platformName + " Skill 部分完成，可下载结果文档：已处理 "
-                    + result.processedParagraphs() + " 段，其中 " + result.rewrittenParagraphs()
-                    + " 段文字有修改、" + preserved + " 段经模型处理后文字相同；"
-                    + result.failedParagraphs() + " 段处理失败，已保留原文和原格式，未写入未通过校验的内容。"
-                    + "请重点复核这些保留原文的段落。";
-            if (result.preservationMessages() != null && !result.preservationMessages().isEmpty()) {
-                completion += " 原因示例：" + compact(String.join("；", result.preservationMessages()));
-            }
+            completion = platformName + " 文档已生成，可下载已有结果；"
+                    + result.failedParagraphs() + " 段因模型服务异常未完成，已保留原文。"
+                    + "如需重新处理，请稍后重试或联系管理员。";
         } else {
-            completion = platformName + " Skill 全文适配完成，"
-                    + result.processedParagraphs() + " 个可处理段落均已获得有效模型结果，"
-                    + result.rewrittenParagraphs() + " 段文字有修改，"
-                    + preserved + " 段经模型处理后文字保持不变，结果文件已生成";
+            completion = platformName + " 文档处理完成，结果文件已生成";
         }
         update(jobId, partial ? "PARTIAL_SUCCESS" : "SUCCESS",
                 result.totalParagraphs(), result.processedParagraphs(), result.rewrittenParagraphs(), true, completion);
-        log.info("Daya document published jobId={} status={} processed={} rewritten={} unchanged={} failedPreserved={}",
+        log.info("Daya document published jobId={} status={} processed={} rewritten={} unchanged={} protectedPreserved={} systemFailed={}",
                 jobId, partial ? "PARTIAL_SUCCESS" : "SUCCESS", result.processedParagraphs(),
-                result.rewrittenParagraphs(), preserved, result.failedParagraphs());
+                result.rewrittenParagraphs(), preserved, result.protectedParagraphs(), result.failedParagraphs());
+        if (result.preservationMessages() != null && !result.preservationMessages().isEmpty()) {
+            log.info("Daya document preservation diagnostics jobId={} details={}", jobId,
+                    String.join("；", result.preservationMessages()));
+        }
         stateRepository.stage(jobId, XuejieExternalJobStateRepository.COMPLETED,
                 null, partial ? "doubao_partial_completed" : "doubao_completed");
     }

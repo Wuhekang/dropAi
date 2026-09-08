@@ -12,6 +12,8 @@ import org.apache.poi.xwpf.usermodel.TableRowHeightRule;
 import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTFonts;
 import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTRPr;
 import org.springframework.stereotype.Service;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.w3c.dom.Node;
 
 import java.io.InputStream;
@@ -44,6 +46,7 @@ import java.util.regex.Pattern;
  */
 @Service
 public class PlatformDoubaoDocumentProcessor {
+    private static final Logger log = LoggerFactory.getLogger(PlatformDoubaoDocumentProcessor.class);
     static final int DAYA_MAX_BATCH_PARAGRAPHS = 4;
     static final int DAYA_MAX_BATCH_CHARACTERS = 1800;
     static final int DAYA_MAX_CONCURRENCY = 32;
@@ -74,6 +77,8 @@ public class PlatformDoubaoDocumentProcessor {
                     + "[A-Za-z][A-Za-z0-9_.:/\\-]*|"
                     + "[0-9０-９]+(?:[.．][0-9０-９]+)*(?:%|％|亿元|万元|元|万|公顷|平方公里|公里|平方米|米|家|处|项|人|年|月|日|分|级|类|ms|s|kg|g|mm|cm|m|KB|MB|GB|℃)?|"
                     + "尚未|不代表|不作为|不足|缺少|缺乏|未|无)");
+    private static final Pattern DAYA_OUTPUT_LINE_BREAK = Pattern.compile(
+            "[\\r\\n\\t\\u000B\\u000C\\u0085\\u2028\\u2029]");
 
     private final PlatformDoubaoRewriteGateway gateway;
     private final PlatformDocumentTextProtector protector;
@@ -119,12 +124,14 @@ public class PlatformDoubaoDocumentProcessor {
             int processed = 0;
             int rewritten = 0;
             int failed = 0;
+            int protectedParagraphs = 0;
             List<String> preservationMessages = new ArrayList<>();
             List<ParagraphRewrite> acceptedRewrites = new ArrayList<>();
             for (BatchResult batchResult : completedBatches) {
                 processed += batchResult.targetCount();
                 rewritten += batchResult.rewrites().size();
                 failed += batchResult.failed();
+                protectedParagraphs += batchResult.protectedParagraphs();
                 for (String message : batchResult.preservationMessages()) {
                     if (preservationMessages.size() >= 3) break;
                     preservationMessages.add(message);
@@ -134,8 +141,8 @@ public class PlatformDoubaoDocumentProcessor {
 
             // Publish every validated result, while leaving failed targets (including their
             // original runs, list numbering and table structure) completely untouched.
-            // A source-only file is useful only when at least one model response was valid;
-            // it must not disguise a document whose every target failed as a completed job.
+            // A known protection fallback proves that the model returned paragraph content.
+            // Only all-system-failure jobs, with no model body received, must not be published.
             if (failed == targets.size()) {
                 throw new DayaProcessingException(
                         "大雅全文改写的 " + failed
@@ -150,7 +157,7 @@ public class PlatformDoubaoDocumentProcessor {
             }
             tableSnapshot.validate(document);
             writeAtomically(document, output, tableSnapshot);
-            return new ProcessingResult(targets.size(), processed, rewritten, failed,
+            return new ProcessingResult(targets.size(), processed, rewritten, failed, protectedParagraphs,
                     List.copyOf(preservationMessages));
         } catch (RuntimeException exception) {
             throw exception;
@@ -275,15 +282,20 @@ public class PlatformDoubaoDocumentProcessor {
             List<ParagraphRewrite> rewrites = new ArrayList<>(initial.rewrites());
             List<String> preservations = new ArrayList<>();
             int failed = 0;
+            int protectedParagraphs = 0;
             for (RetryResult retry : resultsByBatch.getOrDefault(initial.index(), List.of())) {
                 if (retry.rewrite() != null) rewrites.add(retry.rewrite());
                 if (retry.preservationReason() != null) {
-                    failed++;
-                    if (preservations.size() < 3) preservations.add(retry.preservationReason());
+                    if (retry.protectionFallback()) {
+                        protectedParagraphs++;
+                    } else {
+                        failed++;
+                        if (preservations.size() < 3) preservations.add(retry.preservationReason());
+                    }
                 }
             }
             merged[initial.index()] = new BatchResult(initial.index(), initial.targetCount(),
-                    List.copyOf(rewrites), failed, List.copyOf(preservations), List.of());
+                    List.copyOf(rewrites), failed, protectedParagraphs, List.copyOf(preservations), List.of());
         }
         return merged;
     }
@@ -331,17 +343,18 @@ public class PlatformDoubaoDocumentProcessor {
                     if (attempt.rewrite() != null) rewrites.add(attempt.rewrite());
                 } else {
                     retryTargets.add(retryTarget(
-                            prepared, target, responses.get(target.id()), attempt.failure()));
+                            prepared, target, responses.get(target.id()), attempt.failure(),
+                            attempt.protectionViolation()));
                 }
             }
         } catch (RuntimeException batchFailure) {
             String failure = compact(batchFailure.getMessage());
             for (Target target : batch.targets()) {
-                retryTargets.add(retryTarget(prepared, target, null, failure));
+                retryTargets.add(retryTarget(prepared, target, null, failure, false));
             }
         }
         return new BatchResult(prepared.index(), batch.targets().size(),
-                List.copyOf(rewrites), retryTargets.size(), List.of(), List.copyOf(retryTargets));
+                List.copyOf(rewrites), retryTargets.size(), 0, List.of(), List.copyOf(retryTargets));
     }
 
     private RetryResult retryFailedTarget(RetryTarget retryTarget,
@@ -355,19 +368,26 @@ public class PlatformDoubaoDocumentProcessor {
                     retryTarget.prepared(), retryTarget.target(),
                     response);
             if (attempt.failure() == null) {
-                return new RetryResult(retryTarget.batchIndex(), attempt.rewrite(), null);
+                return new RetryResult(retryTarget.batchIndex(), attempt.rewrite(), null, false);
             }
-            return new RetryResult(retryTarget.batchIndex(), null,
-                    compact(failedTargetLabel(retryTarget.target())
-                            + "未取得通过完整性校验的模型结果，已保留原文与格式：首轮："
-                            + retryTarget.firstFailure() + "；单段重试：" + attempt.failure()));
+            return preservedRetryResult(retryTarget, attempt.failure(),
+                    retryTarget.firstProtectionViolation() || attempt.protectionViolation());
         } catch (RuntimeException retryFailure) {
-            return new RetryResult(retryTarget.batchIndex(), null,
-                    compact(failedTargetLabel(retryTarget.target())
-                            + "未取得通过完整性校验的模型结果，已保留原文与格式：首轮："
-                            + retryTarget.firstFailure() + "；单段重试："
-                            + compact(retryFailure.getMessage())));
+            return preservedRetryResult(retryTarget, compact(retryFailure.getMessage()),
+                    retryTarget.firstProtectionViolation());
         }
+    }
+
+    private RetryResult preservedRetryResult(RetryTarget target, String lastFailure,
+                                             boolean protectionFallback) {
+        String reason = compact(failedTargetLabel(target.target())
+                + (protectionFallback ? "保护校验回退，已保留原文与格式" : "未取得有效模型正文，已保留原文与格式")
+                + "：首轮：" + target.firstFailure() + "；单段重试：" + lastFailure);
+        if (protectionFallback) {
+            log.warn("Daya paragraph protected segmentId={} context={} reason={}",
+                    target.target().id(), target.target().context(), reason);
+        }
+        return new RetryResult(target.batchIndex(), null, reason, protectionFallback);
     }
 
     private String failedTargetLabel(Target target) {
@@ -377,29 +397,58 @@ public class PlatformDoubaoDocumentProcessor {
     }
 
     private RewriteAttempt validateResponse(PreparedBatch prepared, Target target, String response) {
+        if (response == null || response.isBlank()) {
+            return new RewriteAttempt(null, "平台 Skill 返回了空段落", false);
+        }
         try {
-            String protectedStylesRestored = prepared.protectedById().get(target.id())
-                    .validateAndRestore(response);
+            // The gateway already parsed the response envelope. Check that this is body text,
+            // not a model explanation, before considering a known format/content safeguard.
+            // This does not relax the canonical check: the unmodified response is checked below.
+            DayaRewriteQualityRules.validatePublishableChange(target.originalText(),
+                    DAYA_OUTPUT_LINE_BREAK.matcher(response).replaceAll(" "));
+            var protectedText = prepared.protectedById().get(target.id());
+            validateProtectedTokens(protectedText, response);
+            String protectedStylesRestored = protectedText.validateAndRestore(response);
             StyledRestore restored = prepared.styledById().get(target.id())
                     .restore(protectedStylesRestored);
             validateCandidate(target, restored.text());
             // A valid response proves this target was processed, even when its text is equal.
             // Do not rebuild unchanged runs or strip an unchanged automatic list's structure.
             return new RewriteAttempt(target.originalText().equals(restored.text())
-                    ? null : new ParagraphRewrite(target, restored), null);
+                    ? null : new ParagraphRewrite(target, restored), null, false);
+        } catch (ProtectionViolation protectionViolation) {
+            return new RewriteAttempt(null, compact(protectionViolation.getMessage()), true);
         } catch (RuntimeException validationFailure) {
-            return new RewriteAttempt(null, compact(validationFailure.getMessage()));
+            return new RewriteAttempt(null, compact(validationFailure.getMessage()), false);
+        }
+    }
+
+    private void validateProtectedTokens(PlatformDocumentTextProtector.ProtectedText protectedText,
+                                         String response) {
+        // Mirror only the known token invariants to give those violations an explicit type.
+        // Unexpected failures in the canonical restore still remain system failures.
+        int orderedCursor = 0;
+        for (String token : protectedText.segments().keySet()) {
+            if (StyledParagraph.occurrences(response, token) != 1) {
+                throw new ProtectionViolation("平台 Skill 未完整保留结构占位符");
+            }
+            int tokenIndex = response.indexOf(token);
+            if (tokenIndex < orderedCursor) {
+                throw new ProtectionViolation("平台 Skill 调换了结构占位符顺序");
+            }
+            orderedCursor = tokenIndex + token.length();
         }
     }
 
     private RetryTarget retryTarget(PreparedBatch prepared, Target target,
-                                    String rejectedCandidate, String firstFailure) {
+                                    String rejectedCandidate, String firstFailure,
+                                    boolean firstProtectionViolation) {
         PlatformDoubaoRewriteGateway.Segment segment = prepared.segments().stream()
                 .filter(candidate -> candidate.id().equals(target.id()))
                 .findFirst()
                 .orElseThrow(() -> new IllegalStateException("未找到大雅失败段保护文本"));
         return new RetryTarget(prepared.index(), prepared, target, segment,
-                rejectedCandidate, firstFailure);
+                rejectedCandidate, firstFailure, firstProtectionViolation);
     }
 
     @PreDestroy
@@ -959,11 +1008,14 @@ public class PlatformDoubaoDocumentProcessor {
         if (dayaTableText) {
             if (rewritten.indexOf('\r') >= 0 || rewritten.indexOf('\n') >= 0
                     || rewritten.indexOf('\t') >= 0) {
-                throw new IllegalStateException("大雅表格说明不得新增换行或制表符");
+                throw new ProtectionViolation("大雅表格说明不得新增换行或制表符");
             }
             if (!dayaTableInvariants(original).equals(dayaTableInvariants(rewritten))) {
-                throw new IllegalStateException("大雅表格说明未完整保留编号、数据、单位或否定条件");
+                throw new ProtectionViolation("大雅表格说明未完整保留编号、数据、单位或否定条件");
             }
+        }
+        if (DAYA_OUTPUT_LINE_BREAK.matcher(rewritten).find()) {
+            throw new ProtectionViolation("大雅改写结果含回车、软换行或制表符");
         }
         DayaRewriteQualityRules.validatePublishableChange(original, rewritten);
     }
@@ -1250,7 +1302,8 @@ public class PlatformDoubaoDocumentProcessor {
 
     private record ParagraphRewrite(Target target, StyledRestore restored) { }
 
-    private record RewriteAttempt(ParagraphRewrite rewrite, String failure) { }
+    private record RewriteAttempt(ParagraphRewrite rewrite, String failure,
+                                  boolean protectionViolation) { }
 
     private record RetryTarget(
             int batchIndex,
@@ -1258,15 +1311,18 @@ public class PlatformDoubaoDocumentProcessor {
             Target target,
             PlatformDoubaoRewriteGateway.Segment segment,
             String rejectedCandidate,
-            String firstFailure) { }
+            String firstFailure,
+            boolean firstProtectionViolation) { }
 
-    private record RetryResult(int batchIndex, ParagraphRewrite rewrite, String preservationReason) { }
+    private record RetryResult(int batchIndex, ParagraphRewrite rewrite, String preservationReason,
+                               boolean protectionFallback) { }
 
     private record BatchResult(
             int index,
             int targetCount,
             List<ParagraphRewrite> rewrites,
             int failed,
+            int protectedParagraphs,
             List<String> preservationMessages,
             List<RetryTarget> retryTargets) { }
 
@@ -1306,7 +1362,7 @@ public class PlatformDoubaoDocumentProcessor {
                 String token = entry.getKey();
                 int index = value.indexOf(token, cursor);
                 if (index < cursor || occurrences(value, token) != 1) {
-                    throw new IllegalStateException("平台 Skill 未完整保留局部格式占位符");
+                    throw new ProtectionViolation("平台 Skill 未完整保留局部格式占位符");
                 }
                 if (index > cursor) {
                     String plain = value.substring(cursor, index);
@@ -1338,10 +1394,23 @@ public class PlatformDoubaoDocumentProcessor {
     }
 
     public record ProcessingResult(int totalParagraphs, int processedParagraphs,
-                                   int rewrittenParagraphs, int failedParagraphs,
+                                   int rewrittenParagraphs, int failedParagraphs, int protectedParagraphs,
                                    List<String> preservationMessages) {
+        public ProcessingResult(int totalParagraphs, int processedParagraphs,
+                                int rewrittenParagraphs, int failedParagraphs,
+                                List<String> preservationMessages) {
+            this(totalParagraphs, processedParagraphs, rewrittenParagraphs, failedParagraphs,
+                    0, preservationMessages);
+        }
+
         public int preservedParagraphs() {
-            return Math.max(0, processedParagraphs - rewrittenParagraphs - failedParagraphs);
+            return Math.max(0, processedParagraphs - rewrittenParagraphs - failedParagraphs - protectedParagraphs);
+        }
+    }
+
+    private static final class ProtectionViolation extends IllegalStateException {
+        private ProtectionViolation(String message) {
+            super(message);
         }
     }
 

@@ -73,8 +73,7 @@ class XuejieExternalTerminalOrderingTest {
         assertThat(record.getTotalParagraphs()).isEqualTo(2);
         assertThat(record.getProcessedParagraphs()).isEqualTo(2);
         assertThat(record.getRewrittenParagraphs()).isEqualTo(1);
-        assertThat(record.getMessage()).contains(
-                "2 个可处理段落均已获得有效模型结果", "1 段文字有修改", "1 段经模型处理后文字保持不变");
+        assertThat(record.getMessage()).isEqualTo("大雅 文档处理完成，结果文件已生成");
     }
 
     @Test
@@ -89,30 +88,65 @@ class XuejieExternalTerminalOrderingTest {
 
         assertThat(record.getStatus()).isEqualTo("SUCCESS");
         assertThat(record.getRewrittenParagraphs()).isZero();
-        assertThat(record.getMessage()).contains("0 段文字有修改", "2 段经模型处理后文字保持不变");
+        assertThat(record.getMessage()).isEqualTo("大雅 文档处理完成，结果文件已生成");
         verify(fixture.stateRepository).stage("job-all-unchanged",
                 XuejieExternalJobStateRepository.COMPLETED, null, "doubao_completed");
     }
 
     @Test
-    void publishesPartialSuccessWhenFourOf182ParagraphsKeepTheOriginal() {
+    void publishesPartialSuccessOnlyForRealModelServiceFailures() {
         Fixture fixture = fixture();
         DocumentJobRecord record = documentJob("job-partial-file", "RUNNING");
         when(fixture.documentJobMapper.selectById("job-partial-file")).thenReturn(record);
 
         service.finalizeSuccessfulJob("job-partial-file", "大雅",
                 new PlatformDoubaoDocumentProcessor.ProcessingResult(
-                        182, 182, 178, 4, java.util.List.of("p22：数字完整性校验未通过")));
+                        182, 182, 178, 4, java.util.List.of("p22：模型服务调用超时")));
 
         assertThat(record.getStatus()).isEqualTo("PARTIAL_SUCCESS");
         assertThat(record.getProcessedParagraphs()).isEqualTo(182);
         assertThat(record.getRewrittenParagraphs()).isEqualTo(178);
-        assertThat(record.getMessage()).contains("部分完成", "可下载", "4 段处理失败", "保留原文和原格式")
-                .doesNotContain("均已获得有效模型结果", "全文适配完成");
+        assertThat(record.getMessage()).contains("可下载", "4 段因模型服务异常未完成", "保留原文")
+                .doesNotContain("均已获得有效模型结果", "全文适配完成", "p22", "校验");
         verify(fixture.stateRepository).stage("job-partial-file",
                 XuejieExternalJobStateRepository.COMPLETED, null, "doubao_partial_completed");
         com.dropai.rewrite.vo.DocumentRewriteJobVO job = ReflectionTestUtils.invokeMethod(service, "toJob", record);
         assertThat(job.getDownloadUrl()).isEqualTo("/api/document/rewrite/download/job-partial-file");
+    }
+
+    @Test
+    void protectedFallbackPublishesNormalSuccessWithoutUserWarnings() {
+        Fixture fixture = fixture();
+        DocumentJobRecord record = documentJob("job-protected", "RUNNING");
+        when(fixture.documentJobMapper.selectById("job-protected")).thenReturn(record);
+
+        service.finalizeSuccessfulJob("job-protected", "大雅",
+                new PlatformDoubaoDocumentProcessor.ProcessingResult(182, 182, 167, 0, 5,
+                        java.util.List.of("t30r7c4：大雅表格说明未完整保留编号、数据、单位或否定条件")));
+
+        assertThat(record.getStatus()).isEqualTo("SUCCESS");
+        assertThat(record.getProcessedParagraphs()).isEqualTo(182);
+        assertThat(record.getRewrittenParagraphs()).isEqualTo(167);
+        assertThat(record.getMessage()).isEqualTo("大雅 文档处理完成，结果文件已生成")
+                .doesNotContain("部分", "失败", "保留", "校验", "t30r7c4");
+        verify(fixture.stateRepository).stage("job-protected",
+                XuejieExternalJobStateRepository.COMPLETED, null, "doubao_completed");
+        com.dropai.rewrite.vo.DocumentRewriteJobVO job = ReflectionTestUtils.invokeMethod(service, "toJob", record);
+        assertThat(job.getDownloadUrl()).isEqualTo("/api/document/rewrite/download/job-protected");
+    }
+
+    @Test
+    void allProcessedProtectedFallbacksAreSuccessfulEvenWithoutTextChanges() {
+        Fixture fixture = fixture();
+        DocumentJobRecord record = documentJob("job-all-protected", "RUNNING");
+        when(fixture.documentJobMapper.selectById("job-all-protected")).thenReturn(record);
+
+        service.finalizeSuccessfulJob("job-all-protected", "大雅",
+                new PlatformDoubaoDocumentProcessor.ProcessingResult(2, 2, 0, 0, 2,
+                        java.util.List.of("格式保护回退")));
+
+        assertThat(record.getStatus()).isEqualTo("SUCCESS");
+        assertThat(record.getMessage()).isEqualTo("大雅 文档处理完成，结果文件已生成");
     }
 
     @Test
@@ -135,6 +169,14 @@ class XuejieExternalTerminalOrderingTest {
                         2, 2, 3, 0, java.util.List.of())))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("结果状态不完整");
+        assertThatThrownBy(() -> service.finalizeSuccessfulJob(
+                "job-invalid-protected", "大雅",
+                new PlatformDoubaoDocumentProcessor.ProcessingResult(2, 2, 1, 0, 2, java.util.List.of())))
+                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> service.finalizeSuccessfulJob(
+                "job-negative-protected", "大雅",
+                new PlatformDoubaoDocumentProcessor.ProcessingResult(2, 2, 0, 0, -1, java.util.List.of())))
+                .isInstanceOf(IllegalStateException.class);
         verifyNoInteractions(fixture.documentJobMapper, fixture.stateRepository);
     }
 
@@ -179,7 +221,7 @@ class XuejieExternalTerminalOrderingTest {
                 eq(XuejieRewriteMode.HUMANIZE),
                 any(PlatformDoubaoDocumentProcessor.ProgressListener.class)))
                 .thenThrow(new PlatformDoubaoDocumentProcessor.DayaProcessingException(
-                        "尚有 72 段未通过不可放宽的完整性校验", 182, 182, 110, 72));
+                        "尚有 72 段因模型服务调用异常未完成", 182, 182, 110, 72));
 
         ReflectionTestUtils.invokeMethod(service, "process",
                 jobId, Path.of("storage", "uploads", jobId + "-missing.docx"),
@@ -190,7 +232,7 @@ class XuejieExternalTerminalOrderingTest {
         assertThat(record.getTotalParagraphs()).isEqualTo(182);
         assertThat(record.getProcessedParagraphs()).isEqualTo(182);
         assertThat(record.getRewrittenParagraphs()).isEqualTo(110);
-        assertThat(record.getMessage()).contains("72 段未通过不可放宽的完整性校验");
+        assertThat(record.getMessage()).contains("72 段因模型服务调用异常未完成");
         verify(fixture.documentJobMapper, times(2)).updateById(record);
     }
 

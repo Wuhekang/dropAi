@@ -132,10 +132,10 @@
               <dd>{{ downloadStateText }}</dd>
             </div>
           </dl>
-          <p v-if="documentJob.status === 'PARTIAL_SUCCESS'" class="process-warning" role="status">
-            {{ canDownloadRewriteDocument(documentJob) ? '部分段落保留原文，可下载；请根据以下说明复核这些段落。' : '部分段落保留原文，但暂未取得下载地址；请刷新任务记录。' }}
+          <p v-if="partialCompletionNotice" class="process-warning" role="status">
+            {{ partialCompletionNotice }}
           </p>
-          <p v-if="documentJob.message && (documentJob.status === 'PARTIAL_SUCCESS' || (documentJob.platform === 'DAYA' && documentJob.status === 'FAILED'))" :class="documentJob.status === 'PARTIAL_SUCCESS' ? 'process-warning' : 'process-error'">
+          <p v-if="documentJob.platform === 'DAYA' && documentJob.status === 'FAILED' && documentJob.message" class="process-error">
             {{ documentJob.message }}
           </p>
         </div>
@@ -366,6 +366,12 @@ const downloadStateText = computed(() => {
   if (documentJob.status === 'FAILED') return '生成失败'
   return '等待生成'
 })
+const partialCompletionNotice = computed(() => {
+  if (documentJob.status !== 'PARTIAL_SUCCESS') return ''
+  return canDownloadRewriteDocument(documentJob)
+    ? '部分段落未完成，可以下载已有结果。'
+    : '部分段落未完成，但暂未取得下载地址；请刷新任务记录。'
+})
 
 const inputCharCount = computed(() => originalText.value.length)
 const estimatedTextCost = computed(() => calculateTextCost(inputCharCount.value, activeTextMode.value.featureCode))
@@ -575,7 +581,7 @@ async function syncDocumentJob(jobId) {
   }
   if (job.status === 'PARTIAL_SUCCESS' && !notifiedJobIds.has(job.jobId)) {
     notifiedJobIds.add(job.jobId)
-    notifyOnce('warning', canDownloadRewriteDocument(job) ? '文档部分完成，未通过的段落已保留原文，可以下载复核。' : '文档部分完成，但暂未取得下载地址，请刷新任务记录。', `partial:${job.jobId}`)
+    notifyOnce('warning', partialCompletionNotice.value, `partial:${job.jobId}`)
     await loadHistory()
   }
   if (job.platform === 'DAYA' && job.status === 'FAILED' && !notifiedJobIds.has(job.jobId)) {

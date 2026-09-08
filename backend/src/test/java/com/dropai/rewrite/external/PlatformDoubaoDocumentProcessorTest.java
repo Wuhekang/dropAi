@@ -1203,10 +1203,10 @@ class PlatformDoubaoDocumentProcessorTest {
                 source, output, XuejiePlatform.DAYA, XuejieRewriteMode.HUMANIZE, null);
         assertThat(result.processedParagraphs()).isEqualTo(3);
         assertThat(result.rewrittenParagraphs()).isEqualTo(2);
-        assertThat(result.failedParagraphs()).isEqualTo(1);
+        assertThat(result.failedParagraphs()).isZero();
+        assertThat(result.protectedParagraphs()).isEqualTo(1);
         assertThat(result.preservedParagraphs()).isZero();
-        assertThat(result.preservationMessages()).singleElement()
-                .asString().contains("t0r7c2", "大雅表格说明不得新增换行或制表符", "已保留原文与格式");
+        assertThat(result.preservationMessages()).isEmpty();
         assertThat(output).exists();
         try (InputStream sourceStream = Files.newInputStream(source);
              InputStream outputStream = Files.newInputStream(output);
@@ -1253,11 +1253,10 @@ class PlatformDoubaoDocumentProcessorTest {
                 source, output, XuejiePlatform.DAYA, XuejieRewriteMode.HUMANIZE, null);
         assertThat(result.processedParagraphs()).isEqualTo(3);
         assertThat(result.rewrittenParagraphs()).isEqualTo(1);
-        assertThat(result.failedParagraphs()).isEqualTo(2);
+        assertThat(result.failedParagraphs()).isZero();
+        assertThat(result.protectedParagraphs()).isEqualTo(2);
         assertThat(result.preservedParagraphs()).isZero();
-        assertThat(String.join("；", result.preservationMessages()))
-                .contains("平台 Skill 未完整保留结构占位符",
-                        "大雅表格说明未完整保留编号、数据、单位或否定条件");
+        assertThat(result.preservationMessages()).isEmpty();
         assertThat(output).exists();
         try (InputStream sourceStream = Files.newInputStream(source);
              InputStream outputStream = Files.newInputStream(output);
@@ -1271,21 +1270,21 @@ class PlatformDoubaoDocumentProcessorTest {
     }
 
     @Test
-    void dayaPublishes178ValidResultsWhilePreservingFourFailedTableParagraphsExactly() throws Exception {
+    void dayaCompletes182ParagraphsWith167RewrittenTenUnchangedAndFiveProtectedExactly() throws Exception {
         Path source = temporaryDirectory.resolve("daya-182-paragraphs-source.docx");
         Path output = temporaryDirectory.resolve("daya-182-paragraphs-result.docx");
         try (XWPFDocument document = new XWPFDocument()) {
             var heading = document.createParagraph();
             heading.setStyle("Heading1");
             heading.createRun().setText("第一章 绪论");
-            for (int index = 0; index < 178; index++) {
+            for (int index = 0; index < 177; index++) {
                 document.createParagraph().createRun().setText("现场资料已经核实，记录编号为"
                         + index + "，相关复核结论仍保存在原始台账中。");
             }
             document.createParagraph().createRun().setText("表2-1 资料说明");
-            var table = document.createTable(5, 1);
+            var table = document.createTable(6, 1);
             setCellText(table.getRow(0).getCell(0), "资料说明");
-            for (int row = 1; row <= 4; row++) {
+            for (int row = 1; row <= 5; row++) {
                 var paragraph = table.getRow(row).getCell(0).getParagraphs().get(0);
                 paragraph.setSpacingAfter(80);
                 for (String text : List.of("资料尚未完整记载资金来源，", "现场记录仍以原始台账和对应凭证为准。")) {
@@ -1310,7 +1309,9 @@ class PlatformDoubaoDocumentProcessorTest {
                     for (var segment : segments) {
                         results.put(segment.id(), segment.id().startsWith("t")
                                 ? segment.text().replace("尚未", "已经")
-                                : segment.text().replace("资料已经核实", "资料已完成核验"));
+                                : Integer.parseInt(segment.id().substring(1)) <= 167
+                                ? segment.text().replace("资料已经核实", "资料已完成核验")
+                                : segment.text());
                     }
                     return results;
                 });
@@ -1325,23 +1326,25 @@ class PlatformDoubaoDocumentProcessorTest {
                 source, output, XuejiePlatform.DAYA, XuejieRewriteMode.HUMANIZE, null);
 
         assertThat(submitted).hasValue(182);
-        assertThat(retried).hasValue(4);
+        assertThat(retried).hasValue(5);
         assertThat(result.totalParagraphs()).isEqualTo(182);
         assertThat(result.processedParagraphs()).isEqualTo(182);
-        assertThat(result.rewrittenParagraphs()).isEqualTo(178);
-        assertThat(result.failedParagraphs()).isEqualTo(4);
-        assertThat(result.preservedParagraphs()).isZero();
-        assertThat(result.preservationMessages()).hasSize(3);
+        assertThat(result.rewrittenParagraphs()).isEqualTo(167);
+        assertThat(result.failedParagraphs()).isZero();
+        assertThat(result.protectedParagraphs()).isEqualTo(5);
+        assertThat(result.preservedParagraphs()).isEqualTo(10);
+        assertThat(result.preservationMessages()).isEmpty();
         assertThat(output).exists();
         try (InputStream sourceStream = Files.newInputStream(source);
              InputStream outputStream = Files.newInputStream(output);
              XWPFDocument sourceDocument = new XWPFDocument(sourceStream);
              XWPFDocument outputDocument = new XWPFDocument(outputStream)) {
             assertThat(outputDocument.getParagraphs()).hasSize(sourceDocument.getParagraphs().size());
-            for (int index = 1; index <= 178; index++) {
+            for (int index = 1; index <= 177; index++) {
+                String original = sourceDocument.getParagraphs().get(index).getText();
                 assertThat(outputDocument.getParagraphs().get(index).getText())
-                        .isEqualTo(sourceDocument.getParagraphs().get(index).getText()
-                                .replace("资料已经核实", "资料已完成核验"));
+                        .isEqualTo(index <= 167 ? original.replace("资料已经核实", "资料已完成核验")
+                                : original);
             }
             assertThat(outputDocument.getTables().get(0).getCTTbl().xmlText())
                     .isEqualTo(sourceDocument.getTables().get(0).getCTTbl().xmlText());
@@ -1350,6 +1353,131 @@ class PlatformDoubaoDocumentProcessorTest {
             assertThat(files.map(path -> path.getFileName().toString()))
                     .noneMatch(name -> name.endsWith(".part"));
         }
+    }
+
+    @Test
+    void dayaPublishesWhenEveryModelParagraphNeedsAProtectionFallback() throws Exception {
+        Path source = temporaryDirectory.resolve("all-protected-source.docx");
+        Path output = temporaryDirectory.resolve("all-protected-result.docx");
+        String original = "现场共核验128份记录，原始编号与对应复核结论均保存在台账中。";
+        writeSingleBodyFixture(source, "第一章 绪论", original);
+        PlatformDoubaoRewriteGateway gateway = mock(PlatformDoubaoRewriteGateway.class);
+        String missingProtectedNumber = "现场记录完成了核验，复核结论均保存在原始台账中。";
+        when(gateway.rewriteBatch(anyList(), eq(XuejiePlatform.DAYA), eq(XuejieRewriteMode.HUMANIZE)))
+                .thenAnswer(invocation -> {
+                    List<PlatformDoubaoRewriteGateway.Segment> segments = invocation.getArgument(0);
+                    return Map.of(segments.get(0).id(), missingProtectedNumber);
+                });
+        when(gateway.rewriteRecovery(any(PlatformDoubaoRewriteGateway.Segment.class), anyString(), anyString(),
+                eq(XuejiePlatform.DAYA), eq(XuejieRewriteMode.HUMANIZE)))
+                .thenReturn(missingProtectedNumber);
+
+        var result = processor(gateway).process(
+                source, output, XuejiePlatform.DAYA, XuejieRewriteMode.HUMANIZE, null);
+
+        assertThat(result.totalParagraphs()).isEqualTo(1);
+        assertThat(result.processedParagraphs()).isEqualTo(1);
+        assertThat(result.rewrittenParagraphs()).isZero();
+        assertThat(result.failedParagraphs()).isZero();
+        assertThat(result.protectedParagraphs()).isEqualTo(1);
+        assertThat(result.preservedParagraphs()).isZero();
+        assertThat(result.preservationMessages()).isEmpty();
+        org.mockito.Mockito.verify(gateway, org.mockito.Mockito.times(1)).rewriteRecovery(
+                any(PlatformDoubaoRewriteGateway.Segment.class), anyString(), anyString(),
+                eq(XuejiePlatform.DAYA), eq(XuejieRewriteMode.HUMANIZE));
+        try (InputStream sourceStream = Files.newInputStream(source);
+             InputStream outputStream = Files.newInputStream(output);
+             XWPFDocument sourceDocument = new XWPFDocument(sourceStream);
+             XWPFDocument outputDocument = new XWPFDocument(outputStream)) {
+            assertThat(outputDocument.getDocument().xmlText()).isEqualTo(sourceDocument.getDocument().xmlText());
+        }
+    }
+
+    @Test
+    void dayaRemembersAProtectedModelBodyRegardlessOfWhichAttemptHadASystemFailure() throws Exception {
+        for (boolean firstAttemptHasSystemFailure : List.of(true, false)) {
+            Path source = temporaryDirectory.resolve("mixed-protection-system-" + firstAttemptHasSystemFailure + ".docx");
+            Path output = temporaryDirectory.resolve("mixed-protection-system-result-" + firstAttemptHasSystemFailure + ".docx");
+            writeSingleBodyFixture(source, "第一章 绪论", "现场共核验128份记录，原始编号与复核结论均保存在台账中。");
+            PlatformDoubaoRewriteGateway gateway = mock(PlatformDoubaoRewriteGateway.class);
+            String missingProtectedNumber = "现场记录完成了核验，复核结论均保存在原始台账中。";
+            when(gateway.rewriteBatch(anyList(), eq(XuejiePlatform.DAYA), eq(XuejieRewriteMode.HUMANIZE)))
+                    .thenAnswer(invocation -> {
+                        if (firstAttemptHasSystemFailure) throw new IllegalStateException("首轮模型请求超时");
+                        List<PlatformDoubaoRewriteGateway.Segment> segments = invocation.getArgument(0);
+                        return Map.of(segments.get(0).id(), missingProtectedNumber);
+                    });
+            when(gateway.rewriteRecovery(any(PlatformDoubaoRewriteGateway.Segment.class), any(), anyString(),
+                    eq(XuejiePlatform.DAYA), eq(XuejieRewriteMode.HUMANIZE)))
+                    .thenAnswer(invocation -> {
+                        if (!firstAttemptHasSystemFailure) throw new IllegalStateException("重试模型请求超时");
+                        return missingProtectedNumber;
+                    });
+
+            var result = processor(gateway).process(
+                    source, output, XuejiePlatform.DAYA, XuejieRewriteMode.HUMANIZE, null);
+
+            assertThat(result.processedParagraphs()).isEqualTo(1);
+            assertThat(result.failedParagraphs()).isZero();
+            assertThat(result.protectedParagraphs()).isEqualTo(1);
+            assertThat(result.rewrittenParagraphs()).isZero();
+            assertThat(result.preservedParagraphs()).isZero();
+            assertThat(result.preservationMessages()).isEmpty();
+            assertThat(output).exists();
+        }
+    }
+
+    @Test
+    void dayaDoesNotCountNonBodyModelExplanationsAsProtectedParagraphs() throws Exception {
+        Path source = temporaryDirectory.resolve("model-explanation-source.docx");
+        Path output = temporaryDirectory.resolve("model-explanation-result.docx");
+        writeSingleBodyFixture(source, "第一章 绪论", "现场共核验128份记录，原始编号与复核结论均保存在台账中。");
+        PlatformDoubaoRewriteGateway gateway = mock(PlatformDoubaoRewriteGateway.class);
+        String nonBody = "以下是改写结果：\n已完成内容处理。";
+        when(gateway.rewriteBatch(anyList(), eq(XuejiePlatform.DAYA), eq(XuejieRewriteMode.HUMANIZE)))
+                .thenAnswer(invocation -> {
+                    List<PlatformDoubaoRewriteGateway.Segment> segments = invocation.getArgument(0);
+                    return Map.of(segments.get(0).id(), nonBody);
+                });
+        when(gateway.rewriteRecovery(any(PlatformDoubaoRewriteGateway.Segment.class), anyString(), anyString(),
+                eq(XuejiePlatform.DAYA), eq(XuejieRewriteMode.HUMANIZE)))
+                .thenReturn(nonBody);
+
+        assertThatThrownBy(() -> processor(gateway).process(
+                source, output, XuejiePlatform.DAYA, XuejieRewriteMode.HUMANIZE, null))
+                .isInstanceOf(PlatformDoubaoDocumentProcessor.DayaProcessingException.class)
+                .hasMessageContaining("改写说明而非正文");
+        assertThat(output).doesNotExist();
+    }
+
+    @Test
+    void dayaDoesNotReclassifyUnexpectedValidationExceptionsAsProtectionFallbacks() throws Exception {
+        Path source = temporaryDirectory.resolve("unexpected-validation-source.docx");
+        Path output = temporaryDirectory.resolve("unexpected-validation-result.docx");
+        String original = "现场记录完成了核验，复核结论均保存在原始台账中。";
+        writeSingleBodyFixture(source, "第一章 绪论", original);
+        PlatformDoubaoRewriteGateway gateway = mock(PlatformDoubaoRewriteGateway.class);
+        PlatformDocumentTextProtector protector = mock(PlatformDocumentTextProtector.class);
+        // A corrupted collaborator produces an unexpected runtime error, not a known guard.
+        when(protector.protect(anyString(), any(AtomicInteger.class)))
+                .thenReturn(new PlatformDocumentTextProtector.ProtectedText(original, null));
+        when(gateway.rewriteBatch(anyList(), eq(XuejiePlatform.DAYA), eq(XuejieRewriteMode.HUMANIZE)))
+                .thenAnswer(invocation -> {
+                    List<PlatformDoubaoRewriteGateway.Segment> segments = invocation.getArgument(0);
+                    return Map.of(segments.get(0).id(), original);
+                });
+        when(gateway.rewriteRecovery(any(PlatformDoubaoRewriteGateway.Segment.class), anyString(), anyString(),
+                eq(XuejiePlatform.DAYA), eq(XuejieRewriteMode.HUMANIZE))).thenReturn(original);
+        PlatformDoubaoDocumentProcessor processor = new PlatformDoubaoDocumentProcessor(gateway, protector);
+        processors.add(processor);
+
+        assertThatThrownBy(() -> processor.process(
+                source, output, XuejiePlatform.DAYA, XuejieRewriteMode.HUMANIZE, null))
+                .isInstanceOf(PlatformDoubaoDocumentProcessor.DayaProcessingException.class)
+                .satisfies(failure -> assertThat(
+                        ((PlatformDoubaoDocumentProcessor.DayaProcessingException) failure).failedParagraphs())
+                        .isEqualTo(1));
+        assertThat(output).doesNotExist();
     }
 
     @Test
