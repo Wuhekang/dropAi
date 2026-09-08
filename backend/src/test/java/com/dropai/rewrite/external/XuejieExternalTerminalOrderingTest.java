@@ -6,6 +6,8 @@ import com.dropai.rewrite.service.DocumentCharacterCountService;
 import com.dropai.rewrite.service.PointService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.InOrder;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -93,11 +95,32 @@ class XuejieExternalTerminalOrderingTest {
     }
 
     @Test
-    void refusesSuccessWhenAParagraphHasNoValidModelResponse() {
+    void publishesPartialSuccessWhenFourOf182ParagraphsKeepTheOriginal() {
         Fixture fixture = fixture();
-        assertThatThrownBy(() -> service.finalizeSuccessfulJob("job-call-failed", "大雅",
+        DocumentJobRecord record = documentJob("job-partial-file", "RUNNING");
+        when(fixture.documentJobMapper.selectById("job-partial-file")).thenReturn(record);
+
+        service.finalizeSuccessfulJob("job-partial-file", "大雅",
                 new PlatformDoubaoDocumentProcessor.ProcessingResult(
-                        2, 2, 1, 1, java.util.List.of())))
+                        182, 182, 178, 4, java.util.List.of("p22：数字完整性校验未通过")));
+
+        assertThat(record.getStatus()).isEqualTo("PARTIAL_SUCCESS");
+        assertThat(record.getProcessedParagraphs()).isEqualTo(182);
+        assertThat(record.getRewrittenParagraphs()).isEqualTo(178);
+        assertThat(record.getMessage()).contains("部分完成", "可下载", "4 段处理失败", "保留原文和原格式")
+                .doesNotContain("均已获得有效模型结果", "全文适配完成");
+        verify(fixture.stateRepository).stage("job-partial-file",
+                XuejieExternalJobStateRepository.COMPLETED, null, "doubao_partial_completed");
+        com.dropai.rewrite.vo.DocumentRewriteJobVO job = ReflectionTestUtils.invokeMethod(service, "toJob", record);
+        assertThat(job.getDownloadUrl()).isEqualTo("/api/document/rewrite/download/job-partial-file");
+    }
+
+    @Test
+    void refusesPublicationWhenAllParagraphsHaveNoValidModelResponse() {
+        Fixture fixture = fixture();
+        assertThatThrownBy(() -> service.finalizeSuccessfulJob("job-all-call-failed", "大雅",
+                new PlatformDoubaoDocumentProcessor.ProcessingResult(
+                        2, 2, 0, 2, java.util.List.of())))
                 .isInstanceOf(IllegalStateException.class);
         verifyNoInteractions(fixture.documentJobMapper, fixture.stateRepository);
     }
@@ -115,8 +138,9 @@ class XuejieExternalTerminalOrderingTest {
         verifyNoInteractions(fixture.documentJobMapper, fixture.stateRepository);
     }
 
-    @Test
-    void restartClosesCrashWindowWithoutPollingOrSubmittingAgain() throws Exception {
+    @ParameterizedTest
+    @ValueSource(strings = {"SUCCESS", "PARTIAL_SUCCESS"})
+    void restartClosesCrashWindowWithoutPollingOrSubmittingAgain(String publishedStatus) throws Exception {
         Fixture fixture = fixture();
         String jobId = "recovered-" + UUID.randomUUID().toString().replace("-", "");
         Path result = Path.of("storage", "outputs", jobId + "-ai-optimized.docx");
@@ -124,7 +148,7 @@ class XuejieExternalTerminalOrderingTest {
         Files.write(result, new byte[]{1});
         try {
             when(fixture.documentJobMapper.selectById(jobId))
-                    .thenReturn(documentJob(jobId, "SUCCESS"));
+                    .thenReturn(documentJob(jobId, publishedStatus));
             XuejieExternalJobStateRepository.State state = new XuejieExternalJobStateRepository.State(
                     jobId, 7L, "paper.docx", XuejiePlatform.DAYA.name(),
                     XuejieRewriteMode.HUMANIZE.apiValue(), "DOCUMENT_HUMANIZE", "文档降AI", 10,
@@ -134,7 +158,8 @@ class XuejieExternalTerminalOrderingTest {
             service.recover(state);
 
             verify(fixture.stateRepository).stage(jobId,
-                    XuejieExternalJobStateRepository.COMPLETED, null, "doubao_completed");
+                    XuejieExternalJobStateRepository.COMPLETED, null,
+                    "PARTIAL_SUCCESS".equals(publishedStatus) ? "doubao_partial_completed" : "doubao_completed");
             verify(fixture.documentJobMapper, never()).updateById(
                     org.mockito.ArgumentMatchers.<DocumentJobRecord>any());
             verifyNoInteractions(fixture.processor);

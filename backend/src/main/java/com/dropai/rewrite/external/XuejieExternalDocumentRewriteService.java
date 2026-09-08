@@ -211,18 +211,34 @@ public class XuejieExternalDocumentRewriteService {
                 || result.rewrittenParagraphs() > result.processedParagraphs()
                 || result.rewrittenParagraphs() + result.failedParagraphs()
                 > result.processedParagraphs()
-                || result.failedParagraphs() != 0) {
-            throw new IllegalStateException("大雅结果状态不完整：存在未处理段或硬失败，拒绝发布");
+                || result.failedParagraphs() >= result.processedParagraphs()) {
+            throw new IllegalStateException("大雅结果状态不完整：存在未处理段或全部段落失败，拒绝发布");
         }
         int preserved = result.preservedParagraphs();
-        String completion = result.processedParagraphs() + " 个可处理段落均已获得有效模型结果，"
-                + result.rewrittenParagraphs() + " 段文字有修改，"
-                + preserved + " 段经模型处理后文字保持不变";
-        update(jobId, "SUCCESS", result.totalParagraphs(), result.processedParagraphs(),
-                result.rewrittenParagraphs(), true,
-                platformName + " Skill 全文适配完成，" + completion + "，结果文件已生成");
+        boolean partial = result.failedParagraphs() > 0;
+        String completion;
+        if (partial) {
+            completion = platformName + " Skill 部分完成，可下载结果文档：已处理 "
+                    + result.processedParagraphs() + " 段，其中 " + result.rewrittenParagraphs()
+                    + " 段文字有修改、" + preserved + " 段经模型处理后文字相同；"
+                    + result.failedParagraphs() + " 段处理失败，已保留原文和原格式，未写入未通过校验的内容。"
+                    + "请重点复核这些保留原文的段落。";
+            if (result.preservationMessages() != null && !result.preservationMessages().isEmpty()) {
+                completion += " 原因示例：" + compact(String.join("；", result.preservationMessages()));
+            }
+        } else {
+            completion = platformName + " Skill 全文适配完成，"
+                    + result.processedParagraphs() + " 个可处理段落均已获得有效模型结果，"
+                    + result.rewrittenParagraphs() + " 段文字有修改，"
+                    + preserved + " 段经模型处理后文字保持不变，结果文件已生成";
+        }
+        update(jobId, partial ? "PARTIAL_SUCCESS" : "SUCCESS",
+                result.totalParagraphs(), result.processedParagraphs(), result.rewrittenParagraphs(), true, completion);
+        log.info("Daya document published jobId={} status={} processed={} rewritten={} unchanged={} failedPreserved={}",
+                jobId, partial ? "PARTIAL_SUCCESS" : "SUCCESS", result.processedParagraphs(),
+                result.rewrittenParagraphs(), preserved, result.failedParagraphs());
         stateRepository.stage(jobId, XuejieExternalJobStateRepository.COMPLETED,
-                null, "doubao_completed");
+                null, partial ? "doubao_partial_completed" : "doubao_completed");
     }
 
     /** Kept as a small compatibility seam for the existing terminal-ordering regression test. */
@@ -235,11 +251,11 @@ public class XuejieExternalDocumentRewriteService {
     private boolean recoverAlreadyFinalizedSuccess(XuejieExternalJobStateRepository.State state,
                                                     Path inputPath) {
         DocumentJobRecord record = documentJobMapper.selectById(state.jobId());
-        if (record == null || !"SUCCESS".equals(record.getStatus()) || !hasSavedResult(state.jobId())) {
+        if (record == null || !isPublishedStatus(record.getStatus()) || !hasSavedResult(state.jobId())) {
             return false;
         }
         stateRepository.stage(state.jobId(), XuejieExternalJobStateRepository.COMPLETED,
-                null, "doubao_completed");
+                null, "PARTIAL_SUCCESS".equals(record.getStatus()) ? "doubao_partial_completed" : "doubao_completed");
         deleteQuietly(inputPath);
         return true;
     }
@@ -338,12 +354,16 @@ public class XuejieExternalDocumentRewriteService {
         job.setCostPoints(value(record.getCostPoints()));
         job.setPointsCharged(Boolean.TRUE.equals(record.getPointsCharged()));
         job.setMessage(record.getMessage());
-        if ("SUCCESS".equals(record.getStatus())) {
+        if (isPublishedStatus(record.getStatus())) {
             job.setDownloadUrl("/api/document/rewrite/download/" + record.getJobId());
         }
         job.setCreatedAt(record.getCreatedAt());
         job.setUpdatedAt(record.getUpdatedAt());
         return job;
+    }
+
+    private boolean isPublishedStatus(String status) {
+        return "SUCCESS".equals(status) || "PARTIAL_SUCCESS".equals(status);
     }
 
     private String featureCode(XuejieRewriteMode mode) {

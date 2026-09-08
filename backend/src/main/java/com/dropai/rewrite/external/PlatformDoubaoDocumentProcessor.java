@@ -132,10 +132,14 @@ public class PlatformDoubaoDocumentProcessor {
                 acceptedRewrites.addAll(batchResult.rewrites());
             }
 
-            if (failed > 0) {
+            // Publish every validated result, while leaving failed targets (including their
+            // original runs, list numbering and table structure) completely untouched.
+            // A source-only file is useful only when at least one model response was valid;
+            // it must not disguise a document whose every target failed as a completed job.
+            if (failed == targets.size()) {
                 throw new DayaProcessingException(
-                        "大雅全文改写尚有 " + failed
-                                + " 段未通过不可放宽的完整性校验；本次不生成包含未校验内容或损坏事实的文档"
+                        "大雅全文改写的 " + failed
+                                + " 段均未取得有效模型结果；本次未生成结果文档，原文件未改动"
                                 + (preservationMessages.isEmpty()
                                 ? "" : "：" + String.join("；", preservationMessages)),
                         targets.size(), processed, rewritten, failed);
@@ -354,14 +358,22 @@ public class PlatformDoubaoDocumentProcessor {
                 return new RetryResult(retryTarget.batchIndex(), attempt.rewrite(), null);
             }
             return new RetryResult(retryTarget.batchIndex(), null,
-                    compact("未取得通过完整性校验的模型结果：首轮："
+                    compact(failedTargetLabel(retryTarget.target())
+                            + "未取得通过完整性校验的模型结果，已保留原文与格式：首轮："
                             + retryTarget.firstFailure() + "；单段重试：" + attempt.failure()));
         } catch (RuntimeException retryFailure) {
             return new RetryResult(retryTarget.batchIndex(), null,
-                    compact("未取得通过完整性校验的模型结果：首轮："
+                    compact(failedTargetLabel(retryTarget.target())
+                            + "未取得通过完整性校验的模型结果，已保留原文与格式：首轮："
                             + retryTarget.firstFailure() + "；单段重试："
                             + compact(retryFailure.getMessage())));
         }
+    }
+
+    private String failedTargetLabel(Target target) {
+        return target.index() >= 0
+                ? "原稿第 " + (target.index() + 1) + " 段（" + target.id() + "）："
+                : "表格段落 " + target.id() + "：";
     }
 
     private RewriteAttempt validateResponse(PreparedBatch prepared, Target target, String response) {
@@ -792,14 +804,22 @@ public class PlatformDoubaoDocumentProcessor {
     }
 
     private boolean isHeadingStyle(XWPFParagraph paragraph) {
-        String style = normalize(paragraph.getStyle()).toLowerCase(Locale.ROOT);
+        String style = paragraphStyle(paragraph);
         return style.contains("heading") || style.contains("title") || style.contains("标题")
                 || style.matches("[1-9]");
     }
 
     private boolean isCatalogStyle(XWPFParagraph paragraph) {
-        String style = normalize(paragraph.getStyle()).toLowerCase(Locale.ROOT);
+        String style = paragraphStyle(paragraph);
         return style.startsWith("toc") || style.contains("目录");
+    }
+
+    private String paragraphStyle(XWPFParagraph paragraph) {
+        // XWPFParagraph.getStyle() creates an empty pPr when none exists. Selection must
+        // be read-only so failed or unchanged paragraphs retain their original XML too.
+        var properties = paragraph.getCTP().getPPr();
+        return properties != null && properties.isSetPStyle()
+                ? normalize(properties.getPStyle().getVal()).toLowerCase(Locale.ROOT) : "";
     }
 
     private boolean isTechnicalFragment(String text) {

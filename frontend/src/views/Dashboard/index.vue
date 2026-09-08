@@ -182,6 +182,7 @@ import { useRouter } from 'vue-router'
 import AdminNoticeModal from '../../components/AdminNoticeModal.vue'
 import ChangePasswordDialog from '../../components/ChangePasswordDialog.vue'
 import { getMyDocuments, getPointAccount, logout } from '../../api/rewrite'
+import { isCompletedDocumentStatus, isTerminalDocumentStatus } from '../../utils/documentJobStatus'
 
 const router = useRouter()
 const username = sessionStorage.getItem('dropai_username') || '当前用户'
@@ -207,7 +208,7 @@ const isAdmin = computed(() => String(role).toLowerCase() === 'admin')
 const roleLabel = computed(() => (isAdmin.value ? '管理员' : '普通用户'))
 const pointBalance = computed(() => pointAccount.value.points ?? '--')
 const recentProjects = computed(() => documents.value.slice(0, 2))
-const currentProject = computed(() => documents.value.find(x => !['SUCCESS', 'FAILED'].includes(x.status)) || documents.value[0] || null)
+const currentProject = computed(() => documents.value.find(x => !isTerminalDocumentStatus(x.status)) || documents.value[0] || null)
 
 async function loadDocuments() {
   loading.value = true
@@ -242,6 +243,7 @@ function openPasswordDialog() {
 }
 
 function continueProject(project) {
+  if (project.status === 'PARTIAL_SUCCESS') return router.push('/rewrite')
   const name = project.projectName || project.fileName || 'Dokiai 项目'
   router.push({ path: '/result', query: { name } })
 }
@@ -259,7 +261,7 @@ async function signOut() {
 }
 
 function statusText(status) {
-  return ({ SUCCESS: '已完成', FAILED: '失败', RUNNING: '生成中', GENERATING: '生成中', PENDING: '排队中', WAITING: '待继续' })[status] || status || '进行中'
+  return ({ SUCCESS: '已完成', PARTIAL_SUCCESS: '部分完成，可下载复核', FAILED: '失败', RUNNING: '生成中', GENERATING: '生成中', PENDING: '排队中', WAITING: '待继续' })[status] || status || '进行中'
 }
 
 function fileTypeName(record) {
@@ -274,12 +276,14 @@ function projectType(project) {
 }
 
 function projectProgress(project) {
+  if (project.status === 'PARTIAL_SUCCESS') return 100
   const value = Number(project.progress)
   if (Number.isFinite(value) && value > 0) return Math.min(100, value)
   return project.status === 'SUCCESS' ? 100 : project.status === 'FAILED' ? 0 : isGenerating(project) ? 65 : 20
 }
 
 function currentStep(project) {
+  if (project.status === 'PARTIAL_SUCCESS') return '部分完成，可下载复核'
   if (project.currentStep) return project.currentStep
   if (project.status === 'SUCCESS') return '成果已完成'
   if (isGenerating(project)) return '正文生成'
@@ -295,8 +299,8 @@ function taskSteps(project) {
   if (!isGenerating(project)) {
     return [
       { label: '需求分析', state: 'done', mark: '✓' },
-      { label: currentStep(project), state: project.status === 'SUCCESS' ? 'done' : 'active', mark: project.status === 'SUCCESS' ? '✓' : '●' },
-      { label: '成果导出', state: project.status === 'SUCCESS' ? 'done' : 'waiting', mark: '待' }
+      { label: currentStep(project), state: isCompletedDocumentStatus(project.status) ? 'done' : 'active', mark: isCompletedDocumentStatus(project.status) ? '✓' : '●' },
+      { label: '成果导出', state: isCompletedDocumentStatus(project.status) ? 'done' : 'waiting', mark: '待' }
     ]
   }
   return [

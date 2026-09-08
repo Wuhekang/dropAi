@@ -132,7 +132,10 @@
               <dd>{{ downloadStateText }}</dd>
             </div>
           </dl>
-          <p v-if="documentJob.platform === 'DAYA' && documentJob.status === 'FAILED' && documentJob.message" class="process-error">
+          <p v-if="documentJob.status === 'PARTIAL_SUCCESS'" class="process-warning" role="status">
+            {{ canDownloadRewriteDocument(documentJob) ? '部分段落保留原文，可下载；请根据以下说明复核这些段落。' : '部分段落保留原文，但暂未取得下载地址；请刷新任务记录。' }}
+          </p>
+          <p v-if="documentJob.message && (documentJob.status === 'PARTIAL_SUCCESS' || (documentJob.platform === 'DAYA' && documentJob.status === 'FAILED'))" :class="documentJob.status === 'PARTIAL_SUCCESS' ? 'process-warning' : 'process-error'">
             {{ documentJob.message }}
           </p>
         </div>
@@ -223,7 +226,7 @@
           </div>
           <div class="history-actions">
             <button class="ghost-button" type="button" @click="setDocumentJob(item)">查看</button>
-            <button class="ghost-button" type="button" :disabled="item.status !== 'SUCCESS'" @click="downloadDocumentJob(item)">下载</button>
+            <button class="ghost-button" type="button" :disabled="!canDownloadRewriteDocument(item) || !!downloadingJobId" @click="downloadDocumentJob(item)">下载</button>
           </div>
         </article>
       </div>
@@ -242,6 +245,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRouter } from 'vue-router'
+import { canDownloadRewriteDocument, isCompletedDocumentStatus, isTerminalDocumentStatus, rewriteJobProgress as jobProgress } from '../../utils/documentJobStatus'
 import {
   downloadDocument,
   getAiStatus,
@@ -283,6 +287,7 @@ const fileInput = ref(null)
 const dragging = ref(false)
 const documentPrechecking = ref(false)
 const documentUploading = ref(false)
+const downloadingJobId = ref('')
 const docProgress = ref(0)
 const docStatusText = ref('等待上传')
 const documentPollTimer = ref(null)
@@ -316,13 +321,15 @@ const documentProcessing = computed(() => ['PENDING', 'RUNNING'].includes(docume
 const docBusy = computed(() => documentPrechecking.value || documentUploading.value || documentProcessing.value)
 const documentCostText = computed(() => documentPrecheck.costPoints > 0 ? `${documentPrecheck.costPoints} 积分` : '免费')
 const docActionText = computed(() => {
+  if (downloadingJobId.value === documentJob.jobId && downloadingJobId.value) return '正在下载...'
+  if (documentJob.status === 'PARTIAL_SUCCESS') return canDownloadRewriteDocument(documentJob) ? '下载部分完成文档' : '文档暂不可下载'
   if (documentJob.status === 'SUCCESS') return '下载优化文档'
   if (documentUploading.value || documentProcessing.value) return '处理中...'
   if (documentPrechecking.value) return '正在检测...'
   if (!selectedDocument.value) return '选择 DOCX 文件'
   return `开始优化（${documentCostText.value}）`
 })
-const docActionDisabled = computed(() => documentPrechecking.value || documentUploading.value || documentProcessing.value)
+const docActionDisabled = computed(() => documentPrechecking.value || documentUploading.value || documentProcessing.value || Boolean(downloadingJobId.value) || (isCompletedDocumentStatus(documentJob.status) && !canDownloadRewriteDocument(documentJob)))
 const processedParagraphs = computed(() => documentJob.processedParagraphs || documentJob.completedParagraphs || 0)
 const totalParagraphs = computed(() => documentJob.totalParagraphs || documentJob.paragraphCount || 0)
 const documentStepText = computed(() => {
@@ -331,12 +338,14 @@ const documentStepText = computed(() => {
   if (documentJob.status === 'PENDING') return '等待并发任务调度...'
   if (documentJob.status === 'RUNNING') return '正在AI优化处理中...'
   if (documentJob.status === 'SUCCESS') return '处理完成'
+  if (documentJob.status === 'PARTIAL_SUCCESS') return '部分完成'
   if (documentJob.status === 'FAILED') return '处理失败'
   if (selectedDocument.value && documentPrecheck.ready) return '等待开始'
   return '等待上传'
 })
 const taskStateLabel = computed(() => {
   if (documentJob.status === 'SUCCESS') return '已完成'
+  if (documentJob.status === 'PARTIAL_SUCCESS') return '部分完成'
   if (documentJob.status === 'FAILED') return '处理失败'
   if (documentPrechecking.value || documentUploading.value || documentProcessing.value) return '处理中'
   if (selectedDocument.value && documentPrecheck.ready) return '等待开始'
@@ -348,11 +357,12 @@ const paragraphProgressText = computed(() => {
   return '-'
 })
 const concurrencyText = computed(() => {
-  if (!documentProcessing.value && documentJob.status !== 'SUCCESS') return '-'
+  if (!documentProcessing.value && !isCompletedDocumentStatus(documentJob.status)) return '-'
   return '32'
 })
 const downloadStateText = computed(() => {
   if (documentJob.status === 'SUCCESS') return '文档已生成'
+  if (documentJob.status === 'PARTIAL_SUCCESS') return canDownloadRewriteDocument(documentJob) ? '部分完成，可下载' : '文档暂不可下载'
   if (documentJob.status === 'FAILED') return '生成失败'
   return '等待生成'
 })
@@ -371,7 +381,7 @@ const pagedDocuments = computed(() => {
 })
 
 watch(docMode, async () => {
-  if (selectedDocument.value && documentJob.status !== 'SUCCESS') await runDocumentPrecheck(false)
+  if (selectedDocument.value && !isCompletedDocumentStatus(documentJob.status)) await runDocumentPrecheck(false)
 })
 
 function clearTextResult() {
@@ -407,7 +417,8 @@ async function submitText() {
 }
 
 async function handleDocumentAction() {
-  if (documentJob.status === 'SUCCESS') {
+  if (docActionDisabled.value) return
+  if (isCompletedDocumentStatus(documentJob.status)) {
     await downloadDocumentJob(documentJob)
     return
   }
@@ -541,11 +552,11 @@ function resetDocumentJob() {
 async function startDocumentPolling(jobId) {
   stopDocumentPolling()
   await syncDocumentJob(jobId)
-  if (['SUCCESS', 'FAILED'].includes(documentJob.status)) return
+  if (isTerminalDocumentStatus(documentJob.status)) return
   documentPollTimer.value = window.setInterval(async () => {
     try {
       await syncDocumentJob(jobId)
-      if (['SUCCESS', 'FAILED'].includes(documentJob.status)) stopDocumentPolling()
+      if (isTerminalDocumentStatus(documentJob.status)) stopDocumentPolling()
     } catch {
       stopDocumentPolling()
     }
@@ -562,6 +573,11 @@ async function syncDocumentJob(jobId) {
     notifyOnce('success', '文档处理完成，可以下载优化文档。')
     await loadHistory()
   }
+  if (job.status === 'PARTIAL_SUCCESS' && !notifiedJobIds.has(job.jobId)) {
+    notifiedJobIds.add(job.jobId)
+    notifyOnce('warning', canDownloadRewriteDocument(job) ? '文档部分完成，未通过的段落已保留原文，可以下载复核。' : '文档部分完成，但暂未取得下载地址，请刷新任务记录。', `partial:${job.jobId}`)
+    await loadHistory()
+  }
   if (job.platform === 'DAYA' && job.status === 'FAILED' && !notifiedJobIds.has(job.jobId)) {
     notifiedJobIds.add(job.jobId)
     notifyOnce('error', job.message || '大雅文档处理失败，预扣积分已退回。', `daya-failed:${job.jobId}`)
@@ -575,7 +591,8 @@ function stopDocumentPolling() {
 }
 
 function setDocumentJob(job = {}) {
-  Object.assign(documentJob, job)
+  Object.assign(documentJob, { downloadUrl: '' }, job)
+  setDocProgress(jobProgress(documentJob), documentStepText.value)
 }
 
 function upsertDocumentJob(job = {}) {
@@ -586,14 +603,21 @@ function upsertDocumentJob(job = {}) {
 }
 
 async function downloadDocumentJob(job) {
-  if (!job?.jobId || job.status !== 'SUCCESS') return
-  const blob = await downloadDocument(job.jobId)
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = `${(job.fileName || 'Dokiai文档').replace(/\.docx$/i, '')}_优化版.docx`
-  link.click()
-  URL.revokeObjectURL(url)
+  if (!job || !canDownloadRewriteDocument(job) || downloadingJobId.value) return
+  downloadingJobId.value = job.jobId
+  try {
+    const blob = await downloadDocument(job.jobId)
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${(job.fileName || 'Dokiai文档').replace(/\.docx$/i, '')}_${job.status === 'PARTIAL_SUCCESS' ? '部分完成版' : '优化版'}.docx`
+    link.click()
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+  } catch (error) {
+    reportRequestError(error, '文档下载失败，请稍后重试下载，无需重新提交文档。')
+  } finally {
+    downloadingJobId.value = ''
+  }
 }
 
 async function copyResult() {
@@ -666,24 +690,12 @@ function documentModeLabel(item = {}) {
 }
 
 function statusText(status) {
-  return ({ SUCCESS: '已完成', FAILED: '失败', RUNNING: '处理中', PENDING: '排队中' })[status] || status || '等待中'
+  return ({ SUCCESS: '已完成', PARTIAL_SUCCESS: '部分完成', FAILED: '失败', RUNNING: '处理中', PENDING: '排队中' })[status] || status || '等待中'
 }
 
 function isRewriteDocument(item = {}) {
   return (item.sourceFeature || 'REWRITE') === 'REWRITE' &&
     String(item.fileName || '').toLowerCase().endsWith('.docx')
-}
-
-function jobProgress(job = {}) {
-  if (job.status === 'SUCCESS') return 100
-  const total = job.totalParagraphs || 0
-  const done = job.processedParagraphs || 0
-  if (job.status === 'FAILED' && job.platform === 'DAYA') {
-    return total ? Math.min(99, Math.round((done / total) * 100)) : 0
-  }
-  if (job.status === 'FAILED') return 100
-  if (!total) return ['PENDING', 'RUNNING'].includes(job.status) ? 12 : 0
-  return Math.min(99, Math.round((done / total) * 100))
 }
 
 function buildDiffHtml(original, optimized) {
@@ -1122,11 +1134,16 @@ onBeforeUnmount(stopDocumentPolling)
   font-weight: 760;
 }
 
-.process-error {
+.process-error,
+.process-warning {
   margin: 18px 0 0;
   color: #c2415c;
   font-size: 13px;
   line-height: 1.65;
+}
+
+.process-warning {
+  color: #98600c;
 }
 
 .start-button {

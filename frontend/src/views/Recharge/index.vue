@@ -44,6 +44,7 @@
 import { computed, defineComponent, h, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
+import { hasDocumentDownload } from '../../utils/documentJobStatus'
 import {
   createRechargeOrder,
   downloadArtifact,
@@ -91,7 +92,7 @@ const quickAmounts = computed(() => {
 const normalizedCustomAmount = computed(() => validateAmount(customAmount.value))
 const currentTitle = computed(() => pageMeta[activeTab.value]?.[0] || '账户中心')
 const currentDescription = computed(() => pageMeta[activeTab.value]?.[1] || '')
-const downloads = computed(() => documents.value.filter(item => item.status === 'SUCCESS' && (item.downloadUrl || item.download_url)))
+const downloads = computed(() => documents.value.filter(hasDocumentDownload))
 const customPoints = computed(() => pointsFor(normalizedCustomAmount.value))
 const finalAmount = computed(() => pricingReady.value ? (customSelected.value ? normalizedCustomAmount.value : validateAmount(selectedAmount.value)) : null)
 const amountHint = computed(() => pricingReady.value ? `${formatAmount(minimumAmount.value)}–${formatAmount(maximumAmount.value)} 元${schoolPricing.value ? '、最多两位小数' : '整数金额'}` : '充值范围读取中')
@@ -108,7 +109,7 @@ const ProjectList = defineComponent({
       return h('div', { class: 'project-list' }, props.items.map(item => h('article', { key: item.id || item.fileName }, [
         h('i', (item.documentType || '文').slice(0, 1)),
         h('span', [h('b', item.projectName || item.fileName || '未命名项目'), h('small', `${item.documentType || item.projectType || '智能文档'} · ${statusLabel(item.status)} · ${formatTime(item.updateTime || item.createTime || item.createdAt)}`)]),
-        h('div', [h('button', { class: 'text-button', onClick: () => emit('view', item) }, '查看'), h('button', { class: 'outline-action', disabled: item.status !== 'SUCCESS', onClick: () => emit('download', item) }, '下载')])
+        h('div', [h('button', { class: 'text-button', onClick: () => emit('view', item) }, '查看'), h('button', { class: 'outline-action', disabled: !hasDocumentDownload(item), onClick: () => emit('download', item) }, '下载')])
       ])))
     }
   }
@@ -184,9 +185,9 @@ async function createAndRedirect() {
     creating.value = false
   }
 }
-function viewProject(item) { const id = item.projectId || item.id; if (id) sessionStorage.setItem('dropai_writing_project_id', id); router.push(item.status === 'SUCCESS' ? '/writing-generator/export' : '/writing-generator/generate') }
-async function downloadDocument(item) { const url = item.downloadUrl || item.download_url; if (!url) return ElMessage.warning('文件尚未就绪'); try { const blob = await downloadArtifact(url); const objectUrl = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = objectUrl; link.download = item.fileName || 'dokiai-result.docx'; link.click(); URL.revokeObjectURL(objectUrl) } catch (error) { ElMessage.error(error.message || '下载失败') } }
-function statusLabel(value) { return ({ SUCCESS: '已完成', FAILED: '失败', RUNNING: '生成中', GENERATING: '生成中', PENDING: '排队中', WAITING: '待继续' })[value] || value || '进行中' }
+function viewProject(item) { if (item.status === 'PARTIAL_SUCCESS') return router.push('/rewrite'); const id = item.projectId || item.id; if (id) sessionStorage.setItem('dropai_writing_project_id', id); router.push(item.status === 'SUCCESS' ? '/writing-generator/export' : '/writing-generator/generate') }
+async function downloadDocument(item) { const url = item.downloadUrl || item.download_url; if (!hasDocumentDownload(item)) return ElMessage.warning('文件尚未就绪'); if (item.status === 'PARTIAL_SUCCESS') ElMessage.warning('部分段落保留原文，请下载后复核。'); try { const blob = await downloadArtifact(url); const objectUrl = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = objectUrl; link.download = item.fileName || 'dokiai-result.docx'; link.click(); URL.revokeObjectURL(objectUrl) } catch (error) { ElMessage.error(error.message || '下载失败') } }
+function statusLabel(value) { return ({ SUCCESS: '已完成', PARTIAL_SUCCESS: '部分完成，可下载复核', FAILED: '失败', RUNNING: '生成中', GENERATING: '生成中', PENDING: '排队中', WAITING: '待继续' })[value] || value || '进行中' }
 function statusText(value) { return ({ pending: '待支付', paid: '支付成功', failed: '支付失败', refunded: '已退款' })[value] || value || '--' }
 function formatTime(value) { return value ? String(value).replace('T', ' ').slice(0, 16) : '--' }
 

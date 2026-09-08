@@ -1174,7 +1174,7 @@ class PlatformDoubaoDocumentProcessorTest {
     }
 
     @Test
-    void dayaDoesNotPublishWhenATableParagraphNeverReturnsAValidModelResponse() throws Exception {
+    void dayaPublishesOtherParagraphsAndKeepsAnInvalidTableParagraphUntouched() throws Exception {
         Path source = temporaryDirectory.resolve("daya-table-newline-source.docx");
         Path output = temporaryDirectory.resolve("daya-table-newline-result.docx");
         writeDayaTableFixture(source);
@@ -1199,16 +1199,24 @@ class PlatformDoubaoDocumentProcessorTest {
                 });
         PlatformDoubaoDocumentProcessor processor = processor(gateway);
 
-        assertThatThrownBy(() -> processor.process(
-                source, output, XuejiePlatform.DAYA, XuejieRewriteMode.HUMANIZE, null))
-                .isInstanceOf(PlatformDoubaoDocumentProcessor.DayaProcessingException.class)
-                .hasMessageContaining("大雅表格说明不得新增换行或制表符")
-                .satisfies(failure -> {
-                    var result = (PlatformDoubaoDocumentProcessor.DayaProcessingException) failure;
-                    assertThat(result.rewrittenParagraphs()).isEqualTo(2);
-                    assertThat(result.failedParagraphs()).isEqualTo(1);
-                });
-        assertThat(output).doesNotExist();
+        var result = processor.process(
+                source, output, XuejiePlatform.DAYA, XuejieRewriteMode.HUMANIZE, null);
+        assertThat(result.processedParagraphs()).isEqualTo(3);
+        assertThat(result.rewrittenParagraphs()).isEqualTo(2);
+        assertThat(result.failedParagraphs()).isEqualTo(1);
+        assertThat(result.preservedParagraphs()).isZero();
+        assertThat(result.preservationMessages()).singleElement()
+                .asString().contains("t0r7c2", "大雅表格说明不得新增换行或制表符", "已保留原文与格式");
+        assertThat(output).exists();
+        try (InputStream sourceStream = Files.newInputStream(source);
+             InputStream outputStream = Files.newInputStream(output);
+             XWPFDocument sourceDocument = new XWPFDocument(sourceStream);
+             XWPFDocument outputDocument = new XWPFDocument(outputStream)) {
+            assertThat(outputDocument.getTables().get(0).getRow(7).getCell(2).getCTTc().xmlText())
+                    .isEqualTo(sourceDocument.getTables().get(0).getRow(7).getCell(2).getCTTc().xmlText());
+            assertThat(outputDocument.getTables().get(0).getRow(1).getCell(1).getText())
+                    .isEqualTo("现有材料只展示部分记录，资金安排是否稳定还不能完全看清。");
+        }
     }
 
     @Test
@@ -1241,18 +1249,202 @@ class PlatformDoubaoDocumentProcessorTest {
                 .thenAnswer(invocation -> invocation.getArgument(1));
         PlatformDoubaoDocumentProcessor processor = processor(gateway);
 
-        assertThatThrownBy(() -> processor.process(
-                source, output, XuejiePlatform.DAYA, XuejieRewriteMode.HUMANIZE, null))
-                .isInstanceOf(PlatformDoubaoDocumentProcessor.DayaProcessingException.class)
-                .hasMessageContaining("平台 Skill 未完整保留结构占位符")
-                .hasMessageContaining("大雅表格说明未完整保留编号、数据、单位或否定条件")
-                .satisfies(failure -> {
-                    var result = (PlatformDoubaoDocumentProcessor.DayaProcessingException) failure;
-                    assertThat(result.processedParagraphs()).isEqualTo(3);
-                    assertThat(result.rewrittenParagraphs()).isEqualTo(1);
-                    assertThat(result.failedParagraphs()).isEqualTo(2);
+        var result = processor.process(
+                source, output, XuejiePlatform.DAYA, XuejieRewriteMode.HUMANIZE, null);
+        assertThat(result.processedParagraphs()).isEqualTo(3);
+        assertThat(result.rewrittenParagraphs()).isEqualTo(1);
+        assertThat(result.failedParagraphs()).isEqualTo(2);
+        assertThat(result.preservedParagraphs()).isZero();
+        assertThat(String.join("；", result.preservationMessages()))
+                .contains("平台 Skill 未完整保留结构占位符",
+                        "大雅表格说明未完整保留编号、数据、单位或否定条件");
+        assertThat(output).exists();
+        try (InputStream sourceStream = Files.newInputStream(source);
+             InputStream outputStream = Files.newInputStream(output);
+             XWPFDocument sourceDocument = new XWPFDocument(sourceStream);
+             XWPFDocument outputDocument = new XWPFDocument(outputStream)) {
+            for (int row : List.of(1, 7)) {
+                assertThat(outputDocument.getTables().get(0).getRow(row).getCell(2).getCTTc().xmlText())
+                        .isEqualTo(sourceDocument.getTables().get(0).getRow(row).getCell(2).getCTTc().xmlText());
+            }
+        }
+    }
+
+    @Test
+    void dayaPublishes178ValidResultsWhilePreservingFourFailedTableParagraphsExactly() throws Exception {
+        Path source = temporaryDirectory.resolve("daya-182-paragraphs-source.docx");
+        Path output = temporaryDirectory.resolve("daya-182-paragraphs-result.docx");
+        try (XWPFDocument document = new XWPFDocument()) {
+            var heading = document.createParagraph();
+            heading.setStyle("Heading1");
+            heading.createRun().setText("第一章 绪论");
+            for (int index = 0; index < 178; index++) {
+                document.createParagraph().createRun().setText("现场资料已经核实，记录编号为"
+                        + index + "，相关复核结论仍保存在原始台账中。");
+            }
+            document.createParagraph().createRun().setText("表2-1 资料说明");
+            var table = document.createTable(5, 1);
+            setCellText(table.getRow(0).getCell(0), "资料说明");
+            for (int row = 1; row <= 4; row++) {
+                var paragraph = table.getRow(row).getCell(0).getParagraphs().get(0);
+                paragraph.setSpacingAfter(80);
+                for (String text : List.of("资料尚未完整记载资金来源，", "现场记录仍以原始台账和对应凭证为准。")) {
+                    var run = paragraph.createRun();
+                    run.setBold(true);
+                    run.setFontFamily("宋体");
+                    run.setText(text);
+                }
+            }
+            try (OutputStream stream = Files.newOutputStream(source)) {
+                document.write(stream);
+            }
+        }
+        PlatformDoubaoRewriteGateway gateway = mock(PlatformDoubaoRewriteGateway.class);
+        AtomicInteger submitted = new AtomicInteger();
+        AtomicInteger retried = new AtomicInteger();
+        when(gateway.rewriteBatch(anyList(), eq(XuejiePlatform.DAYA), eq(XuejieRewriteMode.HUMANIZE)))
+                .thenAnswer(invocation -> {
+                    List<PlatformDoubaoRewriteGateway.Segment> segments = invocation.getArgument(0);
+                    submitted.addAndGet(segments.size());
+                    Map<String, String> results = new LinkedHashMap<>();
+                    for (var segment : segments) {
+                        results.put(segment.id(), segment.id().startsWith("t")
+                                ? segment.text().replace("尚未", "已经")
+                                : segment.text().replace("资料已经核实", "资料已完成核验"));
+                    }
+                    return results;
                 });
-        assertThat(output).doesNotExist();
+        when(gateway.rewriteRecovery(any(PlatformDoubaoRewriteGateway.Segment.class), anyString(), anyString(),
+                eq(XuejiePlatform.DAYA), eq(XuejieRewriteMode.HUMANIZE)))
+                .thenAnswer(invocation -> {
+                    retried.incrementAndGet();
+                    return invocation.getArgument(1);
+                });
+
+        var result = processor(gateway).process(
+                source, output, XuejiePlatform.DAYA, XuejieRewriteMode.HUMANIZE, null);
+
+        assertThat(submitted).hasValue(182);
+        assertThat(retried).hasValue(4);
+        assertThat(result.totalParagraphs()).isEqualTo(182);
+        assertThat(result.processedParagraphs()).isEqualTo(182);
+        assertThat(result.rewrittenParagraphs()).isEqualTo(178);
+        assertThat(result.failedParagraphs()).isEqualTo(4);
+        assertThat(result.preservedParagraphs()).isZero();
+        assertThat(result.preservationMessages()).hasSize(3);
+        assertThat(output).exists();
+        try (InputStream sourceStream = Files.newInputStream(source);
+             InputStream outputStream = Files.newInputStream(output);
+             XWPFDocument sourceDocument = new XWPFDocument(sourceStream);
+             XWPFDocument outputDocument = new XWPFDocument(outputStream)) {
+            assertThat(outputDocument.getParagraphs()).hasSize(sourceDocument.getParagraphs().size());
+            for (int index = 1; index <= 178; index++) {
+                assertThat(outputDocument.getParagraphs().get(index).getText())
+                        .isEqualTo(sourceDocument.getParagraphs().get(index).getText()
+                                .replace("资料已经核实", "资料已完成核验"));
+            }
+            assertThat(outputDocument.getTables().get(0).getCTTbl().xmlText())
+                    .isEqualTo(sourceDocument.getTables().get(0).getCTTbl().xmlText());
+        }
+        try (var files = Files.list(temporaryDirectory)) {
+            assertThat(files.map(path -> path.getFileName().toString()))
+                    .noneMatch(name -> name.endsWith(".part"));
+        }
+    }
+
+    @Test
+    void dayaKeepsFailedAutomaticListRunsAndNumberingWhenOtherContentIsPublished() throws Exception {
+        Path source = temporaryDirectory.resolve("failed-merged-list-source.docx");
+        Path output = temporaryDirectory.resolve("failed-merged-list-result.docx");
+        try (XWPFDocument document = new XWPFDocument()) {
+            var heading = document.createParagraph();
+            heading.setStyle("Heading1");
+            heading.createRun().setText("第一章 绪论");
+            for (String item : List.of("责任主体必须明确并保留原始责任台账。",
+                    "现场记录必须经过复核并留存对应凭证。", "处置结果应及时留痕并注明复核人员。")) {
+                var paragraph = document.createParagraph();
+                paragraph.setNumID(BigInteger.ONE);
+                paragraph.setSpacingAfter(120);
+                var prefix = paragraph.createRun();
+                prefix.setBold(true);
+                prefix.setText(item.substring(0, 4));
+                paragraph.createRun().setText(item.substring(4));
+            }
+            var followingHeading = document.createParagraph();
+            followingHeading.setStyle("Heading2");
+            followingHeading.createRun().setText("1.1 现场记录");
+            document.createParagraph().createRun().setText("列表之外的现场资料已经核实，复核结论另记在本节台账中。");
+            try (OutputStream stream = Files.newOutputStream(source)) {
+                document.write(stream);
+            }
+        }
+        PlatformDoubaoRewriteGateway gateway = mock(PlatformDoubaoRewriteGateway.class);
+        when(gateway.rewriteBatch(anyList(), eq(XuejiePlatform.DAYA), eq(XuejieRewriteMode.HUMANIZE)))
+                .thenAnswer(invocation -> {
+                    List<PlatformDoubaoRewriteGateway.Segment> segments = invocation.getArgument(0);
+                    Map<String, String> result = new LinkedHashMap<>();
+                    for (var segment : segments) {
+                        if (!segment.id().equals("p1")) {
+                            result.put(segment.id(), "现场资料完成了核验。复核结论另记在本节台账中。");
+                        }
+                    }
+                    return result;
+                });
+        when(gateway.rewriteRecovery(any(PlatformDoubaoRewriteGateway.Segment.class), any(), anyString(),
+                eq(XuejiePlatform.DAYA), eq(XuejieRewriteMode.HUMANIZE)))
+                .thenThrow(new IllegalStateException("模型重试超时"));
+
+        var result = processor(gateway).process(
+                source, output, XuejiePlatform.DAYA, XuejieRewriteMode.HUMANIZE, null);
+
+        assertThat(result.totalParagraphs()).isEqualTo(2);
+        assertThat(result.rewrittenParagraphs()).isEqualTo(1);
+        assertThat(result.failedParagraphs()).isEqualTo(1);
+        assertThat(result.preservationMessages()).singleElement().asString()
+                .contains("原稿第 2 段（p1）", "模型重试超时");
+        try (InputStream sourceStream = Files.newInputStream(source);
+             InputStream outputStream = Files.newInputStream(output);
+             XWPFDocument sourceDocument = new XWPFDocument(sourceStream);
+             XWPFDocument outputDocument = new XWPFDocument(outputStream)) {
+            assertThat(outputDocument.getParagraphs()).hasSize(6);
+            for (int index = 1; index <= 3; index++) {
+                assertThat(outputDocument.getParagraphs().get(index).getCTP().xmlText())
+                        .isEqualTo(sourceDocument.getParagraphs().get(index).getCTP().xmlText());
+            }
+            assertThat(outputDocument.getParagraphs().get(5).getText())
+                    .isEqualTo("现场资料完成了核验。复核结论另记在本节台账中。");
+        }
+    }
+
+    @Test
+    void dayaPublishesAValidUnchangedParagraphAlongsideAFailedParagraphWithoutFakingARewrite() throws Exception {
+        Path source = temporaryDirectory.resolve("valid-unchanged-with-failure-source.docx");
+        Path output = temporaryDirectory.resolve("valid-unchanged-with-failure-result.docx");
+        writeTwoBodyParagraphFixture(source);
+        PlatformDoubaoRewriteGateway gateway = mock(PlatformDoubaoRewriteGateway.class);
+        when(gateway.rewriteBatch(anyList(), eq(XuejiePlatform.DAYA), eq(XuejieRewriteMode.HUMANIZE)))
+                .thenAnswer(invocation -> {
+                    List<PlatformDoubaoRewriteGateway.Segment> segments = invocation.getArgument(0);
+                    return Map.of(segments.get(0).id(), segments.get(0).text());
+                });
+        when(gateway.rewriteRecovery(any(PlatformDoubaoRewriteGateway.Segment.class), any(), anyString(),
+                eq(XuejiePlatform.DAYA), eq(XuejieRewriteMode.HUMANIZE)))
+                .thenReturn("");
+
+        var result = processor(gateway).process(
+                source, output, XuejiePlatform.DAYA, XuejieRewriteMode.HUMANIZE, null);
+
+        assertThat(result.processedParagraphs()).isEqualTo(2);
+        assertThat(result.rewrittenParagraphs()).isZero();
+        assertThat(result.preservedParagraphs()).isEqualTo(1);
+        assertThat(result.failedParagraphs()).isEqualTo(1);
+        assertThat(output).exists();
+        try (InputStream sourceStream = Files.newInputStream(source);
+             InputStream outputStream = Files.newInputStream(output);
+             XWPFDocument sourceDocument = new XWPFDocument(sourceStream);
+             XWPFDocument outputDocument = new XWPFDocument(outputStream)) {
+            assertThat(outputDocument.getDocument().xmlText()).isEqualTo(sourceDocument.getDocument().xmlText());
+        }
     }
 
     @Test
