@@ -75,7 +75,7 @@ public class DoubaoDiagramClient {
     private static String cleanKey(String value){String v=Objects.toString(value,"").trim();if(v.regionMatches(true,0,"Bearer ",0,7))v=v.substring(7);return v.replaceAll("[\\p{Cc}\\p{Z}\\s]","").replaceAll("^[\"']|[\"']$","");}
     private static String safe(String value){String v=value.replaceAll("(?i)bearer\\s+\\S+","Bearer ***").replaceAll("[\\r\\n]+"," ");return v.substring(0,Math.min(500,v.length()));}
     private static String summaryTemplate(DiagramType type){return switch(type==null?DiagramType.FLOWCHART:type){
-        case FLOWCHART->"主题=…；起点=…；主链=…；分支=…；循环/终点=…";
+        case FLOWCHART->"主题=…；起点=…；主链=…；分支(含失败/重试)=…；循环出口/唯一终点=…";
         case ER_DIAGRAM->"主题=…；实体=…；关键属性=…；关系=…；约束=…";
         case FUNCTION_MODULE->"主题=…；系统=…；直属模块=…；模块功能=…；归属=…";
         case ARCHITECTURE->"主题=…；入口=…；分层=…；组件=…；依赖=…";

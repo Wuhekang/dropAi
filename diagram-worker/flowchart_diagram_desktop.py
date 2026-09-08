@@ -84,7 +84,8 @@ class App(OfflineDiagramApp):
    ins[e.target].append(e);outs[e.source].append(e)
   starts=[n for n in nodes if n.type=="start"];ends=[n for n in nodes if n.type=="end"]
   if not starts:issues.append(ParseIssue(1,"错误","NO_START","至少需要一个开始节点","","增加start节点。"))
-  if not ends:issues.append(ParseIssue(1,"错误","FLOW_END_MISSING","流程图必须包含至少一个结束节点。","","增加 N99|end|结束，并将所有末端流程连接到N99。"))
+  if not ends:issues.append(ParseIssue(1,"错误","FLOW_END_MISSING","流程图必须包含唯一结束节点，且所有末端分支都必须能够到达该节点。","","增加 N99|end|结束，并将所有末端流程连接到N99。"))
+  if len(ends)>1:issues.append(ParseIssue(ends[1].source_line,"错误","FLOW_MULTIPLE_ENDS","流程图只能包含一个结束节点。",ends[1].id,"将所有末端分支汇入同一个end节点。"))
   for n in nodes:
    if n.type=="start" and ins[n.id]:issues.append(ParseIssue(n.source_line,"错误","START_IN","开始节点不能有入边",n.id,"删除指向开始节点的连接。"))
    if n.type=="end" and outs[n.id]:issues.append(ParseIssue(n.source_line,"错误","END_OUT","结束节点不能有出边",n.id,"删除结束节点的出边。"))
@@ -155,12 +156,16 @@ class App(OfflineDiagramApp):
    if key in main_edges:role="decision_main" if by[e.source].type=="decision" else "main"
    role=role or ("branch_return" if e.target in main_index and e.source not in main_index else "branch_internal")
    a,b=l.node_bounds[e.source],l.node_bounds[e.target]
-   if role in ("main","decision_main","branch_internal"):sp,tp="bottom","top"
+   same_column_side=role in ("side_branch","decision_side") and abs(b.center_x-a.center_x)<1
+   if same_column_side:sp,tp="left","left"
+   elif role in ("main","decision_main","branch_internal"):sp,tp="bottom","top"
    elif role in ("side_branch","decision_side"):sp,tp=("right","left") if b.center_x>a.center_x else ("left","right")
    elif role=="branch_return":sp,tp=(return_exit.get(key,"bottom"),"right" if a.center_x>b.center_x else "left")
    else:sp,tp=("left","right") if a.center_x>b.center_x else ("right","left")
    start_p,end_p=port(a,sp),port(b,tp)
-   if start_p.x==end_p.x or start_p.y==end_p.y:points=[start_p,end_p]
+   if same_column_side:
+    corridor_x=min(a.center_x-a.width/2,b.center_x-b.width/2)-80;points=[start_p,Point(corridor_x,start_p.y),Point(corridor_x,end_p.y),end_p]
+   elif start_p.x==end_p.x or start_p.y==end_p.y:points=[start_p,end_p]
    elif role=="branch_return" and sp=="bottom":points=[start_p,Point(start_p.x,end_p.y),end_p]
    elif role=="branch_return":
     channel_x=(start_p.x+end_p.x)/2;points=[start_p,Point(channel_x,start_p.y),Point(channel_x,end_p.y),end_p]

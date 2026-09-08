@@ -27,6 +27,11 @@ class WebEngineTest(unittest.TestCase):
   result=execute({"command":"validate","dsl":dsl})
   self.assertFalse(result["valid"])
   self.assertIn("FLOW_END_MISSING",[x["code"] for x in result["issues"]])
+ def test_flowchart_with_multiple_ends_is_invalid(self):
+  dsl="@Flowchart\n标题：双结束错误流程\n[节点]\nN1|start|开始\nD1|decision|是否通过\nE1|end|成功结束\nE2|end|失败结束\n[连接]\nN1->D1\nD1->E1|是\nD1->E2|否"
+  result=execute({"command":"validate","dsl":dsl})
+  self.assertFalse(result["valid"])
+  self.assertIn("FLOW_MULTIPLE_ENDS",[x["code"] for x in result["issues"]])
  def test_function_module_acceptance_and_wrapped_function(self):
   dsl="\ufeff@FunctionModule\r\n系统:个人健康管理系统\r\n\r\n模块：管理端\r\n功能：仪表盘统计，用户管理、健康知识管理；公告管理,健康数据查看;智能服务配置\r\n\r\n模块：用户端\r\n功能：首页健康概览，健康数据管理，运动记录，饮食记录，健康目\r\n标管理，智能健康评估，智能健康对话，个人中心"
   result=execute({"command":"render","dsl":dsl})
@@ -112,6 +117,41 @@ N7->N8|学生区调光完成"""
   overlaps=lambda a,b,p=0:abs(a["center_x"]-b["center_x"])<(a["width"]+b["width"])/2+p and abs(a["center_y"]-b["center_y"])<(a["height"]+b["height"])/2+p
   self.assertFalse(any(overlaps(label,node,4) for label in boxes for node in nodes))
   self.assertFalse(any(overlaps(a,b,2) for i,a in enumerate(boxes) for b in boxes[i+1:]))
+ def test_long_same_column_decision_branch_uses_external_corridor(self):
+  dsl="""@Flowchart
+标题：硬件采集子模块工作流程
+
+[节点]
+N1|start|设备上电
+N2|process|初始化Wi-Fi与外设
+N3|process|周期读取人体传感器
+D1|decision|检测到人体活动
+N4|process|唤醒摄像头采图
+N5|process|编码图像并上传
+D2|decision|服务端是否响应
+N6|process|本地缓存等待重传
+N7|process|进入下一轮采集
+N8|end|结束
+
+[连接]
+N1->N2
+N2->N3
+N3->D1
+D1->N4|是
+D1->N7|否
+N4->N5
+N5->D2
+D2->N7|是
+D2->N6|否
+N6->N5|网络恢复
+N7->N8"""
+  result=execute({"command":"render","dsl":dsl})
+  self.assertTrue(result["valid"],result["issues"])
+  connector=next(x for x in result["layout"]["connectors"] if x["source_id"]=="D1" and x["target_id"]=="N7")
+  source=result["layout"]["node_bounds"]["D1"];target=result["layout"]["node_bounds"]["N7"]
+  self.assertEqual("left",connector["source_port"]);self.assertEqual("left",connector["target_port"])
+  self.assertEqual(4,len(connector["points"]))
+  self.assertLess(connector["points"][1]["x"],min(source["center_x"]-source["width"]/2,target["center_x"]-target["width"]/2))
  def test_shared_wrap_text_keeps_all_characters_and_explicit_lines(self):
   source="中文English混合换行测试\n第二行不会丢失"
   lines=wrap_text(source,8)

@@ -10,6 +10,9 @@ public class DiagramRuleEngine {
     public DiagramIr normalize(DiagramIr ir){if(ir==null)throw invalid("模型未返回DiagramIR");if(ir instanceof FlowchartIr x)return new FlowchartRuleEngine().normalize(x);if(ir instanceof ErDiagramIr x)return new ErDiagramRuleEngine().normalize(x);if(ir instanceof FunctionModuleIr x)return new FunctionModuleRuleEngine().normalize(x);if(ir instanceof ArchitectureIr x)return new ArchitectureRuleEngine().normalize(x);if(ir instanceof UseCaseIr x)return new UseCaseRuleEngine().normalize(x);if(ir instanceof BlockDiagramIr x)return new BlockDiagramRuleEngine().normalize(x);if(ir instanceof SequenceDiagramIr x)return new SequenceDiagramRuleEngine().normalize(x);throw invalid("不支持的DiagramIR类型");}
     interface Rule<T extends DiagramIr>{T normalize(T value);}
     static final class FlowchartRuleEngine implements Rule<FlowchartIr>{
+        private static final List<String> TERMINAL_MARKERS=List.of(
+                "进入下一轮","等待下一轮","等待下次","下一次采集","下一采集周期","等待下一周期",
+                "返回等待状态","回到等待状态","本轮结束","结束本轮","完成本次","结束本次");
         public FlowchartIr normalize(FlowchartIr x){
             List<FlowNode> nodes=new ArrayList<>(unique(x.nodes(),FlowNode::id));
             if(nodes.isEmpty())throw invalid("流程图没有节点");
@@ -17,18 +20,30 @@ public class DiagramRuleEngine {
             List<Edge> normalizedEdges=new ArrayList<>(edges(x.edges(),by.keySet()));
             long starts=nodes.stream().filter(n->n.kind()==FlowNodeKind.START).count();
             if(starts!=1)throw invalid("流程图必须有且只有一个开始节点");
+            long endCount=nodes.stream().filter(n->n.kind()==FlowNodeKind.END).count();
+            if(endCount>1)throw invalid("流程图必须有且只有一个结束节点，请将所有末端分支汇入同一个结束节点");
 
             List<Warning> normalizedWarnings=new ArrayList<>(warnings(x.warnings()));
-            if(nodes.stream().noneMatch(n->n.kind()==FlowNodeKind.END)){
+            if(endCount==0){
                 Set<String> outgoing=normalizedEdges.stream().map(Edge::from).collect(java.util.stream.Collectors.toSet());
                 List<FlowNode> terminals=nodes.stream().filter(n->n.kind()!=FlowNodeKind.START&&!outgoing.contains(n.id())).toList();
-                if(terminals.isEmpty())throw invalid("流程图必须包含明确的结束节点；循环流程请增加“是否停止”判断及结束出口");
+                List<FlowNode> semanticTerminals=nodes.stream().filter(n->n.kind()!=FlowNodeKind.START&&isTerminalText(n.text())).toList();
+                if(terminals.isEmpty()&&semanticTerminals.isEmpty())throw invalid("流程图必须包含明确的结束节点；循环流程请增加“是否停止”判断及结束出口");
                 if(nodes.size()>=10)throw invalid("流程图缺少结束节点，且节点数已达上限，请合并次要步骤后重试");
+                Map<String,List<String>> reverseToTerminal=new HashMap<>();
+                for(FlowNode node:nodes)reverseToTerminal.put(node.id(),new ArrayList<>());
+                for(Edge edge:normalizedEdges)reverseToTerminal.get(edge.to()).add(edge.from());
+                Set<String> canReachTerminal=walk(terminals.stream().map(FlowNode::id).toList(),reverseToTerminal);
+                Set<String> semanticCutIds=semanticTerminals.stream().map(FlowNode::id).filter(id->!canReachTerminal.contains(id)).collect(java.util.stream.Collectors.toSet());
                 String endId=nextEndId(by.keySet());
                 nodes.add(new FlowNode(endId,FlowNodeKind.END,"结束"));
                 int order=normalizedEdges.stream().map(Edge::order).filter(Objects::nonNull).max(Integer::compareTo).orElse(0);
-                for(FlowNode terminal:terminals)normalizedEdges.add(new Edge("e"+(++order),terminal.id(),endId,"normal","",order));
+                Set<String> terminalIds=terminals.stream().map(FlowNode::id).collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+                terminalIds.addAll(semanticCutIds);
+                boolean cycleTerminated=normalizedEdges.removeIf(e->semanticCutIds.contains(e.from()));
+                for(String terminalId:terminalIds)normalizedEdges.add(new Edge("e"+(++order),terminalId,endId,"normal","",order));
                 normalizedWarnings.add(new Warning("FLOW_END_ADDED","生成结果缺少结束节点，系统已将所有末端分支汇入结束。",1d));
+                if(cycleTerminated)normalizedWarnings.add(new Warning("FLOW_CYCLE_TERMINATED","系统已将“进入下一轮/返回等待状态”等循环语义收束到结束节点，避免生成无结束出口的闭环。",1d));
                 by=index(nodes,FlowNode::id);
             }
 
@@ -63,6 +78,7 @@ public class DiagramRuleEngine {
             for(FlowNode n:nodes)if(!canReachEnd.contains(n.id()))throw invalid("从节点“"+n.text()+"”无法到达任何结束节点");
             return new FlowchartIr("1.0",DiagramType.FLOWCHART,cleanTitle(x.title(),"流程图"),nodes,normalizedEdges,normalizedWarnings);
         }
+        private static boolean isTerminalText(String text){String value=Objects.toString(text,"").replaceAll("[\\s，。；;,.]","");return TERMINAL_MARKERS.stream().anyMatch(value::contains);}
         private static String nextEndId(Set<String> ids){String id="END";int i=2;while(ids.contains(id))id="END_"+(i++);return id;}
         private static Set<String> walk(Collection<String> roots,Map<String,List<String>> graph){Set<String> seen=new HashSet<>();ArrayDeque<String> queue=new ArrayDeque<>(roots);while(!queue.isEmpty()){String id=queue.removeFirst();if(!seen.add(id))continue;queue.addAll(graph.getOrDefault(id,List.of()));}return seen;}
     }

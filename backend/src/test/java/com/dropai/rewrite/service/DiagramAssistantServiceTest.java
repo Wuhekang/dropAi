@@ -83,6 +83,40 @@ class DiagramAssistantServiceTest {
         assertTrue(error.getMessage().contains("是否停止"));
     }
 
+    @Test void generatedHardwareCollectionCycleIsClosedAtOneEndNode() {
+        var ir=new FlowchartIr("1.0",DiagramType.FLOWCHART,"硬件采集子模块工作流程",
+                List.of(new FlowNode("N1",FlowNodeKind.START,"设备上电"),new FlowNode("N2",FlowNodeKind.PROCESS,"初始化Wi-Fi与外设"),
+                        new FlowNode("N3",FlowNodeKind.PROCESS,"周期读取人体传感器"),new FlowNode("D1",FlowNodeKind.DECISION,"检测到人体活动"),
+                        new FlowNode("N4",FlowNodeKind.PROCESS,"唤醒摄像头采图"),new FlowNode("N5",FlowNodeKind.PROCESS,"编码图像并上传"),
+                        new FlowNode("D2",FlowNodeKind.DECISION,"服务端是否响应"),new FlowNode("N6",FlowNodeKind.PROCESS,"本地缓存等待重传"),
+                        new FlowNode("N7",FlowNodeKind.PROCESS,"进入下一轮采集")),
+                List.of(new Edge("E1","N1","N2","normal","",1),new Edge("E2","N2","N3","normal","",2),
+                        new Edge("E3","N3","D1","normal","",3),new Edge("E4","D1","N4","normal","是",4),
+                        new Edge("E5","D1","N7","normal","否",5),new Edge("E6","N4","N5","normal","",6),
+                        new Edge("E7","N5","D2","normal","",7),new Edge("E8","D2","N7","normal","是",8),
+                        new Edge("E9","D2","N6","normal","否",9),new Edge("E10","N6","N5","normal","网络恢复",10),
+                        new Edge("E11","N7","N3","normal","",11)),List.of());
+        var normalized=(FlowchartIr)new DiagramRuleEngine().normalize(ir);
+        var end=normalized.nodes().stream().filter(n->n.kind()==FlowNodeKind.END).toList();
+        assertEquals(1,end.size());
+        assertEquals(10,normalized.nodes().size());
+        assertFalse(normalized.edges().stream().anyMatch(e->e.from().equals("N7")&&e.to().equals("N3")));
+        assertTrue(normalized.edges().stream().anyMatch(e->e.from().equals("N7")&&e.to().equals(end.get(0).id())));
+        assertTrue(normalized.edges().stream().anyMatch(e->e.from().equals("N6")&&e.to().equals("N5")));
+        assertTrue(normalized.warnings().stream().anyMatch(w->w.code().equals("FLOW_CYCLE_TERMINATED")));
+        assertTrue(new DiagramDslCodec().compile(normalized).contains("|end|结束"));
+    }
+
+    @Test void multipleFlowchartEndsAreRejected() {
+        var ir=new FlowchartIr("1.0",DiagramType.FLOWCHART,"双结束错误流程",
+                List.of(new FlowNode("N1",FlowNodeKind.START,"开始"),new FlowNode("D1",FlowNodeKind.DECISION,"是否通过"),
+                        new FlowNode("E1",FlowNodeKind.END,"成功结束"),new FlowNode("E2",FlowNodeKind.END,"失败结束")),
+                List.of(new Edge("R1","N1","D1","normal","",1),new Edge("R2","D1","E1","normal","是",2),
+                        new Edge("R3","D1","E2","normal","否",3)),List.of());
+        var error=assertThrows(DiagramGenerationException.class,()->new DiagramRuleEngine().normalize(ir));
+        assertTrue(error.getMessage().contains("有且只有一个结束节点"));
+    }
+
     @Test void overlongSummaryIsCompactedBySemanticSlotsInsteadOfCuttingOffTheEnding() throws Exception {
         String value="主题=光敏电阻调光；起点=初始化ADC与PWM；主链=采集照度>换算>比较；分支=范围外关灯/范围内调PWM；循环/终点=继续则采集/停止则结束";
         var method=DoubaoDiagramClient.class.getDeclaredMethod("limit",String.class,int.class);method.setAccessible(true);
