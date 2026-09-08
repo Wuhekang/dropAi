@@ -233,7 +233,7 @@ public class WordFormatProcessRunner {
                         "Word formatter worker failed: python={}, worker={}, exitCode={}, reportedError={}\nstdout:\n{}\nstderr:\n{}",
                         properties.python(), worker, process.exitValue(), reportedError, outputText, errorText
                 );
-                throw new ProcessingException();
+                throw new ProcessingException(payload == null ? "" : text(payload, "errorCode"));
             }
             if (payload == null) {
                 log.error(
@@ -523,6 +523,16 @@ public class WordFormatProcessRunner {
     public static final class ProcessingException extends IllegalStateException {
         public ProcessingException() {
             super(PROCESS_FAILED_MESSAGE);
+        }
+
+        public ProcessingException(String code) {
+            super(switch (code) {
+                case "PDF_DEPENDENCY_MISSING" -> "服务器缺少 PDF 解析依赖，请管理员更新 requirements-web.txt 后重试";
+                case "PDF_TEXT_UNAVAILABLE" -> "PDF 没有可读取文字，请上传文字型 PDF 或 Word 模板，暂不支持扫描件";
+                case "PDF_ENCRYPTED" -> "PDF 模板已加密，请解除加密或上传 Word 模板";
+                case "PDF_INVALID" -> "PDF 模板损坏或无法读取，请重新导出后上传";
+                default -> PROCESS_FAILED_MESSAGE;
+            });
         }
     }
 }

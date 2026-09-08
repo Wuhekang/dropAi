@@ -36,6 +36,7 @@ from word_formatter.core.template_extractor import TemplateRuleExtractor
 from word_formatter.core.template_text import read_template_text
 from word_formatter.core.word_converter import WordConversionError, WordDocumentConverter
 from word_formatter.models.rules import (
+    normalize_inferred_layout,
     LOCKED_DOCUMENT_POLICY_NOTES,
     LOCKED_TABLE_POLICY_NOTE,
     DEFAULT_LATIN_FONT,
@@ -52,7 +53,7 @@ from word_formatter.models.rules import (
 MAX_SOURCE_BYTES = 100 * 1024 * 1024
 MAX_TEMPLATE_BYTES = 30 * 1024 * 1024
 MAX_INSTRUCTIONS_BYTES = 64 * 1024
-SUPPORTED_TEMPLATE_SUFFIXES = frozenset({".doc", ".docx", ".dotx"})
+SUPPORTED_TEMPLATE_SUFFIXES = frozenset({".doc", ".docx", ".dotx", ".pdf"})
 
 
 class CliInputError(ValueError):
@@ -126,7 +127,7 @@ def _validate_paths(
     if source.suffix.lower() != ".docx":
         raise CliInputError("论文原稿仅支持 .docx 文件")
     if template.suffix.lower() not in SUPPORTED_TEMPLATE_SUFFIXES:
-        raise CliInputError("格式模板仅支持 .doc、.docx 或 .dotx 文件")
+        raise CliInputError("格式模板仅支持 .doc、.docx、.dotx 或文字型 .pdf 文件")
     validate_runtime_support(template)
 
     if output.suffix.lower() != ".docx":
@@ -164,6 +165,8 @@ def _paragraph_rule_summary(rule: ParagraphRule) -> dict[str, Any]:
         "fontSizePt": rule.font_size_pt,
         "bold": rule.bold,
         "alignment": rule.alignment,
+        "leftIndentCm": rule.left_indent_cm,
+        "rightIndentCm": rule.right_indent_cm,
         "lineSpacingMode": rule.line_spacing_mode,
         "fixedLineSpacingPt": rule.fixed_line_spacing_pt,
         "minimumLineSpacingPt": rule.minimum_line_spacing_pt,
@@ -231,6 +234,7 @@ def _editable_rules(rules: DocumentRules) -> dict[str, Any]:
             "title": summary["tocTitle"], "level1": summary["toc1"], "level2": summary["toc2"], "level3": summary["toc3"],
         },
         "captions": {"figure": summary["figureCaption"], "table": summary["tableCaption"]},
+        "details": {"table": summary["table"], "reference": summary["reference"]},
     }
 
 
@@ -256,6 +260,8 @@ def _apply_confirmed_rules(rules: DocumentRules, path: Path | None) -> None:
         ("toc", "level1"): (rules.toc_1, "toc_1"),
         ("toc", "level2"): (rules.toc_2, "toc_2"),
         ("toc", "level3"): (rules.toc_3, "toc_3"),
+        ("details", "table"): (rules.table, "table"),
+        ("details", "reference"): (rules.reference, "reference"),
     }
     allowed = {
         "chineseFont": "chinese_font", "latinFont": "latin_font", "fontSizePt": "font_size_pt",
@@ -264,6 +270,7 @@ def _apply_confirmed_rules(rules: DocumentRules, path: Path | None) -> None:
         "minimumLineSpacingPt": "minimum_line_spacing_pt",
         "multipleLineSpacing": "multiple_line_spacing",
         "bold": "bold", "alignment": "alignment",
+        "leftIndentCm": "left_indent_cm", "rightIndentCm": "right_indent_cm",
     }
     for keys, (rule, snapshot_key) in mapping.items():
         value = payload
@@ -273,6 +280,17 @@ def _apply_confirmed_rules(rules: DocumentRules, path: Path | None) -> None:
             continue
         for public, internal in allowed.items():
             if public not in value:
+                continue
+            if internal in {"left_indent_cm", "right_indent_cm"}:
+                # Validate even unchanged legacy echoes before the migration
+                # branch below can skip them. Unsafe requests must be rejected.
+                indent_cm = _confirmed_indent_cm(value[public], public)
+            original_rule = analyzed_rules.get(snapshot_key, {})
+            if (internal in {"bold", "alignment", "left_indent_cm", "right_indent_cm"}
+                    and isinstance(original_rule, dict)
+                    and value[public] == original_rule.get(internal)
+                    and getattr(rule, internal) != original_rule.get(internal)):
+                # Full legacy forms echo inferred values even without edits.
                 continue
             if internal in {"space_before", "space_after"}:
                 spacing = value[public]
@@ -288,6 +306,8 @@ def _apply_confirmed_rules(rules: DocumentRules, path: Path | None) -> None:
                 setattr(rule, internal, _confirmed_number(value[public], 1.0, 200.0))
             elif internal == "multiple_line_spacing":
                 rule.multiple_line_spacing = _confirmed_number(value[public], 0.5, 10.0)
+            elif internal in {"left_indent_cm", "right_indent_cm"}:
+                setattr(rule, internal, indent_cm)
             elif internal == "bold":
                 if isinstance(value[public], bool):
                     rule.bold = value[public]
@@ -330,10 +350,24 @@ def _forward_template_progress(event: dict[str, Any]) -> None:
 def _confirmed_number(value: Any, minimum: float, maximum: float) -> float:
     if isinstance(value, bool):
         raise CliInputError("格式数值不能是布尔值")
-    number = float(value)
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise CliInputError("格式数值必须是有效数字") from exc
     if not math.isfinite(number) or not minimum <= number <= maximum:
         raise CliInputError(f"格式数值必须在 {minimum:g}–{maximum:g} 之间")
     return number
+
+
+def _confirmed_indent_cm(value: Any, field: str) -> float:
+    label = "左缩进" if field == "leftIndentCm" else "右缩进"
+    message = f"{label}必须是 0–2 厘米之间的有限数值"
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise CliInputError(message)
+    try:
+        return _confirmed_number(value, 0.0, 2.0)
+    except CliInputError as exc:
+        raise CliInputError(message) from exc
 
 
 def _restore_analyzed_rules(path: Path | None, template_hash: str) -> tuple[DocumentRules, dict] | None:
@@ -429,6 +463,9 @@ def _format_report(result, rules: DocumentRules, warnings: list[str]) -> dict[st
 
 
 def _error_code(exc: BaseException, template: Path | None = None) -> str:
+    pdf_code = getattr(exc, "code", None)
+    if pdf_code in {"PDF_DEPENDENCY_MISSING", "PDF_TEXT_UNAVAILABLE", "PDF_ENCRYPTED", "PDF_INVALID"}:
+        return pdf_code
     if isinstance(exc, IntegrityValidationError):
         return "INTEGRITY_CHECK_FAILED"
     if isinstance(exc, FileExistsError):
@@ -534,7 +571,9 @@ def run_job(args: argparse.Namespace) -> dict[str, Any]:
             current_progress = 10
             emit_progress(current_progress, "reading_template_text", "正在读取模板正文、规范表、红字和批注中的文字要求")
             # Legacy templates need only one Word conversion for both readers.
-            with WordDocumentConverter().as_docx(template) as readable_template:
+            from contextlib import nullcontext
+            readable = nullcontext(template) if template.suffix.lower() == ".pdf" else WordDocumentConverter().as_docx(template)
+            with readable as readable_template:
                 context = read_template_text(readable_template)
                 current_progress = 15
                 emit_progress(current_progress, "extracting_template", "文字读取完成，正在提取样式作为格式补充证据")
@@ -564,7 +603,9 @@ def run_job(args: argparse.Namespace) -> dict[str, Any]:
                     "reason": "本地识别到独立封面/声明页。" if can_copy else "未发现独立封面/声明页，保留原稿前置内容。",
                     "ruleEvidence": {}, "warnings": ["本次为本地规则提取，未执行模板 AI 文字分析。"],
                 }
+            template_analysis["explicitRuleFields"] = context.get("explicitRuleFields", {})
         warnings.extend(template_analysis.get("warnings", []))
+        warnings.extend(normalize_inferred_layout(rules, template_analysis.get("explicitRuleFields")))
 
         current_progress = 30
         if instructions and restored is None:
@@ -606,7 +647,7 @@ def run_job(args: argparse.Namespace) -> dict[str, Any]:
                 "durationMs": round((time.perf_counter() - started) * 1000), "error": None,
             }
             _write_json_atomic(result_json, payload)
-            emit_progress(100, "awaiting_confirmation", "AI 分析完成，请确认四类可编辑格式")
+            emit_progress(100, "awaiting_confirmation", "AI 分析完成，请确认可编辑格式")
             return payload
 
         current_progress = 56
@@ -728,7 +769,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Dokiai Word 模板格式处理 CLI",
     )
     parser.add_argument("--source", required=True, help="论文原稿 .docx")
-    parser.add_argument("--template", required=True, help="格式模板 .doc/.docx/.dotx")
+    parser.add_argument("--template", required=True, help="格式模板 .doc/.docx/.dotx 或文字型 .pdf")
     parser.add_argument("--output", required=True, help="新建的输出 .docx（禁止覆盖）")
     parser.add_argument("--result-json", required=True, help="完整任务结果 JSON")
     parser.add_argument("--instructions-file", help="可选 UTF-8 自然语言格式要求")

@@ -20,6 +20,14 @@ class WordFormatProcessRunnerTest {
     Path tempDir;
 
     @Test
+    void pdfErrorsUseFixedSafeMessagesNotWorkerDiagnosticText() {
+        assertTrue(new WordFormatProcessRunner.ProcessingException("PDF_TEXT_UNAVAILABLE").getMessage().contains("扫描件"));
+        assertTrue(new WordFormatProcessRunner.ProcessingException("PDF_DEPENDENCY_MISSING").getMessage().contains("requirements-web.txt"));
+        assertEquals(WordFormatProcessRunner.PROCESS_FAILED_MESSAGE,
+                new WordFormatProcessRunner.ProcessingException("C:\\private\\key.txt").getMessage());
+    }
+
+    @Test
     void requiresRuntimeCheckNextToConfiguredWorkerWithoutLeakingItsPath() throws Exception {
         Path worker = Files.createFile(tempDir.resolve("format_cli.py"));
         WordFormatProcessRunner runner = runner(worker, tempDir.resolve("missing-python.exe"));

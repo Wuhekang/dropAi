@@ -11,7 +11,8 @@ from docx.table import Table
 from docx.text.paragraph import Paragraph
 
 from word_formatter.core.word_converter import WordDocumentConverter
-from word_formatter.core.rule_parser import NaturalLanguageRuleParser
+from word_formatter.core.rule_parser import NaturalLanguageRuleParser, extract_explicit_template_fields, apply_explicit_template_fields
+from word_formatter.core.template_text import read_template_text, known_content_title
 from word_formatter.models.rules import DocumentRules, ParagraphRule, font_size_name_for_points
 
 
@@ -57,6 +58,15 @@ class TemplateRuleExtractor:
 
     def extract(self, path: str | Path) -> TemplateExtractionResult:
         source = Path(path).expanduser()
+        if source.suffix.lower() == ".pdf":
+            package = read_template_text(source)
+            rules = DocumentRules(name=f"从PDF规范识别：{source.stem}")
+            for role in ("heading_1", "heading_2", "heading_3", "heading_4", "toc_title", "toc_1", "toc_2", "toc_3"):
+                getattr(rules, role).bold = False
+            notes = list(package["notes"])
+            notes.extend(apply_explicit_template_fields(rules, extract_explicit_template_fields(package["textBlocks"])))
+            notes.append("PDF 规范仅提取可明确判定的文字规则；未明确的字段保留可编辑默认值，不从示例页面推断缩进。")
+            return TemplateExtractionResult(rules, notes)
         if source.suffix.lower() not in WordDocumentConverter.SUPPORTED_SUFFIXES or not source.is_file():
             raise ValueError("模板识别仅支持存在的 .doc、.docx 或 .dotx 文件")
 
@@ -96,10 +106,11 @@ class TemplateRuleExtractor:
                     # 语义层级比模板样式中可能错写的 outlineLvl 更可靠。
                     heading_rule.outline_level = level - 1
                     heading_rule.keep_with_next = True
-            toc_title = next((p for p in document.paragraphs if re.fullmatch(r"(?:目\s*录|contents)", p.text.strip(), re.I)), None)
+            toc_title = next((p for p in document.paragraphs if known_content_title(p.text) in {"目录", "contents", "tableofcontents"}), None)
             self._extract_sample_or_style(document, toc_title, rules.toc_title, (r"TOC\s*Heading", r"目录标题"), "目录标题", notes)
+            toc_samples = self._toc_samples(document)
             for level in range(1, 4):
-                toc_sample = next((p for p in document.paragraphs if re.search(fr"(?:^|\s)(?:TOC|目录)\s*{level}", f"{p.style.style_id if p.style else ''} {p.style.name if p.style else ''}", re.I)), None)
+                toc_sample = toc_samples.get(level) or next((p for p in document.paragraphs if re.search(fr"(?:^|\s)(?:TOC|目录)\s*{level}", f"{p.style.style_id if p.style else ''} {p.style.name if p.style else ''}", re.I)), None)
                 self._extract_sample_or_style(document, toc_sample, getattr(rules, f"toc_{level}"), (fr"TOC\s*{level}", fr"目录\s*{level}"), f"{level} 级目录", notes)
             self._extract_sample_or_style(
                 document,
@@ -137,7 +148,34 @@ class TemplateRuleExtractor:
                 table, table_index, selection_reason = selected
                 self._extract_table(document, table, rules, notes)
                 notes.append(f"表格样例选用模板中第 {table_index} 个表格：{selection_reason}。")
+            package = read_template_text(readable_path)
+            notes.extend(apply_explicit_template_fields(rules, extract_explicit_template_fields(package["textBlocks"])))
             return TemplateExtractionResult(rules, notes)
+
+    @classmethod
+    def _toc_samples(cls, document) -> dict[int, Paragraph]:
+        samples, in_toc = {}, False
+        for paragraph in document.paragraphs:
+            text = paragraph.text.strip()
+            title = known_content_title(text)
+            if title in {"目录", "contents", "tableofcontents"}:
+                in_toc = True
+                continue
+            actual_heading = (cls._numbered_heading_level(text) is not None
+                              and not cls._is_toc_style(cls._style_identities(paragraph))
+                              and not re.search(r"[…\.．]{3}|\t", text))
+            if in_toc and (title is not None or actual_heading):
+                break
+            if not in_toc or not text or not re.search(r"[…\.．]{3}|\t", text):
+                continue
+            number = re.match(r"\s*(\d+(?:[.．]\d+)*)", text)
+            level = min(3, len(re.findall(r"[.．]", number[1])) + 1) if number else 1
+            samples.setdefault(level, paragraph)
+        # A manually typed TOC often has no third-level example. Its written
+        # entry font is still evidence for the other TOC level, not Heading 3.
+        if samples and 3 not in samples:
+            samples[3] = samples.get(2) or samples[1]
+        return samples
 
     @staticmethod
     def _apply_written_specification(
@@ -306,9 +344,21 @@ class TemplateRuleExtractor:
             "reference": [],
         }
         in_references = False
+        in_toc = False
         for index, paragraph in enumerate(document.paragraphs):
             text = re.sub(r"\s+", " ", paragraph.text).strip()
             if not text:
+                continue
+            title = known_content_title(text)
+            if title in {"目录", "contents", "tableofcontents"}:
+                in_toc = True
+                continue
+            actual_heading = (self._numbered_heading_level(text) is not None
+                              and not self._is_toc_style(self._style_identities(paragraph))
+                              and not re.search(r"[…\.．]{3}|\t", text))
+            if in_toc and (title is not None or actual_heading):
+                in_toc = False
+            if in_toc:
                 continue
             if self._REFERENCE_HEADING_RE.match(text):
                 in_references = True
@@ -341,7 +391,7 @@ class TemplateRuleExtractor:
             style_level = self._style_heading_level(paragraph)
             outline_level = self._outline_heading_level(paragraph)
             numbered_level = self._numbered_heading_level(text)
-            level = style_level or outline_level or numbered_level
+            level = numbered_level or style_level or outline_level
             if level is not None and 1 <= level <= 4 and not self._REFERENCE_END_RE.match(text):
                 score = 145 if style_level == level else 135 if outline_level == level else 105
                 if len(text) <= 50:
@@ -460,6 +510,8 @@ class TemplateRuleExtractor:
 
     @staticmethod
     def _numbered_heading_level(text: str) -> int | None:
+        if re.match(r"^\s*\d{4}\s*年|^\s*\d{4}[-/]\d", text):
+            return None
         if re.match(r"^\s*第\s*[一二三四五六七八九十百\d]+\s*章(?:\s|[:：]|$)", text):
             return 1
         if re.match(r"^\s*[一二三四五六七八九十百]+\s*[、.．]\s*\S+", text):
@@ -473,6 +525,8 @@ class TemplateRuleExtractor:
             prefix = match.group(0).strip()
             end = match.end()
             if end < len(text) and text[end].isdigit():
+                return None
+            if "." not in prefix and "．" not in prefix and end < len(text) and not re.match(r"[\s、.．]", text[end]):
                 return None
             level = len(re.findall(r"[.．]", prefix)) + 1
             if 1 <= level <= 4:

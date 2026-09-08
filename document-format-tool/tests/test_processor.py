@@ -210,7 +210,7 @@ class DocumentProcessorTableTests(unittest.TestCase):
                 self.assertIsNotNone(fonts)
                 assert fonts is not None
                 for slot in ("eastAsia", "ascii", "hAnsi", "cs"):
-                    expected_font = "宋体" if slot == "eastAsia" else "Times New Roman"
+                    expected_font = "仿宋" if slot == "eastAsia" else "Arial"
                     self.assertEqual(fonts.get(qn(f"w:{slot}")), expected_font, slot)
                 for theme_slot in (
                     "asciiTheme",
@@ -219,16 +219,16 @@ class DocumentProcessorTableTests(unittest.TestCase):
                     "cstheme",
                 ):
                     self.assertIsNone(fonts.get(qn(f"w:{theme_slot}")))
-                self.assertEqual(r_pr.find(qn("w:sz")).get(qn("w:val")), "24")
-                self.assertEqual(r_pr.find(qn("w:szCs")).get(qn("w:val")), "24")
+                self.assertEqual(r_pr.find(qn("w:sz")).get(qn("w:val")), "44")
+                self.assertEqual(r_pr.find(qn("w:szCs")).get(qn("w:val")), "44")
                 self.assertEqual(r_pr.find(qn("w:b")).get(qn("w:val")), "0")
                 self.assertEqual(r_pr.find(qn("w:bCs")).get(qn("w:val")), "0")
 
             self.assertTrue(rules.table.enabled)
             self.assertEqual(rules.table.border_style, "three_line")
-            self.assertEqual(rules.table.chinese_font, "宋体")
-            self.assertEqual(rules.table.latin_font, "Times New Roman")
-            self.assertEqual(rules.table.font_size_pt, 12.0)
+            self.assertEqual(rules.table.chinese_font, "仿宋")
+            self.assertEqual(rules.table.latin_font, "Arial")
+            self.assertEqual(rules.table.font_size_pt, 22.0)
             self.assertFalse(rules.table.bold)
             self.assertFalse(rules.table.header_row_bold)
             self.assertEqual(rules.table.alignment, "center")

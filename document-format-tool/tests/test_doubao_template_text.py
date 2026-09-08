@@ -99,7 +99,19 @@ class TemplateTextAnalysisTests(unittest.TestCase):
 
     def test_empty_response_is_not_reported_as_success(self):
         with self.assertRaisesRegex(RuntimeError, "未识别到任何"):
-            self.run_analysis(responses={key: {} for key in DoubaoRuleParser.TEMPLATE_RULES})
+            self.run_analysis(responses={key: {} for key in DoubaoRuleParser.TEMPLATE_RULES},
+                              context={**self.context, "textBlocks": [{"id": "b1", "text": "这里没有可识别的格式要求。"}]},
+                              evidence=[])
+
+    def test_explicit_text_corrects_ai_conflict_without_claiming_local_fields_are_ai(self):
+        result, _, analysis = self.run_analysis(responses={
+            "heading_1": {"rule": {"font_size_pt": 12}, "fieldEvidence": {"font_size_pt": ["b1"]}},
+        })
+        self.assertEqual(result.heading_1.font_size_pt, 18)
+        self.assertEqual(result.heading_1.chinese_font, "黑体")
+        self.assertEqual(result.normal_text.fixed_line_spacing_pt, 22)
+        self.assertEqual(analysis["ruleEvidence"]["normal_text"]["status"], "sample")
+        self.assertIn("font_size_pt", analysis["ruleEvidence"]["heading_1"]["explicitFields"])
 
     def test_ai_timeout_preserves_real_style_samples_for_manual_confirmation(self):
         rules = DocumentRules()
@@ -135,7 +147,10 @@ class TemplateTextAnalysisTests(unittest.TestCase):
             "normal_text": {"rule": {"font_size_pt": -12, "fixed_line_spacing_pt": float("nan"),
                                      "multiple_line_spacing": 999, "alignment": ["center"], "chinese_font": "宋体"},
                             "fieldEvidence": {key: ["b2"] for key in ("font_size_pt", "fixed_line_spacing_pt", "multiple_line_spacing", "alignment", "chinese_font")}},
-        })
+        }, context={**self.context, "textBlocks": [
+            {"id": "b1", "text": "一级标题示例，但此段没有字号要求。"},
+            {"id": "b2", "text": "正文中文字体为宋体。"},
+        ]})
         self.assertEqual(result.heading_1.font_size_pt, 16)
         self.assertEqual(analysis["ruleEvidence"]["heading_1"]["status"], "unconfirmed")
         self.assertEqual(result.normal_text.font_size_pt, 12)

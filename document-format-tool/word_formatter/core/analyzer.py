@@ -13,7 +13,7 @@ from docx.text.paragraph import Paragraph
 
 SPECIAL_SECTIONS = {
     "摘要", "关键词", "abstract", "keywords", "目录", "参考文献", "references",
-    "致谢", "结论", "结语", "总结", "结论与展望", "总结与展望",
+    "致谢", "结论", "结语", "总结", "结论与展望", "总结与展望", "前言", "引言", "绪论", "preface", "introduction",
 }
 NUMBERED_HEADING = re.compile(r"^\s*(?:第[一二三四五六七八九十]+[章节]|\d+(?:\.\d+){0,3})\s*[^，。；！？]{1,60}$")
 CHINESE_LEVELS = {"一": 1, "二": 2, "三": 3, "四": 4}
@@ -137,14 +137,24 @@ class DocumentAnalyzer:
 
     @classmethod
     def recognized_heading_level(cls, paragraph: Paragraph) -> int | None:
-        """先用大纲/样式，再对具有标题外观的编号段落保守推断。"""
+        """Use explicit numbering before possibly incorrect imported outlines."""
         if cls.caption_kind(paragraph) is not None:
             return None
-        styled = cls.heading_level(paragraph)
-        if styled is not None:
-            return styled
         text = paragraph.text.strip()
         if not text or len(text) > 80:
+            return None
+        compact = re.sub(r"\s+", "", text)
+        style = paragraph.style
+        identity = f"{style.style_id if style else ''} {style.name if style else ''}"
+        if re.search(r"(?:^|\s)TOC\s*\d+|目录\s*\d+", identity, re.I):
+            return None
+        if (
+            re.match(r"^(?:19|20)\d{2}\s*(?:年|[-./])", text)
+            or re.match(r"^[（(]?(?:19|20)\d{2}[）)]?届", compact)
+            or compact.casefold() in {"目录", "contents", "tableofcontents", "关键词", "keywords"}
+            or re.fullmatch(r"(?:封面|毕业设计成果|(?:本科)?毕业(?:论文|设计)(?:[（(](?:论文|设计)[）)])?|诚信(?:声明书?|承诺书)|原创性声明|独创性声明|学术诚信声明|授权书)", compact)
+            or re.match(r"^(?:学生)?(?:姓名|学号|学院|专业|班级|指导教师|题目)[:：]", compact)
+        ):
             return None
         if cls.is_special_section_heading(text):
             return 1
@@ -152,6 +162,12 @@ class DocumentAnalyzer:
             return 1
         if re.match(r"^第[一二三四五六七八九十百\d]+节(?:\s|$)", text):
             return 2 if cls._has_heading_appearance(paragraph) else None
+        styled = cls.heading_level(paragraph)
+        decimal = re.match(r"^(\d+(?:[.．]\d+){1,3})(?![\d.．])\s*[^，。；！？]+$", text)
+        if decimal and (styled is not None or cls._has_heading_appearance(paragraph)):
+            return len(re.split(r"[.．]", decimal.group(1)))
+        if styled is not None and not re.search(r"[。！？；;]$", text):
+            return styled
         if not cls._has_heading_appearance(paragraph):
             return None
         # “一、/（一）/1.”是中文论文常见的三级层次；单独的“1.”不应

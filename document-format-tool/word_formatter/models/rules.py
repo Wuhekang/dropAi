@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field, fields
 import json
+import math
 from pathlib import Path
 from typing import Any, Literal
 
@@ -14,6 +15,8 @@ SpacingUnit = Literal["line", "pt"]
 TableBorderStyle = Literal["three_line", "grid", "none"]
 VerticalAlignment = Literal["top", "center", "bottom"]
 DEFAULT_LATIN_FONT = "Times New Roman"
+MAX_PARAGRAPH_INDENT_CM = 2.0
+MAX_PARAGRAPH_INDENT_CHARS = 4.0
 
 # 中国大陆 WPS“字号”下拉框使用的标准字号与磅值映射。
 CHINESE_FONT_SIZES: dict[str, float] = {
@@ -181,7 +184,10 @@ class DocumentRules:
             alignment="center",
         )
     )
-    table_caption: ParagraphRule = field(default_factory=lambda: ParagraphRule(enabled=False))
+    table_caption: ParagraphRule = field(default_factory=lambda: ParagraphRule(
+        enabled=False, font_size_name="五号", font_size_pt=10.5,
+        first_line_indent_chars=0, special_indent_mode="none", special_indent_chars=0,
+        alignment="center", line_spacing_mode="single"))
     header: GenericRule = field(default_factory=lambda: GenericRule(enabled=False))
     footer: GenericRule = field(default_factory=lambda: GenericRule(enabled=False))
     page_number: GenericRule = field(default_factory=lambda: GenericRule(enabled=False))
@@ -248,8 +254,8 @@ class DocumentRules:
 
 LOCKED_TABLE_POLICY_NOTE = (
     "正文数据表采用系统固定规范：黑色三线表（外框 1.5 磅、表头线 0.75 磅），"
-    "表格及单元格内容居中，宋体小四，段落零缩进且全部不加粗；"
-    "模板和附加自然语言要求不能覆盖这些设置。"
+    "表格及单元格内容居中，段落零缩进且全部不加粗；"
+    "字体字号按模板识别并允许确认修改，以上结构设置不可覆盖。"
 )
 
 
@@ -279,11 +285,6 @@ def enforce_locked_table_policy(rules: DocumentRules) -> DocumentRules:
 
     table = rules.table
     table.enabled = True
-    table.chinese_font = "宋体"
-    table.latin_font = DEFAULT_LATIN_FONT
-    table.number_font = DEFAULT_LATIN_FONT
-    table.font_size_name = "小四"
-    table.font_size_pt = 12.0
     table.bold = False
     table.alignment = "center"
     table.left_indent_cm = 0.0
@@ -302,8 +303,44 @@ def enforce_locked_table_policy(rules: DocumentRules) -> DocumentRules:
     return rules
 
 
+def normalize_inferred_layout(rules: DocumentRules, explicit_fields: dict | None = None) -> list[str]:
+    """Discard incidental sample layout before, never after, customer edits.
+
+    A margin-like indent on one annotation or cover run is not a body rule.
+    Explicit prose is stronger evidence; font sizes and line spacing remain
+    independently inferred and are deliberately not reset here.
+    """
+    explicit_fields = explicit_fields or {}
+    changed = []
+    for name in ("normal_text", "heading_1", "heading_2", "heading_3", "heading_4",
+                 "toc_title", "toc_1", "toc_2", "toc_3", "figure_caption",
+                 "table_caption", "reference", "table"):
+        rule = getattr(rules, name)
+        entry = explicit_fields.get(name, {})
+        declared = entry.get("rule", {}) if isinstance(entry, dict) else {}
+        defaults = {"left_indent_cm": 0.0, "right_indent_cm": 0.0,
+                    "left_indent_chars": 0.0, "right_indent_chars": 0.0,
+                    "direction": "ltr", "character_spacing_mode": "standard",
+                    "character_spacing_pt": 0.0}
+        if name == "normal_text":
+            defaults.update(bold=False, alignment="justify")
+        if name.startswith("heading_") or name in {"toc_title", "figure_caption", "table_caption"}:
+            defaults.update(special_indent_mode="none", special_indent_chars=0.0,
+                            first_line_indent_chars=0.0)
+        if name in {"figure_caption", "table_caption"}:
+            defaults["alignment"] = "center"
+        for field_name, default in defaults.items():
+            expected = declared.get(field_name, default)
+            if getattr(rule, field_name) != expected:
+                setattr(rule, field_name, expected)
+                changed.append(f"{name}.{field_name}")
+    return (["已清理样例局部缩进、加粗或排版方向，未将其推广到全文；请在确认页核对："
+             + "、".join(changed)] if changed else [])
+
+
 LOCKED_DOCUMENT_POLICY_NOTES = (
     "正文段落默认首行缩进 2 字符；模板和客户确认值不能覆盖。",
+    "全文左右段落缩进仅允许 0～2 厘米；异常值自动归零，字符缩进最多 4 字符且不超过 2 厘米，模板、AI 和确认值均不能绕过。",
     "正文数据表固定为黑色三线表，内容水平/垂直居中且不加粗。",
     "图片所在段落固定居中、单倍行距。",
     "清除段落级“与下段同页、段中不分页、段前分页、孤行控制”，保留文档中的分页符和分节符。",
@@ -314,6 +351,7 @@ LOCKED_DOCUMENT_POLICY_NOTES = (
 def enforce_locked_document_policy(rules: DocumentRules) -> DocumentRules:
     """Apply product rules which neither template AI nor customer may change."""
     enforce_locked_table_policy(rules)
+    enforce_safe_indentation(rules)
     body = rules.normal_text
     body.enabled = True
     body.special_indent_mode = "first_line"
@@ -336,3 +374,29 @@ def enforce_locked_document_policy(rules: DocumentRules) -> DocumentRules:
         rule.keep_lines_together = False
         rule.page_break_before = False
     return rules
+
+
+def enforce_safe_indentation(rules: DocumentRules) -> int:
+    """Hard output boundary, including restored plans and direct library calls.
+
+    Reject inference artifacts by resetting them, not by clamping a 8 cm indent
+    to an unexplained 2 cm indent. Small, intentional TOC/reference indents stay.
+    """
+    changed = 0
+    for item in fields(rules):
+        rule = getattr(rules, item.name)
+        if not isinstance(rule, ParagraphRule):
+            continue
+        size = rule.font_size_pt
+        if not isinstance(size, (float, int)) or not math.isfinite(size) or size <= 0:
+            size = 12.0
+        chars_limit = min(MAX_PARAGRAPH_INDENT_CHARS,
+                          MAX_PARAGRAPH_INDENT_CM * 72 / (2.54 * size))
+        for name in ("left_indent_cm", "right_indent_cm", "left_indent_chars",
+                     "right_indent_chars", "first_line_indent_chars", "special_indent_chars"):
+            value = getattr(rule, name)
+            limit = MAX_PARAGRAPH_INDENT_CM if name.endswith("_cm") else chars_limit
+            if isinstance(value, bool) or not isinstance(value, (float, int)) or not math.isfinite(value) or not 0 <= value <= limit:
+                setattr(rule, name, 0.0)
+                changed += 1
+    return changed

@@ -19,6 +19,7 @@ CLI = TOOL_ROOT / "format_cli.py"
 sys.path.insert(0, str(TOOL_ROOT))
 
 from format_cli import (  # noqa: E402
+    CliInputError,
     _apply_confirmed_rules,
     _editable_rules,
     _publish_without_overwrite,
@@ -77,6 +78,46 @@ def build_source(path: Path) -> None:
 
 
 class FormatCliTests(unittest.TestCase):
+    def test_confirmed_indent_limits_cover_every_editable_rule(self) -> None:
+        groups = {
+            "body": {"normal": "normal_text"},
+            "headings": {"level1": "heading_1", "level2": "heading_2", "level3": "heading_3"},
+            "toc": {"title": "toc_title", "level1": "toc_1", "level2": "toc_2", "level3": "toc_3"},
+            "captions": {"figure": "figure_caption", "table": "table_caption"},
+            "details": {"table": "table", "reference": "reference"},
+        }
+        invalid = [-0.001, 2.001, 5, 100, float("nan"), float("inf"), float("-inf"),
+                   "", "1", "NaN", "Infinity", None, True, False, [], {}, 10 ** 400]
+        with tempfile.TemporaryDirectory(prefix="dokiai_indent_limits_") as directory:
+            path = Path(directory) / "rules.json"
+            for group, items in groups.items():
+                for item, internal_key in items.items():
+                    for field, attribute in (("leftIndentCm", "left_indent_cm"), ("rightIndentCm", "right_indent_cm")):
+                        for value in invalid:
+                            with self.subTest(group=group, item=item, field=field, value=repr(value)):
+                                path.write_text(json.dumps({group: {item: {field: value}}}), encoding="utf-8")
+                                with self.assertRaisesRegex(CliInputError, "0–2 厘米"):
+                                    _apply_confirmed_rules(DocumentRules(), path)
+                        for value in (0, 0.5, 2):
+                            with self.subTest(group=group, item=item, field=field, accepted=value):
+                                path.write_text(json.dumps({group: {item: {field: value}}}), encoding="utf-8")
+                                rules = DocumentRules()
+                                _apply_confirmed_rules(rules, path)
+                                self.assertEqual(getattr(getattr(rules, internal_key), attribute), value)
+
+    def test_unsafe_legacy_indent_echo_is_rejected_instead_of_silently_skipped(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="dokiai_legacy_indent_limits_") as directory:
+            path = Path(directory) / "rules.json"
+            for field, attribute in (("leftIndentCm", "left_indent_cm"), ("rightIndentCm", "right_indent_cm")):
+                for value in (-1, 2.001, 5, float("inf"), float("-inf")):
+                    with self.subTest(field=field, value=value):
+                        path.write_text(json.dumps({
+                            "analyzedRules": {"normal_text": {attribute: value}},
+                            "editableRules": {"body": {"normal": {field: value}}},
+                        }), encoding="utf-8")
+                        with self.assertRaisesRegex(CliInputError, "0–2 厘米"):
+                            _apply_confirmed_rules(DocumentRules(), path)
+
     def test_published_hard_link_survives_staging_cleanup_failure(self) -> None:
         with tempfile.TemporaryDirectory(prefix="dokiai_publish_") as directory:
             root = Path(directory)
@@ -230,10 +271,10 @@ class FormatCliTests(unittest.TestCase):
             self.assertEqual(payload["analysis"]["tableCount"], 1)
             table_rule = payload["ruleSummary"]["table"]
             self.assertEqual(table_rule["borderStyle"], "three_line")
-            self.assertEqual(table_rule["chineseFont"], "宋体")
+            self.assertEqual(table_rule["chineseFont"], "仿宋")
             self.assertEqual(table_rule["latinFont"], "Times New Roman")
-            self.assertEqual(table_rule["fontSizeName"], "小四")
-            self.assertEqual(table_rule["fontSizePt"], 12.0)
+            self.assertEqual(table_rule["fontSizeName"], "二号")
+            self.assertEqual(table_rule["fontSizePt"], 22.0)
             self.assertFalse(table_rule["bold"])
             self.assertEqual(table_rule["alignment"], "center")
             self.assertEqual(table_rule["firstLineIndentChars"], 0.0)
@@ -297,10 +338,10 @@ class FormatCliTests(unittest.TestCase):
             table_rule = payload["ruleSummary"]["table"]
             self.assertTrue(table_rule["enabled"])
             self.assertEqual(table_rule["borderStyle"], "three_line")
-            self.assertEqual(table_rule["chineseFont"], "宋体")
+            self.assertEqual(table_rule["chineseFont"], "仿宋")
             self.assertEqual(table_rule["latinFont"], "Times New Roman")
-            self.assertEqual(table_rule["fontSizeName"], "小四")
-            self.assertEqual(table_rule["fontSizePt"], 12.0)
+            self.assertEqual(table_rule["fontSizeName"], "二号")
+            self.assertEqual(table_rule["fontSizePt"], 22.0)
             self.assertFalse(table_rule["bold"])
             self.assertFalse(table_rule["headerRowBold"])
             self.assertEqual(table_rule["alignment"], "center")

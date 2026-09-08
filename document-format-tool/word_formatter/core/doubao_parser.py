@@ -9,6 +9,7 @@ from typing import Any
 
 from word_formatter.models.rules import CHINESE_FONT_SIZES, DocumentRules, font_size_name_for_points
 from word_formatter.core.template_ai_pipeline import run_template_ai_pipeline
+from word_formatter.core.rule_parser import extract_explicit_template_fields
 
 
 class DoubaoRuleParser:
@@ -29,7 +30,8 @@ class DoubaoRuleParser:
         "toc_2": ("目录", "目 录", "目　录", "TOC"),
         "toc_3": ("目录", "目 录", "目　录", "TOC"),
         "figure_caption": ("图名称", "图号", "图题", "图名", "图标题", "题注", "插图"),
-        "table_caption": ("表名称", "表号", "表题", "表名", "表标题", "题注", "表格"),
+        "table_caption": ("表名称", "表号", "表题", "表名", "表标题", "题注"),
+        "table": ("表内", "表格内容", "单元格", "三线表"),
         "reference": ("参考文献", "文献表", "参考资料"),
     }
     ENUMS = {
@@ -205,6 +207,23 @@ class DoubaoRuleParser:
                 analysis["warnings"].append(f"{key} 未经 AI 确认：{explanation}；现有值仅供人工核对。")
             if rejected:
                 analysis["warnings"].append(f"{key} 已忽略 {rejected} 个缺少证据或无效的字段。")
+        # Deterministic, labelled written requirements are authoritative over
+        # incidental sample appearance or a mis-scoped AI fact. This runs only
+        # during inference, before the customer makes editable confirmations.
+        explicit = extract_explicit_template_fields(blocks)
+        for key, item in explicit.items():
+            if key not in self.TEMPLATE_RULES:
+                continue
+            merged, local_changes = self._validated_merge(merged, {key: {**item["rule"], "enabled": True}})
+            changed.extend(local_changes)
+            entry = analysis["ruleEvidence"][key]
+            entry["explicitFields"] = sorted(item["rule"])
+            entry["evidence"] = list(dict.fromkeys(entry.get("evidence", []) + [
+                f"明确文字 [{identity}]" for ids in item["fieldEvidence"].values() for identity in ids
+            ]))[:8]
+            if entry["status"] == "unconfirmed":
+                entry["status"] = "sample"
+        analysis["explicitRuleFields"] = explicit
         supported_fallbacks = sum(item["status"] == "sample" for item in analysis["ruleEvidence"].values())
         analysis["aiStatus"] = "complete" if recognized == len(self.TEMPLATE_RULES) else "partial" if recognized else "unavailable"
         if not recognized and not supported_fallbacks:
@@ -227,7 +246,7 @@ class DoubaoRuleParser:
         # The deterministic written-spec parser explicitly reports successful
         # interpretation. This is useful even when the AI is unavailable, but
         # is always labelled for manual review rather than AI recognition.
-        written = any("检测到撰写规范表" in note for note in notes)
+        written = any("检测到撰写规范表" in note or "已按模板明确文字提取" in note for note in notes)
         if written:
             matches = [block for block in blocks if any(token in block["text"] for token in tokens)]
             if matches:
@@ -267,7 +286,7 @@ class DoubaoRuleParser:
             if not isinstance(identity, str) or not identity or identity in seen or not isinstance(text, str) or not text.strip():
                 continue
             seen.add(identity)
-            blocks.append({key: block[key] for key in ("id", "kind", "text", "paragraphStart", "paragraphEnd") if key in block})
+            blocks.append({key: block[key] for key in ("id", "kind", "text", "paragraphStart", "paragraphEnd", "pageNumber", "semanticRegion") if key in block})
         return blocks
 
     @staticmethod

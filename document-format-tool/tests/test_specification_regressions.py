@@ -179,8 +179,10 @@ class FinalDeliveryPolicyTests(unittest.TestCase):
 
         DocumentProcessor._start_chapters_on_new_pages(document, 1, result)
 
-        self.assertTrue(first.paragraph_format.page_break_before)
-        self.assertTrue(second.paragraph_format.page_break_before)
+        self.assertFalse(first.paragraph_format.page_break_before)
+        self.assertFalse(second.paragraph_format.page_break_before)
+        self.assertIsNone(first._p.getprevious())
+        self.assertEqual(len(second._p.getprevious().xpath(".//w:br[@w:type='page']")), 1)
 
 
 if __name__ == "__main__":

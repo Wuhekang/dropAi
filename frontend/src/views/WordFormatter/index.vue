@@ -20,7 +20,7 @@
         <button class="secondary" type="button" @click="showFlow = !showFlow">查看处理流程　⌄</button>
       </div>
       <div class="support">
-        <span>模板支持</span><b>DOC</b><b>DOCX</b><b>DOTX</b><span class="separator">论文原稿</span><b>DOCX</b>
+        <span>模板支持</span><b>DOC</b><b>DOCX</b><b>DOTX</b><b>文字型 PDF</b><span class="separator">论文原稿</span><b>DOCX</b>
       </div>
       <i class="orb one"></i>
       <i class="orb two"></i>
@@ -31,7 +31,7 @@
         <article class="glass upload-card">
           <header>
             <div><small>STEP 01 · SCHOOL TEMPLATE</small><h2>上传学校格式模板</h2></div>
-            <span class="chip">DOC / DOCX / DOTX</span>
+            <span class="chip">WORD / PDF</span>
           </header>
           <label
             class="drop-zone"
@@ -42,7 +42,7 @@
             @keydown.enter.prevent="openPicker('template')"
             @keydown.space.prevent="openPicker('template')"
           >
-            <input ref="templateInput" type="file" accept=".doc,.docx,.dotx" @change="handleSelection('template', $event)" />
+            <input ref="templateInput" type="file" accept=".doc,.docx,.dotx,.pdf" @change="handleSelection('template', $event)" />
             <span class="upload-icon template-icon">T</span>
             <template v-if="!templateFile">
               <strong>拖入学校模板，或点击选择</strong>
@@ -104,7 +104,7 @@
               maxlength="1000"
               placeholder="例如：一级标题保持居中，所有图名放在图片下方；未填写时完全以学校模板为准。"
             ></textarea>
-            <small class="locked-table-note"><i>固定</i> 正文数据表始终使用三线表、宋体小四、居中、零缩进且不加粗，模板或补充要求均不会覆盖。</small>
+            <small class="locked-table-note"><i>固定</i> 正文数据表使用三线表、居中、零缩进且不加粗；字体字号按模板识别，可在下一步确认修改。</small>
           </label>
           <div class="doubao-option">
             <div class="doubao-heading">
@@ -129,7 +129,7 @@
     <section v-else-if="screen === 'review'" ref="workspaceSection" class="review-center">
       <article class="glass review-hero">
         <small>TEMPLATE ANALYSIS REVIEW</small><h2>模板分析完成，请先确认关键格式</h2>
-        <p>下面四类规则可修改；正文仅固定首行缩进 2 字符。确认后才会正式处理论文。</p>
+        <p>下面各类规则可修改；正文首行缩进固定为 2 字符。左右缩进仅允许 0–2 厘米，超出范围不能提交。请核对字号与缩进，确认后才会正式处理论文。</p>
         <div v-if="hasTemplateAnalysis" class="template-analysis">
           <div><span>文件类型</span><strong>{{ templateKindLabel }}</strong></div>
           <div><span>封面处理</span><strong>{{ frontMatterLabel }}</strong></div>
@@ -148,8 +148,10 @@
           </div>
           <label>中文字体<input v-model.trim="item.rule.chineseFont" /></label><label>英文字体<input v-model.trim="item.rule.latinFont" /></label>
           <label>字号<select v-model.number="item.rule.fontSizePt"><option v-if="!isStandardFontSize(item.rule.fontSizePt)" :value="item.rule.fontSizePt">自定义字号</option><option v-for="size in fontSizeOptions" :key="size.name" :value="size.pt">{{ size.name }}</option></select></label>
-          <label>加粗<select v-model="item.rule.bold"><option :value="false">不加粗</option><option :value="true">加粗</option></select></label>
-          <label>对齐方式<select v-model="item.rule.alignment"><option value="left">左对齐</option><option value="center">居中</option><option value="right">右对齐</option><option value="justify">两端对齐</option></select></label>
+          <label>加粗<select v-model="item.rule.bold" :disabled="group.key === 'details' && item.key === 'table'"><option :value="false">不加粗</option><option :value="true">加粗</option></select></label>
+          <label>对齐方式<select v-model="item.rule.alignment" :disabled="group.key === 'details' && item.key === 'table'"><option value="left">左对齐</option><option value="center">居中</option><option value="right">右对齐</option><option value="justify">两端对齐</option></select></label>
+          <label>左缩进（厘米，0–2）<input v-model.number="item.rule.leftIndentCm" type="number" min="0" max="2" step="0.1" :disabled="group.key === 'details' && item.key === 'table'" /></label>
+          <label>右缩进（厘米，0–2）<input v-model.number="item.rule.rightIndentCm" type="number" min="0" max="2" step="0.1" :disabled="group.key === 'details' && item.key === 'table'" /></label>
           <label>行距<select v-model="item.rule.lineSpacingMode"><option value="single">单倍</option><option value="1.5">1.5 倍</option><option value="double">2 倍</option><option value="multiple">多倍</option><option value="fixed">固定值</option><option value="at_least">最小值</option></select></label>
           <label v-if="item.rule.lineSpacingMode === 'fixed'">固定行距（磅）<input v-model.number="item.rule.fixedLineSpacingPt" type="number" min="1" max="200" step="0.5" /></label>
           <label v-else-if="item.rule.lineSpacingMode === 'multiple'">多倍行距（倍）<input v-model.number="item.rule.multipleLineSpacing" type="number" min="0.5" max="10" step="0.05" /></label>
@@ -266,11 +268,12 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import { confirmWordFormatJob, createWordFormatJob, downloadWordFormatResult, getWordFormatJob } from '../../api/rewrite'
+import { validateRuleIndents } from '../../utils/wordFormatRules'
 
 const MAX_TEMPLATE_SIZE = 30 * 1024 * 1024
 const MAX_SOURCE_SIZE = 100 * 1024 * 1024
 const POLL_INTERVAL = 1400
-const templateExtensions = new Set(['doc', 'docx', 'dotx'])
+const templateExtensions = new Set(['doc', 'docx', 'dotx', 'pdf'])
 const sourceExtensions = new Set(['docx'])
 const terminalStatuses = new Set(['SUCCESS', 'FAILED', 'AWAITING_CONFIRMATION'])
 const fontSizeOptions = [
@@ -391,7 +394,8 @@ const ruleGroups = computed(() => {
     { key: 'body', eyebrow: '01 · BODY TEXT', title: '正文格式（首行缩进固定为 2 字符）', items: [make('normal', '正文', rules.body?.normal, 'normal_text')] },
     { key: 'headings', eyebrow: '02 · HEADINGS', title: '一级、二级、三级标题', items: [make('level1', '一级标题', rules.headings?.level1, 'heading_1'), make('level2', '二级标题', rules.headings?.level2, 'heading_2'), make('level3', '三级标题', rules.headings?.level3, 'heading_3')] },
     { key: 'toc', eyebrow: '03 · TABLE OF CONTENTS', title: '目录格式', items: [make('title', '目录标题', rules.toc?.title, 'toc_title'), make('level1', '一级目录', rules.toc?.level1, 'toc_1'), make('level2', '二级目录', rules.toc?.level2, 'toc_2'), make('level3', '三级目录', rules.toc?.level3, 'toc_3')] },
-    { key: 'captions', eyebrow: '04 · CAPTIONS', title: '图标题、表标题', items: [make('figure', '图标题', rules.captions?.figure, 'figure_caption'), make('table', '表标题', rules.captions?.table, 'table_caption')] }
+    { key: 'captions', eyebrow: '04 · CAPTIONS', title: '图标题、表标题', items: [make('figure', '图标题', rules.captions?.figure, 'figure_caption'), make('table', '表标题', rules.captions?.table, 'table_caption')] },
+    { key: 'details', eyebrow: '05 · TABLE & REFERENCES', title: '表格文字、参考文献', items: [make('table', '表格文字（居中、不加粗）', rules.details?.table, 'table'), make('reference', '参考文献', rules.details?.reference, 'reference')] }
   ].map(group => ({ ...group, items: group.items.filter(item => item.rule) }))
 })
 
@@ -489,7 +493,7 @@ function validateFile(kind, file) {
   const extension = extensionOf(file)
   const allowed = kind === 'template' ? templateExtensions : sourceExtensions
   if (!allowed.has(extension)) {
-    ElMessage.error(kind === 'template' ? '模板仅支持 .doc、.docx 或 .dotx。' : '论文原稿仅支持 .docx。')
+    ElMessage.error(kind === 'template' ? '模板仅支持 .doc、.docx、.dotx 或文字型 .pdf。' : '论文原稿仅支持 .docx。')
     return false
   }
   return true
@@ -677,6 +681,7 @@ async function confirmRules() {
   if (!job.value.id || confirming.value) return
   confirming.value = true
   try {
+    validateRuleIndents(ruleGroups.value)
     const next = await confirmWordFormatJob(job.value.id, editableRules.value)
     applyJob(next)
     startPolling(job.value.id)

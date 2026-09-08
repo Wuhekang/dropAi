@@ -291,6 +291,8 @@ class WordFormatJobServiceTest {
                     JsonNode confirmed = new ObjectMapper().readTree(rulesPath.toFile());
                     assertEquals(15, confirmed.path("editableRules").path("body").path("normal").path("fontSizePt").asInt());
                     assertEquals(24, confirmed.path("editableRules").path("body").path("normal").path("spaceBefore").path("value").asInt());
+                    assertEquals(0.5, confirmed.path("editableRules").path("body").path("normal").path("leftIndentCm").asDouble());
+                    assertEquals(10.5, confirmed.path("editableRules").path("details").path("table").path("fontSizePt").asDouble());
                     assertEquals(12, confirmed.path("analyzedRules").path("normal_text").path("font_size_pt").asInt());
                     assertEquals(30, confirmed.path("analyzedRules").path("page_setup").path("margin_top_mm").asInt());
                     assertEquals(false, confirmed.path("templateAnalysis").path("copyFrontMatter").asBoolean());
@@ -304,7 +306,8 @@ class WordFormatJobServiceTest {
         WordFormatJobVO ready = waitForStatus(submitted.id(), "AWAITING_CONFIRMATION");
         assertEquals(decision, ready.result().get("templateAnalysis"));
         service.confirm(submitted.id(), Map.of(
-                "body", Map.of("normal", Map.of("fontSizePt", 15, "bold", false, "alignment", "justify", "spaceBefore", Map.of("unit", "pt", "value", 24))),
+                "body", Map.of("normal", Map.of("fontSizePt", 15, "bold", false, "alignment", "justify", "leftIndentCm", 0.5, "spaceBefore", Map.of("unit", "pt", "value", 24))),
+                "details", Map.of("table", Map.of("fontSizePt", 10.5)),
                 "templateAnalysis", Map.of("copyFrontMatter", true),
                 "analyzedRules", Map.of("normal_text", Map.of("font_size_pt", 72)),
                 "templateSha256", "client-override"));
@@ -322,6 +325,64 @@ class WordFormatJobServiceTest {
         assertThrows(IllegalArgumentException.class, () -> service.confirm(submitted.id(), Map.of("body", Map.of("normal", Map.of("fontSizePt", "")))));
         assertEquals("AWAITING_CONFIRMATION", service.get(submitted.id()).status());
         verify(runner, never()).run(any(), any(), any(), any(), any(), anyBoolean(), eq(false), any(), any());
+    }
+
+    @Test
+    void unsafeIndentsAreRejectedForAllEditableRulesWithoutWritingOrLaunching() throws Exception {
+        byte[] docx = document("缩进输入防护");
+        WordFormatProcessRunner runner = mock(WordFormatProcessRunner.class);
+        service = service(runner);
+        AuthContext.setUserId(81L);
+        WordFormatJobVO submitted = service.submit(upload("template", "规范.docx", docx), upload("source", "论文.docx", docx), "", true);
+        assertEquals("AWAITING_CONFIRMATION", waitForStatus(submitted.id(), "AWAITING_CONFIRMATION").status());
+        Map<String, List<String>> groups = Map.of(
+                "body", List.of("normal"), "headings", List.of("level1", "level2", "level3"),
+                "toc", List.of("title", "level1", "level2", "level3"),
+                "captions", List.of("figure", "table"), "details", List.of("table", "reference"));
+        Object[] invalid = {-0.001, 2.001, 5, 100, Double.NaN, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY,
+                "", "1", "NaN", "Infinity", null, true, false, List.of(), Map.of()};
+        for (var group : groups.entrySet()) {
+            for (String item : group.getValue()) {
+                for (String field : List.of("leftIndentCm", "rightIndentCm")) {
+                    for (Object value : invalid) {
+                        Map<String, Object> rule = new java.util.LinkedHashMap<>();
+                        rule.put(field, value);
+                        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                                () -> service.confirm(submitted.id(), Map.of(group.getKey(), Map.of(item, rule))),
+                                group.getKey() + "." + item + "." + field + "=" + value);
+                        assertTrue(error.getMessage().contains("0–2 厘米"));
+                        assertEquals("AWAITING_CONFIRMATION", service.get(submitted.id()).status());
+                    }
+                }
+            }
+        }
+        assertTrue(Files.notExists(tempDir.resolve("81").resolve(submitted.id()).resolve("confirmed-rules.json")));
+        verify(runner, never()).run(any(), any(), any(), any(), any(), anyBoolean(), eq(false), any(), any());
+    }
+
+    @Test
+    void confirmationAcceptsZeroAndTwoCentimeterIndentBoundaries() throws Exception {
+        byte[] docx = document("缩进合法边界");
+        WordFormatProcessRunner runner = mock(WordFormatProcessRunner.class);
+        service = service(runner);
+        when(runner.run(any(), any(), any(), any(), any(), anyBoolean(), eq(false), any(), any()))
+                .thenAnswer(invocation -> {
+                    JsonNode confirmed = new ObjectMapper().readTree(((Path) invocation.getArgument(7)).toFile());
+                    JsonNode rules = confirmed.path("editableRules");
+                    assertEquals(0, rules.path("body").path("normal").path("leftIndentCm").asDouble());
+                    assertEquals(2, rules.path("body").path("normal").path("rightIndentCm").asDouble());
+                    assertEquals(2, rules.path("toc").path("level3").path("leftIndentCm").asDouble());
+                    assertEquals(0.5, rules.path("toc").path("level3").path("rightIndentCm").asDouble());
+                    Files.copy((Path) invocation.getArgument(0), (Path) invocation.getArgument(2));
+                    return new WordFormatProcessRunner.ProcessResult(2, List.of(), List.of());
+                });
+        AuthContext.setUserId(82L);
+        WordFormatJobVO submitted = service.submit(upload("template", "规范.docx", docx), upload("source", "论文.docx", docx), "", true);
+        assertEquals("AWAITING_CONFIRMATION", waitForStatus(submitted.id(), "AWAITING_CONFIRMATION").status());
+        service.confirm(submitted.id(), Map.of(
+                "body", Map.of("normal", Map.of("leftIndentCm", 0, "rightIndentCm", 2)),
+                "toc", Map.of("level3", Map.of("leftIndentCm", 2, "rightIndentCm", 0.5))));
+        assertEquals("SUCCESS", waitForTerminal(submitted.id()).status());
     }
 
     @Test
@@ -392,6 +453,21 @@ class WordFormatJobServiceTest {
 
     private WordFormatJobVO waitForTerminal(String id) throws Exception {
         return waitForStatus(id, "SUCCESS");
+    }
+
+    @Test
+    void pdfTemplateIsQueuedForTextAnalysisWithoutWordZipValidation() throws Exception {
+        WordFormatProcessRunner runner = mock(WordFormatProcessRunner.class);
+        service = service(runner);
+        AuthContext.setUserId(71L);
+        byte[] pdfHeader = "%PDF-1.7\n% Worker validates PDF contents".getBytes(java.nio.charset.StandardCharsets.US_ASCII);
+        WordFormatJobVO submitted = service.submit(upload("template", "规范.pdf", pdfHeader),
+                upload("source", "论文.docx", document("正文")), "", true);
+        assertEquals("AWAITING_CONFIRMATION", waitForStatus(submitted.id(), "AWAITING_CONFIRMATION").status());
+        assertTrue(Files.exists(tempDir.resolve("71").resolve(submitted.id()).resolve("template.pdf")));
+        verify(runner).verifyRuntime(false, true);
+        assertThrows(IllegalArgumentException.class, () -> service.submit(
+                upload("template", "伪装.pdf", document("not pdf")), upload("source", "论文.docx", document("正文")), "", true));
     }
 
     private WordFormatJobVO waitForStatus(String id, String status) throws Exception {

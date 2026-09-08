@@ -13,6 +13,197 @@ from word_formatter.models.rules import (
 FONT_SIZE_NAMES = CHINESE_FONT_SIZES
 
 
+def extract_explicit_template_fields(blocks: list[dict]) -> dict[str, dict]:
+    """Parse only labelled written requirements, not the formatting of prose.
+
+    Values retain field-level evidence and scope. Conflicting same-scope values
+    are omitted for review; a broad default never erases a role-specific value.
+    """
+    candidates: dict[tuple[str, str], list[tuple[object, int, str]]] = {}
+    size_pattern = "|".join(re.escape(name) for name, _ in NaturalLanguageRuleParser._font_sizes_longest_first())
+    fonts = ("方正小标宋", "微软雅黑", "仿宋", "楷体", "黑体", "宋体")
+    labels = re.compile(
+        r"目录[一二三四1-4]级(?:标题|条目)?|(?:正文)?[一二三四1-4]级标题|各级标题|目录(?:标题|内容|条目)?[:：]|"
+        r"(?:图序和图题|图名称|图名|图题|表序和表题|表名称|表名|表题|表内|表格内容|单元格)[:：]|"
+        r"(?:摘要正文|正文|本文|全文)(?=\s*[:：\n（(]|使用|采用|应|为|宋体|黑体|小|字号|首行)|参考文献(?:正文|内容)[:：]"
+    )
+
+    def properties(text: str) -> dict:
+        values: dict = {}
+        text = re.sub(r"\s+", "", text).replace("断后", "段后")
+        match = re.search(size_pattern, text)
+        if match:
+            values.update(font_size_name=match.group(), font_size_pt=FONT_SIZE_NAMES[match.group()])
+        point = re.search(r"字号(?:为|采用|使用)?(\d+(?:\.\d+)?)(?:磅|pt)", text, re.I)
+        if point:
+            values.update(font_size_pt=float(point[1]), font_size_name=font_size_name_for_points(float(point[1])))
+        for font in fonts:
+            if font in text:
+                values["chinese_font"] = font
+                break
+        if re.search(r"TimesNewRoman", text, re.I):
+            values.update(latin_font="Times New Roman", number_font="Times New Roman")
+        if "不加粗" in text or "非加粗" in text:
+            values["bold"] = False
+        elif "加粗" in text:
+            values["bold"] = True
+        for token, alignment in (("居中", "center"), ("两端对齐", "justify"), ("右对齐", "right"),
+                                 ("左对齐", "left"), ("居左", "left"), ("顶格", "left")):
+            if token in text:
+                values["alignment"] = alignment
+                break
+        fixed = re.search(r"固定(?:值|行距|行间距)?(\d+(?:\.\d+)?)(?:磅|pt)", text, re.I)
+        multiple = re.search(r"(\d+(?:\.\d+)?)倍行距|行间距(\d+(?:\.\d+)?)(?:行)?", text)
+        if fixed:
+            values.update(line_spacing_mode="fixed", fixed_line_spacing_pt=float(fixed[1]))
+        elif multiple:
+            value = float(multiple[1] or multiple[2])
+            if value in {1, 1.5, 2}:
+                values["line_spacing_mode"] = {1: "single", 1.5: "1.5", 2: "double"}[value]
+            else:
+                values.update(line_spacing_mode="multiple", multiple_line_spacing=value)
+        elif "单倍" in text:
+            values["line_spacing_mode"] = "single"
+        for side in ("before", "after"):
+            label = "段前" if side == "before" else "段后"
+            spacing = re.search(label + r"(?:间距|各)?(\d+(?:\.\d+)?)(行|磅|pt)", text, re.I)
+            both = re.search(r"段前段后(?:各)?(\d+(?:\.\d+)?)(行|磅|pt)", text, re.I)
+            spacing = both or spacing
+            if spacing:
+                unit = "line" if spacing[2] == "行" else "pt"
+                values[f"space_{side}_unit"] = unit
+                values[f"space_{side}_{'lines' if unit == 'line' else 'pt'}"] = float(spacing[1])
+        indent = re.search(r"首行缩进(\d+(?:\.\d+)?)字符", text)
+        if indent:
+            value = float(indent[1])
+            values.update(first_line_indent_chars=value, special_indent_chars=value,
+                          special_indent_mode="first_line" if value else "none")
+        if "三线表" in text:
+            values["border_style"] = "three_line"
+        return values
+
+    def add(role: str, text: str, identity: str, priority: int = 2) -> None:
+        for field, value in properties(text).items():
+            if field == "border_style" and role != "table":
+                continue
+            if priority == 1 and role != "normal_text" and field not in {"chinese_font", "latin_font", "number_font"}:
+                # A generic "全文" default is not an instruction to turn every
+                # heading into a small, indented, bold body paragraph.
+                continue
+            candidates.setdefault((role, field), []).append((value, priority, identity))
+
+    previous_role = None
+    for block in blocks:
+        text, identity = block.get("text", ""), block.get("id", "")
+        if not isinstance(text, str) or not text.strip() or not identity:
+            continue
+        region = block.get("semanticRegion", "main")
+        compact = re.sub(r"\s+", "", text)
+        if region == "toc" and any(re.fullmatch(r"1\.5倍行距[。；;]?", re.sub(r"\s+", "", line))
+                                   for line in text.splitlines()):
+            # An independent instruction on a verified contents page applies
+            # to its entries. A level-specific instruction still outranks it;
+            # the same unlabelled text outside this region is not propagated.
+            for level in range(1, 4):
+                candidates.setdefault((f"toc_{level}", "line_spacing_mode"), []).append(("1.5", 1, identity))
+        if "页面设置" in compact or "页边距" in compact:
+            start = compact.find("页面设置") if "页面设置" in compact else compact.find("页边距")
+            page_text = compact[start:start + 250]
+            for chinese, field in (("上", "margin_top_mm"), ("下", "margin_bottom_mm"),
+                                   ("左", "margin_left_mm"), ("右", "margin_right_mm")):
+                margin = re.search(chinese + r"(?:页边距|边距)?[:：]?(\d+(?:\.\d+)?)(cm|mm|厘米|毫米)", page_text, re.I)
+                if margin:
+                    value = float(margin[1]) * (10 if margin[2].lower() in {"cm", "厘米"} else 1)
+                    candidates.setdefault(("page_setup", field), []).append((value, 2, identity))
+            if "A4" in compact.upper():
+                for field, value in (("paper", "A4"), ("width_mm", 210.0), ("height_mm", 297.0)):
+                    candidates.setdefault(("page_setup", field), []).append((value, 2, identity))
+        # Inline explanations on actual samples are unambiguous even when the
+        # sample's own Word font disagrees with the written size.
+        annotated = re.fullmatch(r"(.{0,100}?)[（(]([^（）()]{1,100})[）)]", compact)
+        if annotated and re.search(size_pattern + r"|宋体|黑体|居中", annotated[2]):
+            prefix, note = annotated[1], annotated[2]
+            role = None
+            numeric = re.match(r"^(\d+(?:[.．]\d+){0,3})(?:[^\d.]|$)", prefix)
+            if prefix in {"目录", "Contents"}:
+                role = "toc_title"
+            elif prefix in {"前言", "引言", "绪论", "摘要", "Abstract", "ABSTRACT", "结论", "致谢", "参考文献"}:
+                role = "heading_1"
+            elif numeric:
+                role = f"{'toc' if region == 'toc' else 'heading'}_{min(4, numeric[1].count('.') + numeric[1].count('．') + 1)}"
+            elif re.fullmatch(r"[XxＸｘ…]*", prefix):
+                role = "reference" if previous_role == "reference" else "normal_text"
+            if role:
+                add(role, note, identity)
+                previous_role = "reference" if prefix == "参考文献" else role
+                continue
+        # Keep PDF wrapped labels intact, while retaining newlines for a bare
+        # "正文" label. Chinese-to-Chinese wraps cannot change the rule's scope.
+        normalized = text
+        matches = list(labels.finditer(normalized))
+        local_region = region
+        for index, match in enumerate(matches):
+            label = match.group()
+            if label.startswith("目录"):
+                local_region = "toc"
+            elif label.startswith("正文") and region != "reference":
+                local_region = "main"
+            end = matches[index + 1].start() if index + 1 < len(matches) else len(normalized)
+            fragment = normalized[match.end():end]
+            # A requirement annotation is short; don't absorb unrelated sample
+            # paragraphs later on the page. The next role label is a hard stop.
+            fragment = re.split(r"正文页脚|页脚|页眉|奇数页|对总项|绪论[:：]|插图位于", fragment, maxsplit=1)[0][:500]
+            roles, priority = [], 2
+            level = re.search(r"([一二三四1-4])级(?:标题|条目)?", label)
+            if level:
+                token = level[1]
+                number = "一二三四".index(token) + 1 if token in "一二三四" else int(token)
+                roles = [f"{'toc' if local_region == 'toc' else 'heading'}_{number}"]
+            elif label == "各级标题":
+                roles = [f"heading_{n}" for n in range(1, 5)]
+            elif label.startswith("目录"):
+                roles = ["toc_title"] if "内容" not in label and "条目" not in label else [f"toc_{n}" for n in range(1, 4)]
+            elif label.startswith(("表内", "表格内容", "单元格")):
+                roles = ["table"]
+            elif label.startswith("表"):
+                roles = ["table_caption"]
+            elif label.startswith("图"):
+                roles = ["figure_caption"]
+            elif label.startswith("参考文献") or region == "reference":
+                roles = ["reference"]
+            elif label.startswith("全文"):
+                roles = ["normal_text", *[f"heading_{n}" for n in range(1, 5)]]
+                priority = 1
+            elif not label.startswith("摘要") and region != "abstract":
+                roles = ["normal_text"]
+            for role in roles:
+                add(role, fragment, identity, priority)
+    result: dict[str, dict] = {}
+    for (role, field), items in candidates.items():
+        priority = max(item[1] for item in items)
+        preferred = [item for item in items if item[1] == priority]
+        if len({str(item[0]) for item in preferred}) != 1:
+            continue
+        rule = result.setdefault(role, {"rule": {}, "fieldEvidence": {}})
+        rule["rule"][field] = preferred[0][0]
+        rule["fieldEvidence"][field] = list(dict.fromkeys(item[2] for item in preferred))
+    return result
+
+
+def apply_explicit_template_fields(rules: DocumentRules, evidence: dict[str, dict]) -> list[str]:
+    notes = []
+    for role, item in evidence.items():
+        rule = getattr(rules, role, None)
+        if not isinstance(rule, ParagraphRule) and role != "page_setup":
+            continue
+        for field, value in item["rule"].items():
+            if hasattr(rule, field):
+                setattr(rule, field, value)
+        rule.enabled = True
+        notes.append(f"已按模板明确文字提取 {role}：" + "、".join(item["rule"]))
+    return notes
+
+
 class NaturalLanguageRuleParser:
     """可解释的本地解析器；只转换能明确判断的正文和页面要求。"""
 

@@ -39,7 +39,7 @@ import java.util.zip.ZipFile;
 @Service
 public class WordFormatJobService {
     private static final Logger log = LoggerFactory.getLogger(WordFormatJobService.class);
-    private static final Set<String> TEMPLATE_EXTENSIONS = Set.of("doc", "docx", "dotx");
+    private static final Set<String> TEMPLATE_EXTENSIONS = Set.of("doc", "docx", "dotx", "pdf");
     private static final byte[] OLE_SIGNATURE = {
             (byte) 0xD0, (byte) 0xCF, 0x11, (byte) 0xE0,
             (byte) 0xA1, (byte) 0xB1, 0x1A, (byte) 0xE1
@@ -282,7 +282,8 @@ public class WordFormatJobService {
                 "body", List.of("normal"),
                 "headings", List.of("level1", "level2", "level3"),
                 "toc", List.of("title", "level1", "level2", "level3"),
-                "captions", List.of("figure", "table")
+                "captions", List.of("figure", "table"),
+                "details", List.of("table", "reference")
         );
         Map<String, Object> validated = new LinkedHashMap<>();
         groups.forEach((groupName, names) -> {
@@ -311,6 +312,9 @@ public class WordFormatJobService {
                     fields.put(field, formatNumber(rule.get(field), min, max));
                 }
                 validateChoice(rule, fields, "alignment", Set.of("left", "center", "right", "justify"));
+                for (String field : List.of("leftIndentCm", "rightIndentCm")) {
+                    if (rule.containsKey(field)) fields.put(field, indentNumber(rule.get(field), field));
+                }
                 validateChoice(rule, fields, "lineSpacingMode", Set.of("single", "1.5", "double", "multiple", "fixed", "at_least"));
                 if (rule.containsKey("bold")) {
                     if (!(rule.get("bold") instanceof Boolean)) throw new IllegalArgumentException("加粗设置无效");
@@ -339,6 +343,15 @@ public class WordFormatJobService {
             throw new IllegalArgumentException("字号或间距数值超出可用范围，请核对后重试");
         }
         return number.doubleValue();
+    }
+
+    private static double indentNumber(Object value, String field) {
+        try {
+            return formatNumber(value, 0, 2);
+        } catch (IllegalArgumentException exception) {
+            String label = field.equals("leftIndentCm") ? "左缩进" : "右缩进";
+            throw new IllegalArgumentException(label + "必须是 0–2 厘米之间的有限数值", exception);
+        }
     }
 
     private static void validateChoice(Map<?, ?> rule, Map<String, Object> fields, String key, Set<String> allowed) {
@@ -400,7 +413,7 @@ public class WordFormatJobService {
         String displayName = cleanDisplayName(file.getOriginalFilename(), template ? "template.docx" : "source.docx");
         String extension = extension(displayName);
         if (template && !TEMPLATE_EXTENSIONS.contains(extension)) {
-            throw new IllegalArgumentException("学校模板仅支持 .doc、.docx 或 .dotx 文件");
+            throw new IllegalArgumentException("学校模板仅支持 .doc、.docx、.dotx 或文字型 .pdf 文件");
         }
         if (template && Set.of("doc", "dotx").contains(extension) && !properties.legacyTemplatesEnabled()) {
             throw new IllegalArgumentException("当前服务器不支持旧版 .doc/.dotx 模板，请在 Microsoft Word 中另存为 .docx 后上传");
@@ -423,6 +436,13 @@ public class WordFormatJobService {
                 throw new IllegalArgumentException((template ? "学校模板" : "论文文件") + "为空");
             }
             byte[] header = readHeader(path, 8);
+            if (template && "pdf".equals(extension)) {
+                if (!startsWith(header, new byte[] {'%', 'P', 'D', 'F', '-'})) {
+                    throw new IllegalArgumentException("上传的 PDF 模板不是有效的 PDF 文件");
+                }
+                // The worker parses pages/text before analysis; never treat PDF as a Word ZIP.
+                return;
+            }
             if ("doc".equals(extension)) {
                 if (!startsWith(header, OLE_SIGNATURE)) {
                     throw new IllegalArgumentException("上传的 .doc 模板不是有效的旧版 Word 文件");
@@ -524,6 +544,9 @@ public class WordFormatJobService {
     private static String userFacingWorkerError(Exception exception) {
         if (exception instanceof WordFormatProcessRunner.RuntimeUnavailableException) {
             return WordFormatProcessRunner.RUNTIME_UNAVAILABLE_MESSAGE;
+        }
+        if (exception instanceof WordFormatProcessRunner.ProcessingException) {
+            return exception.getMessage();
         }
         return WordFormatProcessRunner.PROCESS_FAILED_MESSAGE;
     }

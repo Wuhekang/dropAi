@@ -9,6 +9,7 @@ import time
 
 from docx import Document
 from docx.enum.section import WD_ORIENT
+from docx.enum.style import WD_STYLE_TYPE
 from docx.enum.table import (
     WD_CELL_VERTICAL_ALIGNMENT,
     WD_ROW_HEIGHT_RULE,
@@ -20,6 +21,8 @@ from docx.oxml.ns import qn
 from docx.opc.constants import RELATIONSHIP_TYPE as RT
 from docx.shared import Cm, Mm, Pt
 from docx.table import Table
+from docx.text.paragraph import Paragraph
+from docx.text.run import Run
 from docxcompose.composer import Composer
 
 from word_formatter.core.analyzer import DocumentAnalyzer
@@ -32,6 +35,7 @@ from word_formatter.models.rules import (
     ParagraphRule,
     TableRule,
     enforce_locked_table_policy,
+    enforce_safe_indentation,
 )
 
 
@@ -45,6 +49,16 @@ VERTICAL_ALIGNMENTS = {
     "top": WD_CELL_VERTICAL_ALIGNMENT.TOP,
     "center": WD_CELL_VERTICAL_ALIGNMENT.CENTER,
     "bottom": WD_CELL_VERTICAL_ALIGNMENT.BOTTOM,
+}
+PARAGRAPH_PROPERTY_ORDER = {
+    qn(f"w:{name}"): index for index, name in enumerate((
+        "pStyle", "keepNext", "keepLines", "pageBreakBefore", "framePr", "widowControl",
+        "numPr", "suppressLineNumbers", "pBdr", "shd", "tabs", "suppressAutoHyphens",
+        "kinsoku", "wordWrap", "overflowPunct", "topLinePunct", "autoSpaceDE", "autoSpaceDN",
+        "bidi", "adjustRightInd", "snapToGrid", "spacing", "ind", "contextualSpacing",
+        "mirrorIndents", "suppressOverlap", "jc", "textDirection", "textAlignment",
+        "textboxTightWrap", "outlineLvl", "divId", "cnfStyle", "rPr", "sectPr", "pPrChange",
+    ))
 }
 
 
@@ -71,9 +85,12 @@ class DocumentProcessor:
             # summary. Enforce it again here so direct/library callers cannot
             # bypass the fixed table contract.
             enforce_locked_table_policy(rules)
+            if enforce_safe_indentation(rules):
+                result.records.append(ChangeRecord(None, "异常缩进规则", "超出全文缩进安全范围", "异常值归零", "不可绕过的全文缩进保护"))
             document = self._compose_with_template_front(source, Path(template_path).resolve(), result, template_analysis) if template_path else Document(source)
             content_start = self._main_content_start(document)
             content_start += self._ensure_toc(document, rules, result, content_start)
+            content_start += self._isolate_body_layout(document, content_start, result)
             self._enforce_global_paragraph_policy(document, result)
             if content_start > 1:
                 result.warnings.append(
@@ -87,10 +104,7 @@ class DocumentProcessor:
                 self._apply_figure_captions(
                     document, rules.figure_caption, result, content_start
                 )
-            if rules.table_caption.enabled:
-                self._apply_table_captions(
-                    document, rules.table_caption, result, content_start
-                )
+            self._apply_table_captions(document, rules.table_caption, result, content_start)
             if rules.reference.enabled:
                 self._apply_references(reference_paragraphs, rules.reference, result)
             if rules.normal_text.enabled:
@@ -106,8 +120,9 @@ class DocumentProcessor:
             self._exclude_non_content_toc_entries(document, content_start)
             if rules.table.enabled:
                 self._apply_tables(document, rules.table, result, content_start)
+            self._restart_content_page_numbering(document, content_start, result)
             if rules.page_number.enabled:
-                self._apply_page_numbers(document, rules.page_number.settings, result)
+                self._apply_page_numbers(document, rules.page_number.settings, result, content_start)
             if rules.normal_text.number_font != rules.normal_text.latin_font:
                 result.warnings.append(
                     "python-docx 无法在不拆分文本运行块的情况下区分英文与数字字体；第一版数字字体暂按英文字体处理。"
@@ -122,6 +137,8 @@ class DocumentProcessor:
             # Some school templates contain stale comment extensions that make
             # Word reject field updates until those parts are stripped.
             cleanup = finalize_docx(output)
+            if cleanup.get("unresolved_references_locked", 0):
+                result.warnings.append(f"原稿有 {cleanup['unresolved_references_locked']} 处交叉引用目标书签缺失，已保留其原显示值并禁止自动刷新该引用；有效交叉引用仍可更新。")
             if os.name == "nt":
                 refresh_error = None
                 for attempt in range(2):
@@ -129,9 +146,20 @@ class DocumentProcessor:
                         WordDocumentConverter().update_fields_in_place(output)
                         refreshed = Document(output)
                         self._apply_toc(refreshed, rules, result)
+                        self._merge_toc_end_carriers(refreshed)
                         self._request_field_update(refreshed, result)
                         refreshed.save(output)
                         WordDocumentConverter().update_fields_in_place(output)
+                        # The final Word refresh may regenerate every TOC run.
+                        # Reapply once afterwards, with persisted TOC styles for
+                        # future refreshes, and do not schedule another update.
+                        refreshed = Document(output)
+                        self._apply_toc(refreshed, rules, result)
+                        self._merge_toc_end_carriers(refreshed)
+                        update = refreshed.settings.element.find(qn("w:updateFields"))
+                        if update is not None:
+                            update.set(qn("w:val"), "false")
+                        refreshed.save(output)
                         refresh_error = None
                         break
                     except Exception as exc:
@@ -147,6 +175,8 @@ class DocumentProcessor:
                 result.records.append(ChangeRecord(None, "审阅批注", "模板或原稿含批注", "全部移除", "最终稿固定规则"))
             if cleanup["red_fonts_blackened"]:
                 result.records.append(ChangeRecord(None, "红色字体", "原稿残留红色直接格式", "统一改为黑色", "最终稿固定规则"))
+            if cleanup["unsafe_indents_reset"]:
+                result.records.append(ChangeRecord(None, "全文异常缩进", f"{cleanup['unsafe_indents_reset']} 处异常段落或样式缩进", "异常缩进归零，保留正常首行及目录缩进", "包含前置页、表格、页眉页脚和目录刷新结果的最终保护"))
             result.save_log(output.with_suffix(".log.json"))
             return result
         except Exception as exc:
@@ -159,6 +189,9 @@ class DocumentProcessor:
 
     @classmethod
     def _compose_with_template_front(cls, source: Path, template: Path, result: ProcessResult, template_analysis: dict | None = None):
+        if template.suffix.lower() == ".pdf":
+            result.warnings.append("PDF 仅作为文字格式规范读取，始终保留原稿封面与声明，不执行封面复制。")
+            return Document(source)
         if template_analysis is not None and (
             template_analysis.get("copyFrontMatter") is not True
             or template_analysis.get("documentKind") == "specification"
@@ -511,6 +544,7 @@ class DocumentProcessor:
         cls, document, rules: DocumentRules, result: ProcessResult, content_start: int
     ) -> int:
         """Insert a real Word TOC field between copied front matter and body."""
+        cls._apply_toc_styles(document, rules)
         cls._exclude_front_matter_from_toc(document, content_start)
         if document.element.body.xpath(".//w:instrText[contains(., 'TOC ')]"):
             return 0
@@ -525,6 +559,7 @@ class DocumentProcessor:
         title._p.get_or_add_pPr().find(qn("w:outlineLvl")).set(qn("w:val"), "9")
 
         toc = document.add_paragraph()
+        toc.style = document.styles["TOC 1"]
         begin = OxmlElement("w:fldChar")
         begin.set(qn("w:fldCharType"), "begin")
         begin.set(qn("w:dirty"), "true")
@@ -571,12 +606,7 @@ class DocumentProcessor:
         for index, paragraph in enumerate(document.paragraphs, start=1):
             if index >= content_start:
                 break
-            p_pr = paragraph._p.get_or_add_pPr()
-            outline = p_pr.find(qn("w:outlineLvl"))
-            if outline is None:
-                outline = OxmlElement("w:outlineLvl")
-                p_pr.append(outline)
-            outline.set(qn("w:val"), "9")
+            DocumentProcessor._set_semantic_outline(paragraph, 9)
 
     @staticmethod
     def _exclude_non_content_toc_entries(document, start_index: int) -> None:
@@ -584,15 +614,80 @@ class DocumentProcessor:
             r"^\s*(?:封面|目录|附录|诚信声明书?|原创性声明|学位论文.{0,8}声明)\s*$",
             re.I,
         )
+        in_appendix = False
         for index, paragraph in enumerate(document.paragraphs, start=1):
-            if index < start_index or not excluded.match(paragraph.text.strip()):
+            if index < start_index:
                 continue
-            p_pr = paragraph._p.get_or_add_pPr()
-            outline = p_pr.find(qn("w:outlineLvl"))
-            if outline is None:
-                outline = OxmlElement("w:outlineLvl")
-                p_pr.append(outline)
-            outline.set(qn("w:val"), "9")
+            text = paragraph.text.strip()
+            if re.match(r"^附\s*录(?:\s|[一二三四五六七八九十A-Za-z0-9]|$)", text):
+                in_appendix = True
+            if DocumentAnalyzer.is_reference_heading(text) or re.sub(r"\s+", "", text).casefold() in {"致谢", "acknowledgements", "acknowledgments"}:
+                in_appendix = False
+            if not (in_appendix or excluded.match(text) or DocumentAnalyzer.caption_kind(paragraph) is not None or DocumentAnalyzer.recognized_heading_level(paragraph) is None):
+                continue
+            DocumentProcessor._set_semantic_outline(paragraph, 9)
+
+    @staticmethod
+    def _isolate_body_layout(document, content_start: int, result: ProcessResult) -> int:
+        """Reset only content sections to one column, preserving cover sections."""
+        paragraphs = document.paragraphs
+        if not paragraphs or not 1 <= content_start <= len(paragraphs):
+            return 0
+        inserted = 0
+        if content_start > 1:
+            anchor = paragraphs[content_start - 1]._p
+            previous = anchor.getprevious()
+            has_boundary = previous is not None and previous.tag == qn("w:p") and bool(previous.xpath("./w:pPr/w:sectPr"))
+            if not has_boundary:
+                # Describe the old prefix with its existing section properties;
+                # the following body's section may now safely be normalized.
+                following = next((p._p.pPr.find(qn("w:sectPr")) for p in paragraphs[content_start - 1:] if p._p.pPr is not None and p._p.pPr.find(qn("w:sectPr")) is not None), document.element.body.sectPr)
+                boundary = OxmlElement("w:p")
+                properties = OxmlElement("w:pPr")
+                section = deepcopy(following)
+                section_type = section.find(qn("w:type"))
+                if section_type is None:
+                    section_type = OxmlElement("w:type")
+                    section.insert(0, section_type)
+                section_type.set(qn("w:val"), "nextPage")
+                properties.append(section)
+                boundary.append(properties)
+                anchor.addprevious(boundary)
+                inserted = 1
+                # A newly inserted section boundary replaces an immediately
+                # preceding empty page-break paragraph, avoiding a blank page.
+                if previous is not None and not previous.xpath(".//w:t[normalize-space(.)!=''] | .//w:drawing | .//w:pict"):
+                    for br in previous.xpath(".//w:br[@w:type='page']"):
+                        br.getparent().remove(br)
+        body_start = content_start + inserted
+        changed = 0
+        paragraph_index = 0
+        for child in document.element.body:
+            if child.tag == qn("w:p"):
+                paragraph_index += 1
+                if paragraph_index < body_start:
+                    continue
+                sections = child.xpath("./w:pPr/w:sectPr")
+                for br in child.xpath(".//w:br[@w:type='column']"):
+                    br.set(qn("w:type"), "page")
+            elif child.tag == qn("w:sectPr"):
+                sections = [child]
+            else:
+                continue
+            for section in sections:
+                cols = section.find(qn("w:cols"))
+                if cols is None:
+                    cols = OxmlElement("w:cols")
+                    section.append(cols)
+                if cols.get(qn("w:num"), "1") != "1" or len(cols):
+                    changed += 1
+                cols.attrib.clear()
+                cols.set(qn("w:num"), "1")
+                for column in list(cols):
+                    cols.remove(column)
+        if changed:
+            result.records.append(ChangeRecord(None, "正文分栏", f"{changed} 个分栏节", "正文单栏，封面节保留", "正文布局固定规则"))
+        return inserted
 
     @staticmethod
     def _apply_page_setup(document, rules: DocumentRules, result: ProcessResult) -> None:
@@ -677,11 +772,24 @@ class DocumentProcessor:
             level = DocumentAnalyzer.recognized_heading_level(paragraph)
             if level is None:
                 continue
+            # Word's TOC \o switch also reads built-in heading styles. Keep
+            # them consistent with explicit numbering rather than leaving a
+            # semantically second-level paragraph attached to Heading 3.
+            style = paragraph.style
+            style_identity = f"{style.style_id if style else ''} {style.name if style else ''}"
+            styled = re.search(r"(?:Heading|标题)\s*([1-4])(?!\d)", style_identity, re.I)
+            if styled and int(styled.group(1)) != level:
+                target_name = f"Heading {level}"
+                if target_name not in document.styles:
+                    document.styles.add_style(target_name, WD_STYLE_TYPE.PARAGRAPH)
+                paragraph.style = document.styles[target_name]
             rule = heading_rules[level]
             if not rule.enabled:
+                cls._set_semantic_outline(paragraph, level - 1)
                 continue
             before = cls._paragraph_summary(paragraph)
             cls._format_paragraph(paragraph, rule)
+            cls._set_semantic_outline(paragraph, level - 1)
             recognition = (
                 f"明确的 Heading {level}/标题 {level} 内置样式"
                 if DocumentAnalyzer.heading_level(paragraph) == level
@@ -695,25 +803,122 @@ class DocumentProcessor:
     @staticmethod
     def _start_chapters_on_new_pages(document, start_index: int, result: ProcessResult) -> None:
         changed = 0
+        collapsed_breaks = 0
         chapter_pattern = re.compile(
             r"^\s*(?:第\s*[一二三四五六七八九十百零〇0-9]+\s*章|chapter\s+\d+)\b",
             re.I,
         )
         for index, paragraph in enumerate(document.paragraphs, start=1):
-            if index < start_index or not chapter_pattern.match(paragraph.text.strip()):
+            if index < start_index:
                 continue
-            if not paragraph.paragraph_format.page_break_before:
-                paragraph.paragraph_format.page_break_before = True
-                changed += 1
+            is_chapter = bool(chapter_pattern.match(paragraph.text.strip()))
+            is_top_level = DocumentAnalyzer.recognized_heading_level(paragraph) == 1
+            if not (is_chapter or is_top_level):
+                continue
+            paragraph.paragraph_format.page_break_before = False
+            previous = paragraph._p.getprevious()
+            if previous is None:
+                continue
+            # A standalone empty break paragraph can itself overflow to the
+            # next page, making Word create an entirely blank page. Move only
+            # this structural break to preceding body text; retain bookmarks,
+            # fields, section boundaries, drawings and all author text.
+            if previous is not None and previous.tag == qn("w:p") and previous.xpath(".//w:br[@w:type='page']") and not previous.xpath(".//w:t[normalize-space(.)!=''] | .//w:drawing | .//w:pict | .//w:sectPr | .//w:fldChar | .//w:fldSimple | .//w:instrText | .//w:bookmarkStart | .//w:bookmarkEnd"):
+                prior_body = previous.getprevious()
+                if prior_body is not None and prior_body.tag == qn("w:p") and prior_body.xpath(".//w:t[normalize-space(.)!='']") and not prior_body.xpath(".//w:drawing | .//w:pict | .//w:sectPr | .//w:fldChar | .//w:fldSimple | .//w:instrText | .//w:br[@w:type='page']"):
+                    for br in previous.xpath(".//w:br[@w:type='page']"):
+                        run = OxmlElement("w:r")
+                        run.append(br)
+                        prior_body.append(run)
+                    previous.getparent().remove(previous)
+                    collapsed_breaks += 1
+                else:
+                    carrier = Paragraph(previous, document._body)
+                    carrier.paragraph_format.space_before = Pt(0)
+                    carrier.paragraph_format.space_after = Pt(0)
+                    carrier.paragraph_format.line_spacing = Pt(1)
+                    for run in carrier.runs:
+                        run.font.size = Pt(1)
+                continue
+            if not is_chapter:
+                continue
+            if previous is not None and not DocumentProcessor._needs_page_break_before(paragraph._p):
+                continue
+            if previous is not None and previous.tag == qn("w:p") and previous.xpath(".//w:t[normalize-space(.)!='']") and not previous.xpath(".//w:drawing | .//w:pict | .//w:sectPr | .//w:fldChar | .//w:fldSimple | .//w:instrText"):
+                carrier = Paragraph(previous, document._body)
+            else:
+                element = OxmlElement("w:p")
+                paragraph._p.addprevious(element)
+                carrier = Paragraph(element, document._body)
+                carrier.paragraph_format.space_before = Pt(0)
+                carrier.paragraph_format.space_after = Pt(0)
+                carrier.paragraph_format.line_spacing = Pt(1)
+            run = carrier.add_run()
+            run.add_break()
+            run._r.xpath(".//w:br")[-1].set(qn("w:type"), "page")
+            changed += 1
         if changed:
             result.records.append(
                 ChangeRecord(None, "章节分页", "章节可能连续排版", f"{changed} 个章节强制另页开始", "每章末尾分页固定规则")
             )
+        if collapsed_breaks:
+            result.records.append(ChangeRecord(None, "空分页段", f"{collapsed_breaks} 个独立空分页段", "真实分页符迁移至前段末尾，避免空白页", "不改动正文文字或域"))
+
+    @classmethod
+    def _apply_toc_styles(cls, document, rules: DocumentRules) -> None:
+        """Persist TOC defaults so Word regeneration cannot restore Calibri."""
+        for level, rule in ((1, rules.toc_1), (2, rules.toc_2), (3, rules.toc_3)):
+            name = f"TOC {level}"
+            if name not in document.styles:
+                document.styles.add_style(name, WD_STYLE_TYPE.PARAGRAPH)
+            matched = [style for style in document.styles if style.type == WD_STYLE_TYPE.PARAGRAPH and re.search(rf"(?:^|\s)(?:TOC|目录)\s*{level}(?!\d)", f"{style.style_id} {style.name}", re.I)]
+            for style in matched:
+                proxy = Paragraph(OxmlElement("w:p"), document._body)
+                proxy.add_run("目录")
+                cls._format_paragraph(proxy, rule)
+                for tag, replacement in (("pPr", proxy._p.pPr), ("rPr", proxy.runs[0]._r.rPr)):
+                    old = style._element.find(qn(f"w:{tag}"))
+                    if old is not None:
+                        style._element.remove(old)
+                    style._element.append(deepcopy(replacement))
+                # A tab leader needs a real, stable right stop, not spaces.
+                tabs = OxmlElement("w:tabs")
+                tab = OxmlElement("w:tab")
+                tab.set(qn("w:val"), "right")
+                tab.set(qn("w:leader"), "dot")
+                section = document.sections[-1]
+                tab.set(qn("w:pos"), str(max(720, (section.page_width - section.left_margin - section.right_margin) // 635)))
+                tabs.append(tab)
+                style._element.pPr.append(tabs)
+        # A source-specific Hyperlink font must not override TOC paragraph
+        # fonts on regeneration. Color/underline and other semantics remain.
+        for style in document.styles:
+            if style.type == WD_STYLE_TYPE.CHARACTER and re.fullmatch(r"(?:Hyperlink|FollowedHyperlink|超链接|已访问的超链接)", style.name or "", re.I):
+                r_pr = style._element.rPr
+                if r_pr is not None:
+                    for tag in ("rFonts", "sz", "szCs"):
+                        child = r_pr.find(qn(f"w:{tag}"))
+                        if child is not None:
+                            r_pr.remove(child)
+
+    @staticmethod
+    def _set_semantic_outline(paragraph, value: int) -> None:
+        p_pr = paragraph._p.get_or_add_pPr()
+        outline = p_pr.get_or_add_outlineLvl()
+        outline.set(qn("w:val"), str(value))
+        # Imported paragraphs often already contain paragraph-mark rPr.
+        # Appending outline/spacing after rPr yields invalid OOXML which Word
+        # may repair by silently dropping the semantic outline and formatting.
+        ordered = sorted(list(p_pr), key=lambda item: PARAGRAPH_PROPERTY_ORDER.get(item.tag, 100))
+        for child in ordered:
+            p_pr.append(child)
 
     @classmethod
     def _apply_toc(cls, document, rules: DocumentRules, result: ProcessResult) -> None:
+        cls._apply_toc_styles(document, rules)
         rule_map = {1: rules.toc_1, 2: rules.toc_2, 3: rules.toc_3}
-        for index, paragraph in enumerate(document.paragraphs, start=1):
+        for index, element in enumerate(document.element.body.xpath(".//w:p"), start=1):
+            paragraph = Paragraph(element, document._body)
             text = paragraph.text.strip()
             style = paragraph.style
             identity = f"{style.style_id if style else ''} {style.name if style else ''}"
@@ -729,6 +934,94 @@ class DocumentProcessor:
                 rule = rule_map[int(match.group(1))]
                 cls._format_paragraph(paragraph, rule)
                 result.records.append(ChangeRecord(index, f"目录 {match.group(1)} 级", "原格式", cls._rule_summary(rule), "目录级别样式规则"))
+        cls._compact_layout_carriers(document)
+
+    @classmethod
+    def _merge_toc_end_carriers(cls, document) -> None:
+        """Join only a generated TOC's invisible end/section tail after formatting.
+
+        A full TOC page has no room even for a 1pt end-field paragraph. Keep
+        the end marker and sectPr in the last TOC entry instead of adding a
+        blank page. Run only after body/index-based formatting has finished.
+        Word may recreate the tail on refresh, so repeat after its last save.
+        """
+        paragraphs = document.paragraphs
+        start = cls._main_content_start(document) - 1
+        tail = []
+        for paragraph in reversed(paragraphs[:start]):
+            if paragraph._p.xpath(".//w:t[normalize-space(.)!=''] | .//w:drawing | .//w:pict | .//m:oMath | .//w:br | .//w:instrText | .//w:fldSimple | .//w:fldChar[@w:fldCharType!='end']"):
+                break
+            tail.insert(0, paragraph)
+        if not tail or len(tail) > 8:
+            return
+        # document.paragraphs omits intervening tables/content controls. Never
+        # move a section boundary across an unexamined block of author content.
+        if start >= len(paragraphs) or tail[-1]._p.getnext() is not paragraphs[start]._p:
+            return
+        if any(left._p.getnext() is not right._p for left, right in zip(tail, tail[1:])):
+            return
+        previous = tail[0]._p.getprevious()
+        if previous is None or previous.tag != qn("w:p"):
+            return
+        anchor = Paragraph(previous, document._body)
+        style = anchor.style
+        if not re.search(r"(?:^|\s)(?:TOC|目录)\s*[1-3](?!\d)", f"{style.style_id} {style.name}", re.I):
+            return
+        sections = [node for paragraph in tail for node in paragraph._p.xpath("./w:pPr/w:sectPr")]
+        ends = [node for paragraph in tail for node in paragraph._p.xpath(".//w:fldChar[@w:fldCharType='end']")]
+        if len(sections) != 1 or len(ends) != 1 or anchor._p.xpath("./w:pPr/w:sectPr"):
+            return
+        anchor._p.get_or_add_pPr().append(deepcopy(sections[0]))
+        for paragraph in tail:
+            for child in list(paragraph._p):
+                if child.tag != qn("w:pPr"):
+                    anchor._p.append(child)
+            paragraph._p.getparent().remove(paragraph._p)
+        cls._set_semantic_outline(anchor, 9)
+
+    @classmethod
+    def _compact_layout_carriers(cls, document) -> None:
+        """Keep invisible TOC/end-field/section carriers from making blank pages.
+
+        Word can restore an empty break carrier while saving. This runs before
+        and after its refresh through _apply_toc, without removing any fields,
+        bookmarks, section properties, or visible author content.
+        """
+        paragraphs = document.paragraphs
+        content_start = cls._main_content_start(document)
+        selected = []
+        # Only the immediately adjacent invisible tail before the real body;
+        # cover/declaration spacing earlier in the document is not in scope.
+        for paragraph in reversed(paragraphs[:max(0, content_start - 1)]):
+            if paragraph._p.xpath(".//w:t[normalize-space(.)!=''] | .//w:drawing | .//w:pict | .//m:oMath"):
+                break
+            selected.append(paragraph)
+        for paragraph in paragraphs[max(0, content_start - 1):]:
+            if paragraph._p.xpath(".//w:br[@w:type='page']") and not paragraph._p.xpath(".//w:t[normalize-space(.)!=''] | .//w:drawing | .//w:pict | .//m:oMath"):
+                selected.append(paragraph)
+        for paragraph in selected:
+            fmt = paragraph.paragraph_format
+            fmt.space_before = fmt.space_after = Pt(0)
+            fmt.line_spacing = Pt(1)
+            fmt.keep_with_next = fmt.keep_together = fmt.page_break_before = fmt.widow_control = False
+            p_pr = paragraph._p.get_or_add_pPr()
+            spacing = p_pr.get_or_add_spacing()
+            for name in ("beforeLines", "afterLines", "beforeAutospacing", "afterAutospacing"):
+                spacing.attrib.pop(qn(f"w:{name}"), None)
+            cls._set_on_off_property(p_pr, "snapToGrid", False)
+            for run in paragraph.runs:
+                run.font.size = Pt(1)
+            paragraph_mark = p_pr.find(qn("w:rPr"))
+            if paragraph_mark is None:
+                paragraph_mark = OxmlElement("w:rPr")
+                p_pr.append(paragraph_mark)
+            for name in ("sz", "szCs"):
+                size = paragraph_mark.find(qn(f"w:{name}"))
+                if size is None:
+                    size = OxmlElement(f"w:{name}")
+                    paragraph_mark.append(size)
+                size.set(qn("w:val"), "2")
+            cls._set_semantic_outline(paragraph, 9)
 
     @classmethod
     def _apply_figure_captions(
@@ -763,6 +1056,12 @@ class DocumentProcessor:
         result: ProcessResult,
         start_index: int = 1,
     ) -> None:
+        rule = deepcopy(rule)
+        rule.special_indent_mode = "none"
+        rule.special_indent_chars = rule.first_line_indent_chars = 0.0
+        if not rule.enabled:
+            rule.alignment = "center"
+            rule.left_indent_cm = rule.right_indent_cm = 0.0
         for index, paragraph in enumerate(document.paragraphs, start=1):
             if index < start_index:
                 continue
@@ -1073,7 +1372,33 @@ class DocumentProcessor:
         )
 
     @staticmethod
-    def _apply_page_numbers(document, settings: dict, result: ProcessResult) -> None:
+    def _restart_content_page_numbering(document, content_start: int, result: ProcessResult) -> None:
+        """Restart logical body pages even when no visible PAGE footer is requested.
+
+        Text/PDF specifications have no Word PAGE field to inherit. The TOC
+        nevertheless needs logical page numbers after the preserved front
+        matter, rather than physical page positions including the cover.
+        """
+        first_content_section = sum(
+            bool(p._p.xpath("./w:pPr/w:sectPr"))
+            for p in document.paragraphs[:max(0, content_start - 1)]
+        )
+        if not 0 < first_content_section < len(document.sections):
+            return
+        section = document.sections[first_content_section]
+        page_number = section._sectPr.find(qn("w:pgNumType"))
+        if page_number is None:
+            page_number = OxmlElement("w:pgNumType")
+            section._sectPr.append(page_number)
+        changed = page_number.get(qn("w:start")) != "1"
+        page_number.set(qn("w:start"), "1")
+        if page_number.get(qn("w:fmt")) is None:
+            page_number.set(qn("w:fmt"), "decimal")
+        if changed:
+            result.records.append(ChangeRecord(None, "正文起始页码", "包含前置页的连续页码", "正文独立节从 1 开始；页脚外观按模板规则", "目录逻辑页码规则"))
+
+    @staticmethod
+    def _apply_page_numbers(document, settings: dict, result: ProcessResult, content_start: int | None = None) -> None:
         """把原有旧式页码规范为标准 PAGE 域，并保持编号格式切换。"""
         if not settings.get("normalize_existing", False):
             return
@@ -1087,13 +1412,27 @@ class DocumentProcessor:
                 if part is None:
                     continue
                 instructions = part.element.findall(".//" + qn("w:instrText"))
-                if any(re.search(r"\bPAGE\b", item.text or "", re.I) for item in instructions):
+                if re.search(r"\bPAGE\b", "".join(item.text or "" for item in instructions), re.I):
                     field_sections.append(index)
                     break
         if not field_sections:
             return
 
         first_numbered = min(field_sections)
+        if content_start is not None:
+            # Section properties end the preceding section; count boundaries
+            # before the first real abstract/preface/body, not cached TOC rows.
+            first_numbered = sum(bool(p._p.xpath("./w:pPr/w:sectPr")) for p in document.paragraphs[:max(0, content_start - 1)])
+            first_numbered = min(first_numbered, len(document.sections) - 1)
+            for section in list(document.sections)[:first_numbered]:
+                for footer in (section.footer, section.first_page_footer, section.even_page_footer):
+                    footer.is_linked_to_previous = False
+                    for paragraph in list(footer._element):
+                        if re.search(r"\bPAGE\b", "".join(node.text or "" for node in paragraph.findall(".//" + qn("w:instrText"))), re.I):
+                            footer._element.remove(paragraph)
+                pg_num = section._sectPr.find(qn("w:pgNumType"))
+                if pg_num is not None:
+                    section._sectPr.remove(pg_num)
         previous_format: str | None = None
         for index in range(first_numbered, len(document.sections)):
             section = document.sections[index]
@@ -1103,6 +1442,10 @@ class DocumentProcessor:
                 pg_num.set(qn("w:fmt"), "decimal")
                 pg_num.set(qn("w:start"), "1")
                 section._sectPr.append(pg_num)
+            if content_start is not None and index == first_numbered:
+                pg_num.set(qn("w:start"), "1")
+                if pg_num.get(qn("w:fmt")) is None:
+                    pg_num.set(qn("w:fmt"), "decimal")
 
             if pg_num is not None and pg_num.get(qn("w:fmt")):
                 current_format = pg_num.get(qn("w:fmt"))
@@ -1123,6 +1466,13 @@ class DocumentProcessor:
             previous_format = current_format
 
             footer = section.footer
+            # A copied sectPr may explicitly reference the same footer part
+            # as the cover. Merely setting is_linked=False does not fork it.
+            # Remove this reference only; dropping its relationship would also
+            # invalidate a prefix section which still shares that relationship.
+            for reference in list(section._sectPr.findall(qn("w:footerReference"))):
+                if reference.get(qn("w:type"), "default") == "default":
+                    section._sectPr.remove(reference)
             footer.is_linked_to_previous = False
             for child in list(footer._element):
                 footer._element.remove(child)
@@ -1353,7 +1703,8 @@ class DocumentProcessor:
                 "double": WD_LINE_SPACING.DOUBLE,
             }[rule.line_spacing_mode]
         DocumentProcessor._set_wps_paragraph_units(paragraph, rule)
-        for run in paragraph.runs:
+        for run_element in paragraph._p.xpath(".//w:r"):
+            run = Run(run_element, paragraph)
             run.font.name = rule.latin_font
             run.font.size = Pt(rule.font_size_pt)
             run.font.bold = rule.bold
@@ -1364,6 +1715,9 @@ class DocumentProcessor:
             fonts.set(qn("w:eastAsia"), rule.chinese_font)
             fonts.set(qn("w:ascii"), rule.latin_font)
             fonts.set(qn("w:hAnsi"), rule.latin_font)
+            fonts.set(qn("w:cs"), rule.latin_font)
+            for attribute in ("asciiTheme", "hAnsiTheme", "eastAsiaTheme", "cstheme", "csTheme"):
+                fonts.attrib.pop(qn(f"w:{attribute}"), None)
             spacing = r_pr.find(qn("w:spacing"))
             if rule.character_spacing_mode == "standard" or rule.character_spacing_pt == 0:
                 if spacing is not None:
@@ -1383,7 +1737,7 @@ class DocumentProcessor:
         if ind is None:
             ind = OxmlElement("w:ind")
             p_pr.append(ind)
-        for attr in ("firstLine", "hanging", "left", "right", "firstLineChars", "hangingChars", "leftChars", "rightChars"):
+        for attr in ("firstLine", "hanging", "left", "right", "start", "end", "firstLineChars", "hangingChars", "leftChars", "rightChars", "startChars", "endChars"):
             qualified = qn(f"w:{attr}")
             if qualified in ind.attrib:
                 del ind.attrib[qualified]
@@ -1430,11 +1784,9 @@ class DocumentProcessor:
         DocumentProcessor._set_on_off_property(p_pr, "keepNext", rule.keep_with_next)
         DocumentProcessor._set_on_off_property(p_pr, "keepLines", rule.keep_lines_together)
         DocumentProcessor._set_on_off_property(p_pr, "pageBreakBefore", rule.page_break_before)
-        outline = p_pr.find(qn("w:outlineLvl"))
-        if outline is None:
-            outline = OxmlElement("w:outlineLvl")
-            p_pr.append(outline)
-        outline.set(qn("w:val"), str(max(0, min(rule.outline_level, 9))))
+        # Rule samples control appearance, never semantic membership in TOCs.
+        # Only _apply_headings may promote a paragraph to a heading outline.
+        DocumentProcessor._set_semantic_outline(paragraph, 9)
 
     @staticmethod
     def _set_on_off_property(p_pr, name: str, enabled: bool) -> None:
