@@ -764,6 +764,9 @@ public class WordFormatJobService {
         private Map<String, Object> templateAnalysis = Map.of();
         private Map<String, Object> formatReport = Map.of();
         private Map<String, Object> integrity = Map.of();
+        private boolean partialSuccess;
+        private String resultMessage = "";
+        private Map<String, String> runtimeInfo = Map.of();
         private String templateSha256 = "";
         private LocalDateTime updatedAt = createdAt;
 
@@ -823,7 +826,12 @@ public class WordFormatJobService {
             templateNotes = immutable(result.templateNotes());
             formatReport = result.formatReport() == null ? Map.of() : new LinkedHashMap<>(result.formatReport());
             integrity = result.integrity() == null ? Map.of() : new LinkedHashMap<>(result.integrity());
-            message = "格式处理结果已生成，可下载；请按处理报告核对待处理项目";
+            partialSuccess = result.partialSuccess();
+            message = partialSuccess ? (changedCount == 0 ? "已生成可下载核对副本，自动调整未完成"
+                    : "部分格式已处理，文档可下载，请核对未处理项")
+                    : "格式处理结果已生成，可下载；请按处理报告核对待处理项目";
+            resultMessage = result.message() == null || result.message().isBlank() ? message : result.message();
+            runtimeInfo = result.runtimeInfo() == null ? Map.of() : Map.copyOf(result.runtimeInfo());
             updatedAt = LocalDateTime.now();
         }
 
@@ -839,6 +847,7 @@ public class WordFormatJobService {
             templateAnalysis = result.templateAnalysis() == null ? Map.of() : new LinkedHashMap<>(result.templateAnalysis());
             templateSha256 = result.templateSha256() == null ? "" : result.templateSha256();
             templateNotes = immutable(result.templateNotes());
+            runtimeInfo = result.runtimeInfo() == null ? Map.of() : Map.copyOf(result.runtimeInfo());
             updatedAt = LocalDateTime.now();
         }
 
@@ -857,20 +866,22 @@ public class WordFormatJobService {
         }
 
         private synchronized WordFormatJobVO view() {
-            Map<String, Object> result = ("SUCCESS".equals(status) || "AWAITING_CONFIRMATION".equals(status))
-                    ? Map.of(
-                    "changedCount", changedCount,
-                    "warnings", warnings,
-                    "templateNotes", templateNotes,
-                    "summary", message,
-                    "editableRules", editableRules,
-                    "lockedRules", lockedRules,
-                    "analysis", analysis,
-                    "templateAnalysis", templateAnalysis,
-                    "formatReport", formatReport,
-                    "integrity", integrity
-            )
-                    : Map.of();
+            Map<String, Object> result = new LinkedHashMap<>();
+            if ("SUCCESS".equals(status) || "AWAITING_CONFIRMATION".equals(status)) {
+                result.put("changedCount", changedCount);
+                result.put("warnings", warnings);
+                result.put("templateNotes", templateNotes);
+                result.put("summary", message);
+                result.put("editableRules", editableRules);
+                result.put("lockedRules", lockedRules);
+                result.put("analysis", analysis);
+                result.put("templateAnalysis", templateAnalysis);
+                result.put("formatReport", formatReport);
+                result.put("integrity", integrity);
+                result.put("partialSuccess", partialSuccess);
+                result.put("message", "SUCCESS".equals(status) ? resultMessage : message);
+                result.put("runtimeInfo", runtimeInfo);
+            }
             return new WordFormatJobVO(
                     jobId,
                     status,

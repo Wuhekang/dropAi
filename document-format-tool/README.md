@@ -36,9 +36,15 @@
 - Web/CLI 默认采用“格式优先”交付：处理完成且输出 DOCX 可读取、原稿与模板
   未被改动时即可下载。正文文字哈希、图表/分节、域、书签和关系部件等细致
   比较仅作为风险提醒，不再把这些差异直接变成任务失败。
-- `formatReport` 按实际执行记录列出已处理项，以及未确认/未匹配的待人工核对项；
-  它是处理记录，不代表系统已人工验收每个格式问题。坏文件、处理异常、输出
-  覆盖冲突等仍会拒绝交付，原稿不会被覆盖。
+- 正式排版按模块及段落/表格分别处理；某一项异常时回退该项的修改，保留已完成项并继续。
+  封面合并、目录生成/刷新、结构统计、详细核对和日志异常不会直接撤销可读的输出。
+  Word 刷新仅操作临时副本，异常时保留刷新前的可读文档并提示核对目录页码。
+- `formatReport` 按实际执行记录列出已处理项和 `status: "skipped"` 的未处理项。
+  部分完成返回 `success: true`、`partialSuccess: true`，后端保持 `SUCCESS` 以便下载，
+  页面明确显示部分完成；原稿缺少某类内容标记 `not_found`，不算处理异常。
+  如果没有完成任何格式调整，明确标为“核对副本”，不会声称格式修改成功。
+  这些记录不代表人工验收；原文件损坏、输出不可读取、磁盘无法写入、覆盖冲突或
+  输入文件在处理中被其他程序修改等基础问题仍拒绝交付，原稿不会被覆盖。
 
 Linux/macOS 不提供 Microsoft Word COM。上传 `.doc` 或 `.dotx` 模板时 CLI
 会明确返回 `LEGACY_TEMPLATE_UNSUPPORTED`，不会尝试低保真转换。生产容器
@@ -74,7 +80,7 @@ python -X utf8 document-format-tool/format_cli.py `
 ```
 
 省略 `--instructions-file` 时完全采用模板识别规则。提供指令文件时默认使用
-确定性的本地解析器；再加 `--use-doubao` 则改用豆包解析。豆包只接收格式
+确定性的本地解析器；仅在 `--analyze-only --use-doubao` 时使用豆包解析。豆包只接收格式
 指令、学校模板文字及规则 JSON，不读取待修改论文正文，并从进程环境读取：
 
 - `ARK_API_KEY` 或 `DOUBAO_API_KEY`
@@ -120,10 +126,10 @@ Web 首次调用加 `--analyze-only`，结果包含 `editableRules`、`analyzedR
 stdout 只写逐行 UTF-8 JSON，并在每行后立即 flush：
 
 ```json
-{"type":"progress","progress":56,"stage":"processing","message":"正在把模板规则安全应用到论文副本"}
+{"type":"progress","progress":56,"stage":"processing","message":"正在按默认值与确认规则自动修改格式（不调用 AI）"}
 ```
 
-稳定字段为：
+进度事件的稳定字段为：
 
 - `type`: 固定为 `progress`
 - `progress`: `0..100` 整数
@@ -131,6 +137,20 @@ stdout 只写逐行 UTF-8 JSON，并在每行后立即 flush：
   `ai_analyzing`、`awaiting_confirmation`、`restoring_rules`、`applying_rules`、
   `analyzing_source`、`processing`、`integrity_check`、`completed` 或 `failed`
 - `message`: 中文进度说明
+
+每次进程开始还会输出一条 `type: "runtime"` 事件，包含 `engineVersion`（当前 `0.5.0`）、
+`pythonVersion`、`executionMode` 和实际 CLI/处理器/命名空间工具文件的 SHA-256，
+不包含密钥或本机路径。后端记录经过白名单过滤的运行标识，方便核对实际加载的版本。
+服务器升级后，在项目根目录用启动脚本相同的 Python 执行：
+
+```bat
+git rev-parse HEAD
+C:\Python310\python.exe document-format-tool\format_cli.py --version-info
+```
+
+如果仍看到旧的“正在把模板规则安全应用到论文副本”且没有 runtime 事件，
+请检查服务使用的 `WORD_FORMAT_WORKER` 路径、已签出的提交及后台进程是否重启。
+这些只读检查不需要加载或输出 `.env`。
 
 成功退出码为 `0`；运行期失败为非零。参数解析成功后，无论成功或失败都会
 原子写入 `--result-json`。

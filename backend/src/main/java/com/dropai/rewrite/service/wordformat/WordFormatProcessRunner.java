@@ -13,6 +13,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -179,7 +180,7 @@ public class WordFormatProcessRunner {
             thread.setDaemon(true);
             return thread;
         });
-        Future<String> stdout = streams.submit(() -> readStdout(process, progressConsumer));
+        Future<String> stdout = streams.submit(() -> readStdout(process.inputReader(StandardCharsets.UTF_8), progressConsumer));
         Future<String> stderr = streams.submit(() -> readDiagnostic(process.errorReader(StandardCharsets.UTF_8)));
         try {
             boolean finished = process.waitFor(properties.timeoutSeconds(), TimeUnit.SECONDS);
@@ -217,7 +218,11 @@ public class WordFormatProcessRunner {
                 );
                 throw new ProcessingException();
             }
-            return parseSuccessfulPayload(payload);
+            ProcessResult result = parseSuccessfulPayload(payload);
+            if (result.runtimeInfo().isEmpty()) {
+                log.warn("Word formatter worker did not report runtime metadata; verify the deployed worker version");
+            }
+            return result;
         } finally {
             streams.shutdownNow();
             if (process.isAlive()) {
@@ -277,12 +282,22 @@ public class WordFormatProcessRunner {
                 object(payload, "editableRules"), strings(payload, "lockedRules"),
                 object(payload, "analysis"), object(payload, "analyzedRules"),
                 object(payload, "templateAnalysis"), text(payload, "templateSha256"),
-                object(payload, "formatReport"), object(payload, "integrity")
+                object(payload, "formatReport"), object(payload, "integrity"),
+                payload.path("partialSuccess").isBoolean() ? payload.path("partialSuccess").asBoolean()
+                        : hasSkippedItems(object(payload, "formatReport")),
+                compact(text(payload, "message"), 1_000), safeRuntimeInfo(payload.path("runtimeInfo"))
         );
     }
 
     private static boolean isTrue(JsonNode value) {
         return value != null && value.isBoolean() && value.asBoolean();
+    }
+
+    private static boolean hasSkippedItems(Map<String, Object> report) {
+        if (report == null) return false;
+        if (report.get("skippedCount") instanceof Number count && count.doubleValue() > 0) return true;
+        return report.get("notApplied") instanceof List<?> pending
+                && pending.stream().anyMatch(item -> item instanceof Map<?, ?> entry && "skipped".equals(entry.get("status")));
     }
 
     private static void terminateProcessTree(Process process) {
@@ -328,14 +343,25 @@ public class WordFormatProcessRunner {
         }
     }
 
-    private String readStdout(Process process, Consumer<ProgressEvent> consumer) throws IOException {
+    String readStdout(BufferedReader reader, Consumer<ProgressEvent> consumer) throws IOException {
         StringBuilder diagnostic = new StringBuilder();
-        try (BufferedReader reader = process.inputReader(StandardCharsets.UTF_8)) {
+        try (reader) {
             String line;
             while ((line = reader.readLine()) != null) {
-                appendBounded(diagnostic, line);
+                boolean runtimeEvent = false;
+                boolean appended = false;
                 try {
                     JsonNode event = objectMapper.readTree(line);
+                    runtimeEvent = "runtime".equals(event.path("type").asText());
+                    if (runtimeEvent) {
+                        Map<String, String> runtimeInfo = safeRuntimeInfo(event);
+                        log.info("Word formatter runtime: {}", runtimeInfo);
+                        // Never retain arbitrary runtime fields in later failure diagnostics.
+                        appendBounded(diagnostic, objectMapper.writeValueAsString(runtimeInfo));
+                        continue;
+                    }
+                    appendBounded(diagnostic, line);
+                    appended = true;
                     int progress = integer(event, "progress", "percent");
                     String stage = text(event, "currentStage", "stage", "event");
                     String message = safeProgressMessage(
@@ -346,7 +372,12 @@ public class WordFormatProcessRunner {
                         consumer.accept(new ProgressEvent(progress, stage, message));
                     }
                 } catch (Exception ignored) {
-                    log.debug("Ignored non-JSON formatter output: {}", compact(line, 300));
+                    if (runtimeEvent) {
+                        log.warn("Unable to retain sanitized Word formatter runtime metadata");
+                    } else {
+                        if (!appended) appendBounded(diagnostic, line);
+                        log.debug("Ignored non-JSON formatter output: {}", compact(line, 300));
+                    }
                 }
             }
         }
@@ -355,6 +386,27 @@ public class WordFormatProcessRunner {
 
     static String safeProgressMessage(String stage, String message) {
         return "failed".equalsIgnoreCase(stage) ? PROCESS_FAILED_MESSAGE : message;
+    }
+
+    static Map<String, String> safeRuntimeInfo(JsonNode node) {
+        Map<String, String> values = new LinkedHashMap<>();
+        for (String key : List.of("engineVersion", "pythonVersion")) {
+            JsonNode value = node.path(key);
+            if (value.isTextual() && value.asText().matches("[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}")) {
+                values.put(key, value.asText());
+            }
+        }
+        for (String key : List.of("workerSha256", "processorSha256", "namespaceHelperSha256")) {
+            JsonNode value = node.path(key);
+            if (value.isTextual() && value.asText().matches("[0-9a-fA-F]{64}")) {
+                values.put(key, value.asText().toLowerCase(Locale.ROOT));
+            }
+        }
+        String mode = node.path("executionMode").asText();
+        if (List.of("best_effort_local", "template_analysis").contains(mode)) {
+            values.put("executionMode", mode);
+        }
+        return Map.copyOf(values);
     }
 
     private static String readDiagnostic(BufferedReader reader) throws IOException {
@@ -476,7 +528,18 @@ public class WordFormatProcessRunner {
                                 Map<String, Object> editableRules, List<String> lockedRules,
                                 Map<String, Object> analysis, Map<String, Object> analyzedRules,
                                 Map<String, Object> templateAnalysis, String templateSha256,
-                                Map<String, Object> formatReport, Map<String, Object> integrity) {
+                                Map<String, Object> formatReport, Map<String, Object> integrity,
+                                boolean partialSuccess, String message, Map<String, String> runtimeInfo) {
+        public ProcessResult(int changedCount, List<String> warnings, List<String> templateNotes,
+                             Map<String, Object> editableRules, List<String> lockedRules,
+                             Map<String, Object> analysis, Map<String, Object> analyzedRules,
+                             Map<String, Object> templateAnalysis, String templateSha256,
+                             Map<String, Object> formatReport, Map<String, Object> integrity) {
+            this(changedCount, warnings, templateNotes, editableRules, lockedRules, analysis,
+                    analyzedRules, templateAnalysis, templateSha256, formatReport, integrity,
+                    hasSkippedItems(formatReport),
+                    "", Map.of());
+        }
         public ProcessResult(int changedCount, List<String> warnings, List<String> templateNotes,
                              Map<String, Object> editableRules, List<String> lockedRules,
                              Map<String, Object> analysis, Map<String, Object> analyzedRules,

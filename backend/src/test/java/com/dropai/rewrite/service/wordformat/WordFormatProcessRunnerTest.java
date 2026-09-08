@@ -9,6 +9,11 @@ import org.springframework.mock.env.MockEnvironment;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.io.BufferedReader;
+import java.io.StringReader;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -129,6 +134,111 @@ class WordFormatProcessRunnerTest {
         assertEquals(false, result.integrity().get("passed"));
         assertEquals("format_first", result.integrity().get("mode"));
         assertTrue(result.formatReport().containsKey("notApplied"));
+        assertFalse(result.partialSuccess(), "Unclassified legacy notices are not proof of an operation failure");
+    }
+
+    @Test
+    void partialSuccessPreservesMessageReportAndSafeRuntimeMetadata() throws Exception {
+        WordFormatProcessRunner runner = runner(tempDir.resolve("format_cli.py"), tempDir.resolve("python.exe"));
+        ObjectNode payload = formatFirstPayload();
+        payload.put("partialSuccess", true).put("message", "可处理的格式已完成，未处理项已列出，文档可下载");
+        payload.set("formatReport", new ObjectMapper().readTree("""
+                {"applied":[{"item":"正文","count":12}],
+                 "notApplied":[{"item":"复杂表格","reason":"保留原格式","count":1,"status":"skipped"}]}
+                """));
+        payload.putObject("runtimeInfo").put("engineVersion", "0.5.0")
+                .put("workerSha256", "a".repeat(64)).put("workerPath", "C:\\private\\format_cli.py")
+                .put("DOUBAO_API_KEY", "secret-value");
+        WordFormatProcessRunner.ProcessResult result = runner.parseSuccessfulPayload(payload);
+        assertTrue(result.partialSuccess());
+        assertEquals("可处理的格式已完成，未处理项已列出，文档可下载", result.message());
+        assertEquals(Map.of("engineVersion", "0.5.0", "workerSha256", "a".repeat(64)), result.runtimeInfo());
+        assertEquals(1, ((List<?>) result.formatReport().get("notApplied")).size());
+        ((ObjectNode) payload.path("integrity")).put("deliveryAllowed", false);
+        assertThrows(WordFormatProcessRunner.ProcessingException.class, () -> runner.parseSuccessfulPayload(payload));
+        ((ObjectNode) payload.path("integrity")).put("deliveryAllowed", true);
+        payload.put("success", false);
+        assertThrows(WordFormatProcessRunner.ProcessingException.class, () -> runner.parseSuccessfulPayload(payload));
+    }
+
+    @Test
+    void onlyActualSkipMarkersMayInferLegacyPartialSuccess() throws Exception {
+        WordFormatProcessRunner runner = runner(tempDir.resolve("format_cli.py"), tempDir.resolve("python.exe"));
+        ObjectNode payload = formatFirstPayload();
+        ObjectNode report = payload.putObject("formatReport");
+        report.putArray("notApplied").addObject().put("item", "未定位图标题").put("status", "not_found");
+        assertFalse(runner.parseSuccessfulPayload(payload).partialSuccess());
+        report.putArray("notApplied").addObject().put("item", "复杂表格").put("status", "skipped");
+        assertTrue(runner.parseSuccessfulPayload(payload).partialSuccess());
+        report.putArray("notApplied");
+        report.put("skippedCount", 1);
+        assertTrue(runner.parseSuccessfulPayload(payload).partialSuccess());
+        payload.put("partialSuccess", false);
+        assertFalse(runner.parseSuccessfulPayload(payload).partialSuccess());
+    }
+
+    @Test
+    void skippedDetailedVerificationPermitsPartialDeliveryOnlyWithBasicChecksPassed() throws Exception {
+        WordFormatProcessRunner runner = runner(tempDir.resolve("format_cli.py"), tempDir.resolve("python.exe"));
+        ObjectNode payload = formatFirstPayload();
+        payload.put("partialSuccess", true);
+        ObjectNode integrity = (ObjectNode) payload.path("integrity");
+        integrity.put("verificationSkipped", true);
+        WordFormatProcessRunner.ProcessResult result = runner.parseSuccessfulPayload(payload);
+        assertTrue(result.partialSuccess());
+        assertEquals(false, result.integrity().get("passed"));
+        assertEquals(true, result.integrity().get("verificationSkipped"));
+        assertEquals("format_first", result.integrity().get("mode"));
+        for (String key : List.of("basicChecksPassed", "deliveryAllowed")) {
+            integrity.remove(key);
+            assertThrows(WordFormatProcessRunner.ProcessingException.class, () -> runner.parseSuccessfulPayload(payload));
+            integrity.put(key, false);
+            assertThrows(WordFormatProcessRunner.ProcessingException.class, () -> runner.parseSuccessfulPayload(payload));
+            integrity.put(key, true);
+        }
+    }
+
+    @Test
+    void runtimeEventsOnlyLogValidatedMetadataAndNeverChangeProgress() throws Exception {
+        WordFormatProcessRunner runner = runner(tempDir.resolve("format_cli.py"), tempDir.resolve("python.exe"));
+        ObjectNode event = new ObjectMapper().createObjectNode();
+        event.put("type", "runtime").put("engineVersion", "0.5.0").put("pythonVersion", "3.10.11")
+                .put("workerSha256", "A".repeat(64)).put("processorSha256", "b".repeat(64))
+                .put("namespaceHelperSha256", "c".repeat(64)).put("executionMode", "best_effort_local")
+                .put("path", "C:\\private\\worker.py").put("DOUBAO_API_KEY", "private-token")
+                .put("progress", 100).put("stage", "completed").put("message", "private-message");
+        List<WordFormatProcessRunner.ProgressEvent> progress = new ArrayList<>();
+        String diagnostic = runner.readStdout(new BufferedReader(new StringReader(event + "\n"
+                + "{\"type\":\"progress\",\"progress\":40,\"stage\":\"processing\",\"message\":\"正在处理\"}\n")), progress::add);
+        assertEquals(List.of(new WordFormatProcessRunner.ProgressEvent(40, "processing", "正在处理")), progress);
+        assertFalse(diagnostic.contains("private"));
+        assertFalse(diagnostic.contains("DOUBAO_API_KEY"));
+        assertEquals(6, WordFormatProcessRunner.safeRuntimeInfo(event).size());
+        event.put("engineVersion", "0.5.0\nprivate-token").put("pythonVersion", "C:\\private\\python.exe")
+                .put("workerSha256", "private-token").put("processorSha256", "a".repeat(65))
+                .put("namespaceHelperSha256", true).put("executionMode", "private-token");
+        assertEquals(Map.of(), WordFormatProcessRunner.safeRuntimeInfo(event));
+    }
+
+    @Test
+    void runtimeSerializationFailureNeverFallsBackToPrivateOriginalLine() throws Exception {
+        ObjectMapper mapper = new ObjectMapper() {
+            @Override
+            public String writeValueAsString(Object value) throws com.fasterxml.jackson.core.JsonProcessingException {
+                throw new com.fasterxml.jackson.core.JsonProcessingException("private-serialization-detail") { };
+            }
+        };
+        WordFormatProcessRunner runner = new WordFormatProcessRunner(mapper,
+                new WordFormatProperties(new MockEnvironment()));
+        List<WordFormatProcessRunner.ProgressEvent> progress = new ArrayList<>();
+        String diagnostic = runner.readStdout(new BufferedReader(new StringReader("""
+                {"type":"runtime","engineVersion":"0.5.0","DOUBAO_API_KEY":"private-token"}
+                {"type":"progress","progress":40,"stage":"processing","message":"正在处理"}
+                """)), progress::add);
+        assertFalse(diagnostic.contains("private"));
+        assertFalse(diagnostic.contains("DOUBAO_API_KEY"));
+        assertFalse(diagnostic.contains("runtime"));
+        assertEquals(List.of(new WordFormatProcessRunner.ProgressEvent(40, "processing", "正在处理")), progress);
     }
 
     @Test

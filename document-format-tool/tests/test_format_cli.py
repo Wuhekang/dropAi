@@ -258,7 +258,11 @@ class FormatCliTests(unittest.TestCase):
             self.assertEqual(completed.returncode, 0, completed.stderr or completed.stdout)
             events = [json.loads(line) for line in completed.stdout.splitlines() if line]
             self.assertTrue(events)
-            self.assertTrue(all(event["type"] == "progress" for event in events))
+            self.assertEqual(events[0]['type'], 'runtime')
+            self.assertEqual(events[0]['engineVersion'], '0.5.0')
+            self.assertEqual(events[0]['executionMode'], 'best_effort_local')
+            self.assertTrue(all(event["type"] in ('progress', 'runtime') for event in events))
+            events = [event for event in events if event['type'] == 'progress']
             self.assertIn("正在", events[0]["message"])
             self.assertEqual(events[-1]["progress"], 100)
             self.assertEqual(events[-1]["stage"], "completed")

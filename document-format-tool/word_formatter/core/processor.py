@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 from copy import deepcopy
+from contextlib import contextmanager
+from io import BytesIO
 import os
 import re
+import shutil
 import tempfile
 import time
 
@@ -79,6 +82,8 @@ class DocumentProcessor:
         output = Path(output_path).resolve() if output_path else self.default_output_path(source)
         if output == source:
             raise ValueError("输出文件不能与原文件相同")
+        if template_path and output == Path(template_path).resolve():
+            raise ValueError("输出文件不能与模板文件相同")
         output.parent.mkdir(parents=True, exist_ok=True)
         result = ProcessResult(source_path=source, output_path=output)
         try:
@@ -88,42 +93,61 @@ class DocumentProcessor:
             enforce_locked_table_policy(rules)
             if enforce_safe_indentation(rules):
                 result.records.append(ChangeRecord(None, "异常缩进规则", "超出全文缩进安全范围", "异常值归零", "不可绕过的全文缩进保护"))
-            document = self._compose_with_template_front(source, Path(template_path).resolve(), result, template_analysis) if template_path else Document(source)
-            content_start = self._main_content_start(document)
-            content_start += self._ensure_toc(document, rules, result, content_start)
-            content_start += self._isolate_body_layout(document, content_start, result)
-            self._enforce_global_paragraph_policy(document, result)
+            # Reading the author's document is mandatory, not a recoverable
+            # formatting step. Composition must never be our only readable copy.
+            document = Document(source)
+            if template_path:
+                record_count, warning_count = len(result.records), len(result.warnings)
+                try:
+                    document = self._compose_with_template_front(source, Path(template_path).resolve(), result, template_analysis)
+                except (OSError, MemoryError):
+                    raise
+                except Exception as exc:
+                    del result.records[record_count:]
+                    del result.warnings[warning_count:]
+                    self._record_skipped(result, "模板前置内容", exc)
+
+            def stage(item, operation, default=None):
+                nonlocal document
+                document, value = self._run_stage(document, result, item, operation, default)
+                return value
+
+            content_start = stage("正文起点识别", self._main_content_start)
+            if content_start is None:
+                content_start = self._conservative_content_start(document)
+            body_identified = content_start <= len(document.paragraphs) or not document.paragraphs
+            if body_identified:
+                content_start += stage("自动目录", lambda doc: self._ensure_toc(doc, rules, result, content_start), 0)
+                content_start += stage("正文分栏", lambda doc: self._isolate_body_layout(doc, content_start, result), 0)
+            else:
+                result.warnings.append("无法可靠识别正文起点，已保守保留封面及段落版式；仅执行页面设置、已有目录和全文安全清理。")
+            stage("全局段落策略", lambda doc: self._enforce_global_paragraph_policy(doc, result))
             if content_start > 1:
                 result.warnings.append(
                     f"已保留正文起点之前的 {content_start - 1} 个段落（封面、声明或目录），不套用正文格式。"
                 )
             if rules.page_setup.enabled:
-                self._apply_page_setup(document, rules, result)
-            reference_paragraphs = self._reference_paragraphs(document, content_start)
-            self._apply_toc(document, rules, result)
-            if rules.figure_caption.enabled:
-                self._apply_figure_captions(
-                    document, rules.figure_caption, result, content_start
-                )
-            self._apply_table_captions(document, rules.table_caption, result, content_start)
-            if rules.reference.enabled:
-                self._apply_references(reference_paragraphs, rules.reference, result)
-            if rules.normal_text.enabled:
-                self._apply_normal_text(
-                    document,
-                    rules.normal_text,
-                    result,
-                    excluded_elements={id(paragraph._p) for _, paragraph in reference_paragraphs},
-                    start_index=content_start,
-                )
-            self._apply_headings(document, rules, result, content_start)
-            self._start_chapters_on_new_pages(document, content_start, result)
-            self._exclude_non_content_toc_entries(document, content_start)
-            if rules.table.enabled:
-                self._apply_tables(document, rules.table, result, content_start)
-            self._restart_content_page_numbering(document, content_start, result)
-            if rules.page_number.enabled:
-                self._apply_page_numbers(document, rules.page_number.settings, result, content_start)
+                stage("页面设置", lambda doc: self._apply_page_setup(doc, rules, result))
+            stage("目录格式", lambda doc: self._apply_toc(doc, rules, result))
+            if body_identified:
+                # Keep indexes, not paragraph proxies: a failed module reloads
+                # the package checkpoint and invalidates the old proxies.
+                reference_indexes = stage("参考文献识别", lambda doc: [index for index, _ in self._reference_paragraphs(doc, content_start)], [])
+                if rules.figure_caption.enabled:
+                    stage("图名", lambda doc: self._apply_figure_captions(doc, rules.figure_caption, result, content_start))
+                stage("表名", lambda doc: self._apply_table_captions(doc, rules.table_caption, result, content_start))
+                if rules.reference.enabled:
+                    stage("参考文献条目", lambda doc: self._apply_references([(index, doc.paragraphs[index - 1]) for index in reference_indexes], rules.reference, result))
+                if rules.normal_text.enabled:
+                    stage("普通正文", lambda doc: self._apply_normal_text(doc, rules.normal_text, result, excluded_elements={doc.paragraphs[index - 1]._p for index in reference_indexes}, start_index=content_start))
+                stage("标题", lambda doc: self._apply_headings(doc, rules, result, content_start))
+                stage("章节分页", lambda doc: self._start_chapters_on_new_pages(doc, content_start, result))
+                stage("目录条目排除", lambda doc: self._exclude_non_content_toc_entries(doc, content_start))
+                if rules.table.enabled:
+                    stage("表格", lambda doc: self._apply_tables(doc, rules.table, result, content_start))
+                stage("正文页码起点", lambda doc: self._restart_content_page_numbering(doc, content_start, result))
+                if rules.page_number.enabled:
+                    stage("页眉页脚及页码", lambda doc: self._apply_page_numbers(doc, rules.page_number.settings, result, content_start))
             if rules.normal_text.number_font != rules.normal_text.latin_font:
                 result.warnings.append(
                     "python-docx 无法在不拆分文本运行块的情况下区分英文与数字字体；第一版数字字体暂按英文字体处理。"
@@ -132,61 +156,188 @@ class DocumentProcessor:
                 result.warnings.append(
                     "表格中的数字字体暂按表格英文字体处理，以避免拆分文字运行块。"
                 )
-            self._request_field_update(document, result)
-            document.save(output)
+            stage("域更新设置", lambda doc: self._request_field_update(doc, result))
+            self._save_readable(document, output)
             # Remove review-only package parts before Word opens the file.
             # Some school templates contain stale comment extensions that make
             # Word reject field updates until those parts are stripped.
-            cleanup = finalize_docx(output)
+            cleanup = self._finalize_best_effort(output, result)
             if cleanup.get("unresolved_references_locked", 0):
                 result.warnings.append(f"原稿有 {cleanup['unresolved_references_locked']} 处交叉引用目标书签缺失，已保留其原显示值并禁止自动刷新该引用；有效交叉引用仍可更新。")
             if os.name == "nt":
-                refresh_error = None
-                for attempt in range(2):
-                    try:
-                        WordDocumentConverter().update_fields_in_place(output)
-                        refreshed = Document(output)
-                        self._apply_toc(refreshed, rules, result)
-                        self._merge_toc_end_carriers(refreshed)
-                        self._request_field_update(refreshed, result)
-                        refreshed.save(output)
-                        WordDocumentConverter().update_fields_in_place(output)
-                        # The final Word refresh may regenerate every TOC run.
-                        # Reapply once afterwards, with persisted TOC styles for
-                        # future refreshes, and do not schedule another update.
-                        refreshed = Document(output)
-                        self._apply_toc(refreshed, rules, result)
-                        self._merge_toc_end_carriers(refreshed)
-                        update = refreshed.settings.element.find(qn("w:updateFields"))
-                        if update is not None:
-                            update.set(qn("w:val"), "false")
-                        refreshed.save(output)
-                        refresh_error = None
-                        break
-                    except Exception as exc:
-                        refresh_error = exc
-                        if attempt == 0:
-                            time.sleep(0.75)
-                if refresh_error is not None:
-                    result.warnings.append(f"目录域已插入，但自动刷新失败：{refresh_error}")
-            final_cleanup = finalize_docx(output)
+                self._refresh_fields_best_effort(output, rules, result)
+            final_cleanup = self._finalize_best_effort(output, result)
             for key, value in final_cleanup.items():
-                cleanup[key] += value
-            if cleanup["comment_markup_removed"] or cleanup["comment_parts_removed"]:
-                result.records.append(ChangeRecord(None, "审阅批注", "模板或原稿含批注", "全部移除", "最终稿固定规则"))
-            if cleanup["red_fonts_blackened"]:
+                cleanup[key] = cleanup.get(key, 0) + value
+            if cleanup.get("comment_markup_removed", 0) or cleanup.get("comment_parts_removed", 0):
+                result.records.append(ChangeRecord(None, "审阅批注", "模板或原稿含批注", "已移除可处理的批注", "最终稿固定规则；跳过项见警告"))
+            if cleanup.get("red_fonts_blackened", 0):
                 result.records.append(ChangeRecord(None, "红色字体", "原稿残留红色直接格式", "统一改为黑色", "最终稿固定规则"))
-            if cleanup["unsafe_indents_reset"]:
+            if cleanup.get("unsafe_indents_reset", 0):
                 result.records.append(ChangeRecord(None, "全文异常缩进", f"{cleanup['unsafe_indents_reset']} 处异常段落或样式缩进", "异常缩进归零，保留正常首行及目录缩进", "包含前置页、表格、页眉页脚和目录刷新结果的最终保护"))
-            result.save_log(output.with_suffix(".log.json"))
+            Document(output)
+            try:
+                result.save_log(output.with_suffix(".log.json"))
+            except OSError as exc:
+                self._record_skipped(result, "处理日志保存", exc)
             return result
         except Exception as exc:
             detail = str(exc).strip() or repr(exc)
             result.warnings.append(f"处理失败（{exc.__class__.__name__}）：{detail}")
-            result.save_log(output.with_suffix(".failed.log.json"))
+            try:
+                result.save_log(output.with_suffix(".failed.log.json"))
+            except Exception:
+                # Do not replace the original fatal read/write error with a
+                # secondary error while writing its diagnostic log.
+                pass
             raise RuntimeError(
                 f"文档处理失败，原文件未改动。根因：{exc.__class__.__name__}: {detail}"
             ) from exc
+
+    @staticmethod
+    def _record_skipped(result, item, exc, paragraph_index=None):
+        # Warnings are published to clients. COM and parser exception messages
+        # can contain local paths or document text; expose only the error type.
+        reason = f"{type(exc).__name__}: 该项处理异常，已保留处理前内容"
+        result.records.append(ChangeRecord(paragraph_index, item, "待处理", "未应用，保留该项处理前内容", reason, status="skipped"))
+        location = f"（第 {paragraph_index} 段）" if paragraph_index is not None else ""
+        result.warnings.append(f"{item}{location}已跳过，其余项目继续处理：{reason}")
+
+    @classmethod
+    def _run_stage(cls, document, result, item, operation, default=None):
+        checkpoint = BytesIO()
+        document.save(checkpoint)
+        record_count, warning_count = len(result.records), len(result.warnings)
+        try:
+            return document, operation(document)
+        except (OSError, MemoryError):
+            raise
+        except Exception as exc:
+            restored = Document(BytesIO(checkpoint.getvalue()))
+            del result.records[record_count:]
+            del result.warnings[warning_count:]
+            cls._record_skipped(result, item, exc)
+            return restored, default
+
+    @classmethod
+    @contextmanager
+    def _item_guard(cls, element, result, item, paragraph_index=None):
+        """Restore only the failed paragraph/table, keeping successful peers."""
+        checkpoint = deepcopy(element)
+        record_count, warning_count = len(result.records), len(result.warnings)
+        try:
+            yield
+        except (OSError, MemoryError):
+            raise
+        except Exception as exc:
+            # CT_P.text is a read-only aggregate property, not lxml's raw
+            # character-data slot. Clear/restore children without assigning it.
+            element.clear()
+            element.attrib.update(checkpoint.attrib)
+            element.tail = checkpoint.tail
+            element[:] = list(checkpoint)
+            del result.records[record_count:]
+            del result.warnings[warning_count:]
+            cls._record_skipped(result, item, exc, paragraph_index)
+
+    @staticmethod
+    def _conservative_content_start(document):
+        """Independent XML-only fallback; never guess that a cover is body."""
+        paragraphs = document.paragraphs
+        depth = 0
+        for index, paragraph in enumerate(paragraphs, 1):
+            in_field = depth > 0
+            field_nodes = []
+            for node in paragraph._p.iter():
+                if node.tag in {qn("w:fldChar"), qn("w:fldSimple"), qn("w:instrText")}:
+                    field_nodes.append(node)
+                if node.tag == qn("w:fldChar"):
+                    kind = node.get(qn("w:fldCharType"))
+                    if kind == "begin":
+                        depth += 1
+                    elif kind == "end":
+                        depth = max(0, depth - 1)
+            if in_field or field_nodes:
+                continue
+            p_pr = paragraph._p.find(qn("w:pPr"))
+            style = None if p_pr is None else p_pr.find(qn("w:pStyle"))
+            identity = "" if style is None else style.get(qn("w:val"), "")
+            if re.search(r"TOC|目录", identity, re.I):
+                continue
+            text = "".join(node.text or "" for node in paragraph._p.iter(qn("w:t"))).strip()
+            if re.fullmatch(r"(?:Heading|标题)\s*1", identity, re.I) or re.match(r"^(?:第\s*[一二三四五六七八九十百零〇0-9]+\s*章\s*\S|chapter\s+\d+\s+\S)", text, re.I):
+                return index
+        return len(paragraphs) + 1
+
+    @staticmethod
+    def _save_readable(document, output):
+        # The output is replaced only after a real save and reopen succeeds.
+        # Disk-full, access errors and invalid package saves remain fatal.
+        with tempfile.TemporaryDirectory(prefix="word-save-", dir=output.parent) as directory:
+            candidate = Path(directory) / output.name
+            document.save(candidate)
+            Document(candidate)
+            candidate.replace(output)
+
+    @classmethod
+    def _finalize_best_effort(cls, output, result):
+        errors = []
+        try:
+            with tempfile.TemporaryDirectory(prefix="word-cleanup-", dir=output.parent, ignore_cleanup_errors=True) as directory:
+                candidate = Path(directory) / output.name
+                shutil.copyfile(output, candidate)
+                stats = finalize_docx(candidate, errors=errors)
+                Document(candidate)
+                candidate.replace(output)
+        except MemoryError:
+            raise
+        except Exception as exc:
+            # Optional candidate I/O failures must not revoke an already saved
+            # readable result. The mandatory final output read still follows.
+            cls._record_skipped(result, "最终安全清理", exc)
+            return {}
+        for error in errors:
+            result.records.append(ChangeRecord(None, error["item"], "待处理", "未应用，保留该项处理前内容", error["reason"], status="skipped"))
+            result.warnings.append(f"{error['item']}已跳过，其余清理继续处理：{error['reason']}")
+        return stats
+
+    @classmethod
+    def _refresh_fields_best_effort(cls, output, rules, result):
+        error = None
+        # Word/COM may truncate a file before throwing. It is only ever given
+        # a disposable candidate, never the last verified downloadable file.
+        for attempt in range(2):
+            record_count, warning_count = len(result.records), len(result.warnings)
+            try:
+                with tempfile.TemporaryDirectory(prefix="word-fields-", dir=output.parent, ignore_cleanup_errors=True) as directory:
+                    candidate = Path(directory) / output.name
+                    shutil.copyfile(output, candidate)
+                    WordDocumentConverter().update_fields_in_place(candidate)
+                    refreshed = Document(candidate)
+                    refreshed, _ = cls._run_stage(refreshed, result, "刷新后目录格式", lambda doc: cls._apply_toc(doc, rules, result))
+                    refreshed, _ = cls._run_stage(refreshed, result, "目录尾部整理", cls._merge_toc_end_carriers)
+                    refreshed, _ = cls._run_stage(refreshed, result, "域更新设置", lambda doc: cls._request_field_update(doc, result))
+                    refreshed.save(candidate)
+                    WordDocumentConverter().update_fields_in_place(candidate)
+                    refreshed = Document(candidate)
+                    refreshed, _ = cls._run_stage(refreshed, result, "刷新后目录格式", lambda doc: cls._apply_toc(doc, rules, result))
+                    refreshed, _ = cls._run_stage(refreshed, result, "目录尾部整理", cls._merge_toc_end_carriers)
+                    update = refreshed.settings.element.find(qn("w:updateFields"))
+                    if update is not None:
+                        update.set(qn("w:val"), "false")
+                    refreshed.save(candidate)
+                    Document(candidate)
+                    candidate.replace(output)
+                return
+            except MemoryError:
+                raise
+            except Exception as exc:
+                del result.records[record_count:]
+                del result.warnings[warning_count:]
+                error = exc
+            if attempt == 0:
+                time.sleep(0.75)
+        cls._record_skipped(result, "Word 目录及域自动刷新", error)
 
     @classmethod
     def _compose_with_template_front(cls, source: Path, template: Path, result: ProcessResult, template_analysis: dict | None = None):
@@ -585,7 +736,7 @@ class DocumentProcessor:
         for paragraph in (title, toc, page_break):
             anchor.addprevious(paragraph._p)
         result.records.append(
-            ChangeRecord(None, "自动目录", "文档中无目录", "封面后插入 1–3 级 Word 目录并刷新页码", "固定系统规则")
+            ChangeRecord(None, "自动目录", "文档中无目录", "封面后插入 1–3 级 Word 目录；页码自动刷新状态见处理记录", "固定系统规则")
         )
         return 3
 
@@ -694,37 +845,46 @@ class DocumentProcessor:
     def _apply_page_setup(document, rules: DocumentRules, result: ProcessResult) -> None:
         rule = rules.page_setup
         for section_index, section in enumerate(document.sections, start=1):
-            old = (
-                f"{section.page_width.mm:.1f}×{section.page_height.mm:.1f} mm，"
-                f"边距 {section.top_margin.mm:.1f}/{section.bottom_margin.mm:.1f}/"
-                f"{section.left_margin.mm:.1f}/{section.right_margin.mm:.1f} mm"
-            )
-            section.orientation = WD_ORIENT.PORTRAIT
-            section.page_width = Mm(rule.width_mm)
-            section.page_height = Mm(rule.height_mm)
-            section.top_margin = Mm(rule.margin_top_mm)
-            section.bottom_margin = Mm(rule.margin_bottom_mm)
-            section.left_margin = Mm(rule.margin_left_mm)
-            section.right_margin = Mm(rule.margin_right_mm)
-            new = (
-                f"{rule.width_mm:g}×{rule.height_mm:g} mm，边距 "
-                f"{rule.margin_top_mm:g}/{rule.margin_bottom_mm:g}/"
-                f"{rule.margin_left_mm:g}/{rule.margin_right_mm:g} mm"
-            )
-            result.records.append(ChangeRecord(None, f"第 {section_index} 节页面设置", old, new, "启用页面设置规则"))
+            with DocumentProcessor._item_guard(section._sectPr, result, f"第 {section_index} 节页面设置"):
+                DocumentProcessor._apply_section_page_setup(section, section_index, rule, result)
+
+    @staticmethod
+    def _apply_section_page_setup(section, section_index, rule, result):
+        old = (
+            f"{section.page_width.mm:.1f}×{section.page_height.mm:.1f} mm，"
+            f"边距 {section.top_margin.mm:.1f}/{section.bottom_margin.mm:.1f}/"
+            f"{section.left_margin.mm:.1f}/{section.right_margin.mm:.1f} mm"
+        )
+        section.orientation = WD_ORIENT.PORTRAIT
+        section.page_width = Mm(rule.width_mm)
+        section.page_height = Mm(rule.height_mm)
+        section.top_margin = Mm(rule.margin_top_mm)
+        section.bottom_margin = Mm(rule.margin_bottom_mm)
+        section.left_margin = Mm(rule.margin_left_mm)
+        section.right_margin = Mm(rule.margin_right_mm)
+        new = (
+            f"{rule.width_mm:g}×{rule.height_mm:g} mm，边距 "
+            f"{rule.margin_top_mm:g}/{rule.margin_bottom_mm:g}/"
+            f"{rule.margin_left_mm:g}/{rule.margin_right_mm:g} mm"
+        )
+        result.records.append(ChangeRecord(None, f"第 {section_index} 节页面设置", old, new, "启用页面设置规则"))
 
     @classmethod
     def _enforce_global_paragraph_policy(cls, document, result: ProcessResult) -> None:
         image_count = 0
-        for paragraph in document.paragraphs:
-            p_pr = paragraph._p.get_or_add_pPr()
-            for name in ("widowControl", "keepNext", "keepLines", "pageBreakBefore"):
-                cls._set_on_off_property(p_pr, name, False)
-            if xpath(paragraph._p, ".//w:drawing | .//w:pict"):
-                paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                paragraph.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
-                image_count += 1
-        result.records.append(ChangeRecord(None, "全局段落策略", "继承原分页属性", "清除段落级换行分页选项", "固定系统规则"))
+        changed = 0
+        for index, paragraph in enumerate(document.paragraphs, 1):
+            with cls._item_guard(paragraph._p, result, "全局段落策略", index):
+                p_pr = paragraph._p.get_or_add_pPr()
+                for name in ("widowControl", "keepNext", "keepLines", "pageBreakBefore"):
+                    cls._set_on_off_property(p_pr, name, False)
+                if xpath(paragraph._p, ".//w:drawing | .//w:pict"):
+                    paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    paragraph.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
+                    image_count += 1
+                changed += 1
+        if changed:
+            result.records.append(ChangeRecord(None, "全局段落策略", "继承原分页属性", f"已清除 {changed} 个段落的换行分页选项", "固定系统规则；跳过项见警告"))
         if image_count:
             result.records.append(ChangeRecord(None, "图片段落", f"{image_count} 个", "居中、单倍行距", "固定系统规则"))
 
@@ -734,23 +894,26 @@ class DocumentProcessor:
         document,
         rule: ParagraphRule,
         result: ProcessResult,
-        excluded_elements: set[int] | None = None,
+        excluded_elements: set[object] | None = None,
         start_index: int = 1,
     ) -> None:
         excluded_elements = excluded_elements or set()
         for index, paragraph in enumerate(document.paragraphs, start=1):
             if index < start_index:
                 continue
-            if id(paragraph._p) in excluded_elements:
-                continue
-            if not DocumentAnalyzer.is_normal_body(paragraph):
-                continue
-            before = cls._paragraph_summary(paragraph)
-            cls._format_paragraph(paragraph, rule)
-            after = cls._rule_summary(rule)
-            result.records.append(
-                ChangeRecord(index, "普通正文", before, after, "段落识别为非空普通正文并启用 normal_text 规则")
-            )
+            with cls._item_guard(paragraph._p, result, "普通正文", index):
+                # Hold XML elements alive across proxy re-creation; retain
+                # compatibility with library callers that supplied integer ids.
+                if paragraph._p in excluded_elements or id(paragraph._p) in excluded_elements:
+                    continue
+                if not DocumentAnalyzer.is_normal_body(paragraph):
+                    continue
+                before = cls._paragraph_summary(paragraph)
+                cls._format_paragraph(paragraph, rule)
+                after = cls._rule_summary(rule)
+                result.records.append(
+                    ChangeRecord(index, "普通正文", before, after, "段落识别为非空普通正文并启用 normal_text 规则")
+                )
 
     @classmethod
     def _apply_headings(
@@ -765,41 +928,43 @@ class DocumentProcessor:
         for index, paragraph in enumerate(document.paragraphs, start=1):
             if index < start_index:
                 continue
-            if (
-                DocumentAnalyzer.is_figure_caption(paragraph)
-                or DocumentAnalyzer.is_table_caption(paragraph)
-            ):
-                continue
-            level = DocumentAnalyzer.recognized_heading_level(paragraph)
-            if level is None:
-                continue
-            # Word's TOC \o switch also reads built-in heading styles. Keep
-            # them consistent with explicit numbering rather than leaving a
-            # semantically second-level paragraph attached to Heading 3.
-            style = paragraph.style
-            style_identity = f"{style.style_id if style else ''} {style.name if style else ''}"
-            styled = re.search(r"(?:Heading|标题)\s*([1-4])(?!\d)", style_identity, re.I)
-            if styled and int(styled.group(1)) != level:
-                target_name = f"Heading {level}"
-                if target_name not in document.styles:
-                    document.styles.add_style(target_name, WD_STYLE_TYPE.PARAGRAPH)
-                paragraph.style = document.styles[target_name]
-            rule = heading_rules[level]
-            if not rule.enabled:
-                cls._set_semantic_outline(paragraph, level - 1)
-                continue
-            before = cls._paragraph_summary(paragraph)
-            cls._format_paragraph(paragraph, rule)
+            with cls._item_guard(paragraph._p, result, "标题", index):
+                cls._apply_heading(paragraph, index, document, heading_rules, result)
+
+    @classmethod
+    def _apply_heading(cls, paragraph, index, document, heading_rules, result):
+        if DocumentAnalyzer.is_figure_caption(paragraph) or DocumentAnalyzer.is_table_caption(paragraph):
+            return
+        level = DocumentAnalyzer.recognized_heading_level(paragraph)
+        if level is None:
+            return
+        # Word's TOC \o switch also reads built-in heading styles. Keep
+        # them consistent with explicit numbering rather than leaving a
+        # semantically second-level paragraph attached to Heading 3.
+        style = paragraph.style
+        style_identity = f"{style.style_id if style else ''} {style.name if style else ''}"
+        styled = re.search(r"(?:Heading|标题)\s*([1-4])(?!\d)", style_identity, re.I)
+        if styled and int(styled.group(1)) != level:
+            target_name = f"Heading {level}"
+            if target_name not in document.styles:
+                document.styles.add_style(target_name, WD_STYLE_TYPE.PARAGRAPH)
+            paragraph.style = document.styles[target_name]
+        rule = heading_rules[level]
+        if not rule.enabled:
             cls._set_semantic_outline(paragraph, level - 1)
-            recognition = (
-                f"明确的 Heading {level}/标题 {level} 内置样式"
-                if DocumentAnalyzer.heading_level(paragraph) == level
-                else "编号结构与加粗等标题特征的保守识别"
-            )
-            result.records.append(
-                ChangeRecord(index, f"{level} 级标题", before, cls._rule_summary(rule),
-                             f"段落通过{recognition}识别，并启用 heading_{level} 规则")
-            )
+            return
+        before = cls._paragraph_summary(paragraph)
+        cls._format_paragraph(paragraph, rule)
+        cls._set_semantic_outline(paragraph, level - 1)
+        recognition = (
+            f"明确的 Heading {level}/标题 {level} 内置样式"
+            if DocumentAnalyzer.heading_level(paragraph) == level
+            else "编号结构与加粗等标题特征的保守识别"
+        )
+        result.records.append(
+            ChangeRecord(index, f"{level} 级标题", before, cls._rule_summary(rule),
+                         f"段落通过{recognition}识别，并启用 heading_{level} 规则")
+        )
 
     @staticmethod
     def _start_chapters_on_new_pages(document, start_index: int, result: ProcessResult) -> None:
@@ -920,22 +1085,27 @@ class DocumentProcessor:
         rule_map = {1: rules.toc_1, 2: rules.toc_2, 3: rules.toc_3}
         for index, element in enumerate(xpath(document.element.body, ".//w:p"), start=1):
             paragraph = Paragraph(element, document._body)
-            text = paragraph.text.strip()
-            style = paragraph.style
-            identity = f"{style.style_id if style else ''} {style.name if style else ''}"
-            if re.fullmatch(r"(?:目\s*录|contents)", text, re.I):
-                cls._format_paragraph(paragraph, rules.toc_title)
-                paragraph.paragraph_format.page_break_before = cls._needs_page_break_before(paragraph._p)
-                # The TOC title is presentation text, not a chapter entry.
-                paragraph._p.get_or_add_pPr().find(qn("w:outlineLvl")).set(qn("w:val"), "9")
-                result.records.append(ChangeRecord(index, "目录标题", "原格式", cls._rule_summary(rules.toc_title), "目录标题规则"))
-                continue
-            match = re.search(r"(?:^|\s)(?:TOC|目录)\s*([1-3])", identity, re.I)
-            if match:
-                rule = rule_map[int(match.group(1))]
-                cls._format_paragraph(paragraph, rule)
-                result.records.append(ChangeRecord(index, f"目录 {match.group(1)} 级", "原格式", cls._rule_summary(rule), "目录级别样式规则"))
+            with cls._item_guard(element, result, "目录格式", index):
+                cls._apply_toc_paragraph(paragraph, index, rules, rule_map, result)
         cls._compact_layout_carriers(document)
+
+    @classmethod
+    def _apply_toc_paragraph(cls, paragraph, index, rules, rule_map, result):
+        text = paragraph.text.strip()
+        style = paragraph.style
+        identity = f"{style.style_id if style else ''} {style.name if style else ''}"
+        if re.fullmatch(r"(?:目\s*录|contents)", text, re.I):
+            cls._format_paragraph(paragraph, rules.toc_title)
+            paragraph.paragraph_format.page_break_before = cls._needs_page_break_before(paragraph._p)
+            # The TOC title is presentation text, not a chapter entry.
+            paragraph._p.get_or_add_pPr().find(qn("w:outlineLvl")).set(qn("w:val"), "9")
+            result.records.append(ChangeRecord(index, "目录标题", "原格式", cls._rule_summary(rules.toc_title), "目录标题规则"))
+            return
+        match = re.search(r"(?:^|\s)(?:TOC|目录)\s*([1-3])", identity, re.I)
+        if match:
+            rule = rule_map[int(match.group(1))]
+            cls._format_paragraph(paragraph, rule)
+            result.records.append(ChangeRecord(index, f"目录 {match.group(1)} 级", "原格式", cls._rule_summary(rule), "目录级别样式规则"))
 
     @classmethod
     def _merge_toc_end_carriers(cls, document) -> None:
@@ -1035,19 +1205,20 @@ class DocumentProcessor:
         for index, paragraph in enumerate(document.paragraphs, start=1):
             if index < start_index:
                 continue
-            if not DocumentAnalyzer.is_figure_caption(paragraph):
-                continue
-            before = cls._paragraph_summary(paragraph)
-            cls._format_paragraph(paragraph, rule)
-            result.records.append(
-                ChangeRecord(
-                    index,
-                    "图名",
-                    before,
-                    cls._rule_summary(rule),
-                    "段落通过题注样式或“图/Figure + 编号 + 名称”结构识别，并启用 figure_caption 规则",
+            with cls._item_guard(paragraph._p, result, "图名", index):
+                if not DocumentAnalyzer.is_figure_caption(paragraph):
+                    continue
+                before = cls._paragraph_summary(paragraph)
+                cls._format_paragraph(paragraph, rule)
+                result.records.append(
+                    ChangeRecord(
+                        index,
+                        "图名",
+                        before,
+                        cls._rule_summary(rule),
+                        "段落通过题注样式或“图/Figure + 编号 + 名称”结构识别，并启用 figure_caption 规则",
+                    )
                 )
-            )
 
     @classmethod
     def _apply_table_captions(
@@ -1066,19 +1237,20 @@ class DocumentProcessor:
         for index, paragraph in enumerate(document.paragraphs, start=1):
             if index < start_index:
                 continue
-            if not DocumentAnalyzer.is_table_caption(paragraph):
-                continue
-            before = cls._paragraph_summary(paragraph)
-            cls._format_paragraph(paragraph, rule)
-            result.records.append(
-                ChangeRecord(
-                    index,
-                    "表名",
-                    before,
-                    cls._rule_summary(rule),
-                    "段落通过题注样式或“表/Table + 编号 + 名称”结构识别，并启用 table_caption 规则",
+            with cls._item_guard(paragraph._p, result, "表名", index):
+                if not DocumentAnalyzer.is_table_caption(paragraph):
+                    continue
+                before = cls._paragraph_summary(paragraph)
+                cls._format_paragraph(paragraph, rule)
+                result.records.append(
+                    ChangeRecord(
+                        index,
+                        "表名",
+                        before,
+                        cls._rule_summary(rule),
+                        "段落通过题注样式或“表/Table + 编号 + 名称”结构识别，并启用 table_caption 规则",
+                    )
                 )
-            )
 
     @classmethod
     def _apply_references(
@@ -1088,17 +1260,18 @@ class DocumentProcessor:
         result: ProcessResult,
     ) -> None:
         for index, paragraph in reference_paragraphs:
-            before = cls._paragraph_summary(paragraph)
-            cls._format_paragraph(paragraph, rule)
-            result.records.append(
-                ChangeRecord(
-                    index,
-                    "参考文献条目",
-                    before,
-                    cls._rule_summary(rule),
-                    "段落位于“参考文献/References”标题之后、下一章节标题之前，并启用 reference 规则",
+            with cls._item_guard(paragraph._p, result, "参考文献条目", index):
+                before = cls._paragraph_summary(paragraph)
+                cls._format_paragraph(paragraph, rule)
+                result.records.append(
+                    ChangeRecord(
+                        index,
+                        "参考文献条目",
+                        before,
+                        cls._rule_summary(rule),
+                        "段落位于“参考文献/References”标题之后、下一章节标题之前，并启用 reference 规则",
+                    )
                 )
-            )
 
     @staticmethod
     def _reference_paragraphs(
@@ -1136,68 +1309,76 @@ class DocumentProcessor:
         start_index: int = 1,
     ) -> None:
         top_level_tables = cls._tables_in_scope(document, start_index)
-        tables = list(cls._iter_table_tree(top_level_tables))
+        # Iterate lazily: a failed parent table can restore its child nodes;
+        # create nested proxies afterwards, not against the discarded nodes.
+        tables = cls._iter_table_tree(top_level_tables)
         preserved_equation_tables = 0
         for table_index, table in enumerate(tables, start=1):
-            # Word commonly stores a displayed equation and its right-aligned
-            # number in a borderless 1x3 table.  It is a layout container, not
-            # a data table.  Applying the school's table rule here would expose
-            # the hidden grid and can also change the equation's line height.
-            # Preserve only the recognized single-row equation layout; a real
-            # data table may legitimately contain OMML in one of its cells.
-            if cls._is_equation_layout_table(table):
-                preserved_equation_tables += 1
-                continue
-            table.alignment = WD_TABLE_ALIGNMENT.CENTER
-            for floating_property in ("tblInd", "tblpPr"):
-                element = table._tbl.tblPr.find(qn(f"w:{floating_property}"))
-                if element is not None:
-                    table._tbl.tblPr.remove(element)
-            cls._set_table_borders(table, rule)
-            cls._set_repeat_header_row(table, rule.repeat_header_row)
-            if rule.column_width_mm > 0:
-                table.autofit = False
-                for column in table.columns:
-                    column.width = Mm(rule.column_width_mm)
-            cell_count = 0
-            paragraph_count = 0
-            for row in table.rows:
-                if rule.row_height_mm > 0:
-                    row.height = Mm(rule.row_height_mm)
-                    row.height_rule = WD_ROW_HEIGHT_RULE.AT_LEAST
-                for cell in row.cells:
-                    cell_count += 1
-                    cell.vertical_alignment = VERTICAL_ALIGNMENTS[rule.vertical_alignment]
-                    if rule.column_width_mm > 0:
-                        cell.width = Mm(rule.column_width_mm)
-                    for paragraph in cell.paragraphs:
-                        paragraph_count += 1
-                        cls._format_paragraph(paragraph, rule)
-            if table.rows:
-                for cell in table.rows[0].cells:
-                    for paragraph in cell.paragraphs:
-                        for run in paragraph.runs:
-                            run.font.bold = rule.header_row_bold
-            cls._set_table_cell_vertical_alignment(table, rule.vertical_alignment)
-            # python-docx's paragraph/run collections do not expose every item
-            # nested in hyperlinks or content controls. Apply the locked
-            # properties directly to every paragraph/run owned by this table as
-            # a final defense against style inheritance.
-            cls._enforce_table_paragraph_properties(table)
-            cls._enforce_table_run_properties(table, rule)
-            result.records.append(
-                ChangeRecord(
-                    None,
-                    f"第 {table_index} 个表格",
-                    f"{len(table.rows)} 行 × {len(table.columns)} 列",
-                    cls._table_rule_summary(rule),
-                    f"启用 table 规则，处理 {cell_count} 个单元格、{paragraph_count} 个段落",
-                )
-            )
+            with cls._item_guard(table._tbl, result, f"第 {table_index} 个表格"):
+                if cls._is_equation_layout_table(table):
+                    preserved_equation_tables += 1
+                    continue
+                cls._apply_table(table, table_index, rule, result)
         if preserved_equation_tables:
             result.warnings.append(
                 f"已识别并保留 {preserved_equation_tables} 个公式排版表，未套用普通数据表样式。"
             )
+
+    @classmethod
+    def _apply_table(cls, table, table_index, rule, result):
+        # Word commonly stores a displayed equation and its right-aligned
+        # number in a borderless 1x3 table.  It is a layout container, not
+        # a data table.  Applying the school's table rule here would expose
+        # the hidden grid and can also change the equation's line height.
+        # Preserve only the recognized single-row equation layout; a real
+        # data table may legitimately contain OMML in one of its cells.
+        table.alignment = WD_TABLE_ALIGNMENT.CENTER
+        for floating_property in ("tblInd", "tblpPr"):
+            element = table._tbl.tblPr.find(qn(f"w:{floating_property}"))
+            if element is not None:
+                table._tbl.tblPr.remove(element)
+        cls._set_table_borders(table, rule)
+        cls._set_repeat_header_row(table, rule.repeat_header_row)
+        if rule.column_width_mm > 0:
+            table.autofit = False
+            for column in table.columns:
+                column.width = Mm(rule.column_width_mm)
+        cell_count = 0
+        paragraph_count = 0
+        for row in table.rows:
+            if rule.row_height_mm > 0:
+                row.height = Mm(rule.row_height_mm)
+                row.height_rule = WD_ROW_HEIGHT_RULE.AT_LEAST
+            for cell in row.cells:
+                cell_count += 1
+                cell.vertical_alignment = VERTICAL_ALIGNMENTS[rule.vertical_alignment]
+                if rule.column_width_mm > 0:
+                    cell.width = Mm(rule.column_width_mm)
+                for paragraph in cell.paragraphs:
+                    paragraph_count += 1
+                    with cls._item_guard(paragraph._p, result, f"第 {table_index} 个表格段落 {paragraph_count}"):
+                        cls._format_paragraph(paragraph, rule)
+        if table.rows:
+            for cell in table.rows[0].cells:
+                for paragraph in cell.paragraphs:
+                    for run in paragraph.runs:
+                        run.font.bold = rule.header_row_bold
+        cls._set_table_cell_vertical_alignment(table, rule.vertical_alignment)
+        # python-docx's paragraph/run collections do not expose every item
+        # nested in hyperlinks or content controls. Apply the locked
+        # properties directly to every paragraph/run owned by this table as
+        # a final defense against style inheritance.
+        cls._enforce_table_paragraph_properties(table)
+        cls._enforce_table_run_properties(table, rule)
+        result.records.append(
+            ChangeRecord(
+                None,
+                f"第 {table_index} 个表格",
+                f"{len(table.rows)} 行 × {len(table.columns)} 列",
+                cls._table_rule_summary(rule),
+                f"启用 table 规则，处理 {cell_count} 个单元格、{paragraph_count} 个段落",
+            )
+        )
 
     @staticmethod
     def _is_equation_layout_table(table) -> bool:

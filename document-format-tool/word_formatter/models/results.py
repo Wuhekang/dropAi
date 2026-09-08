@@ -29,12 +29,22 @@ class ProcessResult:
     def changed_count(self) -> int:
         return sum(record.status == "success" for record in self.records)
 
+    @property
+    def skipped_count(self) -> int:
+        return sum(record.status == "skipped" for record in self.records)
+
+    @property
+    def partial_success(self) -> bool:
+        return self.skipped_count > 0
+
     def save_log(self, path: str | Path) -> None:
         payload: dict[str, Any] = {
             "source_path": str(self.source_path),
             "output_path": str(self.output_path),
             "started_at": self.started_at.isoformat(timespec="seconds"),
             "changed_count": self.changed_count,
+            "skipped_count": self.skipped_count,
+            "partial_success": self.partial_success,
             "warnings": self.warnings,
             "records": [asdict(record) for record in self.records],
         }

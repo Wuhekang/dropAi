@@ -214,10 +214,10 @@
         </article>
       </div>
 
-      <article v-if="screen === 'done'" class="glass result-card">
-        <div class="result-mark">✓</div>
+      <article v-if="screen === 'done'" class="glass result-card" :class="{ partial: resultView.partialSuccess }">
+        <div class="result-mark">{{ resultView.partialSuccess ? '!' : '✓' }}</div>
         <div class="result-copy">
-          <small>FORMATTED DOCUMENT READY</small><h2>格式处理结果已生成，可下载</h2><p>{{ resultMessage }}</p>
+          <small>{{ resultView.reviewCopyOnly ? 'REVIEW COPY READY' : resultView.partialSuccess ? 'PARTIALLY FORMATTED DOCUMENT READY' : 'FORMATTED DOCUMENT READY' }}</small><h2>{{ resultView.title }}</h2><p>{{ resultMessage }}</p>
           <div v-if="resultChangedCount !== null || resultWarnings.length || resultTemplateNotes.length" class="result-notices">
             <b v-if="resultChangedCount !== null">已执行 {{ resultChangedCount }} 项格式调整</b>
             <ul v-if="resultWarnings.length"><li v-for="warning in resultWarnings" :key="warning">{{ warning }}</li></ul>
@@ -241,8 +241,8 @@
             <ul v-if="appliedFormatItems.length"><li v-for="(item, index) in appliedFormatItems" :key="index"><span>{{ item.item }}</span><b>{{ item.count }} 处</b></li></ul>
             <p v-else>本次报告未记录已应用的格式调整，请下载后核对。</p>
           </section>
-          <section class="pending-format-items"><h3>待人工核对项目</h3>
-            <ul v-if="pendingFormatItems.length"><li v-for="(item, index) in pendingFormatItems" :key="index"><strong>{{ item.item }}</strong><span>{{ item.reason || '请在下载的文档中核对此项。' }}</span></li></ul>
+          <section class="pending-format-items"><h3>未处理 / 需核对项目</h3>
+            <ul v-if="pendingFormatItems.length"><li v-for="(item, index) in pendingFormatItems" :key="index"><strong>{{ item.item }}<template v-if="item.count !== null">（{{ item.count }} 处）</template></strong><span>{{ item.reason || '请在下载的文档中核对此项。' }}</span></li></ul>
             <p v-else>报告未列出待处理项目，建议核对最终文档的实际分页和版式。</p>
           </section>
         </div>
@@ -269,6 +269,7 @@ import { ElMessage } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import { confirmWordFormatJob, createWordFormatJob, downloadWordFormatResult, getWordFormatJob } from '../../api/rewrite'
 import { buildEditableRules, validateRuleIndents } from '../../utils/wordFormatRules'
+import { describeWordFormatResult } from '../../utils/wordFormatResult'
 
 const MAX_TEMPLATE_SIZE = 30 * 1024 * 1024
 const MAX_SOURCE_SIZE = 100 * 1024 * 1024
@@ -340,12 +341,12 @@ const shortId = computed(() => String(job.value.id || 'PREPARING').slice(0, 8).t
 const statusLabel = computed(() => ({
   QUEUED: '排队中',
   RUNNING: '处理中',
-  SUCCESS: '已完成',
+  SUCCESS: resultView.value.statusLabel,
   AWAITING_CONFIRMATION: '等待确认',
   FAILED: '处理失败'
 })[normalizedStatus.value] || (screen.value === 'submitting' ? '上传中' : '准备中'))
-const taskEyebrow = computed(() => screen.value === 'done' ? 'FORMAT COMPLETE' : screen.value === 'error' ? 'TASK INTERRUPTED' : screen.value === 'submitting' ? 'FILES ARE UPLOADING' : 'SERVER IS PROCESSING')
-const taskTitle = computed(() => screen.value === 'done' ? '格式处理结果已可下载' : screen.value === 'error' ? '任务需要处理' : screen.value === 'submitting' ? '正在上传模板与论文' : `正在进行${activeStepLabel.value}`)
+const taskEyebrow = computed(() => screen.value === 'done' ? (resultView.value.reviewCopyOnly ? 'REVIEW COPY READY' : resultView.value.partialSuccess ? 'FORMAT PARTIALLY COMPLETE' : 'FORMAT COMPLETE') : screen.value === 'error' ? 'TASK INTERRUPTED' : screen.value === 'submitting' ? 'FILES ARE UPLOADING' : 'SERVER IS PROCESSING')
+const taskTitle = computed(() => screen.value === 'done' ? resultView.value.title : screen.value === 'error' ? '任务需要处理' : screen.value === 'submitting' ? '正在上传模板与论文' : `正在进行${activeStepLabel.value}`)
 const taskDescription = computed(() => job.value.message || (screen.value === 'submitting' ? '正在将两个文件完整上传至格式处理服务。' : stepData[activeStepIndex.value]?.description || '等待服务端任务状态更新。'))
 const currentTemplateName = computed(() => job.value.templateName || templateFile.value?.name || '学校格式模板')
 const currentSourceName = computed(() => job.value.sourceName || sourceFile.value?.name || '论文原稿.docx')
@@ -362,14 +363,10 @@ const resultWarnings = computed(() => {
   const reportWarnings = Array.isArray(result.formatReport?.warnings) ? result.formatReport.warnings : []
   return [...new Set([...(Array.isArray(values) ? values : []), ...reportWarnings].filter(value => typeof value === 'string' && value.trim()))]
 })
-const formatReport = computed(() => parseResult(job.value.result).formatReport || {})
-const hasFormatReport = computed(() => Object.keys(formatReport.value).length > 0)
-const appliedFormatItems = computed(() => (Array.isArray(formatReport.value.applied) ? formatReport.value.applied : [])
-  .filter(item => item && typeof item.item === 'string' && item.item.trim())
-  .map(item => ({ item: item.item, count: Math.max(0, Number(item.count) || 0) })))
-const pendingFormatItems = computed(() => (Array.isArray(formatReport.value.notApplied) ? formatReport.value.notApplied : [])
-  .filter(item => item && typeof item.item === 'string' && item.item.trim())
-  .map(item => ({ item: item.item, reason: typeof item.reason === 'string' ? item.reason : '' })))
+const resultView = computed(() => describeWordFormatResult(parseResult(job.value.result)))
+const hasFormatReport = computed(() => resultView.value.hasReport)
+const appliedFormatItems = computed(() => resultView.value.applied)
+const pendingFormatItems = computed(() => resultView.value.pending)
 const resultTemplateNotes = computed(() => {
   const result = parseResult(job.value.result)
   const values = Array.isArray(job.value.templateNotes) ? job.value.templateNotes : result.templateNotes
@@ -1025,6 +1022,8 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 
 .result-card { display: grid; grid-template-columns: auto 1fr auto auto; gap: 20px; align-items: center; padding: 28px; }
 .result-mark { display: grid; place-items: center; width: 58px; height: 58px; border-radius: 18px; color: #fff; background: linear-gradient(145deg, #42b98d, #6c5fea); font-size: 25px; }
+.result-card.partial { border-color: #eee2c6; }
+.result-card.partial .result-mark { background: linear-gradient(145deg, #ca9638, #d77b40); }
 .result-card h2 { margin: 5px 0; }
 .result-card p { margin: 0; color: var(--muted); font-size: 11px; }
 .result-notices { display: grid; gap: 7px; margin-top: 10px; color: #677087; font-size: 10px; }

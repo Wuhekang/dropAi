@@ -209,7 +209,8 @@ def _relationships(package: zipfile.ZipFile, names: set[str]) -> dict[str, list[
     return result
 
 
-def inspect_docx(path: str | Path, *, validate_all_xml: bool = False) -> dict[str, Any]:
+def inspect_docx(path: str | Path, *, validate_all_xml: bool = False, basic_only: bool = False) -> dict[str, Any]:
+    """Check package readability, optionally omitting diagnostic metadata scans."""
     source = Path(path)
     if not source.is_file() or source.stat().st_size == 0:
         raise IntegrityValidationError(f"DOCX 文件不存在或为空：{source.name}")
@@ -246,6 +247,11 @@ def inspect_docx(path: str | Path, *, validate_all_xml: bool = False) -> dict[st
                         ET.fromstring(package.read(name))
             if root.find("w:body", NS) is None:
                 raise IntegrityValidationError("DOCX 缺少正文 body")
+            # Input/output delivery gates must not depend on optional headers,
+            # custom relationships or text/count snapshots. Strict comparison
+            # callers keep the full legacy inspection by default.
+            if basic_only:
+                return {"basicChecksPassed": True}
             return {
                 "body_text_sha256": _text_hash(root),
                 "text_node_count": len(root.findall(".//w:t", NS)),

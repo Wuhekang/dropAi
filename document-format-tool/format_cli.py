@@ -8,6 +8,7 @@ The complete success/failure payload is always written atomically to
 """
 
 import argparse
+import hashlib
 from dataclasses import asdict
 from collections import Counter
 import json
@@ -48,6 +49,27 @@ from word_formatter.models.rules import (
     enforce_locked_document_policy,
     font_size_name_for_points,
 )
+from word_formatter.models.results import ChangeRecord
+
+
+def runtime_info(*, analyze_only: bool = False) -> dict[str, Any]:
+    """Identify the code actually loaded, without paths, env values or keys."""
+    from word_formatter.core import processor, xml_utils
+
+    def fingerprint(path):
+        try:
+            return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+        except (OSError, TypeError):
+            return "unavailable"
+
+    return {
+        "type": "runtime", "engineVersion": __version__,
+        "workerSha256": fingerprint(__file__),
+        "processorSha256": fingerprint(processor.__file__),
+        "namespaceHelperSha256": fingerprint(xml_utils.__file__),
+        "pythonVersion": sys.version.split()[0],
+        "executionMode": "template_analysis" if analyze_only else "best_effort_local",
+    }
 
 
 MAX_SOURCE_BYTES = 100 * 1024 * 1024
@@ -143,9 +165,9 @@ def _validate_paths(
         )
 
     # Validate the source package before python-docx allocates document objects.
-    inspect_docx(source)
+    inspect_docx(source, basic_only=True)
     if template.suffix.lower() in {".docx", ".dotx"}:
-        inspect_docx(template)
+        inspect_docx(template, basic_only=True)
 
 
 def _read_instructions(path: Path | None) -> str:
@@ -460,7 +482,8 @@ def _format_report(result, rules: DocumentRules, warnings: list[str]) -> dict[st
     not_applied = []
     for record in result.records:
         if record.status != "success":
-            not_applied.append({"item": record.item, "reason": record.reason or "未自动处理，请人工核对。"})
+            not_applied.append({"item": record.item, "reason": record.reason or "未自动处理，请人工核对。",
+                                "status": record.status, "paragraphIndex": record.paragraph_index, "count": 1})
             continue
         # Word may cause the same TOC paragraph to be formatted twice.
         identity = (record.item, record.paragraph_index)
@@ -483,13 +506,22 @@ def _format_report(result, rules: DocumentRules, warnings: list[str]) -> dict[st
             "未确认或启用此类格式，未自动套用，请按需核对。" if not rule.enabled
             else "未定位到可处理的此类内容；原稿没有此项时可忽略，否则请人工核对。"
         )
-        not_applied.append({"item": item, "reason": reason})
+        not_applied.append({"item": item, "reason": reason, "status": "not_found"})
     return {
         "applied": [{"item": item, "count": count} for item, count in counts.items()],
         "notApplied": not_applied,
         "warnings": list(dict.fromkeys(warnings)),
         "changedCount": result.changed_count,
+        "skippedCount": result.skipped_count,
+        "partialSuccess": result.partial_success,
     }
+
+
+def _skipped_optional_step(item: str, exc: Exception) -> ChangeRecord:
+    # Keep diagnostic details out of a publicly downloadable report. A failed
+    # auxiliary inspection must not discard a readable formatted document.
+    return ChangeRecord(None, item, "未完成", "保留已完成修改",
+                        f"{item}未完成（{type(exc).__name__}），不影响其他格式修改，请人工核对。", status="skipped")
 
 
 def _error_code(exc: BaseException, template: Path | None = None) -> str:
@@ -580,8 +612,11 @@ def run_job(args: argparse.Namespace) -> dict[str, Any]:
     rule_summary: dict[str, Any] = {}
     template_analysis: dict[str, Any] = {}
     current_progress = 0
+    optional_skips: list[ChangeRecord] = []
+    runtime = runtime_info(analyze_only=bool(getattr(args, "analyze_only", False)))
 
     try:
+        print(json.dumps(runtime, ensure_ascii=False), flush=True)
         current_progress = 3
         emit_progress(current_progress, "validating", "正在检查论文原稿、模板和输出路径")
         _validate_paths(source, template, output, result_json, instructions_file)
@@ -666,12 +701,19 @@ def run_job(args: argparse.Namespace) -> dict[str, Any]:
 
         current_progress = 42
         emit_progress(current_progress, "analyzing_source", "正在识别论文正文、标题、图表题注和参考文献")
-        source_info = DocumentAnalyzer().analyze(source)
-        analysis = _analysis_summary(source_info)
+        try:
+            source_info = DocumentAnalyzer().analyze(source)
+            analysis = _analysis_summary(source_info)
+        except Exception as exc:
+            skipped = _skipped_optional_step("论文结构统计", exc)
+            optional_skips.append(skipped)
+            warnings.append(skipped.reason)
+            analysis = {"available": False, "message": "结构统计未完成，将逐项尝试格式处理。"}
 
         if getattr(args, "analyze_only", False):
             payload = {
                 "success": True, "analysisReady": True, "engineVersion": __version__,
+                "runtimeInfo": runtime,
                 "changedCount": 0, "warnings": warnings, "templateNotes": template_notes,
                 "instructionNotes": instruction_notes, "analysis": analysis,
                 "ruleSummary": rule_summary, "editableRules": _editable_rules(rules),
@@ -687,33 +729,61 @@ def run_job(args: argparse.Namespace) -> dict[str, Any]:
 
         current_progress = 56
         emit_progress(current_progress, "processing", "正在按默认值与确认规则自动修改格式（不调用 AI）")
-        source_body_start = DocumentProcessor._main_content_start(Document(source))
+        try:
+            source_body_start = DocumentProcessor._main_content_start(Document(source))
+        except Exception as exc:
+            skipped = _skipped_optional_step("正文对比范围识别", exc)
+            optional_skips.append(skipped)
+            warnings.append(skipped.reason)
+            # This value only affects optional before/after comparison. The
+            # processor independently chooses a conservative formatting range.
+            source_body_start = 1
         output.parent.mkdir(parents=True, exist_ok=True)
         staging = output.with_name(
             f".{output.stem}.{uuid.uuid4().hex}.working.docx"
         )
         processor_result = DocumentProcessor().process(source, rules, staging, template, template_analysis=template_analysis)
+        processor_result.records.extend(optional_skips)
         staging_log = staging.with_suffix(".log.json")
         warnings.extend(processor_result.warnings)
 
         current_progress = 88
         emit_progress(current_progress, "integrity_check", "正在检查输出文件可读取性并整理格式处理记录")
-        integrity = validate_preservation(
-            source,
-            staging,
-            expected_source_sha256=source_hash_before,
-            allow_front_matter=True,
-            source_body_start=source_body_start,
-            strict=False,
-        )
-        # A valid ZIP alone is not enough: the main Word document must load.
+        # Basic readability and immutable inputs remain mandatory. Rich OOXML
+        # comparisons are optional diagnostics, not an output publication gate.
+        inspect_docx(staging, basic_only=True)
         Document(staging)
-        warnings.extend(_delivery_warnings(integrity.differences))
+        if sha256_file(source) != source_hash_before:
+            raise IntegrityValidationError("处理期间源文件发生变化，已拒绝交付输出")
+        try:
+            integrity = validate_preservation(
+                source, staging, expected_source_sha256=source_hash_before,
+                allow_front_matter=True, source_body_start=source_body_start, strict=False,
+            )
+            integrity_summary = integrity.summary()
+            warnings.extend(_delivery_warnings(integrity.differences))
+        except Exception as exc:
+            skipped = _skipped_optional_step("详细格式对比核对", exc)
+            processor_result.records.append(skipped)
+            warnings.append(skipped.reason)
+            integrity_summary = {
+                "passed": False, "mode": "format_first", "basicChecksPassed": True,
+                "deliveryAllowed": True, "verificationSkipped": True, "differences": {},
+                "checks": ["DOCX package and main document readable", "source file unchanged"],
+            }
         if not processor_result.changed_count:
             warnings.append("格式流程已执行，但未记录新的格式调整；请核对原稿是否已符合确认规则。")
         warnings = list(dict.fromkeys(warnings))
         if sha256_file(template) != template_hash_before:
             raise IntegrityValidationError("处理期间格式模板发生变化，已拒绝交付输出")
+        if sha256_file(source) != source_hash_before:
+            raise IntegrityValidationError("处理期间源文件发生变化，已拒绝交付输出")
+        try:
+            processor_result.save_log(staging_log)
+        except OSError as exc:
+            skipped = _skipped_optional_step("处理日志写入", exc)
+            processor_result.records.append(skipped)
+            warnings.append(skipped.reason)
 
         _publish_without_overwrite(staging, output)
         published_output = True
@@ -724,13 +794,28 @@ def run_job(args: argparse.Namespace) -> dict[str, Any]:
                 warnings.append("处理日志已存在，未覆盖旧日志。")
                 _safe_unlink(staging_log)
             else:
-                _publish_without_overwrite(staging_log, final_log)
-                published_log = final_log
+                try:
+                    _publish_without_overwrite(staging_log, final_log)
+                    published_log = final_log
+                except (OSError, RuntimeError) as exc:
+                    skipped = _skipped_optional_step("处理日志发布", exc)
+                    processor_result.records.append(skipped)
+                    warnings.append(skipped.reason)
+                    _safe_unlink(staging_log)
             staging_log = None
 
+        partial_success = processor_result.partial_success
+        delivery_message = (
+            "可处理的格式已完成，未处理项已列出，文档可下载。" if partial_success and processor_result.changed_count
+            else "未能自动完成格式调整，已保留内容生成可下载核对副本，请查看未处理项。" if partial_success
+            else "格式处理完成，文档已可下载。"
+        )
         payload = {
             "success": True,
+            "partialSuccess": partial_success,
+            "message": delivery_message,
             "engineVersion": __version__,
+            "runtimeInfo": runtime,
             "changedCount": processor_result.changed_count,
             "warnings": warnings,
             "templateNotes": template_notes,
@@ -738,7 +823,7 @@ def run_job(args: argparse.Namespace) -> dict[str, Any]:
             "analysis": analysis,
             "ruleSummary": rule_summary,
             "templateAnalysis": template_analysis,
-            "integrity": integrity.summary(),
+            "integrity": integrity_summary,
             "formatReport": _format_report(processor_result, rules, warnings),
             "output": {
                 "fileName": output.name,
@@ -751,7 +836,7 @@ def run_job(args: argparse.Namespace) -> dict[str, Any]:
         _write_json_atomic(result_json, payload)
         delivery_committed = True
         try:
-            emit_progress(100, "completed", "格式处理完成，文档已可下载；请查看处理记录与核对提醒")
+            emit_progress(100, "completed", delivery_message)
         except BrokenPipeError:
             pass
         return payload
@@ -767,6 +852,7 @@ def run_job(args: argparse.Namespace) -> dict[str, Any]:
         payload = {
             "success": False,
             "engineVersion": __version__,
+            "runtimeInfo": runtime,
             "changedCount": 0,
             "warnings": warnings,
             "templateNotes": template_notes,
@@ -820,6 +906,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     _configure_stdout()
+    if (sys.argv[1:] if argv is None else argv) == ["--version-info"]:
+        print(json.dumps(runtime_info(), ensure_ascii=False), flush=True)
+        return 0
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
