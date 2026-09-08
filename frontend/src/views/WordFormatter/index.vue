@@ -129,7 +129,7 @@
     <section v-else-if="screen === 'review'" ref="workspaceSection" class="review-center">
       <article class="glass review-hero">
         <small>TEMPLATE ANALYSIS REVIEW</small><h2>模板分析完成，请先确认关键格式</h2>
-        <p>下面各类规则可修改；正文首行缩进固定为 2 字符。左右缩进仅允许 0–2 厘米，超出范围不能提交。请核对字号与缩进，确认后才会正式处理论文。</p>
+        <p>未识别项已填入默认值，全部可以核对修改。确认时会提交所有默认值和修改值，之后仅在服务器自动套用格式，不再调用 AI。正文首行缩进固定为 2 字符，左右缩进仅允许 0–2 厘米。</p>
         <div v-if="hasTemplateAnalysis" class="template-analysis">
           <div><span>文件类型</span><strong>{{ templateKindLabel }}</strong></div>
           <div><span>封面处理</span><strong>{{ frontMatterLabel }}</strong></div>
@@ -268,7 +268,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import { confirmWordFormatJob, createWordFormatJob, downloadWordFormatResult, getWordFormatJob } from '../../api/rewrite'
-import { validateRuleIndents } from '../../utils/wordFormatRules'
+import { buildEditableRules, validateRuleIndents } from '../../utils/wordFormatRules'
 
 const MAX_TEMPLATE_SIZE = 30 * 1024 * 1024
 const MAX_SOURCE_SIZE = 100 * 1024 * 1024
@@ -581,7 +581,7 @@ function applyJob(nextJob) {
     screen.value = 'done'
     stopPolling()
   } else if (status === 'AWAITING_CONFIRMATION') {
-    editableRules.value = JSON.parse(JSON.stringify(parseResult(job.value.result).editableRules || {}))
+    editableRules.value = buildEditableRules(parseResult(job.value.result).editableRules)
     screen.value = 'review'
     stopPolling()
   } else if (status === 'FAILED') {
@@ -681,6 +681,7 @@ async function confirmRules() {
   if (!job.value.id || confirming.value) return
   confirming.value = true
   try {
+    editableRules.value = buildEditableRules(parseResult(job.value.result).editableRules, editableRules.value)
     validateRuleIndents(ruleGroups.value)
     const next = await confirmWordFormatJob(job.value.id, editableRules.value)
     applyJob(next)

@@ -11,6 +11,7 @@ import zipfile
 from lxml import etree
 
 from word_formatter.core.indent_guard import IndentGuard
+from word_formatter.core.xml_utils import xpath
 
 
 W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
@@ -53,8 +54,8 @@ def _lock_unresolved_references(root: etree._Element, bookmarks: set[str]) -> in
                 marker.set(f"{{{W_NS}}}dirty", "false")
                 locked += 1
 
-    for simple in root.xpath(".//w:fldSimple", namespaces=NS):
-        protect(simple.get(f"{{{W_NS}}}instr", ""), simple, "".join(simple.xpath(".//w:t/text()", namespaces=NS)))
+    for simple in xpath(root, ".//w:fldSimple"):
+        protect(simple.get(f"{{{W_NS}}}instr", ""), simple, "".join(xpath(simple, ".//w:t/text()")))
     for node in root.iter():
         if node.tag == f"{{{W_NS}}}fldChar":
             kind = node.get(f"{{{W_NS}}}fldCharType")
@@ -100,7 +101,7 @@ def finalize_docx(path: str | Path) -> dict[str, int]:
         for name in names:
             if name.startswith("word/") and name.endswith(".xml") and name not in removed_parts:
                 try:
-                    bookmarks.update(etree.fromstring(source.read(name)).xpath(".//w:bookmarkStart/@w:name", namespaces=NS))
+                    bookmarks.update(xpath(etree.fromstring(source.read(name)), ".//w:bookmarkStart/@w:name"))
                 except etree.XMLSyntaxError:
                     pass
 
@@ -119,13 +120,13 @@ def finalize_docx(path: str | Path) -> dict[str, int]:
             stats["unsafe_indents_reset"] += indent_count
             changed = changed or indent_count > 0
             for tag in ("commentRangeStart", "commentRangeEnd", "commentReference"):
-                for element in reversed(root.xpath(f".//w:{tag}", namespaces=NS)):
+                for element in reversed(xpath(root, f".//w:{tag}")):
                     parent = element.getparent()
                     if parent is not None:
                         parent.remove(element)
                         stats["comment_markup_removed"] += 1
                         changed = True
-            for color in root.xpath(".//w:color", namespaces=NS):
+            for color in xpath(root, ".//w:color"):
                 attribute = f"{{{W_NS}}}val"
                 if is_red_font_value(color.get(attribute)):
                     color.set(attribute, "000000")

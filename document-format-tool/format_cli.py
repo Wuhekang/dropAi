@@ -89,11 +89,11 @@ def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
         temporary.unlink(missing_ok=True)
 
 
-def _required_file(path: Path, *, label: str, max_bytes: int) -> None:
+def _required_file(path: Path, *, label: str, max_bytes: int, allow_empty: bool = False) -> None:
     if not path.is_file():
         raise CliInputError(f"{label}不存在或不是文件")
     size = path.stat().st_size
-    if size <= 0:
+    if size <= 0 and not allow_empty:
         raise CliInputError(f"{label}不能为空")
     if size > max_bytes:
         raise CliInputError(f"{label}不能超过 {max_bytes // 1024 // 1024} MB")
@@ -139,6 +139,7 @@ def _validate_paths(
             instructions_file,
             label="自然语言指令文件",
             max_bytes=MAX_INSTRUCTIONS_BYTES,
+            allow_empty=True,
         )
 
     # Validate the source package before python-docx allocates document objects.
@@ -246,6 +247,7 @@ def _apply_confirmed_rules(rules: DocumentRules, path: Path | None) -> None:
         raise CliInputError("确认规则必须是 JSON 对象")
     analyzed_rules = payload.get("analyzedRules")
     analyzed_rules = analyzed_rules if isinstance(analyzed_rules, dict) else {}
+    legacy_echo = payload.get("confirmationVersion") != 2
     payload = payload.get("editableRules", payload)
     if not isinstance(payload, dict):
         raise CliInputError("确认规则必须是 JSON 对象")
@@ -286,7 +288,7 @@ def _apply_confirmed_rules(rules: DocumentRules, path: Path | None) -> None:
                 # branch below can skip them. Unsafe requests must be rejected.
                 indent_cm = _confirmed_indent_cm(value[public], public)
             original_rule = analyzed_rules.get(snapshot_key, {})
-            if (internal in {"bold", "alignment", "left_indent_cm", "right_indent_cm"}
+            if (legacy_echo and internal in {"bold", "alignment", "left_indent_cm", "right_indent_cm"}
                     and isinstance(original_rule, dict)
                     and value[public] == original_rule.get(internal)
                     and getattr(rule, internal) != original_rule.get(internal)):
@@ -324,7 +326,7 @@ def _apply_confirmed_rules(rules: DocumentRules, path: Path | None) -> None:
                     # Older forms submit every field even when untouched. The
                     # unchanged inferred font migrates to the new default;
                     # a different value is a customer edit and remains intact.
-                    if isinstance(original, str) and requested == original.strip():
+                    if legacy_echo and isinstance(original, str) and requested == original.strip():
                         requested = DEFAULT_LATIN_FONT
                 setattr(rule, internal, requested)
                 if internal == "latin_font":
@@ -377,14 +379,42 @@ def _restore_analyzed_rules(path: Path | None, template_hash: str) -> tuple[Docu
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise CliInputError("确认规则必须是 JSON 对象")
-    if "analyzedRules" not in payload:
-        return None  # Old jobs are reanalyzed, then their edits are applied.
-    if payload.get("templateSha256") != template_hash:
+    if payload.get("templateSha256") and payload["templateSha256"] != template_hash:
         raise CliInputError("模板已变化，请重新分析并确认格式")
+    # Older jobs may only have the editable form. Never rerun AI at execution
+    # time: fill omitted roles/fields from the same deterministic defaults.
+    snapshot = payload.get("analyzedRules")
+    complete = DocumentRules().to_dict()
+    if isinstance(snapshot, dict):
+        for key, default in complete.items():
+            value = snapshot.get(key)
+            if isinstance(default, dict) and isinstance(value, dict):
+                complete[key] = {**default, **value}
+            elif not isinstance(default, dict) and value is not None:
+                complete[key] = value
     analysis = payload.get("templateAnalysis")
-    if not isinstance(analysis, dict) or not isinstance(payload["analyzedRules"], dict):
-        raise CliInputError("已分析规则不完整，请重新分析模板")
-    return DocumentRules.from_dict(payload["analyzedRules"]), analysis
+    if not isinstance(analysis, dict):
+        analysis = {
+            "documentKind": "unknown", "copyFrontMatter": False, "frontMatterRange": None,
+            "reason": "旧任务未保存封面方案，保留原稿前置页；按默认值及确认表单执行。",
+            "warnings": ["缺失的分析项已使用可编辑默认值，正式处理不会再次调用 AI。"],
+        }
+    if not isinstance(snapshot, dict):
+        analysis["confirmedDefaultsOnly"] = True
+    return DocumentRules.from_dict(complete), analysis
+
+
+def _enable_editable_defaults(rules: DocumentRules, analysis: dict) -> None:
+    """An unrecognized role is an editable default, not a disabled operation."""
+    if not isinstance(analysis.get("ruleEvidence"), dict):
+        analysis["ruleEvidence"] = {}
+    evidence = analysis["ruleEvidence"]
+    for name in ("normal_text", "heading_1", "heading_2", "heading_3", "toc_title",
+                 "toc_1", "toc_2", "toc_3", "figure_caption", "table_caption", "table", "reference"):
+        rule = getattr(rules, name)
+        if not rule.enabled:
+            evidence.setdefault(name, {"status": "unconfirmed", "reason": "未识别到明确要求，采用默认值，可在确认页修改。"})
+        rule.enabled = True
 
 
 def _analysis_summary(info: DocumentInfo) -> dict[str, Any]:
@@ -559,14 +589,17 @@ def run_job(args: argparse.Namespace) -> dict[str, Any]:
         template_hash_before = sha256_file(template)
         instructions = _read_instructions(instructions_file)
 
-        api_key = os.getenv("ARK_API_KEY", "").strip() or os.getenv("DOUBAO_API_KEY", "").strip()
-        model = os.getenv("DOUBAO_MODEL", "").strip() or os.getenv("DOUBAO_WEB_SEARCH_MODEL", "").strip() or None
+        analyze_only = bool(getattr(args, "analyze_only", False))
+        # The formatting phase is entirely local, even if an old launcher still
+        # passes --use-doubao. Credentials are only read by the analysis phase.
+        api_key = (os.getenv("ARK_API_KEY", "").strip() or os.getenv("DOUBAO_API_KEY", "").strip()) if analyze_only else ""
+        model = (os.getenv("DOUBAO_MODEL", "").strip() or os.getenv("DOUBAO_WEB_SEARCH_MODEL", "").strip() or None) if analyze_only else None
         restored = _restore_analyzed_rules(confirmed_rules_file, template_hash_before)
         if restored is not None:
             rules, template_analysis = restored
             current_progress = 24
             emit_progress(current_progress, "restoring_rules", "正在载入已分析并确认的模板规则与封面方案")
-            template_notes.append("已复用本次模板 AI 分析结果，确认后的处理不再重新猜测规则。")
+            template_notes.append("已载入默认值、已识别规则和确认表单；正式格式处理仅在本地执行，不调用 AI。")
         else:
             current_progress = 10
             emit_progress(current_progress, "reading_template_text", "正在读取模板正文、规范表、红字和批注中的文字要求")
@@ -581,7 +614,7 @@ def run_job(args: argparse.Namespace) -> dict[str, Any]:
             rules = extracted.rules
             rules.name = f"从模板识别：{template.stem}"
             template_notes = list(context.get("notes", [])) + list(extracted.notes)
-            if getattr(args, "analyze_only", False) or confirmed_rules_file is not None:
+            if analyze_only:
                 current_progress = 24
                 emit_progress(current_progress, "analyzing_template", "AI 正在按段落并发提取模板要求，随后统一整合（最多 32 路）")
                 parser = DoubaoRuleParser(api_key=api_key or None, model=model)
@@ -605,11 +638,12 @@ def run_job(args: argparse.Namespace) -> dict[str, Any]:
                 }
             template_analysis["explicitRuleFields"] = context.get("explicitRuleFields", {})
         warnings.extend(template_analysis.get("warnings", []))
-        warnings.extend(normalize_inferred_layout(rules, template_analysis.get("explicitRuleFields")))
+        if restored is None:
+            warnings.extend(normalize_inferred_layout(rules, template_analysis.get("explicitRuleFields")))
 
         current_progress = 30
-        if instructions and restored is None:
-            if args.use_doubao:
+        if instructions and (restored is None or template_analysis.get("confirmedDefaultsOnly")):
+            if analyze_only and args.use_doubao:
                 emit_progress(current_progress, "applying_rules", "正在使用豆包解析附加格式要求")
                 rules, additional_notes = DoubaoRuleParser(
                     api_key=api_key or None, model=model
@@ -624,6 +658,7 @@ def run_job(args: argparse.Namespace) -> dict[str, Any]:
         # before the final customer edit, so explicit latinFont stays editable.
         apply_default_latin_fonts(rules)
         _apply_confirmed_rules(rules, confirmed_rules_file)
+        _enable_editable_defaults(rules, template_analysis)
         enforce_locked_document_policy(rules)
         instruction_notes.append(LOCKED_TABLE_POLICY_NOTE)
         instruction_notes.extend(LOCKED_DOCUMENT_POLICY_NOTES)
@@ -651,7 +686,7 @@ def run_job(args: argparse.Namespace) -> dict[str, Any]:
             return payload
 
         current_progress = 56
-        emit_progress(current_progress, "processing", "正在把模板规则安全应用到论文副本")
+        emit_progress(current_progress, "processing", "正在按默认值与确认规则自动修改格式（不调用 AI）")
         source_body_start = DocumentProcessor._main_content_start(Document(source))
         output.parent.mkdir(parents=True, exist_ok=True)
         staging = output.with_name(
@@ -776,7 +811,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--use-doubao",
         action="store_true",
-        help="使用环境变量中的豆包 Key/模型解析格式要求",
+        help="仅在 --analyze-only 阶段使用豆包解析要求；正式格式处理始终不调用 AI",
     )
     parser.add_argument("--analyze-only", action="store_true", help="只分析模板并等待用户确认")
     parser.add_argument("--rules-file", help="客户确认的可编辑规则 JSON")

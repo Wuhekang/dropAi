@@ -293,7 +293,7 @@ class FormatCliTests(unittest.TestCase):
             self.assertEqual(file_hash(source), source_before)
             self.assertEqual(file_hash(template), template_before)
 
-    def test_doubao_result_cannot_override_locked_table_policy(self) -> None:
+    def test_formatting_ignores_ai_flag_and_local_instructions_cannot_override_table_policy(self) -> None:
         with tempfile.TemporaryDirectory(prefix="dokiai_format_cli_") as directory:
             root = Path(directory)
             source = root / "source.docx"
@@ -305,7 +305,7 @@ class FormatCliTests(unittest.TestCase):
             build_template(template)
             instructions.write_text("请修改表格格式。", encoding="utf-8")
 
-            def fake_doubao_parse(parser, requirement, rules):
+            def fake_local_parse(parser, requirement, rules):
                 self.assertTrue(requirement)
                 rules.table.enabled = False
                 rules.table.border_style = "grid"
@@ -320,7 +320,7 @@ class FormatCliTests(unittest.TestCase):
                 rules.table.special_indent_mode = "first_line"
                 rules.table.special_indent_chars = 2.0
                 rules.table.first_line_indent_chars = 2.0
-                return rules, ["模拟豆包返回冲突表格规则"]
+                return ["模拟本地解析返回冲突表格规则"]
 
             args = Namespace(
                 source=str(source),
@@ -330,8 +330,8 @@ class FormatCliTests(unittest.TestCase):
                 instructions_file=str(instructions),
                 use_doubao=True,
             )
-            with patch.object(
-                format_cli.DoubaoRuleParser, "parse", new=fake_doubao_parse
+            with patch.object(format_cli, "DoubaoRuleParser", side_effect=AssertionError("正式格式处理不得调用 AI")), patch.object(
+                format_cli.NaturalLanguageRuleParser, "apply", new=fake_local_parse
             ):
                 payload = run_job(args)
 

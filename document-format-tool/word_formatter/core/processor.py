@@ -29,6 +29,7 @@ from word_formatter.core.analyzer import DocumentAnalyzer
 from word_formatter.core.finalizer import finalize_docx, is_red_font_value
 from word_formatter.core.template_text import known_content_title
 from word_formatter.core.word_converter import WordDocumentConverter
+from word_formatter.core.xml_utils import xpath
 from word_formatter.models.results import ChangeRecord, ProcessResult
 from word_formatter.models.rules import (
     DocumentRules,
@@ -263,7 +264,7 @@ class DocumentProcessor:
         field_depth = 0
         for child in document.element.body:
             in_field = field_depth > 0
-            field_nodes = child.xpath(".//w:fldChar | .//w:fldSimple | .//w:instrText")
+            field_nodes = xpath(child, ".//w:fldChar | .//w:fldSimple | .//w:instrText")
             for node in field_nodes:
                 if node.tag != qn("w:fldChar"):
                     continue
@@ -308,7 +309,7 @@ class DocumentProcessor:
                 paragraph_number += 1
             if paragraph_number >= content_start:
                 break
-            text = "".join(node.text or "" for node in child.xpath(".//w:t"))
+            text = "".join(node.text or "" for node in xpath(child, ".//w:t"))
             if child.tag == qn("w:p") and re.fullmatch(r"\s*目\s*录\s*", text):
                 in_template_toc = True
             if in_template_toc:
@@ -335,11 +336,11 @@ class DocumentProcessor:
                             removed += 1
                 else:
                     body.remove(child)
-                    removed += max(1, len(child.xpath(".//w:t")))
+                    removed += max(1, len(xpath(child, ".//w:t")))
                 continue
             border_colors = [
                 element.get(qn("w:color"))
-                for element in child.xpath(".//w:tblBorders/* | .//w:tcBorders/* | .//w:pBdr/*")
+                for element in xpath(child, ".//w:tblBorders/* | .//w:tcBorders/* | .//w:pBdr/*")
             ]
             review_container = (
                 child.tag == qn("w:tbl")
@@ -350,13 +351,13 @@ class DocumentProcessor:
             )
             if review_container:
                 body.remove(child)
-                removed += max(1, len(child.xpath(".//w:t")))
+                removed += max(1, len(xpath(child, ".//w:t")))
                 continue
-            for run in list(child.xpath(".//w:r")):
-                colors = run.xpath("./w:rPr/w:color")
+            for run in list(xpath(child, ".//w:r")):
+                colors = xpath(run, "./w:rPr/w:color")
                 if not any(is_red_font_value(color.get(qn("w:val"))) for color in colors):
                     continue
-                for text_node in list(run.xpath(".//w:t | .//w:delText")):
+                for text_node in list(xpath(run, ".//w:t | .//w:delText")):
                     parent = text_node.getparent()
                     if parent is not None:
                         parent.remove(text_node)
@@ -369,7 +370,7 @@ class DocumentProcessor:
         paragraphs = document.paragraphs
         added = 0
         for paragraph in paragraphs[: max(0, content_start - 1)]:
-            sections = paragraph._p.xpath("./w:pPr/w:sectPr")
+            sections = xpath(paragraph._p, "./w:pPr/w:sectPr")
             if not sections:
                 continue
             section_type = sections[0].find(qn("w:type"))
@@ -389,7 +390,7 @@ class DocumentProcessor:
                 continue
             following_section = None
             for candidate in paragraphs[index - 1 :]:
-                candidates = candidate._p.xpath("./w:pPr/w:sectPr")
+                candidates = xpath(candidate._p, "./w:pPr/w:sectPr")
                 if candidates:
                     following_section = candidates[0]
                     break
@@ -448,7 +449,7 @@ class DocumentProcessor:
 
         removed = 0
         for root in (document.element.body, document.styles.element):
-            for num_pr in list(root.xpath(".//w:numPr")):
+            for num_pr in list(xpath(root, ".//w:numPr")):
                 parent = num_pr.getparent()
                 if parent is not None:
                     parent.remove(num_pr)
@@ -505,7 +506,7 @@ class DocumentProcessor:
         paragraph_index = 0
         for child in document.element.body:
             in_field = field_depth > 0
-            nodes = child.xpath(".//w:fldChar | .//w:fldSimple | .//w:instrText")
+            nodes = xpath(child, ".//w:fldChar | .//w:fldSimple | .//w:instrText")
             for node in nodes:
                 if node.tag == qn("w:fldChar"):
                     kind = node.get(qn("w:fldCharType"))
@@ -546,7 +547,7 @@ class DocumentProcessor:
         """Insert a real Word TOC field between copied front matter and body."""
         cls._apply_toc_styles(document, rules)
         cls._exclude_front_matter_from_toc(document, content_start)
-        if document.element.body.xpath(".//w:instrText[contains(., 'TOC ')]"):
+        if xpath(document.element.body, ".//w:instrText[contains(., 'TOC ')]"):
             return 0
         paragraphs = document.paragraphs
         if not paragraphs:
@@ -579,7 +580,7 @@ class DocumentProcessor:
 
         page_break = document.add_paragraph()
         page_break.add_run().add_break()
-        page_break._p.xpath(".//w:br")[-1].set(qn("w:type"), "page")
+        xpath(page_break._p, ".//w:br")[-1].set(qn("w:type"), "page")
 
         for paragraph in (title, toc, page_break):
             anchor.addprevious(paragraph._p)
@@ -593,9 +594,9 @@ class DocumentProcessor:
         """Do not double an existing page/section boundary before a TOC."""
         previous = element.getprevious()
         while previous is not None:
-            if previous.xpath(".//w:sectPr | .//w:br[@w:type='page']"):
+            if xpath(previous, ".//w:sectPr | .//w:br[@w:type='page']"):
                 return False
-            if previous.xpath(".//w:t[normalize-space(.) != ''] | .//w:drawing | .//w:pict"):
+            if xpath(previous, ".//w:t[normalize-space(.) != ''] | .//w:drawing | .//w:pict"):
                 return True
             previous = previous.getprevious()
         return False
@@ -637,7 +638,7 @@ class DocumentProcessor:
         if content_start > 1:
             anchor = paragraphs[content_start - 1]._p
             previous = anchor.getprevious()
-            has_boundary = previous is not None and previous.tag == qn("w:p") and bool(previous.xpath("./w:pPr/w:sectPr"))
+            has_boundary = previous is not None and previous.tag == qn("w:p") and bool(xpath(previous, "./w:pPr/w:sectPr"))
             if not has_boundary:
                 # Describe the old prefix with its existing section properties;
                 # the following body's section may now safely be normalized.
@@ -656,8 +657,8 @@ class DocumentProcessor:
                 inserted = 1
                 # A newly inserted section boundary replaces an immediately
                 # preceding empty page-break paragraph, avoiding a blank page.
-                if previous is not None and not previous.xpath(".//w:t[normalize-space(.)!=''] | .//w:drawing | .//w:pict"):
-                    for br in previous.xpath(".//w:br[@w:type='page']"):
+                if previous is not None and not xpath(previous, ".//w:t[normalize-space(.)!=''] | .//w:drawing | .//w:pict"):
+                    for br in xpath(previous, ".//w:br[@w:type='page']"):
                         br.getparent().remove(br)
         body_start = content_start + inserted
         changed = 0
@@ -667,8 +668,8 @@ class DocumentProcessor:
                 paragraph_index += 1
                 if paragraph_index < body_start:
                     continue
-                sections = child.xpath("./w:pPr/w:sectPr")
-                for br in child.xpath(".//w:br[@w:type='column']"):
+                sections = xpath(child, "./w:pPr/w:sectPr")
+                for br in xpath(child, ".//w:br[@w:type='column']"):
                     br.set(qn("w:type"), "page")
             elif child.tag == qn("w:sectPr"):
                 sections = [child]
@@ -719,7 +720,7 @@ class DocumentProcessor:
             p_pr = paragraph._p.get_or_add_pPr()
             for name in ("widowControl", "keepNext", "keepLines", "pageBreakBefore"):
                 cls._set_on_off_property(p_pr, name, False)
-            if paragraph._p.xpath(".//w:drawing | .//w:pict"):
+            if xpath(paragraph._p, ".//w:drawing | .//w:pict"):
                 paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
                 paragraph.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
                 image_count += 1
@@ -823,10 +824,10 @@ class DocumentProcessor:
             # next page, making Word create an entirely blank page. Move only
             # this structural break to preceding body text; retain bookmarks,
             # fields, section boundaries, drawings and all author text.
-            if previous is not None and previous.tag == qn("w:p") and previous.xpath(".//w:br[@w:type='page']") and not previous.xpath(".//w:t[normalize-space(.)!=''] | .//w:drawing | .//w:pict | .//w:sectPr | .//w:fldChar | .//w:fldSimple | .//w:instrText | .//w:bookmarkStart | .//w:bookmarkEnd"):
+            if previous is not None and previous.tag == qn("w:p") and xpath(previous, ".//w:br[@w:type='page']") and not xpath(previous, ".//w:t[normalize-space(.)!=''] | .//w:drawing | .//w:pict | .//w:sectPr | .//w:fldChar | .//w:fldSimple | .//w:instrText | .//w:bookmarkStart | .//w:bookmarkEnd"):
                 prior_body = previous.getprevious()
-                if prior_body is not None and prior_body.tag == qn("w:p") and prior_body.xpath(".//w:t[normalize-space(.)!='']") and not prior_body.xpath(".//w:drawing | .//w:pict | .//w:sectPr | .//w:fldChar | .//w:fldSimple | .//w:instrText | .//w:br[@w:type='page']"):
-                    for br in previous.xpath(".//w:br[@w:type='page']"):
+                if prior_body is not None and prior_body.tag == qn("w:p") and xpath(prior_body, ".//w:t[normalize-space(.)!='']") and not xpath(prior_body, ".//w:drawing | .//w:pict | .//w:sectPr | .//w:fldChar | .//w:fldSimple | .//w:instrText | .//w:br[@w:type='page']"):
+                    for br in xpath(previous, ".//w:br[@w:type='page']"):
                         run = OxmlElement("w:r")
                         run.append(br)
                         prior_body.append(run)
@@ -844,7 +845,7 @@ class DocumentProcessor:
                 continue
             if previous is not None and not DocumentProcessor._needs_page_break_before(paragraph._p):
                 continue
-            if previous is not None and previous.tag == qn("w:p") and previous.xpath(".//w:t[normalize-space(.)!='']") and not previous.xpath(".//w:drawing | .//w:pict | .//w:sectPr | .//w:fldChar | .//w:fldSimple | .//w:instrText"):
+            if previous is not None and previous.tag == qn("w:p") and xpath(previous, ".//w:t[normalize-space(.)!='']") and not xpath(previous, ".//w:drawing | .//w:pict | .//w:sectPr | .//w:fldChar | .//w:fldSimple | .//w:instrText"):
                 carrier = Paragraph(previous, document._body)
             else:
                 element = OxmlElement("w:p")
@@ -855,7 +856,7 @@ class DocumentProcessor:
                 carrier.paragraph_format.line_spacing = Pt(1)
             run = carrier.add_run()
             run.add_break()
-            run._r.xpath(".//w:br")[-1].set(qn("w:type"), "page")
+            xpath(run._r, ".//w:br")[-1].set(qn("w:type"), "page")
             changed += 1
         if changed:
             result.records.append(
@@ -917,7 +918,7 @@ class DocumentProcessor:
     def _apply_toc(cls, document, rules: DocumentRules, result: ProcessResult) -> None:
         cls._apply_toc_styles(document, rules)
         rule_map = {1: rules.toc_1, 2: rules.toc_2, 3: rules.toc_3}
-        for index, element in enumerate(document.element.body.xpath(".//w:p"), start=1):
+        for index, element in enumerate(xpath(document.element.body, ".//w:p"), start=1):
             paragraph = Paragraph(element, document._body)
             text = paragraph.text.strip()
             style = paragraph.style
@@ -949,7 +950,7 @@ class DocumentProcessor:
         start = cls._main_content_start(document) - 1
         tail = []
         for paragraph in reversed(paragraphs[:start]):
-            if paragraph._p.xpath(".//w:t[normalize-space(.)!=''] | .//w:drawing | .//w:pict | .//m:oMath | .//w:br | .//w:instrText | .//w:fldSimple | .//w:fldChar[@w:fldCharType!='end']"):
+            if xpath(paragraph._p, ".//w:t[normalize-space(.)!=''] | .//w:drawing | .//w:pict | .//m:oMath | .//w:br | .//w:instrText | .//w:fldSimple | .//w:fldChar[@w:fldCharType!='end']"):
                 break
             tail.insert(0, paragraph)
         if not tail or len(tail) > 8:
@@ -967,9 +968,9 @@ class DocumentProcessor:
         style = anchor.style
         if not re.search(r"(?:^|\s)(?:TOC|目录)\s*[1-3](?!\d)", f"{style.style_id} {style.name}", re.I):
             return
-        sections = [node for paragraph in tail for node in paragraph._p.xpath("./w:pPr/w:sectPr")]
-        ends = [node for paragraph in tail for node in paragraph._p.xpath(".//w:fldChar[@w:fldCharType='end']")]
-        if len(sections) != 1 or len(ends) != 1 or anchor._p.xpath("./w:pPr/w:sectPr"):
+        sections = [node for paragraph in tail for node in xpath(paragraph._p, "./w:pPr/w:sectPr")]
+        ends = [node for paragraph in tail for node in xpath(paragraph._p, ".//w:fldChar[@w:fldCharType='end']")]
+        if len(sections) != 1 or len(ends) != 1 or xpath(anchor._p, "./w:pPr/w:sectPr"):
             return
         anchor._p.get_or_add_pPr().append(deepcopy(sections[0]))
         for paragraph in tail:
@@ -993,11 +994,11 @@ class DocumentProcessor:
         # Only the immediately adjacent invisible tail before the real body;
         # cover/declaration spacing earlier in the document is not in scope.
         for paragraph in reversed(paragraphs[:max(0, content_start - 1)]):
-            if paragraph._p.xpath(".//w:t[normalize-space(.)!=''] | .//w:drawing | .//w:pict | .//m:oMath"):
+            if xpath(paragraph._p, ".//w:t[normalize-space(.)!=''] | .//w:drawing | .//w:pict | .//m:oMath"):
                 break
             selected.append(paragraph)
         for paragraph in paragraphs[max(0, content_start - 1):]:
-            if paragraph._p.xpath(".//w:br[@w:type='page']") and not paragraph._p.xpath(".//w:t[normalize-space(.)!=''] | .//w:drawing | .//w:pict | .//m:oMath"):
+            if xpath(paragraph._p, ".//w:br[@w:type='page']") and not xpath(paragraph._p, ".//w:t[normalize-space(.)!=''] | .//w:drawing | .//w:pict | .//m:oMath"):
                 selected.append(paragraph)
         for paragraph in selected:
             fmt = paragraph.paragraph_format
@@ -1202,7 +1203,7 @@ class DocumentProcessor:
     def _is_equation_layout_table(table) -> bool:
         """识别经典的“空白 | 公式 | 编号”三栏排版表。"""
 
-        if not table._tbl.xpath(".//m:oMath | .//m:oMathPara"):
+        if not xpath(table._tbl, ".//m:oMath | .//m:oMathPara"):
             return False
         rows = DocumentProcessor._owned_table_elements(table, "tr")
         if len(rows) != 1:
@@ -1213,15 +1214,15 @@ class DocumentProcessor:
         formula_cells = [
             index
             for index, cell in enumerate(cells)
-            if cell.xpath(".//m:oMath | .//m:oMathPara")
+            if xpath(cell, ".//m:oMath | .//m:oMathPara")
         ]
         if formula_cells != [1]:
             return False
         visible_text = [
             "".join(
                 node.text or ""
-                for node in cell.xpath(
-                    ".//w:t[not(ancestor::m:oMath) and not(ancestor::m:oMathPara)]"
+                for node in xpath(
+                    cell, ".//w:t[not(ancestor::m:oMath) and not(ancestor::m:oMathPara)]"
                 )
             ).strip()
             for cell in cells
@@ -1281,7 +1282,7 @@ class DocumentProcessor:
                 return
             seen_tables.add(table._tbl)
             yield table
-            for element in table._tbl.xpath(".//w:tbl"):
+            for element in xpath(table._tbl, ".//w:tbl"):
                 owner_table = next(
                     (
                         ancestor
@@ -1380,7 +1381,7 @@ class DocumentProcessor:
         matter, rather than physical page positions including the cover.
         """
         first_content_section = sum(
-            bool(p._p.xpath("./w:pPr/w:sectPr"))
+            bool(xpath(p._p, "./w:pPr/w:sectPr"))
             for p in document.paragraphs[:max(0, content_start - 1)]
         )
         if not 0 < first_content_section < len(document.sections):
@@ -1422,7 +1423,7 @@ class DocumentProcessor:
         if content_start is not None:
             # Section properties end the preceding section; count boundaries
             # before the first real abstract/preface/body, not cached TOC rows.
-            first_numbered = sum(bool(p._p.xpath("./w:pPr/w:sectPr")) for p in document.paragraphs[:max(0, content_start - 1)])
+            first_numbered = sum(bool(xpath(p._p, "./w:pPr/w:sectPr")) for p in document.paragraphs[:max(0, content_start - 1)])
             first_numbered = min(first_numbered, len(document.sections) - 1)
             for section in list(document.sections)[:first_numbered]:
                 for footer in (section.footer, section.first_page_footer, section.even_page_footer):
@@ -1609,7 +1610,7 @@ class DocumentProcessor:
 
     @staticmethod
     def _enforce_table_paragraph_properties(table) -> None:
-        for paragraph in table._tbl.xpath(".//w:p"):
+        for paragraph in xpath(table._tbl, ".//w:p"):
             owner_table = next(
                 (
                     ancestor
@@ -1641,7 +1642,7 @@ class DocumentProcessor:
     @staticmethod
     def _enforce_table_run_properties(table, rule: TableRule) -> None:
         half_points = str(round(rule.font_size_pt * 2))
-        for run in table._tbl.xpath(".//w:r"):
+        for run in xpath(table._tbl, ".//w:r"):
             owner_table = next(
                 (
                     ancestor
@@ -1703,7 +1704,7 @@ class DocumentProcessor:
                 "double": WD_LINE_SPACING.DOUBLE,
             }[rule.line_spacing_mode]
         DocumentProcessor._set_wps_paragraph_units(paragraph, rule)
-        for run_element in paragraph._p.xpath(".//w:r"):
+        for run_element in xpath(paragraph._p, ".//w:r"):
             run = Run(run_element, paragraph)
             run.font.name = rule.latin_font
             run.font.size = Pt(rule.font_size_pt)

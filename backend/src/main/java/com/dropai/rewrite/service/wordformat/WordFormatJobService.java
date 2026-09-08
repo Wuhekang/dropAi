@@ -185,15 +185,18 @@ public class WordFormatJobService {
             if (!"AWAITING_CONFIRMATION".equals(job.status)) {
                 throw new JobNotReadyException("任务尚未完成 AI 分析或已经确认");
             }
-            if (editableRules == null || editableRules.isEmpty()) {
+            if (editableRules == null) {
                 throw new IllegalArgumentException("请提交需要确认的正文、标题、目录和图表题注格式");
             }
             try {
                 if (objectMapper.writeValueAsBytes(editableRules).length > 128 * 1024) {
                     throw new IllegalArgumentException("确认规则内容过大");
                 }
+                Map<String, Object> confirmedRules = mergeRuleMaps(job.editableRules, validateEditableRules(editableRules));
+                enforceLockedEditableRules(confirmedRules);
                 Map<String, Object> envelope = new LinkedHashMap<>();
-                envelope.put("editableRules", validateEditableRules(editableRules));
+                envelope.put("confirmationVersion", 2);
+                envelope.put("editableRules", confirmedRules);
                 if (!job.analyzedRules.isEmpty() && !job.templateSha256.isBlank()) {
                     envelope.put("analyzedRules", job.analyzedRules);
                     envelope.put("templateAnalysis", job.templateAnalysis);
@@ -201,6 +204,7 @@ public class WordFormatJobService {
                 }
                 byte[] json = objectMapper.writeValueAsBytes(envelope);
                 Files.write(job.rulesPath, json);
+                job.editableRules = confirmedRules;
             } catch (IOException exception) {
                 throw new IllegalStateException("无法保存确认规则，请重试", exception);
             }
@@ -259,7 +263,7 @@ public class WordFormatJobService {
                     job.outputPath,
                     job.resultPath,
                     job.instructionsPath,
-                    job.useDoubao,
+                    false,
                     false,
                     job.rulesPath,
                     event -> job.progress(event.progress(), event.stage(), event.message())
@@ -333,8 +337,97 @@ public class WordFormatJobService {
             }
             if (!rules.isEmpty()) validated.put(groupName, rules);
         });
-        if (validated.isEmpty()) throw new IllegalArgumentException("请提交有效的可编辑格式规则");
         return validated;
+    }
+
+    /** The worker's editable snapshot is completed before it is shown or confirmed. */
+    private static Map<String, Object> completeEditableRules(Map<String, Object> analyzed) {
+        Map<String, Object> completed = defaultEditableRules();
+        if (analyzed != null) {
+            // Missing/invalid inferred fields fall back individually; valid neighbours remain usable.
+            for (var group : analyzed.entrySet()) {
+                if (!(group.getValue() instanceof Map<?, ?> rules)) continue;
+                for (var rule : rules.entrySet()) {
+                    if (!(rule.getKey() instanceof String name) || !(rule.getValue() instanceof Map<?, ?> fields)) continue;
+                    for (var field : fields.entrySet()) {
+                        if (!(field.getKey() instanceof String key)) continue;
+                        Map<String, Object> candidate = Map.of(group.getKey(), Map.of(name,
+                                java.util.Collections.singletonMap(key, field.getValue())));
+                        try {
+                            completed = mergeRuleMaps(completed, validateEditableRules(candidate));
+                        } catch (IllegalArgumentException ignored) {
+                            // Inference is not a user's edit: leave the editable default for confirmation.
+                        }
+                    }
+                }
+            }
+        }
+        enforceLockedEditableRules(completed);
+        return completed;
+    }
+
+    private static Map<String, Object> defaultEditableRules() {
+        // Keep these form defaults aligned with word_formatter.models.rules.DocumentRules.
+        return new LinkedHashMap<>(Map.of(
+                "body", Map.of("normal", defaultParagraph("宋体", 12, false, "justify", "1.5")),
+                "headings", Map.of(
+                        "level1", defaultParagraph("黑体", 16, true, "left", "single"),
+                        "level2", defaultParagraph("黑体", 15, true, "left", "single"),
+                        "level3", defaultParagraph("黑体", 14, true, "left", "single")),
+                "toc", Map.of(
+                        "title", defaultParagraph("黑体", 16, true, "left", "single"),
+                        "level1", defaultParagraph("黑体", 16, true, "left", "single"),
+                        "level2", defaultParagraph("黑体", 15, true, "left", "single"),
+                        "level3", defaultParagraph("黑体", 14, true, "left", "single")),
+                "captions", Map.of(
+                        "figure", defaultParagraph("宋体", 10.5, false, "center", "single"),
+                        "table", defaultParagraph("宋体", 10.5, false, "center", "single")),
+                "details", Map.of(
+                        "table", defaultParagraph("宋体", 12, false, "center", "single"),
+                        "reference", defaultParagraph("宋体", 12, false, "justify", "1.5"))));
+    }
+
+    private static Map<String, Object> defaultParagraph(String chineseFont, double fontSizePt,
+                                                        boolean bold, String alignment, String lineSpacingMode) {
+        Map<String, Object> rule = new LinkedHashMap<>();
+        rule.put("chineseFont", chineseFont);
+        rule.put("latinFont", "Times New Roman");
+        rule.put("fontSizePt", fontSizePt);
+        rule.put("bold", bold);
+        rule.put("alignment", alignment);
+        rule.put("leftIndentCm", 0.0);
+        rule.put("rightIndentCm", 0.0);
+        rule.put("lineSpacingMode", lineSpacingMode);
+        rule.put("fixedLineSpacingPt", 20.0);
+        rule.put("minimumLineSpacingPt", 12.0);
+        rule.put("multipleLineSpacing", 1.25);
+        rule.put("spaceBefore", Map.of("unit", "line", "value", 0.0));
+        rule.put("spaceAfter", Map.of("unit", "line", "value", 0.0));
+        return rule;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> mergeRuleMaps(Map<String, Object> base, Map<String, Object> overrides) {
+        Map<String, Object> merged = new LinkedHashMap<>();
+        base.forEach((key, value) -> merged.put(key, value instanceof Map<?, ?> nested
+                ? mergeRuleMaps((Map<String, Object>) nested, Map.of()) : value));
+        overrides.forEach((key, value) -> {
+            if (value instanceof Map<?, ?> nested && merged.get(key) instanceof Map<?, ?> existing) {
+                merged.put(key, mergeRuleMaps((Map<String, Object>) existing, (Map<String, Object>) nested));
+            } else {
+                merged.put(key, value);
+            }
+        });
+        return merged;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void enforceLockedEditableRules(Map<String, Object> rules) {
+        Map<String, Object> table = (Map<String, Object>) ((Map<String, Object>) rules.get("details")).get("table");
+        table.put("bold", false);
+        table.put("alignment", "center");
+        table.put("leftIndentCm", 0.0);
+        table.put("rightIndentCm", 0.0);
     }
 
     private static double formatNumber(Object value, double min, double max) {
@@ -739,7 +832,7 @@ public class WordFormatJobService {
             progress = 40;
             currentStage = "awaiting_confirmation";
             message = "模板分析完成，请核对格式依据、封面方案和四类可编辑规则";
-            editableRules = result.editableRules() == null ? Map.of() : new LinkedHashMap<>(result.editableRules());
+            editableRules = completeEditableRules(result.editableRules());
             lockedRules = immutable(result.lockedRules());
             analysis = result.analysis() == null ? Map.of() : new LinkedHashMap<>(result.analysis());
             analyzedRules = result.analyzedRules() == null ? Map.of() : new LinkedHashMap<>(result.analyzedRules());

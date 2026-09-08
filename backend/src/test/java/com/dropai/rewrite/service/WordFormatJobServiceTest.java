@@ -91,7 +91,7 @@ class WordFormatJobServiceTest {
         confirmWhenReady(created.id());
         WordFormatJobVO completed = waitForTerminal(created.id());
         assertEquals("SUCCESS", completed.status());
-        verify(runner).run(any(), any(), any(), any(), any(), eq(true), eq(false), any(), any());
+        verify(runner).run(any(), any(), any(), any(), any(), eq(false), eq(false), any(), any());
         assertEquals(100, completed.progress());
         assertEquals("论文原稿.docx", completed.sourceName());
         assertEquals("学校模板.docx", completed.templateName());
@@ -284,15 +284,28 @@ class WordFormatJobServiceTest {
         decision.put("frontMatterRange", null);
         when(runner.run(any(), any(), any(), any(), any(), anyBoolean(), eq(true), any(), any()))
                 .thenReturn(new WordFormatProcessRunner.ProcessResult(0, List.of(), List.of(),
-                        editableRules(), List.of(), Map.of(), snapshot, decision, "abc123"));
+                        Map.of("body", Map.of("normal", Map.of("fontSizePt", 12, "chineseFont", "楷体")),
+                                "headings", Map.of("level2", Map.of("fontSizePt", 18))),
+                        List.of(), Map.of(), snapshot, decision, "abc123"));
         when(runner.run(any(), any(), any(), any(), any(), anyBoolean(), eq(false), any(), any()))
                 .thenAnswer(invocation -> {
                     Path rulesPath = invocation.getArgument(7);
                     JsonNode confirmed = new ObjectMapper().readTree(rulesPath.toFile());
+                    assertEquals(false, invocation.getArgument(5));
+                    assertEquals(2, confirmed.path("confirmationVersion").asInt());
                     assertEquals(15, confirmed.path("editableRules").path("body").path("normal").path("fontSizePt").asInt());
+                    assertEquals("楷体", confirmed.path("editableRules").path("body").path("normal").path("chineseFont").asText());
+                    assertEquals("Times New Roman", confirmed.path("editableRules").path("body").path("normal").path("latinFont").asText());
+                    assertEquals(18, confirmed.path("editableRules").path("headings").path("level2").path("fontSizePt").asInt());
+                    assertEquals(14, confirmed.path("editableRules").path("toc").path("level3").path("fontSizePt").asInt());
                     assertEquals(24, confirmed.path("editableRules").path("body").path("normal").path("spaceBefore").path("value").asInt());
                     assertEquals(0.5, confirmed.path("editableRules").path("body").path("normal").path("leftIndentCm").asDouble());
                     assertEquals(10.5, confirmed.path("editableRules").path("details").path("table").path("fontSizePt").asDouble());
+                    assertEquals(false, confirmed.path("editableRules").path("details").path("table").path("bold").asBoolean());
+                    assertEquals("center", confirmed.path("editableRules").path("details").path("table").path("alignment").asText());
+                    assertEquals(0, confirmed.path("editableRules").path("details").path("table").path("leftIndentCm").asDouble());
+                    assertEquals(false, confirmed.path("editableRules").path("body").path("normal").has("firstLineIndentChars"));
+                    assertEquals(false, confirmed.path("editableRules").has("page_setup"));
                     assertEquals(12, confirmed.path("analyzedRules").path("normal_text").path("font_size_pt").asInt());
                     assertEquals(30, confirmed.path("analyzedRules").path("page_setup").path("margin_top_mm").asInt());
                     assertEquals(false, confirmed.path("templateAnalysis").path("copyFrontMatter").asBoolean());
@@ -306,12 +319,56 @@ class WordFormatJobServiceTest {
         WordFormatJobVO ready = waitForStatus(submitted.id(), "AWAITING_CONFIRMATION");
         assertEquals(decision, ready.result().get("templateAnalysis"));
         service.confirm(submitted.id(), Map.of(
-                "body", Map.of("normal", Map.of("fontSizePt", 15, "bold", false, "alignment", "justify", "leftIndentCm", 0.5, "spaceBefore", Map.of("unit", "pt", "value", 24))),
-                "details", Map.of("table", Map.of("fontSizePt", 10.5)),
+                "body", Map.of("normal", Map.of("fontSizePt", 15, "bold", false, "alignment", "justify", "leftIndentCm", 0.5,
+                        "spaceBefore", Map.of("unit", "pt", "value", 24), "firstLineIndentChars", 0)),
+                "details", Map.of("table", Map.of("fontSizePt", 10.5, "bold", true, "alignment", "left", "leftIndentCm", 1)),
+                "page_setup", Map.of("margin_top_mm", 0),
                 "templateAnalysis", Map.of("copyFrontMatter", true),
                 "analyzedRules", Map.of("normal_text", Map.of("font_size_pt", 72)),
                 "templateSha256", "client-override"));
         assertEquals("SUCCESS", waitForTerminal(submitted.id()).status());
+    }
+
+    @Test
+    void missingOrInvalidAnalysisFieldsExposeDefaultsAndCanBeConfirmedWithoutChanges() throws Exception {
+        byte[] docx = document("默认格式确认");
+        WordFormatProcessRunner runner = mock(WordFormatProcessRunner.class);
+        service = service(runner);
+        Map<String, Object> invalidBody = new java.util.LinkedHashMap<>();
+        invalidBody.put("fontSizePt", null);
+        invalidBody.put("chineseFont", "");
+        invalidBody.put("leftIndentCm", 4);
+        invalidBody.put("spaceBefore", Map.of("unit", "line", "value", -1));
+        invalidBody.put("latinFont", "Arial");
+        when(runner.run(any(), any(), any(), any(), any(), anyBoolean(), eq(true), any(), any()))
+                .thenReturn(new WordFormatProcessRunner.ProcessResult(0, List.of(), List.of(),
+                        Map.of("body", Map.of("normal", invalidBody)), List.of(), Map.of()));
+        when(runner.run(any(), any(), any(), any(), any(), anyBoolean(), eq(false), any(), any()))
+                .thenAnswer(invocation -> {
+                    JsonNode confirmed = new ObjectMapper().readTree(((Path) invocation.getArgument(7)).toFile());
+                    assertEquals(false, invocation.getArgument(5));
+                    assertEquals(2, confirmed.path("confirmationVersion").asInt());
+                    assertEquals(5, confirmed.path("editableRules").size());
+                    assertEquals(12, confirmed.path("editableRules").path("body").path("normal").path("fontSizePt").asDouble());
+                    assertEquals("宋体", confirmed.path("editableRules").path("body").path("normal").path("chineseFont").asText());
+                    assertEquals("Arial", confirmed.path("editableRules").path("body").path("normal").path("latinFont").asText());
+                    assertEquals(0, confirmed.path("editableRules").path("body").path("normal").path("leftIndentCm").asDouble());
+                    assertEquals(0, confirmed.path("editableRules").path("body").path("normal").path("spaceBefore").path("value").asDouble());
+                    assertEquals(10.5, confirmed.path("editableRules").path("captions").path("figure").path("fontSizePt").asDouble());
+                    assertEquals(12, confirmed.path("editableRules").path("details").path("reference").path("fontSizePt").asDouble());
+                    Files.copy((Path) invocation.getArgument(0), (Path) invocation.getArgument(2));
+                    return new WordFormatProcessRunner.ProcessResult(1, List.of(), List.of());
+                });
+        AuthContext.setUserId(19L);
+        WordFormatJobVO submitted = service.submit(upload("template", "规范.docx", docx), upload("source", "论文.docx", docx), "", true);
+        WordFormatJobVO ready = waitForStatus(submitted.id(), "AWAITING_CONFIRMATION");
+        JsonNode shownRules = new ObjectMapper().valueToTree(ready.result().get("editableRules"));
+        assertEquals(5, shownRules.size());
+        assertEquals(16, shownRules.path("headings").path("level1").path("fontSizePt").asDouble());
+        service.confirm(submitted.id(), Map.of());
+        WordFormatJobVO completed = waitForTerminal(submitted.id());
+        assertEquals("SUCCESS", completed.status());
+        assertEquals(ready.result().get("editableRules"), completed.result().get("editableRules"));
     }
 
     @Test

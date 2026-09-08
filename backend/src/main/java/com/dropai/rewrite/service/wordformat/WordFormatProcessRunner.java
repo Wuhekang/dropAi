@@ -154,33 +154,8 @@ public class WordFormatProcessRunner {
             Consumer<ProgressEvent> progressConsumer
     ) throws Exception {
         Path worker = resolveWorkerPath();
-        List<String> command = new ArrayList<>();
-        command.add(properties.python());
-        command.add("-X");
-        command.add("utf8");
-        command.add(worker.toString());
-        command.add("--source");
-        command.add(source.toString());
-        command.add("--template");
-        command.add(template.toString());
-        command.add("--output");
-        command.add(output.toString());
-        command.add("--result-json");
-        command.add(resultJson.toString());
-        if (instructionsFile != null) {
-            command.add("--instructions-file");
-            command.add(instructionsFile.toString());
-        }
-        if (useDoubao) {
-            command.add("--use-doubao");
-        }
-        if (analyzeOnly) {
-            command.add("--analyze-only");
-        }
-        if (rulesFile != null) {
-            command.add("--rules-file");
-            command.add(rulesFile.toString());
-        }
+        List<String> command = workerCommand(worker, source, template, output, resultJson,
+                instructionsFile, useDoubao, analyzeOnly, rulesFile);
 
         ProcessBuilder builder = new ProcessBuilder(command);
         builder.directory(worker.getParent().toFile());
@@ -256,6 +231,25 @@ public class WordFormatProcessRunner {
                              Consumer<ProgressEvent> progressConsumer) throws Exception {
         return run(source, template, output, resultJson, instructionsFile, useDoubao,
                 false, null, progressConsumer);
+    }
+
+    List<String> workerCommand(Path worker, Path source, Path template, Path output, Path resultJson,
+                               Path instructionsFile, boolean useDoubao, boolean analyzeOnly, Path rulesFile) {
+        List<String> command = new ArrayList<>(List.of(properties.python(), "-X", "utf8", worker.toString(),
+                "--source", source.toString(), "--template", template.toString(),
+                "--output", output.toString(), "--result-json", resultJson.toString()));
+        if (instructionsFile != null) {
+            command.add("--instructions-file");
+            command.add(instructionsFile.toString());
+        }
+        // AI is an analysis-only capability, even when a legacy caller passes useDoubao=true.
+        if (analyzeOnly && useDoubao) command.add("--use-doubao");
+        if (analyzeOnly) command.add("--analyze-only");
+        if (rulesFile != null) {
+            command.add("--rules-file");
+            command.add(rulesFile.toString());
+        }
+        return command;
     }
 
     ProcessResult parseSuccessfulPayload(JsonNode payload) {

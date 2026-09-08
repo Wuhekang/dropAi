@@ -20,6 +20,24 @@ class WordFormatProcessRunnerTest {
     Path tempDir;
 
     @Test
+    void workerCommandOnlyPermitsAiDuringTemplateAnalysis() {
+        WordFormatProcessRunner runner = runner(tempDir.resolve("format_cli.py"), tempDir.resolve("python.exe"));
+        for (Path rulesFile : new Path[]{null, tempDir.resolve("confirmed-rules.json")}) {
+            var processing = runner.workerCommand(tempDir.resolve("format_cli.py"), tempDir.resolve("source.docx"),
+                    tempDir.resolve("template.docx"), tempDir.resolve("output.docx"), tempDir.resolve("result.json"),
+                    tempDir.resolve("instructions.txt"), true, false, rulesFile);
+            assertFalse(processing.contains("--use-doubao"));
+            assertFalse(processing.contains("--analyze-only"));
+            assertEquals(rulesFile != null, processing.contains("--rules-file"));
+        }
+        var analysis = runner.workerCommand(tempDir.resolve("format_cli.py"), tempDir.resolve("source.docx"),
+                tempDir.resolve("template.docx"), tempDir.resolve("output.docx"), tempDir.resolve("result.json"),
+                null, true, true, null);
+        assertTrue(analysis.contains("--use-doubao"));
+        assertTrue(analysis.contains("--analyze-only"));
+    }
+
+    @Test
     void pdfErrorsUseFixedSafeMessagesNotWorkerDiagnosticText() {
         assertTrue(new WordFormatProcessRunner.ProcessingException("PDF_TEXT_UNAVAILABLE").getMessage().contains("扫描件"));
         assertTrue(new WordFormatProcessRunner.ProcessingException("PDF_DEPENDENCY_MISSING").getMessage().contains("requirements-web.txt"));
