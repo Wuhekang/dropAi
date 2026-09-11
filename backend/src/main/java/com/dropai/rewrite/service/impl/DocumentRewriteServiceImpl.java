@@ -491,7 +491,7 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             if (!boundaryReached) {
                 if (useAbstractBoundary && isAbstractSectionTitle(trimmed)) {
                     boundaryReached = true;
-                    inBody = true;
+                    inBody = rewriteAbstractBody;
                 } else if (useAbstractBoundary && rewriteAbstractBody && isInlineAbstractParagraph(trimmed)) {
                     boundaryReached = true;
                     inBody = true;
@@ -507,7 +507,11 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             if (isTrailingProtectedSectionTitle(trimmed)) {
                 break;
             }
-            if (isAbstractSectionTitle(trimmed) || isBodyStartTitle(trimmed)) {
+            if (isAbstractSectionTitle(trimmed)) {
+                inBody = rewriteAbstractBody;
+                continue;
+            }
+            if (isBodyStartTitle(trimmed)) {
                 inBody = true;
                 continue;
             }
