@@ -5,7 +5,10 @@ import com.dropai.rewrite.vo.DocumentRewriteJobVO;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.apache.poi.xwpf.usermodel.XWPFParagraph;
 import org.apache.poi.xwpf.usermodel.XWPFRun;
+import org.apache.poi.xwpf.usermodel.XWPFStyle;
 import org.junit.jupiter.api.Test;
+import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTStyle;
+import org.openxmlformats.schemas.wordprocessingml.x2006.main.STStyleType;
 
 import java.lang.reflect.Method;
 import java.util.List;
@@ -187,6 +190,29 @@ class DocumentContentGuardTests {
     }
 
     @Test
+    void startsAtLocalizedHeadingStyleAfterCatalogWhenHeadingHasNoNumber() throws Exception {
+        try (XWPFDocument document = new XWPFDocument()) {
+            addHeadingStyle(document, "2", "Heading 1");
+
+            XWPFParagraph coverHeading = document.createParagraph();
+            coverHeading.setStyle("2");
+            coverHeading.createRun().setText("封面标题不应作为正文起点");
+            document.createParagraph().createRun().setText("目录");
+            addCatalogEntry(document, "公司简介", "1");
+
+            XWPFParagraph bodyHeading = document.createParagraph();
+            bodyHeading.setStyle("2");
+            bodyHeading.createRun().setText("公司简介");
+            document.createParagraph().createRun().setText("这是无编号一级标题后需要处理的正文段落。");
+            document.createParagraph().createRun().setText("参考文献");
+
+            List<?> targets = collectRewriteTargets(document);
+
+            assertThat(targets).hasSize(1);
+        }
+    }
+
+    @Test
     void startsAtNoSpaceBodyHeadingWithoutTreatingCatalogOrCaptionsAsBody() throws Exception {
         try (XWPFDocument document = new XWPFDocument()) {
             document.createParagraph().createRun().setText("封面文字");
@@ -240,5 +266,13 @@ class DocumentContentGuardTests {
         run.setText(title);
         run.addTab();
         run.setText(pageNumber);
+    }
+
+    private void addHeadingStyle(XWPFDocument document, String styleId, String styleName) {
+        CTStyle ctStyle = CTStyle.Factory.newInstance();
+        ctStyle.setStyleId(styleId);
+        ctStyle.setType(STStyleType.PARAGRAPH);
+        ctStyle.addNewName().setVal(styleName);
+        document.createStyles().addStyle(new XWPFStyle(ctStyle));
     }
 }

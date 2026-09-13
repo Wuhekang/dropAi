@@ -16,6 +16,7 @@ import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.apache.poi.xwpf.usermodel.XWPFParagraph;
 import org.apache.poi.xwpf.usermodel.XWPFRun;
 import org.apache.poi.xwpf.usermodel.XWPFSDT;
+import org.apache.poi.xwpf.usermodel.XWPFStyle;
 import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTRPr;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
@@ -479,6 +480,7 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
                 .map(text -> text == null ? "" : text.trim())
                 .anyMatch(text -> isAbstractSectionTitle(text)
                         || (rewriteAbstractBody && isInlineAbstractParagraph(text)));
+        XWPFParagraph catalogBodyStart = useAbstractBoundary ? null : findFirstBodyHeadingAfterCatalog(document);
         if (!useAbstractBoundary && !hasCatalogBoundary(document)) {
             throw new IllegalArgumentException("未识别到摘要或目录，无法确定正文处理起点");
         }
@@ -498,7 +500,7 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
                     if (shouldRewriteBodyParagraph(paragraph, trimmed, job.getMode())) {
                         targets.add(new RewriteTarget(index, paragraph, trimmed));
                     }
-                } else if (!useAbstractBoundary && isBodyStartTitle(trimmed)) {
+                } else if (!useAbstractBoundary && isSameParagraph(paragraph, catalogBodyStart)) {
                     boundaryReached = true;
                     inBody = true;
                 }
@@ -540,17 +542,48 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
 
     private boolean hasCatalogBoundary(XWPFDocument document) {
         return document.getBodyElements().stream()
-                .map(element -> {
-                    if (element instanceof XWPFParagraph paragraph) {
-                        return paragraph.getText();
-                    }
-                    if (element instanceof XWPFSDT contentControl) {
-                        return contentControl.getContent().getText();
-                    }
-                    return "";
-                })
-                .map(this::normalizeChargeText)
-                .anyMatch(text -> text.matches("(?s)^目\\s*录(?:\\s.*)?$"));
+                .map(this::bodyElementText)
+                .anyMatch(this::isCatalogBoundaryText);
+    }
+
+    private XWPFParagraph findFirstBodyHeadingAfterCatalog(XWPFDocument document) {
+        boolean catalogReached = false;
+        for (var element : document.getBodyElements()) {
+            String text = bodyElementText(element);
+            if (!catalogReached) {
+                catalogReached = isCatalogBoundaryText(text);
+                continue;
+            }
+            if (!(element instanceof XWPFParagraph paragraph)) {
+                continue;
+            }
+            String trimmed = text == null ? "" : text.trim();
+            if (trimmed.isEmpty() || isCatalogLine(trimmed)) {
+                continue;
+            }
+            if (isBodyStartTitle(trimmed) || isHeadingParagraph(paragraph, trimmed)) {
+                return paragraph;
+            }
+        }
+        return null;
+    }
+
+    private String bodyElementText(Object element) {
+        if (element instanceof XWPFParagraph paragraph) {
+            return paragraph.getText();
+        }
+        if (element instanceof XWPFSDT contentControl) {
+            return contentControl.getContent().getText();
+        }
+        return "";
+    }
+
+    private boolean isCatalogBoundaryText(String text) {
+        return normalizeChargeText(text).matches("(?s)^目\\s*录(?:\\s.*)?$");
+    }
+
+    private boolean isSameParagraph(XWPFParagraph left, XWPFParagraph right) {
+        return left != null && right != null && (left == right || left.getCTP() == right.getCTP());
     }
 
     private List<RewriteResult> rewriteTargetsWithLengthControl(
@@ -1112,11 +1145,25 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
     }
 
     private boolean isHeadingParagraph(XWPFParagraph paragraph, String text) {
-        String style = paragraph.getStyle();
-        if (style != null && style.toLowerCase().contains("heading")) {
+        String styleId = paragraph.getStyle();
+        if (isHeadingStyleName(styleId)) {
             return true;
         }
+        if (styleId != null && paragraph.getDocument() != null && paragraph.getDocument().getStyles() != null) {
+            XWPFStyle style = paragraph.getDocument().getStyles().getStyle(styleId);
+            if (style != null && isHeadingStyleName(style.getName())) {
+                return true;
+            }
+        }
         return isHeadingLikeNumberedTitle(text);
+    }
+
+    private boolean isHeadingStyleName(String styleName) {
+        if (styleName == null) {
+            return false;
+        }
+        String normalized = styleName.replaceAll("\\s+", "").toLowerCase(Locale.ROOT);
+        return normalized.matches("heading[1-9]") || normalized.matches("标题[1-9]");
     }
 
     private boolean isCommonBodyStartTitle(String text) {
