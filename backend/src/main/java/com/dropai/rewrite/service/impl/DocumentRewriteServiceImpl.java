@@ -8,6 +8,7 @@ import com.dropai.rewrite.service.DocumentRewriteService;
 import com.dropai.rewrite.service.DocumentCharacterCountService;
 import com.dropai.rewrite.service.AiRewriteService;
 import com.dropai.rewrite.service.PointService;
+import com.dropai.rewrite.service.TextStructureProtector;
 import com.dropai.rewrite.service.WorkflowRewriteService;
 import com.dropai.rewrite.vo.DocumentParagraphJobVO;
 import com.dropai.rewrite.vo.DocumentPrecheckVO;
@@ -60,6 +61,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 public class DocumentRewriteServiceImpl implements DocumentRewriteService {
 
     private static final Logger log = LoggerFactory.getLogger(DocumentRewriteServiceImpl.class);
+    private static final int MAX_DOUBLE_CANDIDATE_CHAINS = 3;
 
     private final WorkflowRewriteService workflowRewriteService;
     private final AiRewriteService aiRewriteService;
@@ -354,6 +356,7 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             log.info("docx生成开始 jobId={} outputPath={} startTime={}",
                     jobId, outputPath.toAbsolutePath(), LocalDateTime.now());
             Files.createDirectories(outputPath.getParent());
+            assertNoUnresolvedPlaceholders(document);
             try (OutputStream outputStream = Files.newOutputStream(outputPath)) {
                 document.write(outputStream);
             }
@@ -607,22 +610,97 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
 
             update(job, "RUNNING", "双降增强：第二阶段正在执行智能降AI");
             List<RewriteResult> humanizeResults = rewriteTargetsConcurrently(job, humanizeTargets, "humanize", "智能降AI");
+            humanizeResults = selectPassingDoubleCandidates(job, targets, humanizeResults);
             List<RewriteResult> mergedResults = new ArrayList<>();
             mergedResults.addAll(failedRewriteResults);
             mergedResults.addAll(humanizeResults);
             List<RewriteResult> finalResults = applyLengthControl(
                     job, targets, mergedResults, rule, "double_final", 1
             );
-            return validateCompletedResults(targets, finalResults);
+            return validateCompletedResults(targets, validateRewriteQuality(targets, finalResults));
         }
 
         List<RewriteResult> results = rewriteTargetsConcurrently(job, targets, job.getMode(), job.getModeName());
         if ("rewrite".equals(job.getMode())) {
             logLengthMetrics(job, "rewrite_no_retry", lengthMetrics(rule.originalLength(), results), 0);
-            return validateCompletedResults(targets, results);
+            return validateCompletedResults(targets, validateRewriteQuality(targets, results));
         }
         List<RewriteResult> finalResults = applyLengthControl(job, targets, results, rule, job.getMode(), 1);
         return validateCompletedResults(targets, finalResults);
+    }
+
+    private List<RewriteResult> selectPassingDoubleCandidates(DocumentRewriteJobVO job,
+                                                               List<RewriteTarget> originals,
+                                                               List<RewriteResult> firstChainResults) {
+        Map<Integer, RewriteTarget> originalByIndex = originals.stream()
+                .collect(Collectors.toMap(RewriteTarget::index, target -> target));
+        List<RewriteResult> selected = new ArrayList<>();
+        for (RewriteResult first : firstChainResults) {
+            RewriteTarget original = originalByIndex.get(first.index());
+            if (original == null || !first.success()) {
+                selected.add(first);
+                continue;
+            }
+            RewriteQualityGate.Assessment assessment = RewriteQualityGate.assess(
+                    original.text(), first.rewrittenText());
+            if (assessment.accepted()) {
+                selected.add(first);
+                continue;
+            }
+
+            RewriteResult accepted = null;
+            String lastReason = String.join("；", assessment.issues());
+            for (int chain = 2; chain <= MAX_DOUBLE_CANDIDATE_CHAINS; chain++) {
+                try {
+                    // Each retry is a complete rewrite -> unchanged humanize chain. A humanized
+                    // result is never fed back into plagiarism rewriting.
+                    String rewritten = rewriteByMode(original.text(), "rewrite", job.getPlatform());
+                    String humanized = rewriteByMode(rewritten, "humanize", job.getPlatform());
+                    assessment = RewriteQualityGate.assess(original.text(), humanized);
+                    if (assessment.accepted()) {
+                        accepted = new RewriteResult(original.index(), original.paragraph(), humanized, true, "");
+                        updateParagraphStatus(job, original.index(), "SUCCESS", humanized,
+                                "双降第 " + chain + " 条完整候选链通过质量门禁");
+                        break;
+                    }
+                    lastReason = String.join("；", assessment.issues());
+                } catch (RuntimeException exception) {
+                    lastReason = readableMessage(exception);
+                }
+            }
+            if (accepted != null) {
+                selected.add(accepted);
+            } else {
+                String message = "三个双降候选均未通过最终门禁：" + lastReason;
+                updateParagraphStatus(job, original.index(), "FAILED", original.text(), message);
+                selected.add(new RewriteResult(original.index(), original.paragraph(),
+                        original.text(), false, message));
+            }
+        }
+        return selected;
+    }
+
+    private List<RewriteResult> validateRewriteQuality(List<RewriteTarget> originals,
+                                                       List<RewriteResult> results) {
+        Map<Integer, RewriteTarget> originalByIndex = originals.stream()
+                .collect(Collectors.toMap(RewriteTarget::index, target -> target));
+        List<RewriteResult> checked = new ArrayList<>();
+        for (RewriteResult result : results) {
+            RewriteTarget original = originalByIndex.get(result.index());
+            if (original == null || !result.success()) {
+                checked.add(result);
+                continue;
+            }
+            RewriteQualityGate.Assessment assessment = RewriteQualityGate.assess(
+                    original.text(), result.rewrittenText());
+            if (assessment.accepted()) {
+                checked.add(result);
+            } else {
+                checked.add(new RewriteResult(result.index(), result.paragraph(), original.text(), false,
+                        "最终降重门禁未通过：" + String.join("；", assessment.issues())));
+            }
+        }
+        return checked;
     }
 
     private List<RewriteResult> applyLengthControl(
@@ -981,6 +1059,20 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
 
     private List<XWPFParagraph> collectParagraphs(XWPFDocument document) {
         return new java.util.ArrayList<>(document.getParagraphs());
+    }
+
+    private void assertNoUnresolvedPlaceholders(XWPFDocument document) {
+        if (document == null) return;
+        if (TextStructureProtector.containsUnresolvedPlaceholder(document.getDocument().xmlText())) {
+            throw new IllegalStateException("结果文档仍包含未还原的保护占位符，已停止导出");
+        }
+        boolean headerLeak = document.getHeaderList().stream()
+                .anyMatch(header -> TextStructureProtector.containsUnresolvedPlaceholder(header.getText()));
+        boolean footerLeak = document.getFooterList().stream()
+                .anyMatch(footer -> TextStructureProtector.containsUnresolvedPlaceholder(footer.getText()));
+        if (headerLeak || footerLeak) {
+            throw new IllegalStateException("结果文档页眉页脚仍包含未还原的保护占位符，已停止导出");
+        }
     }
 
     private String normalizeChargeText(String text) {

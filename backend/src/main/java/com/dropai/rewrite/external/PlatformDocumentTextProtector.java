@@ -11,6 +11,9 @@ import java.util.regex.Pattern;
 /** Protects evidence-bearing tokens before a paragraph is sent to the platform Skill. */
 @Component
 public class PlatformDocumentTextProtector {
+    private static final Pattern UNRESOLVED_AI_PLACEHOLDER = Pattern.compile(
+            "\\[\\[DROP_AI_PROTECTED_[0-9]+]]"
+    );
     private static final Pattern PROTECTED = Pattern.compile(
             "(?i)(\\[\\[DROP_STYLE_PROTECTED_[0-9]+]]|https?://\\S+|`[^`\\r\\n]+`|\\[[0-9０-９,，;；\\-–—~～\\s]+]|"
                     + "(?:图|表|公式)\\s*[0-9０-９]+(?:[.．\\-—][0-9０-９]+)*|"
@@ -68,6 +71,9 @@ public class PlatformDocumentTextProtector {
 
     private ProtectedText protect(String source, AtomicInteger sequence, Pattern protectedPattern) {
         String text = source == null ? "" : source;
+        if (UNRESOLVED_AI_PLACEHOLDER.matcher(text).find()) {
+            throw new IllegalStateException("输入正文包含未还原的保护占位符");
+        }
         AtomicInteger ids = sequence == null ? new AtomicInteger() : sequence;
         Map<String, String> segments = new LinkedHashMap<>();
         Matcher matcher = protectedPattern.matcher(text);
@@ -98,6 +104,9 @@ public class PlatformDocumentTextProtector {
             }
             for (Map.Entry<String, String> entry : segments.entrySet()) {
                 value = value.replace(entry.getKey(), entry.getValue());
+            }
+            if (UNRESOLVED_AI_PLACEHOLDER.matcher(value).find()) {
+                throw new IllegalStateException("平台 Skill 输出仍包含未还原的保护占位符");
             }
             return value.trim();
         }

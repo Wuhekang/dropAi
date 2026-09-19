@@ -84,4 +84,27 @@ class TextStructureProtectorTests {
         assertThat(protectedText.text()).isEqualTo(source);
         assertThat(protectedText.restore("改写时可调整这些数字")).isEqualTo("改写时可调整这些数字");
     }
+
+    @Test
+    void rewriteProtectionKeepsFactsWithoutChangingHumanizeProtection() {
+        String source = "YX132M1-6电机采用380V、50Hz和4kW参数，结果见图4-1及文献[12]。";
+
+        TextStructureProtector.ProtectedText protectedText = protector.protectForRewrite(source);
+
+        assertThat(protectedText.text()).doesNotContain("YX132M1-6", "380V", "50Hz", "4kW", "图4-1", "[12]");
+        assertThat(protectedText.restore(protectedText.text())).isEqualTo(source);
+    }
+
+    @Test
+    void rejectsUnknownOrLeakedPlaceholder() {
+        assertThatThrownBy(() -> protector.protectForRewrite("式中：[[DROP_AI_PROTECTED_1]]为槽口高度"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("未还原");
+
+        TextStructureProtector.ProtectedText protectedText = protector.protectForRewrite("2025年完成测试");
+        assertThatThrownBy(() -> protectedText.restore(
+                protectedText.text() + "[[DROP_AI_PROTECTED_999]]"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("仍包含未还原");
+    }
 }

@@ -51,34 +51,36 @@ class DocumentRewriteFinalGuardTest {
     }
 
     @Test
-    void doubleModeCanTravelFromOriginalToDraftAndBackAfterBothStagesProcessIt() throws Exception {
-        String original = "该平台负责核对资料，并记录现场处理情况。";
+    void doubleModeDiscardsHumanizedCandidateThatReturnsTooCloseToOriginal() throws Exception {
+        String original = "带式输送机主要由驱动装置、传动滚筒、改向滚筒、托辊、机架和张紧装置组成，各部分共同完成物料的连续输送。";
         WorkflowRewriteService workflow = mock(WorkflowRewriteService.class);
-        WorkflowRewriteService.WorkflowRewriteResult rewriteDraft = workflowResult("资料由平台核对，现场情况同步记录。");
+        WorkflowRewriteService.WorkflowRewriteResult rewriteDraft = workflowResult("动力装置带动滚筒运行，机架和托辊支撑输送带，其余构件负责改向和张紧。");
         WorkflowRewriteService.WorkflowRewriteResult humanizeDraft = workflowResult(original);
-        when(workflow.execute(anyString(), anyString())).thenReturn(rewriteDraft, humanizeDraft);
+        WorkflowRewriteService.WorkflowRewriteResult retryRewrite = workflowResult("输送带运行所需动力由电机和减速器提供。主动滚筒牵引带体，托辊承担载荷，尾部滚筒与张紧机构分别处理回程方向和伸长量。");
+        WorkflowRewriteService.WorkflowRewriteResult acceptedHumanize = workflowResult("电机经减速器把动力传给主动滚筒，输送带由此获得牵引。带体和物料重量落在托辊上，尾部滚筒负责回程，张紧机构补偿伸长。");
+        when(workflow.execute(anyString(), anyString()))
+                .thenReturn(rewriteDraft, humanizeDraft, retryRewrite, acceptedHumanize);
 
         try (XWPFDocument document = documentWithBody(original)) {
             GuardResult result = runMode(workflow, document, original.length(), "double");
 
             assertThat(result.success()).isTrue();
-            assertThat(result.rewrittenText()).isEqualTo(original);
+            assertThat(result.rewrittenText()).isEqualTo(acceptedHumanize.getRewrittenText());
             assertThat(result.errorMessage()).isEmpty();
-            verify(workflow).execute(original, "rewrite");
+            verify(workflow, org.mockito.Mockito.times(2)).execute(original, "rewrite");
             verify(workflow).execute(rewriteDraft.getRewrittenText(), "humanize");
-            verifyNoMoreInteractions(workflow);
+            verify(workflow).execute(retryRewrite.getRewrittenText(), "humanize");
         }
     }
 
     @Test
-    void doubleModeStillRunsSecondStageWhenFirstStageReturnsOriginal() throws Exception {
-        String original = "该平台负责核对资料，并记录现场处理情况。";
+    void doubleModeFailsInsteadOfPublishingThreeUnchangedCandidateChains() throws Exception {
+        String original = "带式输送机主要由驱动装置、传动滚筒、改向滚筒、托辊、机架和张紧装置组成，各部分共同完成物料的连续输送。";
         WorkflowRewriteService workflow = workflowReturning(original);
         try (XWPFDocument document = documentWithBody(original)) {
-            assertThat(runMode(workflow, document, original.length(), "double").success()).isTrue();
-            verify(workflow).execute(original, "rewrite");
-            verify(workflow).execute(original, "humanize");
-            verifyNoMoreInteractions(workflow);
+            GuardResult result = runMode(workflow, document, original.length(), "double");
+            assertThat(result.success()).isFalse();
+            assertThat(result.errorMessage()).contains("三个双降候选");
         }
     }
 
@@ -110,15 +112,16 @@ class DocumentRewriteFinalGuardTest {
     }
 
     @Test
-    void pureRewriteKeepsItsExistingDocumentFlow() throws Exception {
-        String original = "该平台负责核对资料，并记录现场处理情况。";
+    void pureRewriteRejectsAnUnchangedLongParagraph() throws Exception {
+        String original = "带式输送机主要由驱动装置、传动滚筒、改向滚筒、托辊、机架和张紧装置组成，各部分共同完成物料的连续输送。";
         WorkflowRewriteService workflow = workflowReturning(original);
 
         try (XWPFDocument document = documentWithBody(original)) {
             GuardResult result = runMode(workflow, document, original.length(), "rewrite");
 
-            assertThat(result.success()).isTrue();
+            assertThat(result.success()).isFalse();
             assertThat(result.rewrittenText()).isEqualTo(original);
+            assertThat(result.errorMessage()).contains("最终降重门禁未通过");
         }
     }
 
@@ -136,7 +139,9 @@ class DocumentRewriteFinalGuardTest {
 
     private XWPFDocument documentWithBody(String body) {
         XWPFDocument document = new XWPFDocument();
-        document.createParagraph().createRun().setText("摘要");
+        document.createParagraph().createRun().setText("目录");
+        document.createParagraph().createRun().setText("第一章 绪论 1");
+        document.createParagraph().createRun().setText("第一章 绪论");
         document.createParagraph().createRun().setText(body);
         document.createParagraph().createRun().setText("参考文献");
         return document;

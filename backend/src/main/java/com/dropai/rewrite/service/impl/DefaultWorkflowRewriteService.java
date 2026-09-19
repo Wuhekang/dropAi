@@ -16,6 +16,7 @@ import java.util.List;
 @Service
 public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
 
+    private static final int MAX_REWRITE_CANDIDATES = 3;
     private static final List<String> BANNED_TEMPLATE_WORDS = Arrays.asList("首先", "其次", "最后", "综上所述");
     private static final List<String> BANNED_AI_PHRASES = Arrays.asList(
             "值得注意的是", "随着", "由此可见", "具有重要意义", "内在机制", "实践启示", "有效路径"
@@ -36,11 +37,14 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
     public WorkflowRewriteResult execute(String originalText, String rewriteType) {
         List<WorkflowStepVO> steps = new ArrayList<>();
         String preparedText = preprocess(originalText);
-        boolean strictNativeProtection = requiresStrictNativeProtection(rewriteType);
-        TextStructureProtector.ProtectedText protectedText = textStructureProtector.protect(
-                preparedText, strictNativeProtection
-        );
         String baseRewriteType = baseRewriteType(rewriteType);
+        boolean rewriteOnlyType = "rewrite".equals(baseRewriteType)
+                || "智能降重".equals(baseRewriteType)
+                || "降重复改写".equals(baseRewriteType);
+        boolean strictNativeProtection = requiresStrictNativeProtection(rewriteType);
+        TextStructureProtector.ProtectedText protectedText = rewriteOnlyType
+                ? textStructureProtector.protectForRewrite(preparedText)
+                : textStructureProtector.protect(preparedText, strictNativeProtection);
         String platformName = platformName(platformCode(rewriteType));
         steps.add(new WorkflowStepVO("TEXT_PREPROCESS", "文本预处理", "清理多余空白并保留原始语义边界"));
         String protectedContentName = strictNativeProtection
@@ -58,31 +62,33 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
         String strategy = planStrategy(baseRewriteType, originalRisk) + "；平台约束：" + platformName;
         steps.add(new WorkflowStepVO("REWRITE_PLAN", "改写策略规划 Skill", strategy));
 
-        String sentenceRewritten = rewriteSentences(protectedText.text(), rewriteType, originalRisk.getScore(), "");
-        try {
-            sentenceRewritten = protectedText.restore(sentenceRewritten);
-        } catch (TextStructureProtector.ProtectedContentIntegrityException ex) {
-            String retryFeedback = "上一版未通过受保护内容完整性检查：" + ex.getMessage() + "。"
-                    + "请重新处理本段并完整输出正文；所有 [[DROP_AI_PROTECTED_数字]] 占位符必须逐字保留，"
-                    + "每个恰好出现一次且保持原顺序。不要自行还原数字，不得删除、重复或移动占位符。"
-                    + "按照 Skill 处理后的有效正文可以与原文相同，不要为了制造差异改变受保护内容。";
-            String retried = rewriteSentences(protectedText.text(), rewriteType, originalRisk.getScore(), retryFeedback);
-            sentenceRewritten = protectedText.restore(retried);
-            steps.add(new WorkflowStepVO("PROTECTED_CONTENT_RETRY", "受保护内容重试",
-                    "首轮输出遗漏、重复或调换了受保护内容占位符，已携带具体错误重试一次并通过完整性检查"));
-        }
-
         boolean aiReductionType = "humanize".equals(baseRewriteType)
                 || "double".equals(baseRewriteType)
                 || "降低AI写作痕迹".equals(baseRewriteType)
                 || "深度降低AI写作痕迹".equals(baseRewriteType)
                 || "双降".equals(baseRewriteType);
-        boolean rewriteOnlyType = "rewrite".equals(baseRewriteType)
-                || "智能降重".equals(baseRewriteType)
-                || "降重复改写".equals(baseRewriteType);
         boolean useModelHumanize = !aiReductionType && !rewriteOnlyType && originalRisk.getScore() >= 45;
-        String polished = academicPolish(sentenceRewritten, baseRewriteType);
-        String finalText = humanizeExpression(polished, useModelHumanize);
+        String finalText;
+        if (rewriteOnlyType) {
+            finalText = rewriteWithHardGate(preparedText, protectedText, rewriteType,
+                    originalRisk.getScore(), steps);
+        } else {
+            String sentenceRewritten = rewriteSentences(protectedText.text(), rewriteType, originalRisk.getScore(), "");
+            try {
+                sentenceRewritten = protectedText.restore(sentenceRewritten);
+            } catch (TextStructureProtector.ProtectedContentIntegrityException ex) {
+                String retryFeedback = "上一版未通过受保护内容完整性检查：" + ex.getMessage() + "。"
+                        + "请重新处理本段并完整输出正文；所有 [[DROP_AI_PROTECTED_数字]] 占位符必须逐字保留，"
+                        + "每个恰好出现一次且保持原顺序。不要自行还原数字，不得删除、重复或移动占位符。"
+                        + "按照 Skill 处理后的有效正文可以与原文相同，不要为了制造差异改变受保护内容。";
+                String retried = rewriteSentences(protectedText.text(), rewriteType, originalRisk.getScore(), retryFeedback);
+                sentenceRewritten = protectedText.restore(retried);
+                steps.add(new WorkflowStepVO("PROTECTED_CONTENT_RETRY", "受保护内容重试",
+                        "首轮输出遗漏、重复或调换了受保护内容占位符，已携带具体错误重试一次并通过完整性检查"));
+            }
+            String polished = academicPolish(sentenceRewritten, baseRewriteType);
+            finalText = humanizeExpression(polished, useModelHumanize);
+        }
         requireNonBlankOutput(finalText, "模型输出经清理后为空");
 
         String sentenceProvider = aiRewriteService.lastCallProvider();
@@ -107,6 +113,42 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
         result.setQualityCheck(qualityCheck);
         result.setWorkflowSteps(steps);
         return result;
+    }
+
+    private String rewriteWithHardGate(String original,
+                                       TextStructureProtector.ProtectedText protectedText,
+                                       String rewriteType,
+                                       int beforeScore,
+                                       List<WorkflowStepVO> steps) {
+        String feedback = "";
+        RewriteQualityGate.Assessment lastAssessment = null;
+        RuntimeException lastFailure = null;
+        for (int attempt = 1; attempt <= MAX_REWRITE_CANDIDATES; attempt++) {
+            try {
+                String draft = rewriteSentences(protectedText.text(), rewriteType, beforeScore, feedback);
+                String restored = protectedText.restore(draft);
+                String candidate = humanizeExpression(academicPolish(restored, "rewrite"), false);
+                requireNonBlankOutput(candidate, "模型输出经清理后为空");
+                lastAssessment = RewriteQualityGate.assess(original, candidate);
+                if (lastAssessment.accepted()) {
+                    steps.add(new WorkflowStepVO("REWRITE_HARD_GATE", "降重硬性门禁",
+                            "第 " + attempt + " 个候选通过连续片段、四字片段与结构变化检查"));
+                    return candidate;
+                }
+                feedback = RewriteQualityGate.feedback(lastAssessment);
+                lastFailure = null;
+            } catch (TextStructureProtector.ProtectedContentIntegrityException exception) {
+                lastFailure = exception;
+                feedback = "上一版未通过受保护内容完整性检查：" + exception.getMessage() + "。"
+                        + "所有 [[DROP_AI_PROTECTED_数字]] 占位符必须逐字保留一次并保持原顺序；"
+                        + "不要自行还原、删除、重复或移动占位符。";
+            }
+        }
+        if (lastAssessment != null && !lastAssessment.accepted()) {
+            throw new IllegalStateException("三个降重候选均未通过硬性门禁："
+                    + String.join("；", lastAssessment.issues()));
+        }
+        throw new IllegalStateException("三个降重候选均未通过受保护内容校验", lastFailure);
     }
 
     private String preprocess(String text) {

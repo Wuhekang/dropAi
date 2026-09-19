@@ -225,14 +225,33 @@ class DefaultWorkflowRewriteServiceTest {
     }
 
     @Test
-    void rewriteModeKeepsItsExistingSingleCallFlow() {
+    void rewriteModeRetriesUntilAStructurallyDifferentCandidatePasses() {
         AiRewriteService aiRewriteService = mock(AiRewriteService.class);
+        String original = "带式输送机主要由驱动装置、传动滚筒、改向滚筒、托辊、机架和张紧装置组成，各部分共同完成物料的连续输送。";
+        String accepted = "输送带运行时，动力从电机经减速器传到主动滚筒。托辊承担带体载荷，尾部滚筒改变回程方向，张紧机构补偿带体伸长。";
         when(aiRewriteService.rewriteWithFeedback(anyString(), anyString(), anyInt(), anyString()))
-                .thenReturn(ORIGINAL);
+                .thenAnswer(invocation -> invocation.getArgument(0))
+                .thenReturn(accepted);
         DefaultWorkflowRewriteService service = service(aiRewriteService);
 
-        assertThat(service.execute(ORIGINAL, "rewrite").getRewrittenText()).isEqualTo(ORIGINAL);
-        verify(aiRewriteService, times(1))
+        assertThat(service.execute(original, "rewrite").getRewrittenText()).isEqualTo(accepted);
+        ArgumentCaptor<String> feedback = ArgumentCaptor.forClass(String.class);
+        verify(aiRewriteService, times(2))
+                .rewriteWithFeedback(anyString(), anyString(), anyInt(), feedback.capture());
+        assertThat(feedback.getAllValues().get(1)).contains("降重硬性门禁");
+    }
+
+    @Test
+    void rewriteModeFailsAfterThreeWeakCandidates() {
+        AiRewriteService aiRewriteService = mock(AiRewriteService.class);
+        String original = "带式输送机主要由驱动装置、传动滚筒、改向滚筒、托辊、机架和张紧装置组成，各部分共同完成物料的连续输送。";
+        when(aiRewriteService.rewriteWithFeedback(anyString(), anyString(), anyInt(), anyString()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        assertThatThrownBy(() -> service(aiRewriteService).execute(original, "rewrite"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("三个降重候选");
+        verify(aiRewriteService, times(3))
                 .rewriteWithFeedback(anyString(), anyString(), anyInt(), anyString());
     }
 

@@ -10,6 +10,10 @@ import java.util.regex.Pattern;
 @Service
 public class TextStructureProtector {
 
+    private static final Pattern UNRESOLVED_PLACEHOLDER = Pattern.compile(
+            "\\[\\[DROP_(?:AI|STYLE)_PROTECTED_[0-9]+]]"
+    );
+
     private static final String STRUCTURED_PROTECTED_BLOCKS =
             "```.*?```|"
                     + "(?:^\\|.*\\|\\R^\\|[\\s:|\\-]+\\|(?:\\R^\\|.*\\|)+)|"
@@ -25,6 +29,18 @@ public class TextStructureProtector {
                     + "(?:(?<![0-9０-９])[-+]?[0-9０-９]+(?:[.,．][0-9０-９]+)*(?:[%％])?(?![0-9０-９]))|"
                     + URL_AND_INLINE_CODE_BLOCKS + ")"
     );
+    private static final Pattern REWRITE_PROTECTED_BLOCKS = Pattern.compile(
+            "(?ms)(" + STRUCTURED_PROTECTED_BLOCKS + "|"
+                    + "(?:\\[[0-9０-９][0-9０-９,，、\\-–—\\s]*\\])|"
+                    + "(?:(?:图|表|公式)\\s*[0-9０-９]+(?:[.．\\-—][0-9０-９]+)*)|"
+                    + "(?:(?<![0-9０-９])[-+]?[0-9０-９]+(?:[.,．][0-9０-９]+)*"
+                    + "(?:[%％]|ms|s|kg|g|mm|cm|m|kW|KW|V|Hz|HZ|N|℃)?(?![\\p{L}\\p{N}_]))|"
+                    + "(?<![A-Za-z0-9_])(?=[A-Za-z0-9_.:/\\-]*[A-Za-z])"
+                    + "(?=[A-Za-z0-9_.:/\\-]*[0-9])[A-Za-z0-9_][A-Za-z0-9_.:/\\-]*(?![A-Za-z0-9_])|"
+                    + "(?<![A-Za-z0-9_])[A-Z]{2,}(?:[0-9]+)?(?![A-Za-z0-9_])|"
+                    + "(?<![A-Za-z0-9_])[A-Za-z](?![A-Za-z0-9_])|"
+                    + URL_AND_INLINE_CODE_BLOCKS + ")"
+    );
 
     public ProtectedText protect(String text) {
         return protect(text, false);
@@ -32,6 +48,7 @@ public class TextStructureProtector {
 
     public ProtectedText protect(String text, boolean strictNativeHumanizeProtection) {
         String source = text == null ? "" : text;
+        rejectLeakedPlaceholder(source);
         Pattern pattern = strictNativeHumanizeProtection ? NATIVE_HUMANIZE_PROTECTED_BLOCKS : PROTECTED_BLOCKS;
         Matcher matcher = pattern.matcher(source);
         Map<String, String> segments = new LinkedHashMap<>();
@@ -44,6 +61,33 @@ public class TextStructureProtector {
         }
         matcher.appendTail(protectedText);
         return new ProtectedText(protectedText.toString(), segments, strictNativeHumanizeProtection);
+    }
+
+    /** Protects immutable evidence for plagiarism rewriting without changing humanize protection. */
+    public ProtectedText protectForRewrite(String text) {
+        String source = text == null ? "" : text;
+        rejectLeakedPlaceholder(source);
+        Matcher matcher = REWRITE_PROTECTED_BLOCKS.matcher(source);
+        Map<String, String> segments = new LinkedHashMap<>();
+        StringBuffer protectedText = new StringBuffer();
+        int index = 0;
+        while (matcher.find()) {
+            String token = "[[DROP_AI_PROTECTED_" + index++ + "]]";
+            segments.put(token, matcher.group());
+            matcher.appendReplacement(protectedText, Matcher.quoteReplacement(token));
+        }
+        matcher.appendTail(protectedText);
+        return new ProtectedText(protectedText.toString(), segments, true);
+    }
+
+    public static boolean containsUnresolvedPlaceholder(String text) {
+        return text != null && UNRESOLVED_PLACEHOLDER.matcher(text).find();
+    }
+
+    private static void rejectLeakedPlaceholder(String source) {
+        if (containsUnresolvedPlaceholder(source)) {
+            throw new ProtectedContentIntegrityException("输入正文包含未还原的保护占位符");
+        }
     }
 
     public record ProtectedText(String text, Map<String, String> segments, boolean validateIntegrity) {
@@ -68,6 +112,9 @@ public class TextStructureProtector {
             }
             for (Map.Entry<String, String> entry : segments.entrySet()) {
                 restored = restored.replace(entry.getKey(), entry.getValue());
+            }
+            if (containsUnresolvedPlaceholder(restored)) {
+                throw new ProtectedContentIntegrityException("模型输出仍包含未还原的保护占位符");
             }
             return restored;
         }
