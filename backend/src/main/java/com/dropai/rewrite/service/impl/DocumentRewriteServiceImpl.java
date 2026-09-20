@@ -61,8 +61,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 public class DocumentRewriteServiceImpl implements DocumentRewriteService {
 
     private static final Logger log = LoggerFactory.getLogger(DocumentRewriteServiceImpl.class);
-    private static final int MAX_DOUBLE_CANDIDATE_CHAINS = 3;
-
     private final WorkflowRewriteService workflowRewriteService;
     private final AiRewriteService aiRewriteService;
     private final DoubaoProperties doubaoProperties;
@@ -596,28 +594,10 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
     ) throws Exception {
         LengthRule rule = lengthRule(originalTextLength);
         if ("double".equals(job.getMode())) {
-            update(job, "RUNNING", "双降增强：第一阶段正在执行智能降重");
-            List<RewriteResult> rewriteResults = rewriteTargetsConcurrently(job, targets, "rewrite", "智能降重");
-            logLengthMetrics(job, "double_rewrite_no_retry", lengthMetrics(rule.originalLength(), rewriteResults), 0);
-
-            List<RewriteResult> failedRewriteResults = rewriteResults.stream()
-                    .filter(result -> !result.success())
-                    .toList();
-            List<RewriteTarget> humanizeTargets = rewriteResults.stream()
-                    .filter(RewriteResult::success)
-                    .map(result -> new RewriteTarget(result.index(), result.paragraph(), result.rewrittenText()))
-                    .toList();
-
-            update(job, "RUNNING", "双降增强：第二阶段正在执行智能降AI");
-            List<RewriteResult> humanizeResults = rewriteTargetsConcurrently(job, humanizeTargets, "humanize", "智能降AI");
-            humanizeResults = selectPassingDoubleCandidates(job, targets, humanizeResults);
-            List<RewriteResult> mergedResults = new ArrayList<>();
-            mergedResults.addAll(failedRewriteResults);
-            mergedResults.addAll(humanizeResults);
-            List<RewriteResult> finalResults = applyLengthControl(
-                    job, targets, mergedResults, rule, "double_final", 1
-            );
-            return validateCompletedResults(targets, validateRewriteQuality(targets, finalResults));
+            update(job, "RUNNING", "双降增强：逐段执行智能降重，完成后立即执行智能降AI");
+            List<RewriteResult> results = rewriteDoubleTargetsConcurrently(job, targets);
+            logLengthMetrics(job, "double_paragraph_chain", lengthMetrics(rule.originalLength(), results), 0);
+            return validateCompletedResults(targets, results);
         }
 
         List<RewriteResult> results = rewriteTargetsConcurrently(job, targets, job.getMode(), job.getModeName());
@@ -627,57 +607,6 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
         }
         List<RewriteResult> finalResults = applyLengthControl(job, targets, results, rule, job.getMode(), 1);
         return validateCompletedResults(targets, finalResults);
-    }
-
-    private List<RewriteResult> selectPassingDoubleCandidates(DocumentRewriteJobVO job,
-                                                               List<RewriteTarget> originals,
-                                                               List<RewriteResult> firstChainResults) {
-        Map<Integer, RewriteTarget> originalByIndex = originals.stream()
-                .collect(Collectors.toMap(RewriteTarget::index, target -> target));
-        List<RewriteResult> selected = new ArrayList<>();
-        for (RewriteResult first : firstChainResults) {
-            RewriteTarget original = originalByIndex.get(first.index());
-            if (original == null || !first.success()) {
-                selected.add(first);
-                continue;
-            }
-            RewriteQualityGate.Assessment assessment = RewriteQualityGate.assess(
-                    original.text(), first.rewrittenText());
-            if (assessment.accepted()) {
-                selected.add(first);
-                continue;
-            }
-
-            RewriteResult accepted = null;
-            String lastReason = String.join("；", assessment.issues());
-            for (int chain = 2; chain <= MAX_DOUBLE_CANDIDATE_CHAINS; chain++) {
-                try {
-                    // Each retry is a complete rewrite -> unchanged humanize chain. A humanized
-                    // result is never fed back into plagiarism rewriting.
-                    String rewritten = rewriteByMode(original.text(), "rewrite", job.getPlatform());
-                    String humanized = rewriteByMode(rewritten, "humanize", job.getPlatform());
-                    assessment = RewriteQualityGate.assess(original.text(), humanized);
-                    if (assessment.accepted()) {
-                        accepted = new RewriteResult(original.index(), original.paragraph(), humanized, true, "");
-                        updateParagraphStatus(job, original.index(), "SUCCESS", humanized,
-                                "双降第 " + chain + " 条完整候选链通过质量门禁");
-                        break;
-                    }
-                    lastReason = String.join("；", assessment.issues());
-                } catch (RuntimeException exception) {
-                    lastReason = readableMessage(exception);
-                }
-            }
-            if (accepted != null) {
-                selected.add(accepted);
-            } else {
-                String message = "三个双降候选均未通过最终门禁：" + lastReason;
-                updateParagraphStatus(job, original.index(), "FAILED", original.text(), message);
-                selected.add(new RewriteResult(original.index(), original.paragraph(),
-                        original.text(), false, message));
-            }
-        }
-        return selected;
     }
 
     private List<RewriteResult> validateRewriteQuality(List<RewriteTarget> originals,
@@ -1055,6 +984,84 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             paragraphExecutor.shutdown();
         }
         return results;
+    }
+
+    /**
+     * Runs double reduction as one fixed chain per paragraph. Paragraphs may run concurrently,
+     * but a paragraph always finishes plagiarism rewriting before its AI-style rewrite starts.
+     */
+    private List<RewriteResult> rewriteDoubleTargetsConcurrently(
+            DocumentRewriteJobVO job,
+            List<RewriteTarget> targets
+    ) throws Exception {
+        List<RewriteResult> results = new ArrayList<>();
+        if (targets.isEmpty()) {
+            return results;
+        }
+
+        int concurrency = Math.max(1, Math.min(doubaoProperties.getDocumentConcurrency(), 64));
+        concurrency = Math.min(concurrency, targets.size());
+        ExecutorService paragraphExecutor = Executors.newFixedThreadPool(concurrency);
+        CompletionService<RewriteResult> completionService = new ExecutorCompletionService<>(paragraphExecutor);
+        try {
+            for (RewriteTarget target : targets) {
+                completionService.submit(() -> {
+                    long startedAt = System.currentTimeMillis();
+                    log.info("DoubleParagraphChainStart jobId={} paragraphIndex={} originalLength={}",
+                            job.getJobId(), target.index(), target.text().length());
+                    try {
+                        updateParagraphStatus(job, target.index(), "RUNNING", null,
+                                "双降处理中：正在执行智能降重");
+                        String rewritten = rewriteByMode(target.text(), "rewrite", job.getPlatform());
+                        requireParagraphOutput(rewritten, "智能降重未返回有效段落内容");
+
+                        updateParagraphStatus(job, target.index(), "RUNNING", rewritten,
+                                "双降处理中：智能降重已完成，正在执行智能降AI");
+                        String humanized = rewriteByMode(rewritten, "humanize", job.getPlatform());
+                        requireParagraphOutput(humanized, "智能降AI未返回有效段落内容");
+
+                        updateParagraphStatus(job, target.index(), "SUCCESS", humanized,
+                                "双降已完成：本段已依次完成智能降重和智能降AI");
+                        log.info("DoubleParagraphChainResult jobId={} paragraphIndex={} status=SUCCESS "
+                                        + "rewriteLength={} finalLength={} elapsedMs={}",
+                                job.getJobId(), target.index(), rewritten.length(), humanized.length(),
+                                System.currentTimeMillis() - startedAt);
+                        return new RewriteResult(
+                                target.index(), target.paragraph(), humanized, true, ""
+                        );
+                    } catch (Exception exception) {
+                        String message = readableMessage(exception);
+                        updateParagraphStatus(job, target.index(), "FAILED", target.text(),
+                                "双降处理失败，保留原文：" + message);
+                        log.warn("DoubleParagraphChainResult jobId={} paragraphIndex={} status=FAILED "
+                                        + "errorType={} elapsedMs={}",
+                                job.getJobId(), target.index(), exception.getClass().getSimpleName(),
+                                System.currentTimeMillis() - startedAt);
+                        return new RewriteResult(
+                                target.index(), target.paragraph(), target.text(), false, message
+                        );
+                    }
+                });
+            }
+
+            for (int completed = 0; completed < targets.size(); completed++) {
+                RewriteResult result = completionService.take().get();
+                results.add(result);
+                job.setProcessedParagraphs(completed + 1);
+                job.setMessage("双降逐段处理中：" + job.getProcessedParagraphs() + "/" + targets.size()
+                        + " 个段落已完成降重→降AI，线程数 " + concurrency);
+                job.setUpdatedAt(LocalDateTime.now());
+            }
+        } finally {
+            paragraphExecutor.shutdown();
+        }
+        return results;
+    }
+
+    private void requireParagraphOutput(String text, String message) {
+        if (text == null || text.isBlank()) {
+            throw new IllegalStateException(message);
+        }
     }
 
     private List<XWPFParagraph> collectParagraphs(XWPFDocument document) {
