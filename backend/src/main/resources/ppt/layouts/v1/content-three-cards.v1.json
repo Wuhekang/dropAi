@@ -4,8 +4,8 @@
   "layoutVersion": "1.0.0",
   "supports": {
     "pageTypes": ["CONTENT"],
-    "pagePurposes": ["BACKGROUND", "PROBLEM", "METHOD", "DESIGN", "IMPLEMENTATION", "RESULT", "TEST", "SUMMARY"],
-    "contentTypes": ["KEY_POINTS", "COMPARISON", "METRICS"],
+    "pagePurposes": ["BACKGROUND", "PROBLEM", "METHOD", "DESIGN", "DATABASE", "IMPLEMENTATION", "RESULT", "TEST", "SUMMARY"],
+    "contentTypes": ["NARRATIVE", "KEY_POINTS", "PROCESS", "COMPARISON", "ARCHITECTURE", "METRICS", "MIXED"],
     "imageRoles": [],
     "assetKinds": [],
     "tableKinds": [],
@@ -14,12 +14,12 @@
   "slots": {
     "title": { "gridColumn": 1, "gridSpan": 12, "topIn": 0.4, "heightIn": 0.7 },
     "keyPoints": { "gridColumn": 1, "gridSpan": 12, "topIn": 1.52, "heightIn": 3.75 },
-    "conclusion": { "gridColumn": 2, "gridSpan": 10, "topIn": 5.55, "heightIn": 0.9 },
+    "conclusion": { "gridColumn": 2, "gridSpan": 10, "topIn": 5.4, "heightIn": 1.25 },
     "footer": { "gridColumn": 1, "gridSpan": 12, "topIn": 6.85, "heightIn": 0.25 }
   },
   "constraints": {
     "titleMaxLines": 1,
-    "bodyMaxChars": 220,
+    "bodyMaxChars": 420,
     "captionMaxChars": 0,
     "imageFit": "CONTAIN",
     "cropAllowed": false,

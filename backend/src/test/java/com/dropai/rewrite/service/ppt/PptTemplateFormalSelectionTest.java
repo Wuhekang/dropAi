@@ -33,7 +33,7 @@ class PptTemplateFormalSelectionTest {
     }
 
     @Test
-    void listExposesExactlyTwoTrustedRenderingV1BuiltInsAndMarksUploadsUnsupported() {
+    void listExposesAllTrustedRenderingV1BuiltInsAndMarksUploadsUnsupported() {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
         Map<String, Object> uploaded = new LinkedHashMap<>();
         uploaded.put("id", "legacy-upload");
@@ -48,8 +48,16 @@ class PptTemplateFormalSelectionTest {
                 .map(row -> String.valueOf(row.get("templatePackId")))
                 .toList();
         assertEquals(List.of(PptTemplateService.ACADEMIC_PURPLE,
-                PptTemplateService.SMALL_BEAR_WATERCOLOR_BLUE_V1), trusted);
-        Map<String, Object> legacy = templates.get(2);
+                PptTemplateService.SMALL_BEAR_WATERCOLOR_BLUE_V1,
+                "electrical-college-defense-v1",
+                "bear-morandi-coral-v1",
+                "bear-morandi-olive-v1",
+                "bear-minimal-tan-v1",
+                "bear-editorial-olive-v1",
+                "bear-floral-beige-v1"), trusted);
+        Map<String, Object> legacy = templates.stream()
+                .filter(row -> !Boolean.TRUE.equals(row.get("renderingV1Supported")))
+                .findFirst().orElseThrow();
         assertFalse((Boolean) legacy.get("renderingV1Supported"));
         assertFalse((Boolean) legacy.get("trusted"));
         assertEquals(null, legacy.get("templatePackId"));

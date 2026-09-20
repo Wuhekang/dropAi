@@ -34,6 +34,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.security.MessageDigest;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 
 @Service
 public class PptDocumentParser {
@@ -87,12 +88,27 @@ public class PptDocumentParser {
             int chapter = 0, imageIndex = 0; boolean acceptImages = false;
             String currentHeading = "", previousText = "", previousPreviousText = "";
             for (IBodyElement element : doc.getBodyElements()) {
-                if (element instanceof XWPFTable table) { String text=clean(table.getText()); if(!text.isBlank())blocks.add(text); continue; }
+                if (element instanceof XWPFTable table) {
+                    Set<org.openxmlformats.schemas.wordprocessingml.x2006.main.CTTc> seenCells =
+                            java.util.Collections.newSetFromMap(new IdentityHashMap<>());
+                    for (var row : table.getRows()) {
+                        for (var cell : row.getTableCells()) {
+                            if (!seenCells.add(cell.getCTTc())) continue;
+                            for (XWPFParagraph cellParagraph : cell.getParagraphs()) {
+                                String text = clean(cellParagraph.getText());
+                                if (text.isBlank()) continue;
+                                blocks.add(text);
+                                if (isTableHeading(text)) headings.add(text);
+                            }
+                        }
+                    }
+                    continue;
+                }
                 if (!(element instanceof XWPFParagraph paragraph)) continue;
                 String text=clean(paragraph.getText());
                 if(!text.isBlank()){
                     blocks.add(text);
-                    if(isHeading(doc,paragraph)){
+                    if(isHeading(doc,paragraph)||isParagraphHeading(paragraph)){
                         headings.add(text);
                         if(isEndMatterHeading(text))acceptImages=false;
                         else if(!isFrontMatterHeading(text)){
@@ -144,6 +160,16 @@ public class PptDocumentParser {
     private static int headingLevel(XWPFDocument document,XWPFParagraph paragraph){String id=String.valueOf(paragraph.getStyle());String name="";try{var style=document.getStyles()==null?null:document.getStyles().getStyle(id);name=style==null?"":String.valueOf(style.getName());}catch(Exception ignored){}String marker=(id+" "+name).toLowerCase(Locale.ROOT);var matcher=java.util.regex.Pattern.compile("(?:heading|标题|標題)\\s*([1-3])").matcher(marker);if(matcher.find())return Integer.parseInt(matcher.group(1));if(id.matches("[1-3]"))return Integer.parseInt(id);String text=clean(paragraph.getText());return text.matches("^(?:第?[一二三四五六七八九十0-9]+章|[一二三四五六七八九十0-9]+[、.．]\\s*[^0-9]).*")?1:2;}
     private static boolean isFrontMatterHeading(String text){String v=clean(text).replaceAll("\\s+","").toLowerCase(Locale.ROOT);return v.contains("摘要")||v.equals("abstract")||v.contains("关键词")||v.contains("目录");}
     private static boolean isEndMatterHeading(String text){String v=clean(text).replaceAll("\\s+","");return List.of("结论","总结","参考文献","致谢","附录").stream().anyMatch(v::contains);}
+    private static boolean isTableHeading(String text){String v=clean(text).replaceAll("\\s+","");return isStructuralHeadingText(v)||v.matches("^\\d+[.．、].{2,40}$");}
+    private static boolean isParagraphHeading(XWPFParagraph paragraph){
+        if(!isStructuralHeadingText(paragraph.getText()))return false;
+        for(XWPFRun run:paragraph.getRuns()){
+            Double size=run.getFontSizeAsDouble();String family=run.getFontFamily();
+            if(Boolean.TRUE.equals(run.isBold())||(size!=null&&size>=14)||(family!=null&&family.contains("黑体")))return true;
+        }
+        return false;
+    }
+    private static boolean isStructuralHeadingText(String text){String v=clean(text).replaceAll("\\s+","");return v.matches("^[一二三四五六七八九十]、.{2,40}$")||v.matches("^（[一二三四五六七八九十]）.{2,40}$");}
     private static int chapterNumber(String text){String v=clean(text);var decimal=java.util.regex.Pattern.compile("^(\\d+)(?:[.．]\\d+)+").matcher(v);if(decimal.find())return Integer.parseInt(decimal.group(1));var arabic=java.util.regex.Pattern.compile("^第?(\\d+)章").matcher(v);if(arabic.find())return Integer.parseInt(arabic.group(1));var chinese=java.util.regex.Pattern.compile("^第([一二三四五六七八九十])章").matcher(v);if(!chinese.find())return 0;return switch(chinese.group(1)){case"一"->1;case"二"->2;case"三"->3;case"四"->4;case"五"->5;case"六"->6;case"七"->7;case"八"->8;case"九"->9;case"十"->10;default->0;};}
     private static String nearestCaption(String current,String previous,String previousPrevious,String heading){String before=clean(previous);if(isFigureCaptionOnly(before)&&isImageContextParagraph(previousPrevious))return shorten(before+"\n"+clean(previousPrevious),320);if(isImageContextParagraph(before))return shorten(before,240);String same=clean(current);if(isImageContextParagraph(same))return shorten(same,240);return shorten(clean(heading).isBlank()?"源文档图片":heading,80);}
     private static boolean isFigureCaptionOnly(String value){return clean(value).matches("^(?:图|Figure|Fig\\.)\\s*\\d+(?:[-.．]\\d+)?(?:\\s+.{1,30})?$");}

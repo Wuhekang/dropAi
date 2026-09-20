@@ -34,11 +34,13 @@ record SlotGeometry(long xEmu, long yEmu, long widthEmu, long heightEmu) {
         BigDecimal x = theme.safeLeftIn().add(step.multiply(BigDecimal.valueOf(column - 1L), MC), MC);
         BigDecimal width = columnWidth.multiply(BigDecimal.valueOf(span), MC)
                 .add(gutter.multiply(BigDecimal.valueOf(span - 1L), MC), MC);
+        BigDecimal[] vertical = mapVertical(
+                slot.path("topIn").decimalValue(), slot.path("heightIn").decimalValue(), theme);
         return new SlotGeometry(
                 Emu.inches(x),
-                Emu.inches(slot.path("topIn").decimalValue()),
+                Emu.inches(vertical[0]),
                 Emu.inches(width),
-                Emu.inches(slot.path("heightIn").decimalValue()));
+                Emu.inches(vertical[1]));
     }
 
     static SlotGeometry from(LayoutRecipe.Slot slot, ThemePlanStyleResolver theme) {
@@ -64,11 +66,33 @@ record SlotGeometry(long xEmu, long yEmu, long widthEmu, long heightEmu) {
         BigDecimal x = theme.safeLeftIn().add(step.multiply(BigDecimal.valueOf(column - 1L), MC), MC);
         BigDecimal width = columnWidth.multiply(BigDecimal.valueOf(span), MC)
                 .add(gutter.multiply(BigDecimal.valueOf(span - 1L), MC), MC);
+        BigDecimal[] vertical = mapVertical(slot.topIn(), slot.heightIn(), theme);
         return new SlotGeometry(
                 Emu.inches(x),
-                Emu.inches(slot.topIn()),
+                Emu.inches(vertical[0]),
                 Emu.inches(width),
-                Emu.inches(slot.heightIn()));
+                Emu.inches(vertical[1]));
+    }
+
+    private static BigDecimal[] mapVertical(
+            BigDecimal top,
+            BigDecimal height,
+            ThemePlanStyleResolver theme
+    ) {
+        BigDecimal recipeTop = new BigDecimal("0.4");
+        BigDecimal slideHeight = BigDecimal.valueOf(theme.slideHeightEmu()).divide(Emu.PER_INCH, MC);
+        BigDecimal safeTop = BigDecimal.valueOf(theme.safeTopEmu()).divide(Emu.PER_INCH, MC);
+        BigDecimal safeBottom = BigDecimal.valueOf(theme.safeBottomEmu()).divide(Emu.PER_INCH, MC);
+        BigDecimal recipeBottom = slideHeight.subtract(safeBottom, MC);
+        BigDecimal recipeHeight = recipeBottom.subtract(recipeTop, MC);
+        BigDecimal safeHeight = recipeBottom.subtract(safeTop, MC);
+        BigDecimal scale = safeHeight.divide(recipeHeight, MC);
+        BigDecimal mappedTop = safeTop.add(top.subtract(recipeTop, MC).multiply(scale, MC), MC);
+        BigDecimal mappedHeight = top.compareTo(new BigDecimal("0.5")) <= 0
+                || top.compareTo(new BigDecimal("6.6")) >= 0
+                ? height
+                : height.multiply(scale, MC);
+        return new BigDecimal[]{mappedTop, mappedHeight};
     }
 
     long rightEmu() {

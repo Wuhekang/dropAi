@@ -3,7 +3,7 @@
 ```json
 {
   "skillName": "ppt-generation",
-  "skillVersion": "2.0.0",
+  "skillVersion": "2.2.0",
   "skillHash": "sha256 of canonical packaged SKILL.md",
   "provider": "kimi_ark",
   "model": "configured provider model id",

@@ -23,7 +23,8 @@
     "captionMaxChars": 0,
     "imageFit": "CONTAIN",
     "cropAllowed": false,
-    "minImageAreaRatio": 0
+    "minImageAreaRatio": 0,
+    "allowedContainedTextComponents": ["keyPointCard"]
   },
   "fallbacks": []
 }

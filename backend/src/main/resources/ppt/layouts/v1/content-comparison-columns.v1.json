@@ -4,7 +4,7 @@
   "layoutVersion": "1.1.0",
   "supports": {
     "pageTypes": ["CONTENT"],
-    "pagePurposes": ["PROBLEM", "METHOD", "DESIGN", "RESULT", "TEST"],
+    "pagePurposes": ["BACKGROUND", "PROBLEM", "METHOD", "DESIGN", "RESULT", "TEST", "SUMMARY"],
     "contentTypes": ["COMPARISON", "METRICS"],
     "imageRoles": [],
     "assetKinds": [],
@@ -13,9 +13,9 @@
   },
   "slots": {
     "title": { "gridColumn": 1, "gridSpan": 12, "topIn": 0.4, "heightIn": 0.7 },
-    "body": { "gridColumn": 1, "gridSpan": 6, "topIn": 1.55, "heightIn": 4.7 },
-    "keyPoints": { "gridColumn": 7, "gridSpan": 6, "topIn": 1.55, "heightIn": 4.7 },
-    "conclusion": { "gridColumn": 2, "gridSpan": 10, "topIn": 6.38, "heightIn": 0.4 },
+    "body": { "gridColumn": 1, "gridSpan": 5, "topIn": 1.55, "heightIn": 4.05 },
+    "keyPoints": { "gridColumn": 8, "gridSpan": 5, "topIn": 1.55, "heightIn": 4.05 },
+    "conclusion": { "gridColumn": 2, "gridSpan": 10, "topIn": 5.85, "heightIn": 0.72 },
     "footer": { "gridColumn": 1, "gridSpan": 12, "topIn": 6.85, "heightIn": 0.25 }
   },
   "constraints": {

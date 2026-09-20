@@ -74,6 +74,10 @@ class RenderingTemplatePackRegistryTest {
                 RenderingTemplatePackRegistry.selectedPackId(Map.of(
                         "template_id", RenderingTemplatePackRegistry.SMALL_BEAR_WATERCOLOR_BLUE_V1,
                         "template_style", RenderingTemplatePackRegistry.SMALL_BEAR_WATERCOLOR_BLUE_V1)));
+        assertEquals(RenderingTemplatePackRegistry.ELECTRICAL_COLLEGE_DEFENSE_V1,
+                RenderingTemplatePackRegistry.selectedPackId(Map.of(
+                        "template_id", RenderingTemplatePackRegistry.ELECTRICAL_COLLEGE_DEFENSE_V1,
+                        "template_style", RenderingTemplatePackRegistry.ELECTRICAL_COLLEGE_DEFENSE_V1)));
 
         assertThrows(IllegalArgumentException.class,
                 () -> RenderingTemplatePackRegistry.selectedPackId(Map.of("template_style", "CUSTOM")));

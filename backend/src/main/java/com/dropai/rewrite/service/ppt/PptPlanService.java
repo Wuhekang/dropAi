@@ -113,9 +113,11 @@ public class PptPlanService {
                 integer(analysis.get("characterCount"), 0),
                 integer(analysis.get("imageCount"), parsedAssets.size()),
                 integer(analysis.get("filteredAssetCount"), 0));
-        var input = inputAdapter.fromParsedDocument(document, "computer");
+        String majorType = inferMajorType(project, blocks);
+        var input = inputAdapter.fromParsedDocument(document, majorType);
 
         Map<String, String> metadata = new LinkedHashMap<>(input.metadata());
+        metadata.put("majorType",majorType);
         put(metadata, "title", project.get("topic"));
         put(metadata, "englishTitle", project.get("english_topic"));
         put(metadata, "presenter", project.get("presenter"));
@@ -123,6 +125,7 @@ public class PptPlanService {
         put(metadata, "advisor", project.get("advisor"));
         put(metadata, "studentNumber", project.get("student_number"));
         metadata = new LinkedHashMap<>(metadataNormalizer.normalizeValues(metadata));
+        if (isOpeningProposal(blocks)) metadata.put("presentationMode", "OPENING_PROPOSAL");
         input = new PptContentPlannerV2.PlannerInput(
                 metadata,
                 input.chapters(),
@@ -134,7 +137,7 @@ public class PptPlanService {
         List<PptContentPlannerV2.CandidatePage> candidates = planned.chapters().stream()
                 .flatMap(chapter -> chapter.candidatePages().stream())
                 .toList();
-        int max = Math.max(8, integer(project.get("target_slide_count"), 16) - 3);
+        int targetSlides=integer(project.get("target_slide_count"),16);int max=isOpeningProposal(blocks)?Math.max(4,targetSlides-8):Math.max(8,targetSlides-3);
         var outline = outlinePlanner.plan(new PptOutlinePlannerV1.OutlineRequest(candidates, max));
         var validated = outlineValidator.validate(
                 new PptOutlineValidatorV1.ValidationRequest(metadata, outline));
@@ -224,6 +227,9 @@ public class PptPlanService {
         return result;
     }
     private void put(Map<String,String> target,String key,Object value){String text=string(value);if(!text.isBlank())target.put(key,text);}
+    private String inferMajorType(Map<String,Object> project,List<String> blocks){return resolveMajorType(string(project.get("major")),string(project.get("topic")),blocks);}
+    static String resolveMajorType(String major,String topic,List<String> blocks){String text=((major==null?"":major)+" "+(topic==null?"":topic)+" "+String.join(" ",blocks==null?List.of():blocks)).toLowerCase(java.util.Locale.ROOT);if(text.contains("护理")||text.contains("患者"))return "nursing";if(text.contains("spring boot")||text.contains("java")||text.contains("vue")||text.contains("系统设计"))return "computer";if(List.of("财务","会计","审计","金融","经济","工商管理","企业管理","市场营销","人力资源","行政管理","公共管理","物流管理","电子商务","法学","汉语言","教育学","新闻传播","旅游管理").stream().anyMatch(text::contains))return "social_science";return "general";}
+    private boolean isOpeningProposal(List<String> blocks){return PptOpeningProposalDetector.isOpeningProposal(blocks);}
     @Transactional
     public Map<String, Object> save(String projectId, List<Map<String, Object>> pages) {
         Long userId = AuthContext.requireUserId();

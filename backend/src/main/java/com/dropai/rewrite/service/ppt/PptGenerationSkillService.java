@@ -17,7 +17,7 @@ import java.util.Map;
 @Service
 public class PptGenerationSkillService {
     public static final String NAME = "ppt-generation";
-    public static final String VERSION = "2.0.0";
+    public static final String VERSION = "2.2.0";
     public static final String CLASSPATH_LOCATION = "skills/ppt-generation/SKILL.md";
     static final String PROVIDER_RULES_BEGIN = "<!-- DOUBAO_OUTLINE_RULES_BEGIN -->";
     static final String PROVIDER_RULES_END = "<!-- DOUBAO_OUTLINE_RULES_END -->";
@@ -127,7 +127,7 @@ public class PptGenerationSkillService {
     private void validate(String body) {
         List<String> required = List.of(
             "name: ppt-generation",
-            "Skill version: 2.0.0",
+            "Skill version: 2.2.0",
             "DocumentParser",
             "ContentPlanner",
             "OutlinePlanner",
@@ -137,6 +137,10 @@ public class PptGenerationSkillService {
             "candidatePages",
             "answerQuestion",
             "metadata isolation",
+            "国内外文献对比环形图",
+            "四象限研究价值卡",
+            "研究逻辑时间轴",
+            "指标与进度路径图",
             PROVIDER_RULES_BEGIN,
             PROVIDER_RULES_END
         );

@@ -23,9 +23,9 @@ import java.util.regex.Pattern;
 @Component
 public final class PptMetadataNormalizer {
     private static final int FRONT_MATTER_BLOCK_LIMIT = 60;
-    private static final String LABEL = "(?:课\\s*题\\s*名\\s*称|题\\s*目|学\\s*院|院\\s*校|学\\s*校|"
-            + "专\\s*业|学\\s*号|学\\s*生\\s*姓\\s*名|姓\\s*名|汇\\s*报\\s*人|"
-            + "指\\s*导\\s*教\\s*师|教\\s*师|答\\s*辩\\s*日\\s*期|完\\s*成\\s*日\\s*期|日\\s*期)";
+    private static final String LABEL = "(?:课\\s*题\\s*名\\s*称|题\\s*目|学\\s*院|院\\s*[（(]\\s*部\\s*[）)]|院\\s*校|学\\s*校|"
+            + "专\\s*业|学\\s*号|学\\s*生\\s*姓\\s*名|学\\s*生|姓\\s*名|汇\\s*报\\s*人|"
+            + "指\\s*导\\s*教\\s*师|教\\s*师|开\\s*题\\s*日\\s*期|答\\s*辩\\s*日\\s*期|完\\s*成\\s*日\\s*期|日\\s*期)";
     private static final Pattern FIELD = Pattern.compile(
             "^(?:\\d{8,}\\s*)?(" + LABEL + ")(?:(?:\\s*[:：﹕︰]\\s*)|(?:\\s+))(.+?)\\s*$",
             Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
@@ -42,6 +42,13 @@ public final class PptMetadataNormalizer {
         Map<String, LinkedHashSet<String>> found = new LinkedHashMap<>();
         for (int index = 0; index < blocks.size(); index++) {
             String block = normalizeFrontMatterBlock(blocks.get(index));
+            String pairedKey = keyForStandaloneLabel(block);
+            if (pairedKey != null && index + 1 < blocks.size()) {
+                String next = normalizeFrontMatterBlock(blocks.get(index + 1));
+                if (!next.isBlank() && keyForStandaloneLabel(next) == null && !isMissingPlaceholder(next)) {
+                    add(found, pairedKey, normalizeValue(pairedKey, next));
+                }
+            }
             Matcher matcher = FIELD.matcher(block);
             if (matcher.matches()) {
                 String key = keyForLabel(matcher.group(1));
@@ -58,7 +65,40 @@ public final class PptMetadataNormalizer {
 
         Map<String, String> result = new LinkedHashMap<>();
         found.forEach((key, values) -> result.put(key, resolveUnique(key, values)));
+        if (!result.containsKey("title")) {
+            inferStandaloneTitle(blocks).ifPresent(value -> result.put("title", value));
+        }
         return Map.copyOf(result);
+    }
+
+    private java.util.Optional<String> inferStandaloneTitle(List<String> blocks) {
+        return blocks.stream()
+                .map(this::normalizeFrontMatterBlock)
+                .filter(this::isStandaloneTitleCandidate)
+                .max((left, right) -> Integer.compare(titleCandidateScore(left), titleCandidateScore(right)));
+    }
+
+    private boolean isStandaloneTitleCandidate(String value) {
+        String compact = value.replaceAll("\\s+", "");
+        if (compact.length() < 8 || compact.length() > 80 || containsField(value) || isDate(value)) {
+            return false;
+        }
+        if (compact.matches(".*[，。；！？:：].*")
+                || compact.matches(".*(?:声明|承诺|摘要|关键词|目录|毕业设计|毕业论文|学生信息表|指导教师评语).*")
+                || BODY_BOUNDARY.matcher(compact).matches()) {
+            return false;
+        }
+        return compact.matches("^基于.+(?:设计与实现|设计|实现|研究|分析)$")
+                || compact.matches("^.+(?:系统|平台|装置|设备)(?:的)?(?:设计与实现|设计|实现|研究|分析)$");
+    }
+
+    private int titleCandidateScore(String value) {
+        String compact = value.replaceAll("\\s+", "");
+        int score = compact.length();
+        if (compact.startsWith("基于")) score += 100;
+        if (compact.endsWith("设计与实现")) score += 50;
+        if (compact.contains("系统")) score += 20;
+        return score;
     }
 
     public Map<String, String> normalizeValues(Map<String, String> metadata) {
@@ -68,7 +108,10 @@ public final class PptMetadataNormalizer {
         }
         metadata.forEach((key, value) -> {
             if (key != null && value != null && !value.isBlank()) {
-                normalized.put(key, normalizeValue(key, value));
+                String result = normalizeValue(key, value);
+                if (!result.isBlank()) {
+                    normalized.put(key, result);
+                }
             }
         });
         return Map.copyOf(normalized);
@@ -102,7 +145,9 @@ public final class PptMetadataNormalizer {
                 .replaceFirst("[：:﹕︰]+$", "")
                 .strip();
         return switch (key) {
-            case "presenter", "advisor" -> normalizePersonName(normalized);
+            case "presenter" -> normalizePersonName(normalized);
+            case "advisor" -> normalizePersonName(normalized.replaceFirst(
+                    "\\s*(?:教授|副教授|讲师|助教|高级工程师|工程师|导师|老师)\\s*$", ""));
             case "studentNumber" -> normalized.replaceAll("\\s+", "");
             case "date" -> normalizeDate(normalized);
             default -> normalized;
@@ -131,6 +176,9 @@ public final class PptMetadataNormalizer {
     }
 
     private String normalizeDate(String value) {
+        if (isMissingDatePlaceholder(value)) {
+            return "";
+        }
         Matcher matcher = CHINESE_DATE.matcher(value);
         if (!matcher.matches()) {
             matcher = SEPARATED_DATE.matcher(value);
@@ -154,6 +202,13 @@ public final class PptMetadataNormalizer {
         }
     }
 
+    private boolean isMissingDatePlaceholder(String value) {
+        String compact = value == null ? "" : value.replaceAll("\\s+", "");
+        return compact.isBlank()
+                || (!compact.matches(".*\\d.*")
+                && compact.matches("[�□〇○年月日/_?？*._\\-]+"));
+    }
+
     private boolean isDate(String value) {
         return CHINESE_DATE.matcher(value).matches() || SEPARATED_DATE.matcher(value).matches();
     }
@@ -164,6 +219,9 @@ public final class PptMetadataNormalizer {
 
     private String keyForLabel(String label) {
         String normalized = label.replaceAll("\\s+", "").toLowerCase(Locale.ROOT);
+        if (normalized.matches("院[（(]?部[）)]?|学院|院校|学校")) return "institution";
+        if (normalized.matches("学生姓名|学生|姓名|汇报人")) return "presenter";
+        if (normalized.matches("开题日期|答辩日期|完成日期|日期")) return "date";
         return switch (normalized) {
             case "题目", "课题名称" -> "title";
             case "学院", "院校", "学校" -> "institution";
@@ -171,9 +229,28 @@ public final class PptMetadataNormalizer {
             case "学号" -> "studentNumber";
             case "学生姓名", "姓名", "汇报人" -> "presenter";
             case "指导教师", "教师" -> "advisor";
-            case "答辩日期", "完成日期", "日期" -> "date";
+            case "开题日期", "答辩日期", "完成日期", "日期" -> "date";
             default -> throw new IllegalArgumentException("Unknown PPT metadata label: " + label);
         };
+    }
+
+    private String keyForStandaloneLabel(String value) {
+        String normalized = value == null ? "" : value.replaceAll("\\s+", "").replace("：", "").replace(":", "");
+        return switch (normalized) {
+            case "题目", "课题名称", "论文（设计）题目", "论文题目" -> "title";
+            case "学院", "院(部)", "院（部）", "院校", "学校" -> "institution";
+            case "专业" -> "major";
+            case "学号" -> "studentNumber";
+            case "学生姓名", "学生", "姓名", "汇报人" -> "presenter";
+            case "指导教师", "教师" -> "advisor";
+            case "开题日期", "答辩日期", "完成日期", "日期", "开题时间" -> "date";
+            default -> null;
+        };
+    }
+
+    private boolean isMissingPlaceholder(String value) {
+        String compact = value == null ? "" : value.replaceAll("\\s+", "");
+        return compact.isBlank() || compact.matches("[年月日/_?？*._\\-]+");
     }
 
     private String resolveUnique(String key, Set<String> values) {

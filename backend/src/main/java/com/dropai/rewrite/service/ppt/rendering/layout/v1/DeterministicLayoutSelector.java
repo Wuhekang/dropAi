@@ -31,7 +31,13 @@ public final class DeterministicLayoutSelector {
     }
 
     public SelectedLayout select(PageLayoutFeatures features) {
+        return select(features, List.of());
+    }
+
+    /** Keeps structural rhythm deterministic without inspecting page wording. */
+    public SelectedLayout select(PageLayoutFeatures features, List<String> recentLayoutIds) {
         Objects.requireNonNull(features, "features");
+        Objects.requireNonNull(recentLayoutIds, "recentLayoutIds");
         String preferred = preferredLayout(features);
         List<ScoredRecipe> candidates = new ArrayList<>();
         for (LayoutRecipe recipe : catalog.recipes()) {
@@ -49,6 +55,16 @@ public final class DeterministicLayoutSelector {
                     "No compatible layout for structural features " + features);
         }
         ScoredRecipe selected = candidates.get(0);
+        if (recentLayoutIds.size() >= 2) {
+            String last = recentLayoutIds.get(recentLayoutIds.size() - 1);
+            String previous = recentLayoutIds.get(recentLayoutIds.size() - 2);
+            if (selected.recipe().layoutId().equals(last) && last.equals(previous)) {
+                selected = candidates.stream()
+                        .filter(candidate -> !candidate.recipe().layoutId().equals(last))
+                        .findFirst()
+                        .orElse(selected);
+            }
+        }
         return new SelectedLayout(
                 selected.recipe(),
                 selected.score(),
@@ -136,9 +152,14 @@ public final class DeterministicLayoutSelector {
         }
         return switch (features.contentType()) {
             case PROCESS -> LayoutIds.CONTENT_PROCESS_STEPS;
-            case COMPARISON -> LayoutIds.CONTENT_COMPARISON_COLUMNS;
+            case COMPARISON -> features.keyPointCount() == 4
+                    ? LayoutIds.CONTENT_THREE_CARDS
+                    : LayoutIds.CONTENT_COMPARISON_COLUMNS;
             case ARCHITECTURE -> LayoutIds.CONTENT_ARCHITECTURE_LAYERS;
-            case KEY_POINTS, METRICS -> features.keyPointCount() == 3
+            case METRICS -> features.keyPointCount() >= 4
+                    ? LayoutIds.CONTENT_PROCESS_STEPS
+                    : LayoutIds.CONTENT_THREE_CARDS;
+            case KEY_POINTS -> features.keyPointCount() >= 3 && features.keyPointCount() <= 4
                     ? LayoutIds.CONTENT_THREE_CARDS
                     : LayoutIds.CONTENT_SINGLE_INSIGHT;
             default -> LayoutIds.CONTENT_SINGLE_INSIGHT;

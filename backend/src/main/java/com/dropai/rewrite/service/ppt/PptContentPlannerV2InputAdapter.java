@@ -33,6 +33,7 @@ public class PptContentPlannerV2InputAdapter {
             }else paragraphs.add(clean);
         }
         if(!paragraphs.isEmpty())chapters.add(new PptContentPlannerV2.SourceChapter("chapter_"+(++chapterIndex),currentTitle,List.copyOf(paragraphs)));
+        chapters=preferLastCoherentChapterSequence(chapters);
         if(chapters.isEmpty()&&!safe(document.blocks()).isEmpty())chapters.add(new PptContentPlannerV2.SourceChapter("chapter_1","正文内容",safe(document.blocks())));
         List<Map<String,Object>> assets=new ArrayList<>();int assetIndex=0;Map<String,Integer> figureIds=new LinkedHashMap<>();for(PptDocumentParser.Asset asset:safe(document.assets())){Map<String,Object> value=new LinkedHashMap<>();String baseId=figureId(asset.caption(),++assetIndex);int occurrence=figureIds.merge(baseId,1,Integer::sum);String figureId=occurrence==1?baseId:baseId+"_"+occurrence;value.put("id",figureId);value.put("path",asset.path().toString());value.put("sourcePage",asset.sourcePage());value.put("sourcePosition",asset.sourcePosition());value.put("chapterId",chapterId(asset.sourcePosition(),asset.caption()));value.put("caption",asset.caption());value.put("width",asset.width());value.put("height",asset.height());assets.add(value);}
         List<Map<String,Object>> tables=new ArrayList<>();int fallbackTable=0;for(var chapter:chapters)for(String paragraph:safe(chapter.paragraphs())){var matcher=java.util.regex.Pattern.compile("(?:表|Table)\\s*(\\d+)[-.．](\\d+)[　\\s]*(.{0,60})",java.util.regex.Pattern.CASE_INSENSITIVE).matcher(paragraph);if(matcher.find()){Map<String,Object> table=new LinkedHashMap<>();table.put("id","table_"+matcher.group(1)+"_"+matcher.group(2));table.put("chapterId",chapter.id());table.put("chapter",chapter.title());table.put("caption",matcher.group(3).trim());tables.add(table);}}
@@ -47,7 +48,22 @@ public class PptContentPlannerV2InputAdapter {
     }
     private String figureId(String caption,int fallback){var matcher=java.util.regex.Pattern.compile("(?:图|Figure|Fig\\.)\\s*(\\d+)[-.．](\\d+)",java.util.regex.Pattern.CASE_INSENSITIVE).matcher(caption==null?"":caption);return matcher.find()?"figure_"+matcher.group(1)+"_"+matcher.group(2):"figure_"+fallback;}
     private String chapterId(String position,String caption){var matcher=java.util.regex.Pattern.compile("chapter-(\\d+)").matcher(position==null?"":position);if(matcher.find())return"chapter_"+matcher.group(1);matcher=java.util.regex.Pattern.compile("(?:图|Figure|Fig\\.)\\s*(\\d+)[-.．]",java.util.regex.Pattern.CASE_INSENSITIVE).matcher(caption==null?"":caption);return matcher.find()?"chapter_"+matcher.group(1):"";}
-    private int majorChapter(String value){String clean=PptDocumentParser.clean(value);var decimal=java.util.regex.Pattern.compile("^(\\d+)(?:[.．]\\d+)+").matcher(clean);if(decimal.find())return Integer.parseInt(decimal.group(1));var arabic=java.util.regex.Pattern.compile("^第?(\\d+)章").matcher(clean);if(arabic.find())return Integer.parseInt(arabic.group(1));List<String> chinese=List.of("一","二","三","四","五","六","七","八","九","十");for(int i=0;i<chinese.size();i++)if(clean.startsWith("第"+chinese.get(i)+"章"))return i+1;return 0;}
-    private String topLevelTitle(String heading,int major){String clean=PptDocumentParser.clean(heading);if(clean.matches("^第?[一二三四五六七八九十0-9]+章.*"))return clean;return "第"+major+"章";}
+    private int majorChapter(String value){String clean=PptDocumentParser.clean(value);var decimal=java.util.regex.Pattern.compile("^(\\d+)(?:[.．]\\d+)+").matcher(clean);if(decimal.find())return Integer.parseInt(decimal.group(1));var arabic=java.util.regex.Pattern.compile("^第?(\\d+)章").matcher(clean);if(arabic.find())return Integer.parseInt(arabic.group(1));List<String> chinese=List.of("一","二","三","四","五","六","七","八","九","十");for(int i=0;i<chinese.size();i++)if(clean.startsWith("第"+chinese.get(i)+"章")||clean.startsWith(chinese.get(i)+"、"))return i+1;return 0;}
+    private List<PptContentPlannerV2.SourceChapter> preferLastCoherentChapterSequence(List<PptContentPlannerV2.SourceChapter> chapters){
+        int selectedStart=-1,selectedEnd=-1;
+        for(int start=0;start<chapters.size();start++){
+            if(majorChapter(chapters.get(start).title())!=1)continue;
+            int expected=1,end=start-1;
+            for(int index=start;index<chapters.size();index++){
+                int major=majorChapter(chapters.get(index).title());
+                if(major==0)continue;
+                if(major!=expected)break;
+                end=index;expected++;
+            }
+            if(expected-1>=4){selectedStart=start;selectedEnd=end;}
+        }
+        return selectedStart<0?chapters:new ArrayList<>(chapters.subList(selectedStart,selectedEnd+1));
+    }
+    private String topLevelTitle(String heading,int major){String clean=PptDocumentParser.clean(heading);if(clean.matches("^第?[一二三四五六七八九十0-9]+章.*"))return clean;String label=clean.replaceFirst("^[一二三四五六七八九十0-9]+[、.．]\s*","").trim();return "第"+major+"章"+(label.isBlank()?"":" "+label);}
     private <T> List<T> safe(List<T> value){return value==null?List.of():value;}
 }

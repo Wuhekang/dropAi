@@ -21,7 +21,7 @@ import java.util.Objects;
  */
 public final class PageRenderabilityValidator {
     private static final List<String> COVER_METADATA = List.of(
-            "title", "presenter", "major", "advisor", "studentNumber", "institution", "date");
+            "title", "presenter", "major", "advisor", "institution");
 
     public PageRenderabilityResult validate(
             JsonNode presentationTree,
@@ -135,7 +135,9 @@ public final class PageRenderabilityValidator {
             List<PageRenderabilityIssue> issues
     ) {
         JsonNode metadata = tree.path("metadata");
+        boolean opening="OPENING_PROPOSAL".equalsIgnoreCase(metadata.path("presentationMode").asText());
         for (String field : COVER_METADATA) {
+            if(opening&&(field.equals("presenter")||field.equals("advisor")))continue;
             if (!hasText(metadata, field)) {
                 issues.add(issue(PptQualityCode.UNRENDERABLE_PAGE, pageIndex, pageId,
                         "Cover metadata is missing " + field, Map.of("field", field)));

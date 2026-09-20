@@ -44,6 +44,7 @@ class PptMetadataNormalizerTest {
         }
         assertEquals("2026年6月", normalizer.normalizeValues(Map.of("date", "2026-06")).get("date"));
         assertEquals("张三", normalizer.normalizeValues(Map.of("presenter", "张  三")).get("presenter"));
+        assertEquals("李小兵", normalizer.normalizeValues(Map.of("advisor", "李小兵  讲师")).get("advisor"));
         assertEquals("Ada Lovelace", normalizer.normalizeValues(Map.of("presenter", "Ada   Lovelace")).get("presenter"));
 
         Map<String, String> once = normalizer.normalizeValues(Map.of(
@@ -59,6 +60,15 @@ class PptMetadataNormalizerTest {
                 () -> normalizer.extract(List.of("学生姓名 张三", "汇报人 李四", "摘要")));
         assertThrows(IllegalStateException.class,
                 () -> normalizer.extract(List.of("题目：健康管理", "课题名称：健康管理系统", "摘要")));
+    }
+
+    @Test
+    void ignoresUnfilledOrDamagedDatePlaceholdersFromRealFrontMatter() {
+        assertEquals(Map.of("presenter", "杨冬萍"), normalizer.extract(List.of(
+                "学生姓名 杨 冬 萍",
+                "日期 �� �� ��",
+                "摘要")));
+        assertEquals(Map.of(), normalizer.normalizeValues(Map.of("date", "年  月  日")));
     }
 
     @Test
@@ -93,6 +103,18 @@ class PptMetadataNormalizerTest {
     }
 
     @Test
+    void extractsStandaloneCoverTitleWhenTheTemplateHasNoTitleLabel() {
+        assertEquals("基于机器视觉的工件颜色识别系统设计", normalizer.extract(List.of(
+                "毕业设计（论文）",
+                "基于机器视觉的工件颜色识别系统设计",
+                "姓名 杨冬萍",
+                "学院 电气学院",
+                "专业 电气自动化技术",
+                "指导教师 李小兵 讲师",
+                "摘要")).get("title"));
+    }
+
+    @Test
     void adapterUsesNormalizedMetadataButPreservesChapterParagraphs() {
         List<String> blocks = List.of(
                 "题目：基于Spring Boot的个人健康管理系统的",
@@ -118,5 +140,12 @@ class PptMetadataNormalizerTest {
         assertEquals("2026年6月1日", input.metadata().get("date"));
         assertEquals(blocks.get(blocks.size() - 1),
                 input.chapters().get(input.chapters().size() - 1).paragraphs().get(1));
+    }
+
+    @Test
+    void usesUploadedFileNameWhenBlankFormPairsTitleLabelWithFirstBodyHeading() {
+        assertEquals("胃癌患者术后营养护理的研究进展", PptProjectService.resolveAnalyzedTopic(
+                "", Map.of("title", "一、选题目的及意义"), "一、选题目的及意义",
+                "胃癌患者术后营养护理的研究进展.docx"));
     }
 }

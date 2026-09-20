@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -68,16 +69,19 @@ class LayoutCatalogTest {
     @Test
     void containedTextOverlapAndImageCropPoliciesAreExplicitAndMinimal() {
         LayoutCatalog catalog = loader.loadAcademicV1();
-        Set<String> expectedContainedTextLayouts = Set.of(
-                LayoutIds.AGENDA_VERTICAL_STEPS,
-                LayoutIds.CONTENT_THREE_CARDS,
-                LayoutIds.CONTENT_PROCESS_STEPS,
-                LayoutIds.CONTENT_COMPARISON_COLUMNS,
-                LayoutIds.CONTENT_ARCHITECTURE_LAYERS);
+        Map<String,List<String>> expectedContainedTextLayouts = Map.ofEntries(
+                Map.entry(LayoutIds.AGENDA_VERTICAL_STEPS,List.of("keyPointCard")),
+                Map.entry(LayoutIds.CONTENT_SINGLE_INSIGHT,List.of("keyPointCard")),
+                Map.entry(LayoutIds.CONTENT_THREE_CARDS,List.of("keyPointCard")),
+                Map.entry(LayoutIds.CONTENT_PROCESS_STEPS,List.of("keyPointCard")),
+                Map.entry(LayoutIds.CONTENT_COMPARISON_COLUMNS,List.of("keyPointCard")),
+                Map.entry(LayoutIds.CONTENT_ARCHITECTURE_LAYERS,List.of("keyPointCard")),
+                Map.entry(LayoutIds.SUMMARY_ACHIEVEMENTS,List.of("keyPointCard","summaryCard")),
+                Map.entry(LayoutIds.SUMMARY_FUTURE,List.of("keyPointCard","summaryCard")));
 
         catalog.recipes().forEach(recipe -> {
-            if (expectedContainedTextLayouts.contains(recipe.layoutId())) {
-                assertEquals(List.of("keyPointCard"),
+            if (expectedContainedTextLayouts.containsKey(recipe.layoutId())) {
+                assertEquals(expectedContainedTextLayouts.get(recipe.layoutId()),
                         recipe.constraints().allowedContainedTextComponents(), recipe.layoutId());
             } else {
                 assertTrue(recipe.constraints().allowedContainedTextComponents().isEmpty(),

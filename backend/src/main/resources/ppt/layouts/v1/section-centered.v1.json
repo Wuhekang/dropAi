@@ -12,7 +12,9 @@
     "assetCount": { "min": 0, "max": 0 }
   },
   "slots": {
-    "title": { "gridColumn": 2, "gridSpan": 10, "topIn": 2.975, "heightIn": 1.55 }
+    "title": { "gridColumn": 2, "gridSpan": 10, "topIn": 1.15, "heightIn": 1.65 },
+    "body": { "gridColumn": 2, "gridSpan": 10, "topIn": 2.85, "heightIn": 1.35 },
+    "conclusion": { "gridColumn": 3, "gridSpan": 8, "topIn": 4.45, "heightIn": 1.2 }
   },
   "constraints": {
     "titleMaxLines": 1,

@@ -44,7 +44,7 @@ class ThemeBoundaryTest {
     }
 
     @Test
-    void themeResourcesContainOnlyTheBaseAndTwoOfficialThemesWithoutContentFields() throws IOException {
+    void themeResourcesContainOnlyTheBaseAndOfficialThemesWithoutContentFields() throws IOException {
         List<Path> resources;
         try (Stream<Path> paths = Files.list(RESOURCE_ROOT)) {
             resources = paths.filter(value -> value.toString().endsWith(".json")).sorted().toList();
@@ -53,6 +53,12 @@ class ThemeBoundaryTest {
                 Set.of(
                         "academic-base.json",
                         "academic-purple.json",
+                        "bear-editorial-olive-v1.json",
+                        "bear-floral-beige-v1.json",
+                        "bear-minimal-tan-v1.json",
+                        "bear-morandi-coral-v1.json",
+                        "bear-morandi-olive-v1.json",
+                        "electrical-college-defense-v1.json",
                         "small-bear-watercolor-blue-v1.json"),
                 resources.stream().map(path -> path.getFileName().toString()).collect(java.util.stream.Collectors.toSet()));
 

@@ -111,7 +111,7 @@ class RendererStyleExecutionTest {
             }
         }
 
-        assertEquals(54, plannedShadows);
+        assertEquals(56, plannedShadows);
         String slideXml = String.join("\n", RendererTestSupport.slideXml(fixture.pptx()));
         assertEquals(plannedShadows,
                 Pattern.compile("<a:outerShdw(?:\\s|>)").matcher(slideXml).results().count());

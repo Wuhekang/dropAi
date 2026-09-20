@@ -9,6 +9,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Turns already-understood candidate pages into an ordered defense outline.
@@ -31,6 +32,9 @@ public class PptOutlinePlannerV1 {
         LinkedHashSet<ScoredCandidate> selected=new LinkedHashSet<>(retained.stream().filter(c->!c.page().mandatoryAsset())
                 .sorted(Comparator.comparingInt((ScoredCandidate c)->c.score().finalScore()).reversed())
                 .limit(maxSlides).toList());
+        Set<String> openingGrammar=Set.of(PptContentPlannerV2.LITERATURE_COMPARISON_TITLE,PptContentPlannerV2.VALUE_QUADRANT_TITLE,PptContentPlannerV2.RESEARCH_TIMELINE_TITLE,PptContentPlannerV2.METRICS_PROGRESS_TITLE);
+        retained.stream().filter(c->openingGrammar.contains(c.page().title())).forEach(selected::add);
+        retained.stream().filter(c->"SUMMARY".equals(c.page().pagePurpose())).max(Comparator.comparingInt(c->c.score().finalScore())).ifPresent(selected::add);
         selected.addAll(retained.stream().filter(c->c.page().mandatoryAsset()).toList());
         List<ScoredCandidate> ordered=selected.stream().sorted(Comparator
                 .comparingInt((ScoredCandidate c)->PURPOSE_ORDER.getOrDefault(c.page().pagePurpose(),999))
@@ -40,7 +44,7 @@ public class PptOutlinePlannerV1 {
         for(int i=0;i<ordered.size();i++){
             ScoredCandidate item=ordered.get(i);
             slides.add(new SlideNode(i+1,item.page().candidateType(),item.page().title(),item.page().pagePurpose(),item.page().answerQuestion(),
-                    item.page().keyPoints(),item.page().description(),item.page().sourceChapter(),item.score(),item.mergedCandidateCount(),item.page().imageRole(),item.page().sourceRefs(),item.page().mandatoryAsset(),item.page().tableSummary()));
+                    item.page().keyPoints(),item.page().description(),item.page().sourceChapter(),item.score(),item.mergedCandidateCount(),item.page().contentType(),item.page().imageRole(),item.page().sourceRefs(),item.page().mandatoryAsset(),item.page().tableSummary()));
         }
         List<Decision> decisions=new ArrayList<>();
         for(ScoredCandidate item:scored){
@@ -65,7 +69,9 @@ public class PptOutlinePlannerV1 {
         var first=group.pages.get(0);LinkedHashSet<String> points=new LinkedHashSet<>();LinkedHashSet<String> chapters=new LinkedHashSet<>();
         String description="";double confidence=0;
         for(var page:group.pages){points.addAll(page.keyPoints()==null?List.of():page.keyPoints());chapters.add(page.sourceChapter());if(page.description()!=null&&page.description().length()>description.length())description=page.description();confidence=Math.max(confidence,page.confidence());}
-        var merged=new PptContentPlannerV2.CandidatePage(first.candidateType(),first.title(),first.pagePurpose(),first.answerQuestion(),points.stream().limit(3).toList(),description,String.join(" / ",chapters),confidence,first.imageRole(),first.sourceRefs(),first.mandatoryAsset(),first.tableSummary());
+        int maximum=("PROCESS".equals(first.contentType())||"METRICS".equals(first.contentType()))?5:4;
+        int pointLimit=Math.max(3,Math.min(maximum,group.pages.stream().mapToInt(page->page.keyPoints()==null?0:page.keyPoints().size()).max().orElse(3)));
+        var merged=new PptContentPlannerV2.CandidatePage(first.candidateType(),first.title(),first.pagePurpose(),first.answerQuestion(),points.stream().limit(pointLimit).toList(),description,String.join(" / ",chapters),confidence,first.contentType(),first.imageRole(),first.sourceRefs(),first.mandatoryAsset(),first.tableSummary());
         int contentScore=Math.min(100,45+merged.keyPoints().size()*12+Math.min(19,merged.description().length()/5));
         int answerScore=merged.answerQuestion()==null||merged.answerQuestion().isBlank()?0:Math.min(100,75+Math.min(25,merged.answerQuestion().length()));
         int duplicateScore=group.pages.size()>1?Math.min(100,(group.pages.size()-1)*20):0;
@@ -80,7 +86,7 @@ public class PptOutlinePlannerV1 {
     private record ScoredCandidate(PptContentPlannerV2.CandidatePage page,PageScore score,int mergedCandidateCount,int originalIndex){}
     public record OutlineRequest(List<PptContentPlannerV2.CandidatePage> candidatePages,int maxContentSlides){}
     public record PageScore(int contentScore,int answerScore,int duplicateScore,int finalScore){}
-    public record SlideNode(int pageNumber,String candidateType,String title,String pagePurpose,String answerQuestion,List<String> keyPoints,String description,String sourceChapter,PageScore score,int mergedCandidateCount,String imageRole,PptContentPlannerV2.SourceRefs sourceRefs,boolean mandatoryAsset,List<List<String>> tableSummary){}
+    public record SlideNode(int pageNumber,String candidateType,String title,String pagePurpose,String answerQuestion,List<String> keyPoints,String description,String sourceChapter,PageScore score,int mergedCandidateCount,String contentType,String imageRole,PptContentPlannerV2.SourceRefs sourceRefs,boolean mandatoryAsset,List<List<String>> tableSummary){}
     public record Decision(String title,String sourceChapter,String action,PageScore score,int candidateCount){}
     public record OutlineResult(String treeType,int contentSlideCount,int ordinaryContentSlideCount,int evidenceSlideCount,List<SlideNode> slideTree,List<Decision> decisions){}
 }

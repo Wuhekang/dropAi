@@ -98,6 +98,7 @@
                 <targetPath>skills</targetPath>
                 <includes>
                     <include>ppt-enhancement/**</include>
+                    <include>ppt-generation/**</include>
                 </includes>
             </resource>
         </resources>

@@ -78,13 +78,14 @@ class PptEnhancementRealLocalhostE2ETest {
 
         JsonNode created = json("POST", "/api/ppt/projects", token, Map.of(
             "topic", "", "presenter", "", "major", "", "advisor", "", "studentNumber", "",
-            "targetSlideCount", 20));
+            "targetSlideCount", Integer.getInteger("ppt.enhancement.target-slides", 20)));
         String projectId = requiredText(created.path("data"), "id");
         upload(projectId, token, source);
         json("POST", "/api/ppt/projects/" + projectId + "/analyze", token, Map.of());
         json("POST", "/api/ppt/projects/" + projectId + "/outline", token, Map.of());
         json("PUT", "/api/ppt/projects/" + projectId + "/template", token,
-            Map.of("templatePackId", "small-bear-watercolor-blue-v1"));
+            Map.of("templatePackId", System.getProperty(
+                "ppt.enhancement.template", "small-bear-watercolor-blue-v1")));
         json("POST", "/api/ppt/projects/" + projectId + "/plan", token, Map.of());
         JsonNode generated = json("POST", "/api/ppt/projects/" + projectId + "/generate", token, Map.of());
         JsonNode base = generated.path("data");
@@ -156,7 +157,12 @@ class PptEnhancementRealLocalhostE2ETest {
             assertTrue(slide.path("cropUnchanged").asBoolean(), "第" + page + "页图片裁剪发生变化");
             assertTrue(slide.path("newObjectsBehindInherited").asBoolean(), "第" + page + "页新增对象未位于继承对象后方");
         }
-        assertEquals(25, mediaSlides, "健康管理固定论文应仅将25个正文图片页识别为受保护媒体页");
+        int expectedMediaSlides = Integer.getInteger("ppt.enhancement.expected-media-slides", 25);
+        if (expectedMediaSlides >= 0) {
+            assertEquals(expectedMediaSlides, mediaSlides, "正文图片页数量必须符合真实论文预期");
+        } else {
+            assertTrue(mediaSlides > 0, "真实论文至少应识别一个受保护媒体页");
+        }
         int mediaRenders = 0;
         boolean changedNonNoopMedia = false;
         for (JsonNode render : log.path("validation").path("pageRenders")) {
@@ -166,7 +172,7 @@ class PptEnhancementRealLocalhostE2ETest {
                 changedNonNoopMedia = true;
             }
         }
-        assertEquals(25, mediaRenders, "质量门禁中的媒体页数量必须与计划一致");
+        assertEquals(mediaSlides, mediaRenders, "质量门禁中的媒体页数量必须与计划一致");
         assertTrue(changedNonNoopMedia, "至少一个非safe-noop媒体页必须产生可见背景变化");
         assertFalse(log.toString().contains(password));
         assertFalse(log.toString().contains(token));

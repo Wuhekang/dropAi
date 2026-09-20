@@ -66,7 +66,7 @@ class PageRenderabilityValidatorTest {
     @Test
     void rejectsInputsThatTheCompilerCannotExecuteWithoutInventingContent() {
         ObjectNode tree = object("validated-presentation-tree.json");
-        ((ObjectNode) tree.path("metadata")).remove("date");
+        ((ObjectNode) tree.path("metadata")).remove("institution");
         ObjectNode summary = findPage(tree, "SUMMARY");
         summary.remove("description");
         ObjectNode thanks = findPage(tree, "THANKS");
@@ -81,7 +81,7 @@ class PageRenderabilityValidatorTest {
 
         assertFalse(result.renderable());
         assertTrue(result.issues().stream().anyMatch(issue ->
-                issue.message().contains("date")));
+                issue.message().contains("institution")));
         assertTrue(result.issues().stream().anyMatch(issue ->
                 issue.message().contains("both key points")));
         assertTrue(result.issues().stream().anyMatch(issue ->

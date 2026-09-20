@@ -1,0 +1,39 @@
+{
+  "schemaVersion": "template-pack.v1",
+  "templatePackId": "bear-editorial-olive-v1",
+  "templatePackVersion": "1.0.0",
+  "displayName": "小熊熊·编辑橄榄",
+  "description": "橄榄绿与暖珊瑚编辑式模板",
+  "sourceTemplate": {
+    "fileName": "小熊熊 (87).pptx",
+    "sha256": "sha256:9de8865422f78825f3869822999a61c7aad123ea5e77a8497b36595a91fd02e5",
+    "slideCount": 24,
+    "sanitization": "VISUAL_REGION_ALLOWLIST_V1"
+  },
+  "theme": {
+    "themeId": "bear-editorial-olive-v1",
+    "themeVersion": "1.0.0",
+    "fontProfileId": "cjk-academic-v1"
+  },
+  "assets": [
+    {
+      "assetId": "tpl-bear-editorial-olive-v1-background",
+      "classpathResource": "ppt/templates/v1/bear-editorial-olive-v1/template-background.png",
+      "bundlePath": "assets/templates/bear-editorial-olive-v1/template-background.png",
+      "sha256": "sha256:71c367f116c3c91bfc22cfe24cc22d16cc20d5fe5c3afa7cdb13501a8a1b0b3a",
+      "mimeType": "image/png",
+      "widthPx": 1600,
+      "heightPx": 900
+    }
+  ],
+  "surfaces": {
+    "COVER": "tpl-bear-editorial-olive-v1-background",
+    "AGENDA": "tpl-bear-editorial-olive-v1-background",
+    "SECTION": "tpl-bear-editorial-olive-v1-background",
+    "CONTENT": "tpl-bear-editorial-olive-v1-background",
+    "IMAGE": "tpl-bear-editorial-olive-v1-background",
+    "TABLE": "tpl-bear-editorial-olive-v1-background",
+    "SUMMARY": "tpl-bear-editorial-olive-v1-background",
+    "THANKS": "tpl-bear-editorial-olive-v1-background"
+  }
+}

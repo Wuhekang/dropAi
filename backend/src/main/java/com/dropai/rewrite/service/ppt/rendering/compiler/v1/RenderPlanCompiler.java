@@ -157,6 +157,7 @@ public final class RenderPlanCompiler {
         int summaryOrdinal = 0;
         DeterministicLayoutSelector selector = new DeterministicLayoutSelector(catalog);
         ArrayNode slides = plan.putArray("slides");
+        List<String> recentLayouts = new ArrayList<>();
         for (JsonNode page : pages) {
             PageType pageType = PageType.valueOf(page.path("pageType").asText());
             if (pageType == PageType.SUMMARY) {
@@ -167,8 +168,8 @@ public final class RenderPlanCompiler {
                     assets,
                     pageType == PageType.SUMMARY ? summaryOrdinal : 0,
                     pageType == PageType.SUMMARY ? summaryCount : 0);
-            SelectedLayout selected = selector.select(features);
-            slides.add(compileWithFallbacks(
+            SelectedLayout selected = selector.select(features, recentLayouts);
+            ObjectNode compiled = compileWithFallbacks(
                     page,
                     treeDocument,
                     assets,
@@ -177,7 +178,10 @@ public final class RenderPlanCompiler {
                     catalog,
                     selected.recipe(),
                     pages.size(),
-                    templatePack));
+                    templatePack);
+            slides.add(compiled);
+            recentLayouts.add(compiled.path("layoutId").asText());
+            if (recentLayouts.size() > 2) recentLayouts.remove(0);
         }
         return DraftSlideRenderPlan.of(plan);
     }
@@ -248,7 +252,8 @@ public final class RenderPlanCompiler {
         slide.put("layoutId", recipe.layoutId());
         ArrayNode elements = slide.putArray("elements");
         elements.add(background(slideId, styles));
-        if (templatePack != null) {
+        boolean openingProposal="OPENING_PROPOSAL".equalsIgnoreCase(tree.path("metadata").path("presentationMode").asText());
+        if (templatePack != null && !(openingProposal && (pageType == PageType.CONTENT || pageType == PageType.SUMMARY))) {
             templatePack.surfaceAssetId(pageType).ifPresent(assetId ->
                     elements.add(templateSurfaceElement(slideId, assetId, assets, styles)));
         }
@@ -257,7 +262,7 @@ public final class RenderPlanCompiler {
             case COVER -> compileCover(elements, slideId, page, tree.path("metadata"), recipe, fontProfile, styles);
             case AGENDA -> compileAgenda(elements, slideId, page, tree.path("agendaSections"), recipe,
                     fontProfile, styles, index, slideCount);
-            case SECTION -> compileSection(elements, slideId, page, recipe, fontProfile, styles);
+            case SECTION -> compileSection(elements, slideId, page, tree.path("agendaSections"), recipe, fontProfile, styles);
             case CONTENT -> compileContent(elements, slideId, page, recipe, assets, fontProfile, styles,
                     index, slideCount);
             case IMAGE -> compileImage(elements, slideId, page, recipe, assets, fontProfile, styles,
@@ -292,24 +297,31 @@ public final class RenderPlanCompiler {
             ResolvedFontProfile fonts,
             ThemePlanStyleResolver styles
     ) {
+        String titleStyle=LayoutIds.COVER_CENTERED_LONG_TITLE.equals(recipe.layoutId())?"sectionTitle":"deckTitle";
+        String titleComponent=LayoutIds.COVER_CENTERED_LONG_TITLE.equals(recipe.layoutId())?"sectionTitle":"coverTitle";
         addText(elements, slideId, "title", requiredText(page, "title"), requiredSlot(recipe, "title"),
-                "deckTitle", "coverTitle", "display", recipe.constraints().titleMaxLines(),
+                titleStyle, titleComponent, "display", recipe.constraints().titleMaxLines(),
                 "CENTER", "MIDDLE", 220, fonts, styles);
         String subtitle = hasText(metadata, "englishTitle")
                 ? requiredText(metadata, "englishTitle")
                 : requiredText(page, "description");
         addText(elements, slideId, "subtitle", subtitle, requiredSlot(recipe, "subtitle"),
-                "subtitle", "bodyText", "body", 2, "CENTER", "MIDDLE", 230, fonts, styles);
-        String metadataText = String.format(Locale.ROOT,
-                "汇报人：%s    专业：%s\n指导教师：%s    学号：%s\n%s    %s",
-                requiredText(metadata, "presenter"),
-                requiredText(metadata, "major"),
-                requiredText(metadata, "advisor"),
-                requiredText(metadata, "studentNumber"),
-                requiredText(metadata, "institution"),
-                requiredText(metadata, "date"));
+                "subtitle", styles.hasComponent("surfaceSubtitle")?"surfaceSubtitle":"bodyText", "body", 2, "CENTER", "MIDDLE", 230, fonts, styles);
+        List<String> metadataLines = new ArrayList<>();
+        String presenter=metadata.path("presenter").asText("").strip(),major=requiredText(metadata,"major");
+        metadataLines.add(presenter.isBlank()?"专业："+major:String.format(Locale.ROOT, "汇报人：%s    专业：%s",presenter,major));
+        String advisor=metadata.path("advisor").asText("").strip();
+        String advisorLine = advisor.isBlank()?"":"指导教师：" + advisor;
+        String studentNumber = metadata.path("studentNumber").asText("").strip();
+        if (!studentNumber.isBlank()) advisorLine += (advisorLine.isBlank()?"":"    ")+"学号：" + studentNumber;
+        if(!advisorLine.isBlank())metadataLines.add(advisorLine);
+        String institutionLine = requiredText(metadata, "institution");
+        String date = metadata.path("date").asText("").strip();
+        if (!date.isBlank()) institutionLine += "    " + date;
+        metadataLines.add(institutionLine);
+        String metadataText = String.join("\n", metadataLines);
         addText(elements, slideId, "metadata", metadataText, requiredSlot(recipe, "metadata"),
-                "body", "bodyText", "body", 3, "CENTER", "MIDDLE", 230, fonts, styles);
+                "body", styles.hasComponent("surfaceBody")?"surfaceBody":"bodyText", "body", 3, "CENTER", "MIDDLE", 230, fonts, styles);
     }
 
     private void compileAgenda(
@@ -335,28 +347,49 @@ public final class RenderPlanCompiler {
         for (int entry = 0; entry < agendaSections.size(); entry++) {
             String role = String.format(Locale.ROOT, "agenda-step-%02d", entry + 1);
             addCard(elements, slideId, role, steps.get(entry), styles);
-            addText(elements, slideId, role + "-text",
-                    String.format(Locale.ROOT, "%02d  %s", entry + 1,
-                            requiredText(agendaSections.get(entry), "title")),
-                    inset(steps.get(entry), styles.spacingEmu("mdPt"), styles.spacingEmu("xsPt")),
-                    "bodyStrong", "keyPointCard", "body", 2,
-                    "CENTER", "MIDDLE", 230, fonts, styles);
+            JsonNode agendaEntry=agendaSections.get(entry);
+            String range=agendaRange(agendaEntry.path("sourcePageIds"));
+            String description=agendaEntry.path("description").asText("").strip();
+            String agendaText=String.format(Locale.ROOT,"%02d  %s%s%s",entry+1,
+                    requiredText(agendaEntry,"title"),range.isBlank()?"":"    "+range,
+                    description.isBlank()?"":"\n"+description);
+            addText(elements,slideId,role+"-text",agendaText,
+                    inset(steps.get(entry),styles.spacingEmu("mdPt"),styles.spacingEmu("xsPt")),
+                    "bodyStrong","keyPointCard","body",3,
+                    "CENTER","MIDDLE",230,fonts,styles);
         }
         addFooter(elements, slideId, recipe, index, slideCount, fonts, styles);
+    }
+
+    private String agendaRange(JsonNode sourcePageIds){
+        if(!sourcePageIds.isArray()||sourcePageIds.isEmpty())return"";
+        String first=sourcePageIds.get(0).asText("").replaceFirst("^page-0*","");
+        String last=sourcePageIds.get(sourcePageIds.size()-1).asText("").replaceFirst("^page-0*","");
+        if(first.isBlank()||last.isBlank())return"";
+        return first.equals(last)?"P"+first:"P"+first+" — P"+last;
     }
 
     private void compileSection(
             ArrayNode elements,
             String slideId,
             JsonNode page,
+            JsonNode agendaSections,
             LayoutRecipe recipe,
             ResolvedFontProfile fonts,
             ThemePlanStyleResolver styles
     ) {
-        addText(elements, slideId, "title", requiredText(page, "title"), requiredSlot(recipe, "title"),
-                "sectionTitle", "sectionTitle", "display", recipe.constraints().titleMaxLines(),
-                "CENTER", "MIDDLE", 220, fonts, styles);
+        String raw=requiredText(page,"title");
+        var matcher=java.util.regex.Pattern.compile("^(\\d{2})\\s+(.+)$").matcher(raw);
+        String number=matcher.matches()?matcher.group(1):String.format(Locale.ROOT,"%02d",page.path("index").asInt());
+        String title=matcher.matches()?matcher.group(2):raw;
+        addText(elements,slideId,"number",number,requiredSlot(recipe,"title"),
+                "deckTitle","sectionTitle","display",1,"CENTER","MIDDLE",220,fonts,styles);
+        addText(elements,slideId,"title",title,requiredSlot(recipe,"body"),
+                "sectionTitle","sectionTitle","display",recipe.constraints().titleMaxLines(),
+                "CENTER","MIDDLE",221,fonts,styles);
     }
+
+    private JsonNode agendaEntry(JsonNode agendaSections,String sectionId){if(agendaSections!=null&&agendaSections.isArray())for(JsonNode entry:agendaSections)if(sectionId.equals(entry.path("sectionId").asText()))return entry;return null;}
 
     private void compileContent(
             ArrayNode elements,
@@ -374,7 +407,7 @@ public final class RenderPlanCompiler {
         switch (recipe.layoutId()) {
             case LayoutIds.CONTENT_THREE_CARDS -> compileHorizontalCards(
                     elements, slideId, page.path("keyPoints"), requiredSlot(recipe, "keyPoints"),
-                    "card", fonts, styles, false);
+                    "card", fonts, styles, true);
             case LayoutIds.CONTENT_ARCHITECTURE_LAYERS -> compileArchitectureLayers(
                     elements, slideId, page.path("keyPoints"), requiredSlot(recipe, "keyPoints"),
                     fonts, styles);
@@ -387,13 +420,19 @@ public final class RenderPlanCompiler {
                     elements, slideId, page, recipe, assets, fonts, styles);
             default -> {
                 if (recipe.slots().containsKey("keyPoints") && !keyPoints.isBlank()) {
-                    addText(elements, slideId, "key-points", keyPoints, recipe.slots().get("keyPoints"),
+                    SlotGeometry keyPointSlot=SlotGeometry.from(recipe.slots().get("keyPoints"),styles);
+                    addCard(elements,slideId,"key-points",keyPointSlot,styles);
+                    addText(elements, slideId, "key-points-text", keyPoints,
+                            inset(keyPointSlot,styles.spacingEmu("mdPt"),styles.spacingEmu("smPt")),
                             "body", "keyPointCard", "body", Math.max(3, page.path("keyPoints").size() * 2),
                             "LEFT", "MIDDLE", 230, fonts, styles);
                 } else if (recipe.slots().containsKey("body")) {
                     String body = keyPoints.isBlank() ? requiredText(page, "description") : keyPoints;
-                    addText(elements, slideId, "body", body, recipe.slots().get("body"),
-                            "body", "bodyText", "body", 8, "LEFT", "TOP", 230, fonts, styles);
+                    SlotGeometry bodySlot=SlotGeometry.from(recipe.slots().get("body"),styles);
+                    addCard(elements,slideId,"body",bodySlot,styles);
+                    addText(elements, slideId, "body-text", body,
+                            inset(bodySlot,styles.spacingEmu("mdPt"),styles.spacingEmu("smPt")),
+                            "body", "keyPointCard", "body", 8, "LEFT", "MIDDLE", 230, fonts, styles);
                 }
             }
         }
@@ -401,7 +440,7 @@ public final class RenderPlanCompiler {
                 && !LayoutIds.CONTENT_TEXT_VISUAL_SPLIT.equals(recipe.layoutId())
                 && recipe.slots().containsKey("conclusion") && hasText(page, "description")) {
             addText(elements, slideId, "conclusion", requiredText(page, "description"),
-                    recipe.slots().get("conclusion"), "bodyStrong", "summaryCard", "body", 4,
+                    recipe.slots().get("conclusion"), "caption", "summaryCard", "body", 3,
                     "LEFT", "MIDDLE", 240, fonts, styles);
         }
         addFooter(elements, slideId, recipe, index, slideCount, fonts, styles);
@@ -418,8 +457,16 @@ public final class RenderPlanCompiler {
             boolean numbered
     ) {
         List<String> items = requiredTextItems(values, rolePrefix);
-        List<SlotGeometry> cards = splitHorizontal(
-                SlotGeometry.from(slot, styles), items.size(), styles.spacingEmu("mdPt"));
+        SlotGeometry content = SlotGeometry.from(slot, styles);
+        List<SlotGeometry> cards;
+        if (items.size() == 4) {
+            List<SlotGeometry> rows = splitVertical(content, 2, styles.spacingEmu("mdPt"));
+            cards = new ArrayList<>(4);
+            cards.addAll(splitHorizontal(rows.get(0), 2, styles.spacingEmu("mdPt")));
+            cards.addAll(splitHorizontal(rows.get(1), 2, styles.spacingEmu("mdPt")));
+        } else {
+            cards = splitHorizontal(content, items.size(), styles.spacingEmu("mdPt"));
+        }
         for (int item = 0; item < items.size(); item++) {
             String role = String.format(Locale.ROOT, "%s-%02d", rolePrefix, item + 1);
             addCard(elements, slideId, role, cards.get(item), styles);
@@ -447,7 +494,7 @@ public final class RenderPlanCompiler {
         for (int item = 0; item < items.size(); item++) {
             String role = String.format(Locale.ROOT, "layer-%02d", item + 1);
             addCard(elements, slideId, role, layers.get(item), styles);
-            addText(elements, slideId, role + "-text", items.get(item),
+            addText(elements, slideId, role + "-text", String.format(Locale.ROOT,"%02d  %s",item+1,items.get(item)),
                     inset(layers.get(item), styles.spacingEmu("mdPt"), styles.spacingEmu("xsPt")),
                     "bodyStrong", "keyPointCard", "body", 3,
                     "CENTER", "MIDDLE", 230, fonts, styles);
@@ -489,16 +536,19 @@ public final class RenderPlanCompiler {
     ) {
         SlotGeometry left = SlotGeometry.from(requiredSlot(recipe, "body"), styles);
         SlotGeometry right = SlotGeometry.from(requiredSlot(recipe, "keyPoints"), styles);
+        List<String> items=requiredTextItems(page.path("keyPoints"),"comparison point");
+        boolean paired=items.size()==2;
         addCard(elements, slideId, "column-01", left, styles);
-        addText(elements, slideId, "column-01-text", requiredText(page, "description"),
+        addText(elements, slideId, "column-01-text", paired?items.get(0):requiredText(page, "description"),
                 inset(left, styles.spacingEmu("mdPt"), styles.spacingEmu("smPt")),
                 "body", "keyPointCard", "body", 8,
                 "LEFT", "MIDDLE", 230, fonts, styles);
         addCard(elements, slideId, "column-02", right, styles);
-        addText(elements, slideId, "column-02-text", bullets(page.path("keyPoints")),
+        addText(elements, slideId, "column-02-text", paired?items.get(1):bullets(page.path("keyPoints")),
                 inset(right, styles.spacingEmu("mdPt"), styles.spacingEmu("smPt")),
                 "body", "keyPointCard", "body", 8,
                 "LEFT", "MIDDLE", 230, fonts, styles);
+        if(paired&&recipe.slots().containsKey("conclusion"))addText(elements,slideId,"conclusion",requiredText(page,"description"),recipe.slots().get("conclusion"),"caption","summaryCard","body",3,"LEFT","MIDDLE",240,fonts,styles);
     }
 
     private void compileTextVisualSplit(
@@ -692,11 +742,15 @@ public final class RenderPlanCompiler {
             int slideCount
     ) {
         addStandardTitle(elements, slideId, page, recipe, fonts, styles);
-        addText(elements, slideId, "key-points", bullets(page.path("keyPoints")),
-                requiredSlot(recipe, "keyPoints"), "body", "keyPointCard", "body", 6,
+        SlotGeometry keyPoints=SlotGeometry.from(requiredSlot(recipe,"keyPoints"),styles);
+        addCard(elements,slideId,"key-points",keyPoints,styles);
+        addText(elements, slideId, "key-points-text", bullets(page.path("keyPoints")),
+                inset(keyPoints,styles.spacingEmu("mdPt"),styles.spacingEmu("smPt")), "body", "keyPointCard", "body", 6,
                 "LEFT", "MIDDLE", 230, fonts, styles);
-        addText(elements, slideId, "conclusion", requiredText(page, "description"),
-                requiredSlot(recipe, "conclusion"), "bodyStrong", "summaryCard", "body", 4,
+        SlotGeometry conclusion=SlotGeometry.from(requiredSlot(recipe,"conclusion"),styles);
+        addCard(elements,slideId,"conclusion",conclusion,styles,"summaryCard");
+        addText(elements, slideId, "conclusion-text", requiredText(page, "description"),
+                inset(conclusion,styles.spacingEmu("mdPt"),styles.spacingEmu("xsPt")), "bodyStrong", "summaryCard", "body", 4,
                 "LEFT", "MIDDLE", 240, fonts, styles);
         addFooter(elements, slideId, recipe, index, slideCount, fonts, styles);
     }
@@ -714,10 +768,10 @@ public final class RenderPlanCompiler {
                 "sectionTitle", "sectionTitle", "display", recipe.constraints().titleMaxLines(),
                 "CENTER", "MIDDLE", 220, fonts, styles);
         addText(elements, slideId, "body", requiredText(page, "description"), requiredSlot(recipe, "body"),
-                "subtitle", "bodyText", "body", 2, "CENTER", "MIDDLE", 230, fonts, styles);
+                "subtitle", styles.hasComponent("surfaceSubtitle")?"surfaceSubtitle":"bodyText", "body", 2, "CENTER", "MIDDLE", 230, fonts, styles);
         if (recipe.slots().containsKey("footer")) {
             addText(elements, slideId, "footer", requiredText(metadata, "institution"),
-                    recipe.slots().get("footer"), "footnote", "pageNumber", "body", 2,
+                    recipe.slots().get("footer"), "footnote", styles.hasComponent("surfaceFootnote")?"surfaceFootnote":"pageNumber", "body", 2,
                     "CENTER", "MIDDLE", 240, fonts, styles);
         }
     }
@@ -839,13 +893,24 @@ public final class RenderPlanCompiler {
             SlotGeometry geometry,
             ThemePlanStyleResolver styles
     ) {
+        addCard(elements,slideId,role,geometry,styles,"keyPointCard");
+    }
+
+    private void addCard(
+            ArrayNode elements,
+            String slideId,
+            String role,
+            SlotGeometry geometry,
+            ThemePlanStyleResolver styles,
+            String component
+    ) {
         ObjectNode shape = baseElement(
                 slideId + "-" + role,
                 "SHAPE",
                 geometry.xEmu(), geometry.yEmu(), geometry.widthEmu(), geometry.heightEmu(),
                 110,
-                styles.shapeStyle("keyPointCard"));
-        shape.set("styleSource", styles.styleSource("keyPointCard", "components.keyPointCard"));
+                styles.shapeStyle(component));
+        shape.set("styleSource", styles.styleSource(component, "components."+component));
         shape.put("shapeType", "ROUNDED_RECTANGLE");
         elements.add(shape);
     }

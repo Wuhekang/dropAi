@@ -5,7 +5,7 @@
   "supports": {
     "pageTypes": ["CONTENT"],
     "pagePurposes": ["METHOD", "DESIGN", "IMPLEMENTATION", "TEST"],
-    "contentTypes": ["PROCESS"],
+    "contentTypes": ["PROCESS", "METRICS"],
     "imageRoles": [],
     "assetKinds": [],
     "tableKinds": [],

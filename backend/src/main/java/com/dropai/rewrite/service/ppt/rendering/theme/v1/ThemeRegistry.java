@@ -14,6 +14,12 @@ import java.util.TreeSet;
 public final class ThemeRegistry {
     public static final String ACADEMIC_PURPLE = "academic-purple";
     public static final String SMALL_BEAR_WATERCOLOR_BLUE_V1 = "small-bear-watercolor-blue-v1";
+    public static final String ELECTRICAL_COLLEGE_DEFENSE_V1 = "electrical-college-defense-v1";
+    public static final String BEAR_MORANDI_CORAL_V1 = "bear-morandi-coral-v1";
+    public static final String BEAR_MORANDI_OLIVE_V1 = "bear-morandi-olive-v1";
+    public static final String BEAR_MINIMAL_TAN_V1 = "bear-minimal-tan-v1";
+    public static final String BEAR_EDITORIAL_OLIVE_V1 = "bear-editorial-olive-v1";
+    public static final String BEAR_FLORAL_BEIGE_V1 = "bear-floral-beige-v1";
     public static final String ACADEMIC_BASE = "academic-base";
     public static final String VERSION_1_0_0 = "1.0.0";
 
@@ -55,7 +61,16 @@ public final class ThemeRegistry {
                 new Registration(
                         new ThemeCoordinate(SMALL_BEAR_WATERCOLOR_BLUE_V1, VERSION_1_0_0),
                         "ppt/themes/v1/small-bear-watercolor-blue-v1.json",
-                        true)
+                        true),
+                new Registration(
+                        new ThemeCoordinate(ELECTRICAL_COLLEGE_DEFENSE_V1, VERSION_1_0_0),
+                        "ppt/themes/v1/electrical-college-defense-v1.json",
+                        true),
+                new Registration(new ThemeCoordinate(BEAR_MORANDI_CORAL_V1, VERSION_1_0_0), "ppt/themes/v1/bear-morandi-coral-v1.json", true),
+                new Registration(new ThemeCoordinate(BEAR_MORANDI_OLIVE_V1, VERSION_1_0_0), "ppt/themes/v1/bear-morandi-olive-v1.json", true),
+                new Registration(new ThemeCoordinate(BEAR_MINIMAL_TAN_V1, VERSION_1_0_0), "ppt/themes/v1/bear-minimal-tan-v1.json", true),
+                new Registration(new ThemeCoordinate(BEAR_EDITORIAL_OLIVE_V1, VERSION_1_0_0), "ppt/themes/v1/bear-editorial-olive-v1.json", true),
+                new Registration(new ThemeCoordinate(BEAR_FLORAL_BEIGE_V1, VERSION_1_0_0), "ppt/themes/v1/bear-floral-beige-v1.json", true)
         ));
     }
 

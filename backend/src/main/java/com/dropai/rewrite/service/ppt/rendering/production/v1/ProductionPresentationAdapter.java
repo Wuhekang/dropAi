@@ -24,8 +24,8 @@ public final class ProductionPresentationAdapter {
     ProductionPresentationAdapter(ObjectMapper mapper) { this.mapper = mapper; }
 
     Adapted adapt(ProductionRenderPlanRequest request, PptAssetMapperV1.MappingResult mapped) {
-        requireMetadata(request.metadata(), "title", "englishTitle", "presenter", "major", "advisor", "studentNumber",
-                "institution", "date");
+        boolean opening="OPENING_PROPOSAL".equalsIgnoreCase(request.metadata().getOrDefault("presentationMode",""));
+        if(opening)requireMetadata(request.metadata(), "title", "englishTitle", "major", "institution");else requireMetadata(request.metadata(), "title", "englishTitle", "presenter", "major", "advisor", "institution");
         requireValidatedTree(request);
         requireCoverMetadataMatches(request);
         if (!mapped.assetPlanReady() || mapped.issues().stream().anyMatch(i -> "ERROR".equals(i.severity()))) {
@@ -57,7 +57,11 @@ public final class ProductionPresentationAdapter {
         }
         sectionPages.forEach((id, ids) -> {
             ObjectNode node = agenda.addObject(); node.put("sectionId", id);
-            node.put("title", sectionTitles.get(id)); ArrayNode pages = node.putArray("sourcePageIds");
+            node.put("title", sectionTitles.get(id));
+            mapped.slideTree().stream().filter(s->"AGENDA".equals(s.page().pageType())).findFirst()
+                    .flatMap(s->s.page().agendaItems().stream().filter(item->id.equals(portable(item.section()))).findFirst())
+                    .ifPresent(item->node.put("description",item.description()));
+            ArrayNode pages = node.putArray("sourcePageIds");
             ids.forEach(pages::add);
         });
 
@@ -161,7 +165,7 @@ public final class ProductionPresentationAdapter {
         values.put("presenter",payload.presenter());values.put("major",payload.major());
         values.put("advisor",payload.advisor());values.put("studentNumber",payload.studentNumber());
         values.forEach((key,value)->{
-            if(!Objects.equals(value,request.metadata().get(key)))
+            if(!Objects.equals(value,request.metadata().getOrDefault(key,"")))
                 throw new IllegalStateException("Validated COVER metadata mismatch: "+key);
         });
     }
@@ -169,10 +173,10 @@ public final class ProductionPresentationAdapter {
     private static String section(PptOutlineValidatorV1.FullSlideNode p){return switch(p.pageType()){case"COVER","AGENDA"->"opening";case"THANKS"->"closing";default->portable(required(p.section(),"page "+p.pageNumber()+" section"));};}
     private static String purpose(PptOutlineValidatorV1.FullSlideNode p){if(!p.pagePurpose().isBlank())return p.pagePurpose();return switch(p.pageType()){case"COVER"->"BACKGROUND";case"AGENDA"->"METHOD";case"SECTION"->"BACKGROUND";case"THANKS"->"SUMMARY";default->throw missing(p,"pagePurpose");};}
     private static String answerQuestion(PptOutlineValidatorV1.FullSlideNode p){if(!p.answerQuestion().isBlank())return p.answerQuestion();return switch(p.pageType()){case"COVER"->"本次答辩围绕什么课题展开？";case"AGENDA"->"本次答辩如何展开？";case"SECTION"->"本章节将介绍哪些核心内容？";case"THANKS"->"本次答辩如何结束？";default->throw missing(p,"answerQuestion");};}
-    private static List<String> fixedKeyPoints(PptOutlineValidatorV1.FullSlideNode p,Map<String,String>m){return switch(p.pageType()){case"COVER"->List.of(m.get("presenter"),m.get("major"),m.get("advisor"));case"AGENDA"->{if(p.agendaItems()==null||p.agendaItems().isEmpty())throw missing(p,"agendaItems");yield p.agendaItems().stream().map(PptOutlineValidatorV1.AgendaItem::title).toList();}case"SECTION"->List.of(p.title());case"THANKS"->List.of("感谢各位老师聆听","敬请批评指正");default->throw missing(p,"keyPoints");};}
+    private static List<String> fixedKeyPoints(PptOutlineValidatorV1.FullSlideNode p,Map<String,String>m){return switch(p.pageType()){case"COVER"->java.util.stream.Stream.of(m.get("presenter"),m.get("major"),m.get("advisor")).filter(v->v!=null&&!v.isBlank()).toList();case"AGENDA"->{if(p.agendaItems()==null||p.agendaItems().isEmpty())throw missing(p,"agendaItems");yield p.agendaItems().stream().map(PptOutlineValidatorV1.AgendaItem::title).toList();}case"SECTION"->List.of(p.title());case"THANKS"->List.of("感谢各位老师聆听","敬请批评指正");default->throw missing(p,"keyPoints");};}
     private static String description(PptOutlineValidatorV1.FullSlideNode p){if(!p.description().isBlank())return p.description();return switch(p.pageType()){case"COVER"->"本次答辩介绍课题背景、方案设计、实现成果与测试结论。";case"AGENDA"->"答辩按照背景、设计、实现、验证和总结的逻辑展开。";case"SECTION"->"本章节进入新的答辩主题。";case"THANKS"->"答辩汇报结束，感谢各位老师的聆听与指导。";default->throw missing(p,"description");};}
     private static String sourceChapter(PptOutlineValidatorV1.FullSlideNode p){if(!p.sourceChapter().isBlank())return p.sourceChapter();return switch(p.pageType()){case"COVER"->"封面";case"AGENDA"->"目录";case"SECTION"->"章节过渡";case"THANKS"->"结束页";default->throw missing(p,"sourceChapter");};}
-    private static String contentType(PptOutlineValidatorV1.FullSlideNode p){return switch(p.pageType()){case"COVER","SECTION","THANKS"->"NARRATIVE";case"IMAGE"->"FIGURE";case"TABLE"->"TABULAR";default->"KEY_POINTS";};}
+    private static String contentType(PptOutlineValidatorV1.FullSlideNode p){String declared=p.contentType()==null?"":p.contentType().strip();if(!declared.isBlank()){if(!Set.of("NARRATIVE","KEY_POINTS","PROCESS","COMPARISON","ARCHITECTURE","METRICS","FIGURE","TABULAR","MIXED").contains(declared))throw new IllegalStateException("Unknown contentType: "+declared);return declared;}return switch(p.pageType()){case"COVER","SECTION","THANKS"->"NARRATIVE";case"IMAGE"->"FIGURE";case"TABLE"->"TABULAR";default->"KEY_POINTS";};}
     private static String imageRole(String r){if(!List.of("INFORMATION","PROOF","EFFECT").contains(r))throw new IllegalStateException("Unknown imageRole: "+r);return r;}
     private static String assetKind(String t){return switch(t){case"SCREENSHOT"->"SCREENSHOT";case"EFFECT_IMAGE"->"DESIGN_RENDER";case"DIAGRAM"->"DIAGRAM";default->throw new IllegalStateException("Unknown mapped asset type: "+t);};}
     private static String mime(byte[] b,Path p){if(b.length>=8&&b[0]==(byte)0x89&&b[1]==0x50&&b[2]==0x4e&&b[3]==0x47)return"image/png";if(b.length>=3&&b[0]==(byte)0xff&&b[1]==(byte)0xd8&&b[2]==(byte)0xff)return"image/jpeg";throw new IllegalStateException("Unsupported or mismatched PPT image: "+p);}

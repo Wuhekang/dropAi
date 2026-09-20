@@ -5,13 +5,21 @@ description: DokiAI Academic 学术答辩 PPT 内容规划、素材语义、模�
 
 # DokiAI Academic PPT Generation Skill
 
-Skill version: 2.0.0
+Skill version: 2.2.0
 
 ## 0. 最高原则
 
 PPT 不是论文缩略版，而是一次有明确问题链的答辩叙事。每一页正文都必须回答一个老师可能提出的问题；论文结构决定事实边界，AI 只负责理解、压缩与重组表达，模板只决定视觉，Renderer 只执行已经冻结的渲染计划。
 
 任何阶段都不得用后续模块补偿前置职责缺失。尤其禁止让 OutlinePlanner 重新理解论文，禁止让 AssetMapper 改写文字，禁止让 LayoutPlanner 发明内容，禁止让 PureRenderer 自动总结、删页、加页、改字、换布局或自动重排。
+
+## 0.1 开源 PPT Skill 视觉基线
+
+本 Skill 的模板与视觉生成基准吸收了公开、MIT 许可的 PPTX Skill 中可验证的设计原则，但仍以 DokiAI 的冻结渲染链路为执行边界。建立或审计 TemplatePack 时必须阅读 [open-source-ppt-baseline.md](references/open-source-ppt-baseline.md) 与 [template-design-baseline.md](references/template-design-baseline.md)；处理开题材料或来源图片时必须阅读 [opening-and-image-evidence.md](references/opening-and-image-evidence.md)。
+
+固定原则：每页只属于一种主要页面类型；主题只使用显式 Token；标题、正文、说明形成明显层级；目录可在 2 至 3 秒内扫读；章节页作为叙事停顿；正文页至少具有一种非纯文字的视觉结构；连续页面避免完全相同的构图；所有生成物必须经过文本扫描、结构检查和逐页预览。
+
+开题模式直接执行 `presentation-skill` 的语义构图基准。每个一级章节前必须有居中的章节过渡页，并且全文必须各有一页：`国内外文献对比环形图`、`四象限研究价值卡`、`研究逻辑时间轴`、`指标与进度路径图`。这四页是 mandatory assets，不受普通页数上限影响；它们只组织源文档已有信息，不得虚构文献比例、调查数据或研究结果。
 
 ## 1. 冻结流水线与职责
 
@@ -247,7 +255,9 @@ DocumentParser
 - `PROOF`：系统截图、实验结果、测试结果等证明实现；
 - `EFFECT`：效果图、作品图、UI 成果等展示最终效果。
 
-核心图片默认一图一页；是否合并由 OutlinePlanner 和布局能力决定，模型不得因为想缩短页数而丢弃 `mandatoryAsset=true` 的素材。
+每一张通过 DocumentParser 污染过滤的有效来源图片必须生成一张独立的 `IMAGE_EVIDENCE` 候选页，并设置 `mandatoryAsset=true`。一张图片只能出现一次，不得拼图、合并、因页数上限删除，也不得与另一张来源图片共用介绍页。封面 Logo、签字、印章、页眉装饰、重复图和低质量污染素材不属于有效来源图片。
+
+图片专属页必须包含语义化标题、原图、40 至 70 字完整说明，并回答“图中呈现了什么、它如何支撑本页结论”。说明优先使用图片前最近的有效正文，再使用正式图注和所在小节；不得只写“如图所示”，不得使用“系统证据图 X-X”等占位标题。
 
 ## 6. OutlinePlanner 与 Validator 契约
 

@@ -1,0 +1,39 @@
+{
+  "schemaVersion": "template-pack.v1",
+  "templatePackId": "bear-minimal-tan-v1",
+  "templatePackVersion": "1.0.0",
+  "displayName": "小熊熊·极简沙金",
+  "description": "白底沙金圆角几何极简模板",
+  "sourceTemplate": {
+    "fileName": "小熊熊 (49).pptx",
+    "sha256": "sha256:01a86dc5b788ea13ccda4374552df29f0c7454a9c2f139811fe76655e444487c",
+    "slideCount": 25,
+    "sanitization": "VISUAL_REGION_ALLOWLIST_V1"
+  },
+  "theme": {
+    "themeId": "bear-minimal-tan-v1",
+    "themeVersion": "1.0.0",
+    "fontProfileId": "cjk-academic-v1"
+  },
+  "assets": [
+    {
+      "assetId": "tpl-bear-minimal-tan-v1-background",
+      "classpathResource": "ppt/templates/v1/bear-minimal-tan-v1/template-background.png",
+      "bundlePath": "assets/templates/bear-minimal-tan-v1/template-background.png",
+      "sha256": "sha256:c152b71138617f2ce0d8a7a139629d9a7cb5a09b93bd89c724457e18d768b39f",
+      "mimeType": "image/png",
+      "widthPx": 1600,
+      "heightPx": 900
+    }
+  ],
+  "surfaces": {
+    "COVER": "tpl-bear-minimal-tan-v1-background",
+    "AGENDA": "tpl-bear-minimal-tan-v1-background",
+    "SECTION": "tpl-bear-minimal-tan-v1-background",
+    "CONTENT": "tpl-bear-minimal-tan-v1-background",
+    "IMAGE": "tpl-bear-minimal-tan-v1-background",
+    "TABLE": "tpl-bear-minimal-tan-v1-background",
+    "SUMMARY": "tpl-bear-minimal-tan-v1-background",
+    "THANKS": "tpl-bear-minimal-tan-v1-background"
+  }
+}

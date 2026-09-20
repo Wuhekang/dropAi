@@ -194,6 +194,10 @@ final class ThemePlanStyleResolver {
                 "Resolved theme component has invalid typography style: " + component);
     }
 
+    boolean hasComponent(String component) {
+        return path("components." + component).isObject();
+    }
+
     int lineSpacingPermille(String typographyStyle) {
         return Emu.permille(required(path("typography.styles." + typographyStyle), typographyStyle)
                 .path("lineSpacing").decimalValue());

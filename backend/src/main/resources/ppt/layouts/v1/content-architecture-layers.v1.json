@@ -13,8 +13,8 @@
   },
   "slots": {
     "title": { "gridColumn": 1, "gridSpan": 12, "topIn": 0.4, "heightIn": 0.7 },
-    "keyPoints": { "gridColumn": 1, "gridSpan": 12, "topIn": 1.45, "heightIn": 4.5 },
-    "conclusion": { "gridColumn": 2, "gridSpan": 10, "topIn": 6.12, "heightIn": 0.68 },
+    "keyPoints": { "gridColumn": 1, "gridSpan": 12, "topIn": 1.45, "heightIn": 4.05 },
+    "conclusion": { "gridColumn": 2, "gridSpan": 10, "topIn": 5.58, "heightIn": 0.92 },
     "footer": { "gridColumn": 1, "gridSpan": 12, "topIn": 6.85, "heightIn": 0.25 }
   },
   "constraints": {

@@ -28,10 +28,16 @@ class AcademicThemeResourcesTest {
     }
 
     @Test
-    void bothProductionThemesAreOfficialAndBaseRemainsInternal() {
+    void productionThemesAreOfficialAndBaseRemainsInternal() {
         assertEquals(Set.of(
                 ThemeRegistry.ACADEMIC_PURPLE,
-                ThemeRegistry.SMALL_BEAR_WATERCOLOR_BLUE_V1), registry.officialThemeIds());
+                ThemeRegistry.SMALL_BEAR_WATERCOLOR_BLUE_V1,
+                ThemeRegistry.ELECTRICAL_COLLEGE_DEFENSE_V1,
+                ThemeRegistry.BEAR_MORANDI_CORAL_V1,
+                ThemeRegistry.BEAR_MORANDI_OLIVE_V1,
+                ThemeRegistry.BEAR_MINIMAL_TAN_V1,
+                ThemeRegistry.BEAR_EDITORIAL_OLIVE_V1,
+                ThemeRegistry.BEAR_FLORAL_BEIGE_V1), registry.officialThemeIds());
         ThemeRegistry.Registration base = registry.require(
                 new ThemeCoordinate(ThemeRegistry.ACADEMIC_BASE, ThemeRegistry.VERSION_1_0_0));
         ThemeRegistry.Registration purple = registry.require(
@@ -40,9 +46,14 @@ class AcademicThemeResourcesTest {
                 new ThemeCoordinate(
                         ThemeRegistry.SMALL_BEAR_WATERCOLOR_BLUE_V1,
                         ThemeRegistry.VERSION_1_0_0));
+        ThemeRegistry.Registration electricalCollege = registry.require(
+                new ThemeCoordinate(
+                        ThemeRegistry.ELECTRICAL_COLLEGE_DEFENSE_V1,
+                        ThemeRegistry.VERSION_1_0_0));
         assertFalse(base.official());
         assertTrue(purple.official());
         assertTrue(smallBear.official());
+        assertTrue(electricalCollege.official());
     }
 
     @Test

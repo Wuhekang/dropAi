@@ -1,0 +1,39 @@
+{
+  "schemaVersion": "template-pack.v1",
+  "templatePackId": "bear-morandi-coral-v1",
+  "templatePackVersion": "1.0.0",
+  "displayName": "小熊熊·莫兰迪珊瑚",
+  "description": "抽象珊瑚粉与雾霾蓝莫兰迪模板",
+  "sourceTemplate": {
+    "fileName": "小熊熊 (23).pptx",
+    "sha256": "sha256:be1b1b78cb72c0bf6765788d708bc476413163fef5ecfaa16b6387db46eeae2f",
+    "slideCount": 19,
+    "sanitization": "VISUAL_REGION_ALLOWLIST_V1"
+  },
+  "theme": {
+    "themeId": "bear-morandi-coral-v1",
+    "themeVersion": "1.0.0",
+    "fontProfileId": "cjk-academic-v1"
+  },
+  "assets": [
+    {
+      "assetId": "tpl-bear-morandi-coral-v1-background",
+      "classpathResource": "ppt/templates/v1/bear-morandi-coral-v1/template-background.png",
+      "bundlePath": "assets/templates/bear-morandi-coral-v1/template-background.png",
+      "sha256": "sha256:f768b9ab7687196386e3f43e703871fafb9d22d1602f2e1394af0dddc9f9f3af",
+      "mimeType": "image/png",
+      "widthPx": 1600,
+      "heightPx": 900
+    }
+  ],
+  "surfaces": {
+    "COVER": "tpl-bear-morandi-coral-v1-background",
+    "AGENDA": "tpl-bear-morandi-coral-v1-background",
+    "SECTION": "tpl-bear-morandi-coral-v1-background",
+    "CONTENT": "tpl-bear-morandi-coral-v1-background",
+    "IMAGE": "tpl-bear-morandi-coral-v1-background",
+    "TABLE": "tpl-bear-morandi-coral-v1-background",
+    "SUMMARY": "tpl-bear-morandi-coral-v1-background",
+    "THANKS": "tpl-bear-morandi-coral-v1-background"
+  }
+}

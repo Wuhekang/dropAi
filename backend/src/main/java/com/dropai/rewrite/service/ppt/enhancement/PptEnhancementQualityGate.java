@@ -175,8 +175,11 @@ public class PptEnhancementQualityGate {
                 String afterHash = PptxBaselineInspector.sha256(afterPng);
                 boolean visuallyChanged = !beforeHash.equals(afterHash);
                 VisualDelta delta = visualDelta(beforeImage, afterImage, added, before.getPageSize());
-                boolean contrastVisible = delta.changedPixels() >= Math.max(12, Math.round(delta.geometryPixels() * .012))
-                    && delta.meanChangedChannelDelta() >= 8d;
+                double minimumChangedRatio = protectedMedia ? .004d : .012d;
+                double minimumChannelDelta = protectedMedia ? 3.5d : 8d;
+                boolean contrastVisible = delta.changedPixels() >= Math.max(12,
+                    Math.round(delta.geometryPixels() * minimumChangedRatio))
+                    && delta.meanChangedChannelDelta() >= minimumChannelDelta;
                 if (!safeNoop && !contrastVisible) lowContrastSlides++;
                 if (visuallyChanged) {
                     changed++;

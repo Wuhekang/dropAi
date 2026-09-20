@@ -43,7 +43,7 @@ class HealthManagementRenderPlanTest {
                 plan.path("slides").get(39).path("pageType").asText()));
         assertEquals(2, countElements(plan, "TABLE"));
         assertEquals(25, countElements(plan, "IMAGE"));
-        assertEquals(69, countElements(plan, "SHAPE"));
+        assertEquals(73, countElements(plan, "SHAPE"));
         assertEquals(4, countElements(plan, "CONNECTOR"));
         assertTrue(uniqueText(plan.path("slides"), "layoutId").stream().allMatch(LayoutIds.ALL::contains));
         assertEquals(LayoutIds.CONTENT_ARCHITECTURE_LAYERS,
@@ -116,7 +116,7 @@ class HealthManagementRenderPlanTest {
     }
 
     @Test
-    void sectionDividerCompilesAsOneCenteredTitleWithoutBodyOrFooter() {
+    void sectionDividerCompilesAsCenteredNumberAndTitleWithoutBodyOrFooter() {
         HealthManagementRenderPlanSupport.CompiledFixture fixture =
                 HealthManagementRenderPlanSupport.compile();
         ObjectNode tree = fixture.tree().document();
@@ -140,15 +140,16 @@ class HealthManagementRenderPlanTest {
 
         assertEquals("SECTION", slide.path("pageType").asText());
         assertEquals(LayoutIds.SECTION_CENTERED, slide.path("layoutId").asText());
-        assertEquals(1, countSlideElements(slide, "TEXT"));
+        assertEquals(2, countSlideElements(slide, "TEXT"));
         assertEquals(0, countSlideElements(slide, "IMAGE"));
-        JsonNode title = firstElement(slide, "TEXT");
-        assertEquals("01 项目背景与需求", title.path("text").asText());
+        String slideId=slide.path("slideId").asText();
+        JsonNode number=elementById(slide,slideId+"-number");
+        JsonNode title=elementById(slide,slideId+"-title");
+        assertEquals("01",number.path("text").asText());
+        assertEquals("项目背景与需求", title.path("text").asText());
+        assertEquals("CENTER",number.path("resolvedStyle").path("horizontalAlign").asText());
         assertEquals("CENTER", title.path("resolvedStyle").path("horizontalAlign").asText());
         assertEquals("MIDDLE", title.path("resolvedStyle").path("verticalAlign").asText());
-        long slideHeight = fixture.frozen().document().path("slideSize").path("heightEmu").asLong();
-        assertEquals(slideHeight,
-                title.path("yEmu").asLong() * 2 + title.path("heightEmu").asLong());
     }
 
     @Test

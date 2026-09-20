@@ -33,9 +33,14 @@ public final class RenderingTemplatePackRegistry {
     public static final String ACADEMIC_PURPLE = ThemeRegistry.ACADEMIC_PURPLE;
     public static final String SMALL_BEAR_WATERCOLOR_BLUE_V1 =
             ThemeRegistry.SMALL_BEAR_WATERCOLOR_BLUE_V1;
+    public static final String ELECTRICAL_COLLEGE_DEFENSE_V1 =
+            ThemeRegistry.ELECTRICAL_COLLEGE_DEFENSE_V1;
+    public static final String BEAR_MORANDI_CORAL_V1=ThemeRegistry.BEAR_MORANDI_CORAL_V1,BEAR_MORANDI_OLIVE_V1=ThemeRegistry.BEAR_MORANDI_OLIVE_V1,BEAR_MINIMAL_TAN_V1=ThemeRegistry.BEAR_MINIMAL_TAN_V1,BEAR_EDITORIAL_OLIVE_V1=ThemeRegistry.BEAR_EDITORIAL_OLIVE_V1,BEAR_FLORAL_BEIGE_V1=ThemeRegistry.BEAR_FLORAL_BEIGE_V1;
 
     private static final String SMALL_BEAR_MANIFEST =
             "ppt/templates/v1/small-bear-watercolor-blue-v1/template-pack.json";
+    private static final String ELECTRICAL_COLLEGE_MANIFEST =
+            "ppt/templates/v1/electrical-college-defense-v1/template-pack.json";
     private static final Set<String> LEGACY_ACADEMIC_SELECTIONS = Set.of(
             "AI_RECOMMEND",
             "TECH_DEFENSE",
@@ -58,8 +63,11 @@ public final class RenderingTemplatePackRegistry {
         Map<String, RenderingTemplatePack> registered = new LinkedHashMap<>();
         RenderingTemplatePack academic = academicPurple();
         RenderingTemplatePack smallBear = load(mapper, SMALL_BEAR_MANIFEST);
+        RenderingTemplatePack electricalCollege = load(mapper, ELECTRICAL_COLLEGE_MANIFEST);
         registered.put(academic.templatePackId(), academic);
         registered.put(smallBear.templatePackId(), smallBear);
+        registered.put(electricalCollege.templatePackId(), electricalCollege);
+        for(String id:List.of(BEAR_MORANDI_CORAL_V1,BEAR_MORANDI_OLIVE_V1,BEAR_MINIMAL_TAN_V1,BEAR_EDITORIAL_OLIVE_V1,BEAR_FLORAL_BEIGE_V1)){RenderingTemplatePack pack=load(mapper,"ppt/templates/v1/"+id+"/template-pack.json");registered.put(pack.templatePackId(),pack);}
         this.packs = Collections.unmodifiableMap(registered);
     }
 
@@ -92,6 +100,10 @@ public final class RenderingTemplatePackRegistry {
         if (SMALL_BEAR_WATERCOLOR_BLUE_V1.equalsIgnoreCase(normalized)) {
             return SMALL_BEAR_WATERCOLOR_BLUE_V1;
         }
+        if (ELECTRICAL_COLLEGE_DEFENSE_V1.equalsIgnoreCase(normalized)) {
+            return ELECTRICAL_COLLEGE_DEFENSE_V1;
+        }
+        for(String id:bearPacks())if(id.equalsIgnoreCase(normalized))return id;
         if (LEGACY_ACADEMIC_SELECTIONS.contains(normalized.toUpperCase(Locale.ROOT))) {
             return ACADEMIC_PURPLE;
         }
@@ -126,8 +138,13 @@ public final class RenderingTemplatePackRegistry {
         if (SMALL_BEAR_WATERCOLOR_BLUE_V1.equalsIgnoreCase(value)) {
             return SMALL_BEAR_WATERCOLOR_BLUE_V1;
         }
+        if (ELECTRICAL_COLLEGE_DEFENSE_V1.equalsIgnoreCase(value)) {
+            return ELECTRICAL_COLLEGE_DEFENSE_V1;
+        }
+        for(String id:bearPacks())if(id.equalsIgnoreCase(value))return id;
         return null;
     }
+    private static List<String> bearPacks(){return List.of(BEAR_MORANDI_CORAL_V1,BEAR_MORANDI_OLIVE_V1,BEAR_MINIMAL_TAN_V1,BEAR_EDITORIAL_OLIVE_V1,BEAR_FLORAL_BEIGE_V1);}
 
     private static IllegalArgumentException invalidPersistedSelection(String detail) {
         return new IllegalArgumentException(

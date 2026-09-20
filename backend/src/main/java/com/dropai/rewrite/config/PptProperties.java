@@ -10,11 +10,11 @@ public class PptProperties {
     public PptProperties(Environment environment) { this.environment = environment; }
 
     public boolean enabled() { return Boolean.parseBoolean(value("DOKIAI_PPT_ENABLED", "true")); }
-    public String provider() { return value("DOKIAI_PPT_PROVIDER", "kimi_ark"); }
-    public String apiKey() { return first("DOKIAI_PPT_ARK_API_KEY", "ARK_API_KEY", "DOUBAO_API_KEY"); }
-    public String baseUrl() { return firstOr("https://ark.cn-beijing.volces.com/api/v3", "DOKIAI_PPT_ARK_BASE_URL", "DOKIAI_PPT_BASE_URL", "ARK_BASE_URL"); }
+    public String provider() { return value("DOKIAI_PPT_PROVIDER", "doubao_ark"); }
+    public String apiKey() { return first("DOKIAI_PPT_ARK_API_KEY", "ARK_API_KEY", "DOUBAO_API_KEY", "ai.doubao.api-key"); }
+    public String baseUrl() { return firstOr("https://ark.cn-beijing.volces.com/api/v3", "DOKIAI_PPT_ARK_BASE_URL", "DOKIAI_PPT_BASE_URL", "DOUBAO_RESPONSES_BASE_URL", "ai.doubao.responses-base-url", "DOUBAO_BASE_URL", "ai.doubao.base-url", "ARK_BASE_URL"); }
     public String responsesPath() { return value("DOKIAI_PPT_RESPONSES_PATH", "/responses"); }
-    public String model() { return first("DOKIAI_PPT_KIMI_MODEL", "DOKIAI_PPT_MODEL", "ARK_MODEL"); }
+    public String model() { return first("DOKIAI_PPT_DOUBAO_MODEL", "DOKIAI_PPT_KIMI_MODEL", "DOKIAI_PPT_MODEL", "DOUBAO_MODEL", "ai.doubao.model", "ARK_MODEL"); }
     public String endpointId() { return first("DOKIAI_PPT_KIMI_ENDPOINT_ID", "ARK_ENDPOINT_ID"); }
     public int timeoutSeconds() { return integer("DOKIAI_PPT_TIMEOUT_SECONDS", 300); }
     public int maxRetries() { return integer("DOKIAI_PPT_MAX_RETRIES", 2); }

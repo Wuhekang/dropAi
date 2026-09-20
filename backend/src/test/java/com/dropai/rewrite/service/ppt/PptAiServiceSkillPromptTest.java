@@ -43,7 +43,7 @@ class PptAiServiceSkillPromptTest {
             .andExpect(method(HttpMethod.POST))
             .andExpect(header("Authorization", "Bearer unit-test-secret"))
             .andExpect(content().string(containsString("[TRUSTED_PPT_SKILL]")))
-            .andExpect(content().string(containsString("skillVersion=2.0.0")))
+            .andExpect(content().string(containsString("skillVersion=2.2.0")))
             .andExpect(content().string(containsString("skillHash=" + skillHash)))
             .andExpect(content().string(containsString("metadata isolation")))
             .andExpect(content().string(containsString("不得选择模板")))
@@ -69,7 +69,7 @@ class PptAiServiceSkillPromptTest {
         assertEquals("kimi_ark", result.audit().provider());
         assertEquals("unit-test-model", result.audit().model());
         assertEquals("ppt-generation", result.audit().skillName());
-        assertEquals("2.0.0", result.audit().skillVersion());
+        assertEquals("2.2.0", result.audit().skillVersion());
         assertEquals(skillHash, result.audit().skillHash());
         server.verify();
     }
