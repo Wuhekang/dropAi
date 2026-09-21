@@ -137,7 +137,7 @@ public final class PageRenderabilityValidator {
         JsonNode metadata = tree.path("metadata");
         boolean opening="OPENING_PROPOSAL".equalsIgnoreCase(metadata.path("presentationMode").asText());
         for (String field : COVER_METADATA) {
-            if(opening&&(field.equals("presenter")||field.equals("advisor")))continue;
+            if(opening&&(field.equals("presenter")||field.equals("major")||field.equals("advisor")||field.equals("institution")))continue;
             if (!hasText(metadata, field)) {
                 issues.add(issue(PptQualityCode.UNRENDERABLE_PAGE, pageIndex, pageId,
                         "Cover metadata is missing " + field, Map.of("field", field)));

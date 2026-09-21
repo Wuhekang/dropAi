@@ -242,7 +242,9 @@ public final class RenderingTemplatePackRegistry {
             registration.put("widthPx", width);
             registration.put("heightPx", height);
             registration.put("imageRole", "INFORMATION");
-            registration.put("mandatory", true);
+            // A template may contain surfaces for page types absent from this deck.
+            // Only source evidence is mandatory; decorative assets are optional.
+            registration.put("mandatory", false);
             registration.put("mimeType", mimeType);
             registration.put("sha256", expectedHash);
         }

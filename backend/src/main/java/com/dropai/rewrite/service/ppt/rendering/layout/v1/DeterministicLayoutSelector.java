@@ -36,6 +36,12 @@ public final class DeterministicLayoutSelector {
 
     /** Keeps structural rhythm deterministic without inspecting page wording. */
     public SelectedLayout select(PageLayoutFeatures features, List<String> recentLayoutIds) {
+        return select(features, recentLayoutIds, "", 0);
+    }
+
+    /** Varies only pre-approved compatible visual recipes using a frozen per-project seed. */
+    public SelectedLayout select(PageLayoutFeatures features, List<String> recentLayoutIds,
+                                 String visualSeed, int pageNumber) {
         Objects.requireNonNull(features, "features");
         Objects.requireNonNull(recentLayoutIds, "recentLayoutIds");
         String preferred = preferredLayout(features);
@@ -55,6 +61,15 @@ public final class DeterministicLayoutSelector {
                     "No compatible layout for structural features " + features);
         }
         ScoredRecipe selected = candidates.get(0);
+        if (visualSeed != null && !visualSeed.isBlank()) {
+            String alternate = visualAlternate(features);
+            if (alternate != null && Math.floorMod(
+                    Objects.hash(visualSeed, pageNumber, features.contentType()), 2) == 1) {
+                selected = candidates.stream()
+                        .filter(candidate -> alternate.equals(candidate.recipe().layoutId()))
+                        .findFirst().orElse(selected);
+            }
+        }
         if (recentLayoutIds.size() >= 2) {
             String last = recentLayoutIds.get(recentLayoutIds.size() - 1);
             String previous = recentLayoutIds.get(recentLayoutIds.size() - 2);
@@ -69,6 +84,28 @@ public final class DeterministicLayoutSelector {
                 selected.recipe(),
                 selected.score(),
                 candidates.stream().map(candidate -> candidate.recipe().layoutId()).toList());
+    }
+
+    private String visualAlternate(PageLayoutFeatures features) {
+        if (features.pageType() == PageType.IMAGE) {
+            // Every eligible source figure still owns one page. Only its presentation geometry changes.
+            return LayoutIds.IMAGE_CENTERED_CAPTION_BOTTOM;
+        }
+        if (features.pageType() != PageType.CONTENT || features.assetCount() > 0) return null;
+        return switch (features.contentType()) {
+            case COMPARISON -> features.keyPointCount() == 2
+                    ? LayoutIds.CONTENT_COMPARISON_COLUMNS : null;
+            case PROCESS -> features.pagePurpose()
+                    == com.dropai.rewrite.service.ppt.rendering.contract.v1.enums.PagePurpose.METHOD
+                    ? null : LayoutIds.CONTENT_PROGRESS_ROADMAP;
+            case METRICS -> features.pagePurpose()
+                    == com.dropai.rewrite.service.ppt.rendering.contract.v1.enums.PagePurpose.TEST
+                    ? null : LayoutIds.CONTENT_PROCESS_STEPS;
+            case KEY_POINTS -> features.pagePurpose()
+                    == com.dropai.rewrite.service.ppt.rendering.contract.v1.enums.PagePurpose.METHOD
+                    ? LayoutIds.CONTENT_METHOD_ORBIT : null;
+            default -> null;
+        };
     }
 
     private boolean supports(LayoutRecipe recipe, PageLayoutFeatures features) {

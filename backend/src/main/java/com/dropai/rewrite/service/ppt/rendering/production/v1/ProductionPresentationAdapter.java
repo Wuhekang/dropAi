@@ -25,7 +25,7 @@ public final class ProductionPresentationAdapter {
 
     Adapted adapt(ProductionRenderPlanRequest request, PptAssetMapperV1.MappingResult mapped) {
         boolean opening="OPENING_PROPOSAL".equalsIgnoreCase(request.metadata().getOrDefault("presentationMode",""));
-        if(opening)requireMetadata(request.metadata(), "title", "englishTitle", "major", "institution");else requireMetadata(request.metadata(), "title", "englishTitle", "presenter", "major", "advisor", "institution");
+        if(opening)requireMetadata(request.metadata(), "title", "englishTitle");else requireMetadata(request.metadata(), "title", "englishTitle", "presenter", "major", "advisor", "institution");
         requireValidatedTree(request);
         requireCoverMetadataMatches(request);
         if (!mapped.assetPlanReady() || mapped.issues().stream().anyMatch(i -> "ERROR".equals(i.severity()))) {

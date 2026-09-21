@@ -64,19 +64,46 @@ class PptTemplateFormalSelectionTest {
     }
 
     @Test
-    void thesisRecommendationReturnsConcreteTrustedSmallBearPack() {
+    void thesisRecommendationReturnsConcreteTrustedFrozenVisualDirection() {
         JdbcTemplate jdbc = projectJdbc("OUTLINE_READY");
         AuthContext.setUserId(USER_ID);
 
-        Map<String, Object> result = new PptTemplateService(jdbc, new ObjectMapper())
-                .recommend(PROJECT_ID);
+        PptTemplateService service = new PptTemplateService(jdbc, new ObjectMapper());
+        Map<String, Object> result = service.recommend(PROJECT_ID);
+        Map<String, Object> retried = service.recommend(PROJECT_ID);
 
-        assertEquals(PptTemplateService.SMALL_BEAR_WATERCOLOR_BLUE_V1,
-                result.get("templatePackId"));
+        assertTrue(List.of(PptTemplateService.SMALL_BEAR_WATERCOLOR_BLUE_V1,
+                PptTemplateService.ACADEMIC_PURPLE,
+                PptTemplateService.BEAR_MINIMAL_TAN_V1,
+                PptTemplateService.BEAR_MORANDI_OLIVE_V1).contains(result.get("templatePackId")));
         assertEquals(result.get("templatePackId"), result.get("templateId"));
         assertEquals(result.get("templatePackId"), result.get("style"));
+        assertEquals(result.get("templatePackId"), retried.get("templatePackId"));
         assertEquals(true, result.get("renderingV1Supported"));
         assertEquals(true, result.get("trusted"));
+        assertTrue(result.containsKey("visualDirection"));
+        assertTrue(String.valueOf(result.get("reason")).contains("语义布局"));
+    }
+
+    @Test
+    void automaticSelectionPersistsSeedFingerprintAndStrategyInsteadOfAiPlaceholder() {
+        JdbcTemplate jdbc = projectJdbc("OUTLINE_READY");
+        List<Object[]> updates = new ArrayList<>();
+        doAnswer(invocation -> { updates.add(invocation.getArguments()); return 1; })
+                .when(jdbc).update(anyString(), any(Object[].class));
+        AuthContext.setUserId(USER_ID);
+
+        Map<String, Object> result = new PptTemplateService(jdbc, new ObjectMapper()).select(
+                PROJECT_ID, Map.of("templatePackId", PptTemplateService.AI_RECOMMEND));
+
+        assertFalse(PptTemplateService.AI_RECOMMEND.equals(result.get("templatePackId")));
+        String metadata = String.valueOf(updates.get(0)[3]);
+        assertTrue(metadata.contains("AUTO_VISUAL_DIRECTION_V1"));
+        assertTrue(metadata.contains("visualSeed"));
+        assertTrue(metadata.contains("selectionFingerprint"));
+        assertTrue(metadata.contains("SEMANTIC_LAYOUT_VARIATION_V1"));
+        assertEquals(result.get("templatePackId"), updates.get(0)[1]);
+        assertEquals(result.get("templatePackId"), updates.get(0)[2]);
     }
 
     @Test

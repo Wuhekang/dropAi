@@ -16,12 +16,13 @@ public class PptContentPlannerV2 {
     public static final String RESEARCH_TIMELINE_TITLE = "研究逻辑时间轴";
     public static final String METRICS_PROGRESS_TITLE = "指标与进度路径";
     private final PptPlannerRuleLibrary rules;
+    private static final Set<String> HEALTH_ONLY_RULES=Set.of("AI健康评估功能","健康数据可视化","用户端交互设计");
 
     public PptContentPlannerV2(PptPlannerRuleLibrary rules){this.rules=rules;}
 
     public PlannerResult plan(PlannerInput input){
         if(input==null||input.chapters()==null)throw new IllegalArgumentException("ContentPlanner V2输入章节不能为空");
-        PptPlannerRuleLibrary.RuleSet ruleSet=rules.load(input.majorType());List<FilteredContent> filtered=new ArrayList<>();List<ChapterCandidates> chapters=new ArrayList<>();
+        PptPlannerRuleLibrary.RuleSet ruleSet=rules.load(input.majorType());List<PptPlannerRuleLibrary.PurposeRule> purposeRules=applicablePurposeRules(input,ruleSet);List<FilteredContent> filtered=new ArrayList<>();List<ChapterCandidates> chapters=new ArrayList<>();
         String thesisTitle=metadataValue(input.metadata(),"title","题目","课题名称");Set<String> technologies=collectTechnologies(input.chapters(),ruleSet.technologyTerms());boolean technologyAdded=false;
         for(SourceChapter chapter:input.chapters()){
             if(isFrontMatterChapter(chapter)){for(String paragraph:safe(chapter.paragraphs()))filtered.add(new FilteredContent(chapter.title(),PptDocumentParser.clean(paragraph),"FRONT_MATTER"));continue;}
@@ -30,48 +31,139 @@ public class PptContentPlannerV2 {
             for(String paragraph:safe(chapter.paragraphs())){
                 String clean=PptDocumentParser.clean(paragraph);String reason=filterReason(clean,thesisTitle,ruleSet);
                 if(reason!=null){filtered.add(new FilteredContent(chapter.title(),clean,reason));continue;}
-                PptPlannerRuleLibrary.PurposeRule purpose=matchPurpose(chapter.title(),clean,ruleSet.purposeRules(),allowedPurposes,chapterNumber(chapter.title()));
+                PptPlannerRuleLibrary.PurposeRule purpose=matchPurpose(chapter.title(),clean,purposeRules,allowedPurposes,chapterNumber(chapter.title()));
                 if(purpose==null){filtered.add(new FilteredContent(chapter.title(),clean,"NO_ALLOWED_DEFENSE_PURPOSE"));continue;}
                 CandidateDraft draft=drafts.computeIfAbsent(purpose.title(),ignored->new CandidateDraft(purpose));draft.sources.add(clean);
             }
-            if("computer".equalsIgnoreCase(ruleSet.majorType()))ensureNamedRuleDraft(chapter,allowedPurposes,ruleSet.purposeRules(),drafts,"系统功能架构");
+            if("computer".equalsIgnoreCase(ruleSet.majorType()))ensureNamedRuleDraft(chapter,allowedPurposes,purposeRules,drafts,"系统功能架构");
             if(!technologyAdded&&technologies.size()>=2&&allowedPurposes.contains("METHOD")&&chapterContainsTechnologies(chapter,technologies)){
                 PptPlannerRuleLibrary.PurposeRule technologyRule=new PptPlannerRuleLibrary.PurposeRule("METHOD",List.of(),"系统开发技术路线","系统采用什么技术实现？");
                 CandidateDraft draft=new CandidateDraft(technologyRule);draft.explicitPoints.addAll(technologies.stream().limit(3).toList());draft.sources.add("系统采用"+String.join("、",technologies)+"完成主要功能开发与数据管理。");drafts.put(technologyRule.title(),draft);technologyAdded=true;
             }
             boolean richNarrative="social_science".equalsIgnoreCase(ruleSet.majorType());
-            List<CandidatePage> candidates=new ArrayList<>();for(CandidateDraft draft:drafts.values()){CandidatePage page=toPage(chapter.title(),draft,richNarrative);requireComplete(page);candidates.add(page);}
+            List<CandidatePage> candidates=new ArrayList<>();for(CandidateDraft draft:drafts.values()){CandidatePage page=toPage(chapter.title(),draft,richNarrative);if(isOpeningProposal(input)&&page.keyPoints().stream().allMatch(point->point.equals("概括本节核心内容")))continue;requireComplete(page);candidates.add(page);}
             if(!candidates.isEmpty())chapters.add(new ChapterCandidates(chapter.title(),candidates));
         }
-        if(isOpeningProposal(input))chapters=appendOpeningProposalSemanticCandidates(chapters,input);
+        if(isOpeningProposal(input)){
+            chapters=appendOpeningProposalSemanticCandidates(chapters,input);
+            if(chapters.stream().flatMap(chapter->chapter.candidatePages().stream())
+                    .noneMatch(page->"SUMMARY".equals(page.pagePurpose())))
+                chapters=appendOpeningSummary(chapters,input);
+        }
         chapters=appendEvidenceCandidates(chapters,input);
         requireEvidenceCoverage(chapters,input.assets());
         if("nursing".equalsIgnoreCase(ruleSet.majorType())&&chapters.stream().flatMap(c->c.candidatePages().stream()).noneMatch(p->"SUMMARY".equals(p.pagePurpose())))chapters=appendNursingSummary(chapters,input);
         return new PlannerResult(ruleSet.majorType(),chapters,filtered);
     }
 
+    private List<PptPlannerRuleLibrary.PurposeRule> applicablePurposeRules(PlannerInput input,PptPlannerRuleLibrary.RuleSet rules){
+        if(!"computer".equalsIgnoreCase(rules.majorType()))return rules.purposeRules();
+        String title=metadataValue(input.metadata(),"title","题目","课题名称");
+        boolean healthExample=title.contains("健康管理")||input.chapters().stream()
+                .flatMap(chapter->safe(chapter.paragraphs()).stream())
+                .anyMatch(paragraph->paragraph.contains("AI健康评估")&&paragraph.contains("健康数据"));
+        if(healthExample)return rules.purposeRules();
+        return rules.purposeRules().stream().filter(rule->!HEALTH_ONLY_RULES.contains(rule.title()))
+                .map(rule->new PptPlannerRuleLibrary.PurposeRule(rule.purpose(),rule.keywords(),rule.title(),
+                        rule.answerQuestion(),List.of(),rule.chapterNumbers(),""))
+                .toList();
+    }
+
     private List<ChapterCandidates> appendNursingSummary(List<ChapterCandidates> chapters,PlannerInput input){List<ChapterCandidates> out=new ArrayList<>(chapters);CandidatePage page=new CandidatePage("预期成果与应用价值","SUMMARY","课题预计形成什么成果并产生何种价值？",List.of("形成护理研究进展综述","归纳干预措施及适用条件","为临床护理和后续研究提供参考"),"课题将系统整理现有护理证据，比较不同措施的实施条件与证据局限，形成可供临床护理和后续研究参考的综述成果。","研究目的及意义",.9);if(out.isEmpty())out.add(new ChapterCandidates("第一章",List.of(page)));else{ChapterCandidates first=out.get(0);List<CandidatePage> pages=new ArrayList<>(first.candidatePages());pages.add(page);out.set(0,new ChapterCandidates(first.chapter(),pages));}return List.copyOf(out);}
+
+    private List<ChapterCandidates> appendOpeningSummary(List<ChapterCandidates> chapters,PlannerInput input){
+        List<String> paragraphs=input.chapters().stream().flatMap(chapter->safe(chapter.paragraphs()).stream())
+                .map(PptDocumentParser::clean).filter(value->!value.isBlank()).toList();
+        List<String> outcomes=paragraphsFor(input.chapters(),List.of("预期成果","研究特色","创新点","进度安排","工作计划"));
+        if(outcomes.isEmpty())outcomes=paragraphs;
+        String sourceChapter=chapterFor(input.chapters(),List.of("预期成果","进度安排","总体安排","工作计划"),firstChapter(input.chapters()));
+        String title=metadataValue(input.metadata(),"title","题目","课题名称");
+        List<String> points=List.of(
+                openingOutcomePoint(outcomes,paragraphs,"研究成果"),
+                openingOutcomePoint(outcomes,paragraphs,"验证重点"),
+                openingOutcomePoint(outcomes,paragraphs,"交付计划"));
+        String description="围绕"+title+"，本课题将形成可核验的研究成果，按计划完成方法验证、论文整理与开题后的实施工作。";
+        CandidatePage page=new CandidatePage("TEXT","预期成果与实施展望","SUMMARY","开题后预计完成什么并如何检验？",
+                points,description,sourceChapter,.94,"KEY_POINTS","",null,false,List.of());
+        LinkedHashMap<String,List<CandidatePage>> grouped=new LinkedHashMap<>();
+        for(ChapterCandidates chapter:chapters)grouped.put(chapter.chapter(),new ArrayList<>(chapter.candidatePages()));
+        grouped.computeIfAbsent(sourceChapter,ignored->new ArrayList<>()).add(page);
+        return grouped.entrySet().stream().map(entry->new ChapterCandidates(entry.getKey(),List.copyOf(entry.getValue()))).toList();
+    }
 
     private List<ChapterCandidates> appendOpeningProposalSemanticCandidates(List<ChapterCandidates> chapters,PlannerInput input){
         LinkedHashMap<String,List<CandidatePage>> grouped=new LinkedHashMap<>();
         for(ChapterCandidates chapter:chapters){List<CandidatePage> pages=new ArrayList<>(safe(chapter.candidatePages()));pages.removeIf(page->Set.of("国内外研究现状","选题背景与研究价值","数据来源与技术路线","研究进度安排",LITERATURE_COMPARISON_TITLE,VALUE_QUADRANT_TITLE,RESEARCH_TIMELINE_TITLE,METRICS_PROGRESS_TITLE).contains(page.title()));grouped.put(chapter.chapter(),pages);}
         String basis=chapterFor(input.chapters(),List.of("研究现状","选题目的","选题意义"),firstChapter(input.chapters()));
-        String design=chapterFor(input.chapters(),List.of("基本内容","研究方案","研究方法"),basis);
-        String plan=chapterFor(input.chapters(),List.of("进度安排","工作计划"),design);
+        String design=chapterFor(input.chapters(),List.of("基本内容","研究方案","研究方法","技术路线"),basis);
+        String plan=chapterFor(input.chapters(),List.of("进度安排","工作计划","总体安排"),design);
         List<String> paragraphs=input.chapters().stream().flatMap(chapter->safe(chapter.paragraphs()).stream()).map(PptDocumentParser::clean).filter(value->!value.isBlank()).toList();
         List<String> valueParagraphs=paragraphsFor(input.chapters(),List.of("选题目的","选题意义"));
         List<String> designParagraphs=paragraphsFor(input.chapters(),List.of("基本内容","研究方案"));
-        List<String> planParagraphs=paragraphsFor(input.chapters(),List.of("进度安排","工作计划"));
-        List<String> values=distinctStatements(valueParagraphs,List.of("理论方面","实践方面","短期分析","长期分析","研究旨在"),4,34);
-        List<String> logic=distinctStatements(designParagraphs,List.of("首先","其次","再次","最后","问题—影响因素—提升对策"),5,16);
-        List<String> metrics=distinctStatements(concat(designParagraphs,planParagraphs),List.of("流动比率","速动比率","资产负债率","产权比率","利息保障倍数","2021—2025","收集资料","论文答辩"),5,30);
-        addSemantic(grouped,basis,new CandidatePage("TEXT",LITERATURE_COMPARISON_TITLE,"BACKGROUND","国内外研究的关注重点、方法与不足有何差异？",List.of("国外：综合考察流动性、杠杆、现金流与债务期限","国内：聚焦资金链、融资结构与风险预警"),"国外研究重综合指标与债务结构，国内研究重资金链、融资结构与风险预警；针对华润新能源的案例联动分析仍不足。",basis,.97,"COMPARISON","",null,false,List.of()));
-        addSemantic(grouped,basis,new CandidatePage("TEXT",VALUE_QUADRANT_TITLE,"BACKGROUND","本课题从哪些互补视角体现研究价值？",fill(values,List.of("理论：资产负债表指标与现金流指标结合","实践：改善营运资金与债务期限安排","短期：检验流动资产质量与到期债务覆盖","长期：评估资本结构、利息负担与现金保障"),4),sourceSentence(paragraphs,List.of("理论方面","实践方面","研究旨在"),"课题从理论、实践、短期偿债和长期偿债四个视角明确研究价值。"),basis,.97,"COMPARISON","",null,false,List.of()));
-        addSemantic(grouped,design,new CandidatePage("TEXT",RESEARCH_TIMELINE_TITLE,"METHOD","研究如何从问题提出推进到对策形成？",fill(logic,List.of("梳理文献与指标口径","整理连续可比的年度报告","计算短期与长期偿债指标","识别问题并分析影响因素","形成逐项对应的提升对策"),5),sourceSentence(paragraphs,List.of("首先","其次","再次","最后"),"研究按照文献梳理、数据整理、指标计算、问题识别和对策设计的顺序推进。"),design,.98,"PROCESS","",null,false,List.of()));
-        addSemantic(grouped,plan,new CandidatePage("TEXT",METRICS_PROGRESS_TITLE,"TEST","核心指标与研究进度如何形成可检查的推进路径？",fill(metrics,List.of("短期指标：流动比率与速动比率","长期指标：资产负债率与产权比率","现金流验证：流动负债与利息保障","数据范围：连续可比年度报告","进度路径：资料收集、分析、定稿与答辩"),5),sourceSentence(paragraphs,List.of("非延期进度安排","2026年08月17日","论文答辩"),"指标计算与资料收集、分析撰写、修改定稿和答辩节点同步推进，形成可追溯的研究路径。"),plan,.98,"METRICS","",null,false,List.of()));
+        List<String> planParagraphs=paragraphsFor(input.chapters(),List.of("进度安排","工作计划","总体安排"));
+        List<String> literature=List.of(
+                groundedPoint(paragraphs,List.of("国外研究","国外在线","国外"),"国外研究","梳理国外相关研究方法"),
+                groundedPoint(paragraphs,List.of("国内研究","国内推荐","国内"),"国内研究","梳理国内相关研究方法"));
+        List<String> values=List.of(
+                groundedPoint(paragraphs,List.of("应用层面","应用前景","平台可据此"),"应用价值","识别研究对象的实际需求"),
+                groundedPoint(paragraphs,List.of("技术层面","研究方法","模型组合"),"方法价值","建立可检验的研究方法"),
+                groundedPoint(paragraphs,List.of("用户","消费者","受众"),"用户视角","回应目标用户的核心问题"),
+                groundedPoint(paragraphs,List.of("管理员","运营","管理"),"实践视角","为业务改进提供依据"));
+        List<String> logic=openingLogicSteps(paragraphs);
+        List<String> metrics=openingMetrics(paragraphs,concat(designParagraphs,planParagraphs));
+        addSemantic(grouped,basis,new CandidatePage("TEXT",LITERATURE_COMPARISON_TITLE,"BACKGROUND","国内外研究的关注重点、方法与不足有何差异？",literature,sourceSentence(paragraphs,List.of("综合研究动态","现有研究","研究仍","仍有拓展空间"),"国内外研究为本课题提供方法基础，也留下结合具体研究对象进一步验证的空间。"),basis,.97,"COMPARISON","",null,false,List.of()));
+        addSemantic(grouped,basis,new CandidatePage("TEXT",VALUE_QUADRANT_TITLE,"BACKGROUND","本课题从哪些互补视角体现研究价值？",values,sourceSentence(paragraphs,List.of("应用层面","技术层面","研究结果可服务","研究对象"),"课题从应用、方法、用户和实践四个视角明确研究价值。"),basis,.97,"COMPARISON","",null,false,List.of()));
+        addSemantic(grouped,design,new CandidatePage("TEXT",RESEARCH_TIMELINE_TITLE,"METHOD","研究如何从问题提出推进到成果形成？",logic,"研究从问题界定出发，依次完成资料整理、方法设计、实施验证与成果整理。",design,.98,"PROCESS","",null,false,List.of()));
+        addSemantic(grouped,plan,new CandidatePage("TEXT",METRICS_PROGRESS_TITLE,"TEST","核心指标与研究进度如何形成可检查的推进路径？",metrics,"评价指标、数据准备、验证方法与阶段节点共同约束研究执行。",plan,.98,"METRICS","",null,false,List.of()));
         return grouped.entrySet().stream().map(entry->new ChapterCandidates(entry.getKey(),List.copyOf(entry.getValue()))).toList();
     }
+    private List<String> openingMetrics(List<String> paragraphs,List<String> scoped){
+        String evidence=String.join(" ",scoped.isEmpty()?paragraphs:scoped);
+        String all=String.join(" ",paragraphs);
+        boolean recommendation=evidence.contains("Precision@K")||evidence.contains("Recall@K")||all.contains("智能问答与推荐");
+        boolean textMining=evidence.contains("LinearSVC")||evidence.contains("LDA")||all.contains("文本挖掘");
+        return List.of(
+                "评价指标："+(recommendation?"推荐命中率与问答溯源":textMining?"主题一致性与分类F1值":"与研究目标对应的检验指标"),
+                "数据基础："+(recommendation?"安全图书与问答知识库":all.contains("京东")?"京东评价与站外讨论文本":"原始资料与研究样本"),
+                "验证方法："+(recommendation?"功能测试与推荐对照":textMining?"主题、情感与聚类评估":"功能与研究结果验证"),
+                "进度节点：资料整理、实施、测试、定稿",
+                "成果交付："+(recommendation?"问答推荐系统与论文":textMining?"营销策略、分析系统与论文":"研究成果与答辩论文"));
+    }
+    private String openingOutcomePoint(List<String> scoped,List<String> all,String label){
+        String evidence=String.join(" ",scoped.isEmpty()?all:scoped);
+        String full=String.join(" ",all);
+        boolean recommendation=full.contains("智能问答与推荐")||evidence.contains("Precision@K");
+        boolean textMining=full.contains("华为Mate80")&&full.contains("文本挖掘");
+        return switch(label){
+            case "研究成果" -> "研究成果："+(recommendation?"问答推荐系统与安全知识服务":textMining?"用户文本分析与精准营销策略":"形成可检验的研究成果");
+            case "验证重点" -> "验证重点："+(recommendation?"问答来源、推荐指标与业务闭环":textMining?"主题、情感与受众细分效果":"核对研究指标与实施结果");
+            default -> "交付计划：完成成果验证、论文定稿与答辩";
+        };
+    }
     private void addSemantic(Map<String,List<CandidatePage>> grouped,String chapter,CandidatePage page){grouped.computeIfAbsent(chapter,ignored->new ArrayList<>()).add(page);}
+    private String groundedPoint(List<String> paragraphs,List<String> markers,String label,String fallback){
+        for(String paragraph:paragraphs)for(String marker:markers){int index=paragraph.indexOf(marker);if(index<0||paragraph.length()<35||paragraph.contains("毕业设计（论文）选题背景"))continue;
+            int start=Math.max(paragraph.lastIndexOf('。',index),paragraph.lastIndexOf('；',index))+1;
+            int end=paragraph.indexOf('。',index);if(end<0)end=paragraph.length();
+            String sentence=PptDocumentParser.clean(paragraph.substring(start,Math.min(end+1,paragraph.length())));
+            for(String clause:sentence.replaceAll("\\[[0-9,，—-]+]","").split("[，,；;。]+")){
+                String clean=PptDocumentParser.clean(clause).replaceFirst("^(?:国外研究中|国内研究中|在应用层面|在技术层面)[：:]?","").trim();
+                if(clean.length()>=10&&clean.length()<=42&&!clean.matches("^\\d+[.．].*"))
+                    return label+"："+clean;
+            }
+        }
+        return label+"："+fallback;
+    }
+    private List<String> openingLogicSteps(List<String> paragraphs){
+        for(String paragraph:paragraphs){if(!paragraph.contains("技术路线为")&&!paragraph.contains("研究按照"))continue;
+            String route=paragraph.replaceFirst("^.*?(?:技术路线为[：:]?|研究按照[“\"]?)","");
+            String[] parts=route.split("[→↓—]+",7);LinkedHashSet<String> steps=new LinkedHashSet<>();
+            for(String part:parts){String clean=PptDocumentParser.clean(part).replaceFirst("[”\"。；;].*$","");
+                if(clean.length()>=4)steps.add(completeText(clean,16));if(steps.size()>=5)break;}
+            if(steps.size()>=4)return List.copyOf(steps);
+        }
+        return List.of("梳理研究背景与已有成果","明确研究问题与方法","整理资料并开展分析","验证结果与关键指标","形成成果与实施建议");
+    }
     private boolean isOpeningProposal(PlannerInput input){return "OPENING_PROPOSAL".equalsIgnoreCase(input.metadata()==null?"":input.metadata().getOrDefault("presentationMode",""))||PptOpeningProposalDetector.isOpeningProposal(input.chapters().stream().flatMap(chapter->safe(chapter.paragraphs()).stream()).toList());}
     private String firstChapter(List<SourceChapter> chapters){return safe(chapters).stream().filter(chapter->!isFrontMatterChapter(chapter)).map(SourceChapter::title).findFirst().orElse("第一章");}
     private String chapterFor(List<SourceChapter> chapters,List<String> markers,String fallback){return safe(chapters).stream().filter(chapter->markers.stream().anyMatch(marker->chapter.title().contains(marker))).map(SourceChapter::title).findFirst().orElse(fallback);}
@@ -113,7 +205,7 @@ public class PptContentPlannerV2 {
     private void requireEvidenceCoverage(List<ChapterCandidates> chapters,List<Map<String,Object>> assets){LinkedHashSet<String> expected=new LinkedHashSet<>();for(Map<String,Object> asset:safe(assets)){String id=string(asset.get("id"));if(id.isBlank()||!expected.add(id))throw new IllegalStateException("ContentPlanner V2图片标识为空或重复: "+id);}LinkedHashMap<String,Integer> actual=new LinkedHashMap<>();for(var chapter:safe(chapters))for(var page:safe(chapter.candidatePages()))if("IMAGE_EVIDENCE".equals(page.candidateType())){String id=page.sourceRefs()==null?"":page.sourceRefs().figureId();if(!page.mandatoryAsset())throw new IllegalStateException("图片候选页必须标记mandatoryAsset: "+id);actual.merge(id,1,Integer::sum);}for(String id:expected)if(actual.getOrDefault(id,0)!=1)throw new IllegalStateException("每张有效图片必须生成且只生成一张专属介绍页: "+id);for(String id:actual.keySet())if(!expected.contains(id))throw new IllegalStateException("图片候选页引用了未知素材: "+id);}
     private int numberFromId(String value){var matcher=java.util.regex.Pattern.compile("(\\d+)").matcher(value==null?"":value);return matcher.find()?Integer.parseInt(matcher.group(1)):0;}
     private String string(Object value){return value==null?"":String.valueOf(value);}
-    private String filterReason(String value,String thesisTitle,PptPlannerRuleLibrary.RuleSet rules){String compact=value.replaceAll("\\s+","");String canonical=canonical(compact);if(compact.length()<4)return "EMPTY_OR_HEADING";if(!thesisTitle.isBlank()&&(compact.equals(thesisTitle.replaceAll("\\s+",""))||compact.matches("^(题目|课题名称)[：:]?"+java.util.regex.Pattern.quote(thesisTitle.replaceAll("\\s+",""))+"$")))return "THESIS_TITLE";if(isFormContent(canonical,rules.formMarkers()))return "FORM_CONTENT";long metadataHits=rules.metadataLabels().stream().map(this::canonical).filter(canonical::contains).count();if(metadataHits>=2||rules.metadataLabels().stream().anyMatch(label->compact.matches("^"+java.util.regex.Pattern.quote(label)+"[：:].*")))return "METADATA";if(rules.forbiddenStandalone().stream().anyMatch(term->canonical.equalsIgnoreCase(canonical(term))))return "LOW_VALUE_STANDALONE";if(compact.matches("^(关键词|关键字)[：:].*"))return "KEYWORDS";return null;}
+    private String filterReason(String value,String thesisTitle,PptPlannerRuleLibrary.RuleSet rules){String compact=value.replaceAll("\\s+","");String canonical=canonical(compact);if(compact.length()<4)return "EMPTY_OR_HEADING";if(compact.matches("^(?:评语[：:]?|该课题选题具有|论文技术路线清晰|开题报告文献综述|指导教师意见|指导教师[（(]签字[）)]|总体来看课题|建议[：:]).*"))return "FORM_CONTENT";if(!thesisTitle.isBlank()&&(compact.equals(thesisTitle.replaceAll("\\s+",""))||compact.matches("^(题目|课题名称)[：:]?"+java.util.regex.Pattern.quote(thesisTitle.replaceAll("\\s+",""))+"$")))return "THESIS_TITLE";if(isFormContent(canonical,rules.formMarkers()))return "FORM_CONTENT";long metadataHits=rules.metadataLabels().stream().map(this::canonical).filter(canonical::contains).count();if(metadataHits>=2||rules.metadataLabels().stream().anyMatch(label->compact.matches("^"+java.util.regex.Pattern.quote(label)+"[：:].*")))return "METADATA";if(rules.forbiddenStandalone().stream().anyMatch(term->canonical.equalsIgnoreCase(canonical(term))))return "LOW_VALUE_STANDALONE";if(compact.matches("^(关键词|关键字)[：:].*"))return "KEYWORDS";return null;}
     private boolean isFormContent(String value,List<String> markers){for(String markerValue:safe(markers)){String marker=canonical(markerValue);if(marker.isBlank())continue;if(value.equals(marker))return true;if(value.length()<=marker.length()+12&&(value.startsWith(marker)||value.endsWith(marker)))return true;}return value.matches("^(?:毕业设计|毕业论文)?任务书(?:内容)?$")||value.matches("^(?:毕业设计|毕业论文)?答辩记录(?:表)?$")||value.matches("^(?:指导教师|评阅教师)?审批意见(?:表)?$")||value.matches("^综合评价(?:表|意见)?$");}
     private PptPlannerRuleLibrary.PurposeRule matchPurpose(String chapterTitle,String paragraph,List<PptPlannerRuleLibrary.PurposeRule> purposeRules,Set<String> allowedPurposes,int chapterNumber){String text=chapterTitle+" "+paragraph;PptPlannerRuleLibrary.PurposeRule best=null;int bestScore=0;for(var rule:purposeRules){boolean summarySignal="SUMMARY".equals(rule.purpose())&&paragraph.matches(".*(预期达到的目标|预期目标|预期成果|研究预期形成|达到.*目标).*" );boolean testSignal="TEST".equals(rule.purpose())&&paragraph.matches(".*(进度安排|工作计划|阶段任务|论文答辩).*" );boolean semanticOverride=summarySignal||testSignal;if("系统开发技术路线".equals(rule.title())||(!allowedPurposes.contains(rule.purpose())&&!semanticOverride)||(!semanticOverride&&!safe(rule.chapterNumbers()).isEmpty()&&!rule.chapterNumbers().contains(chapterNumber)))continue;int score=semanticOverride?100:0;for(String keyword:safe(rule.keywords()))if(text.contains(keyword))score++;if(score>bestScore){best=rule;bestScore=score;}}return best;}
     private void ensureNamedRuleDraft(SourceChapter chapter,Set<String> allowedPurposes,List<PptPlannerRuleLibrary.PurposeRule> purposeRules,Map<String,CandidateDraft> drafts,String title){

@@ -82,6 +82,36 @@ class DeterministicLayoutSelectorTest {
     }
 
     @Test
+    void frozenVisualSeedVariesOnlyCompatibleLayoutRecipesAndIsStable() {
+        PageLayoutFeatures comparison = noMedia(PageType.CONTENT, PagePurpose.BACKGROUND,
+                ContentType.COMPARISON, 4, 220, 0, 0);
+        for (int index = 0; index < 24; index++) {
+            String seed = String.format("%064x", index + 1);
+            SelectedLayout first = selector.select(comparison, List.of(), seed, 5);
+            assertEquals(first, selector.select(comparison, List.of(), seed, 5));
+            assertEquals(LayoutIds.CONTENT_QUADRANT_MATRIX, first.layoutId());
+        }
+
+        PageLayoutFeatures literature = noMedia(PageType.CONTENT, PagePurpose.BACKGROUND,
+                ContentType.COMPARISON, 2, 160, 0, 0);
+        Set<String> selected = new LinkedHashSet<>();
+        for (int index = 0; index < 24; index++)
+            selected.add(selector.select(literature, List.of(), String.format("%064x", index + 1), 5).layoutId());
+        assertEquals(Set.of(LayoutIds.CONTENT_COMPARISON_FOCUS,
+                LayoutIds.CONTENT_COMPARISON_COLUMNS), selected);
+
+        PageLayoutFeatures image = image(PageType.IMAGE, PagePurpose.RESULT,
+                ContentType.FIGURE, ImageRole.PROOF, AssetKind.SCREENSHOT, 1_777_778);
+        Set<String> imageLayouts = new LinkedHashSet<>();
+        for (int index = 0; index < 24; index++) {
+            imageLayouts.add(selector.select(image, List.of(), String.format("%064x", index + 1), 8)
+                    .layoutId());
+        }
+        assertEquals(Set.of(LayoutIds.IMAGE_PROOF_SCREENSHOT_WIDE,
+                LayoutIds.IMAGE_CENTERED_CAPTION_BOTTOM), imageLayouts);
+    }
+
+    @Test
     void summaryVariantUsesOnlySequencePosition() {
         PageLayoutFeatures first = noMedia(
                 PageType.SUMMARY, PagePurpose.SUMMARY, ContentType.KEY_POINTS, 3, 160, 1, 2);

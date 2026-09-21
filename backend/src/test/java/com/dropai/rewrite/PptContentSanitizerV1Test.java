@@ -20,4 +20,17 @@ class PptContentSanitizerV1Test {
         assertEquals(List.of("user","用户账户管理"),pages.get(2).tableSummary().get(0));
         assertTrue(pages.get(2).tableSummary().stream().flatMap(List::stream).noneMatch(c->c.contains("字段")||c.contains("deleted")));
     }
+
+    @Test void doesNotCopyHealthManagementSampleIntoOtherComputerProposals(){
+        var page=new PptContentPlannerV2.CandidatePage("项目背景与价值","BACKGROUND","为什么开展该课题？",
+                List.of("安全知识分散在多类专业图书中","检索增强问答需要标注知识来源"),
+                "安全类图书与制度资料更新较快，读者需要可溯源的问答与个性化推荐。","第一章",.9);
+        var input=new PptContentPlannerV2.PlannerResult("computer",List.of(
+                new PptContentPlannerV2.ChapterCandidates("第一章",List.of(page))),List.of());
+        var result=sanitizer.sanitize(input).chapters().get(0).candidatePages().get(0);
+        assertTrue(result.description().contains("安全类图书"));
+        assertTrue(result.keyPoints().stream().anyMatch(point->point.contains("安全知识")));
+        assertFalse(result.description().contains("健康管理"));
+        assertFalse(result.keyPoints().stream().anyMatch(point->point.contains("健康数据")));
+    }
 }

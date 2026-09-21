@@ -13,8 +13,20 @@ public record ProductionRenderPlanRequest(
         List<String> sourceBlocks,
         PptOutlineValidatorV1.ValidationResult validatedTree,
         PptContentPlannerV2.PlannerInput plannerInput,
-        String templatePackId
+        String templatePackId,
+        String visualSeed
 ) {
+    public ProductionRenderPlanRequest(
+            String projectId,
+            Map<String, String> metadata,
+            List<String> sourceBlocks,
+            PptOutlineValidatorV1.ValidationResult validatedTree,
+            PptContentPlannerV2.PlannerInput plannerInput,
+            String templatePackId
+    ) {
+        this(projectId, metadata, sourceBlocks, validatedTree, plannerInput, templatePackId, "");
+    }
+
     /** Compatibility constructor for the frozen academic-purple baseline. */
     public ProductionRenderPlanRequest(
             String projectId,
@@ -23,7 +35,7 @@ public record ProductionRenderPlanRequest(
             PptOutlineValidatorV1.ValidationResult validatedTree,
             PptContentPlannerV2.PlannerInput plannerInput
     ) {
-        this(projectId, metadata, sourceBlocks, validatedTree, plannerInput, "academic-purple");
+        this(projectId, metadata, sourceBlocks, validatedTree, plannerInput, "academic-purple", "");
     }
 
     public ProductionRenderPlanRequest {
@@ -33,6 +45,10 @@ public record ProductionRenderPlanRequest(
             templatePackId = "academic-purple";
         } else {
             templatePackId = templatePackId.strip();
+        }
+        visualSeed = visualSeed == null ? "" : visualSeed.strip();
+        if (!visualSeed.isEmpty() && !visualSeed.matches("[a-f0-9]{64}")) {
+            throw new IllegalArgumentException("visualSeed must be a lower-case SHA-256 hex string");
         }
     }
 }

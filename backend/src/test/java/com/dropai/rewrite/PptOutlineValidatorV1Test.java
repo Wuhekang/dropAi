@@ -41,5 +41,16 @@ class PptOutlineValidatorV1Test {
         assertThrows(IllegalStateException.class,()->validator.requireValid(result));
     }
 
+    @Test void acceptsCompleteImplementationAndOutcomeNounPhrases(){
+        var implementation = new PptContentPlannerV2.CandidatePage("研究逻辑时间轴","METHOD","研究如何推进？",
+                List.of("问答检索与审核流程实现","研究成果形成"),
+                "按照资料准备、方案实现与成果检验三个阶段推进研究。","第二章",.9);
+        var outline = planner.plan(new PptOutlinePlannerV1.OutlineRequest(List.of(
+                implementation,page("预期成果与实施展望","SUMMARY","预计形成什么成果？","第三章")),12));
+        var result = validator.validate(new PptOutlineValidatorV1.ValidationRequest(
+                Map.of("title","安全类图书智能问答与推荐系统","presenter","测试学生"),outline));
+        assertTrue(result.issues().stream().noneMatch(issue->"KEY_POINT_TRUNCATED".equals(issue.code())),result.issues().toString());
+    }
+
     private PptContentPlannerV2.CandidatePage page(String title,String purpose,String question,String chapter){return new PptContentPlannerV2.CandidatePage(title,purpose,question,List.of("观点一","观点二","观点三"),"该页面具有明确的答辩目标和完整的内容说明，用于验证页面规划质量门禁。",chapter,.9);}
 }

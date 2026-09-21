@@ -46,6 +46,8 @@ public final class PptMetadataNormalizer {
             if (pairedKey != null && index + 1 < blocks.size()) {
                 String next = normalizeFrontMatterBlock(blocks.get(index + 1));
                 if (!next.isBlank() && keyForStandaloneLabel(next) == null && !isMissingPlaceholder(next)) {
+                    if ("title".equals(pairedKey) && shouldAppendTitleContinuation(next, blocks, index + 1))
+                        next += normalizeFrontMatterBlock(blocks.get(index + 2));
                     add(found, pairedKey, normalizeValue(pairedKey, next));
                 }
             }
@@ -109,7 +111,7 @@ public final class PptMetadataNormalizer {
         metadata.forEach((key, value) -> {
             if (key != null && value != null && !value.isBlank()) {
                 String result = normalizeValue(key, value);
-                if (!result.isBlank()) {
+                if (!result.isBlank() && metadataLooksValid(key, result)) {
                     normalized.put(key, result);
                 }
             }
@@ -144,6 +146,7 @@ public final class PptMetadataNormalizer {
                 .replaceFirst("^[：:﹕︰]+", "")
                 .replaceFirst("[：:﹕︰]+$", "")
                 .strip();
+        if (isMissingPlaceholder(normalized)) return "";
         return switch (key) {
             case "presenter" -> normalizePersonName(normalized);
             case "advisor" -> normalizePersonName(normalized.replaceFirst(
@@ -164,7 +167,9 @@ public final class PptMetadataNormalizer {
             return false;
         }
         return (title.matches(".*(?:基于|的|与|和|及)$") && next.matches("^(?:设计|实现|研究|分析).*$"))
-                || "设计与实现".equals(next);
+                || "设计与实现".equals(next)
+                || (title.length()>=18 && title.matches(".*[A-Za-z0-9]$")
+                && next.matches("^(?:用户|消费者|客户).{4,28}(?:研究|分析|设计)$"));
     }
 
     private String normalizePersonName(String value) {
@@ -250,7 +255,9 @@ public final class PptMetadataNormalizer {
 
     private boolean isMissingPlaceholder(String value) {
         String compact = value == null ? "" : value.replaceAll("\\s+", "");
-        return compact.isBlank() || compact.matches("[年月日/_?？*._\\-]+");
+        return compact.isBlank() || compact.matches("[年月日/_?？*._\\-]+")
+                || compact.matches("[（(]?待填[）)]?")
+                || compact.matches("[（(]?(?:请填写|未填写|待补充)[）)]?");
     }
 
     private String resolveUnique(String key, Set<String> values) {
@@ -272,9 +279,21 @@ public final class PptMetadataNormalizer {
     }
 
     private void add(Map<String, LinkedHashSet<String>> found, String key, String value) {
-        if (!value.isBlank()) {
+        if (!value.isBlank() && metadataLooksValid(key, value)) {
             found.computeIfAbsent(key, ignored -> new LinkedHashSet<>()).add(value);
         }
+    }
+
+    private boolean metadataLooksValid(String key, String value) {
+        String compact=value.replaceAll("\\s+", "");
+        if (compact.isBlank() || value.contains("\n") || value.contains("\r")
+                || compact.matches(".*(?:指导教师|学生姓名|选题背景|研究背景|论文选题|课题名称).*")) return false;
+        if ("major".equals(key)) return compact.length()<=24 && !compact.matches(".*(?:班级|姓名|学号|教师).*"  );
+        if ("presenter".equals(key) || "advisor".equals(key))
+            return compact.matches("[\\p{IsHan}·]{2,8}")
+                    || value.matches("[A-Za-z][A-Za-z .'-]{1,39}");
+        if ("institution".equals(key)) return compact.length()<=30 && !compact.matches(".*(?:专业|学生|学号|教师).*"  );
+        return true;
     }
 
     private boolean isFrontMatterEnd(String compact) {

@@ -78,14 +78,14 @@ public final class RenderPlanCompiler {
             RenderingAssetBundle assets,
             ResolvedFontProfile fontProfile
     ) {
-        return compileInternal(tree, theme, catalog, assets, fontProfile, null);
+        return compileInternal(tree, theme, catalog, assets, fontProfile, null, "");
     }
 
     /**
      * Compiles the same frozen content/layout contract with an optional trusted
      * visual template surface. The surface contribution is limited to one
-     * full-slide decorative image and cannot alter page content, layout
-     * selection or existing element geometry.
+     * full-slide decorative image and cannot alter page content or element geometry.
+     * Layout variation, when requested, is handled separately by a frozen visual seed.
      */
     public DraftSlideRenderPlan compile(
             ValidatedPresentationTree tree,
@@ -101,7 +101,22 @@ public final class RenderPlanCompiler {
                 catalog,
                 assets,
                 fontProfile,
-                Objects.requireNonNull(templatePack, "templatePack"));
+                Objects.requireNonNull(templatePack, "templatePack"), "");
+    }
+
+    /** The frozen visual seed may vary compatible recipes, never page content or Renderer behavior. */
+    public DraftSlideRenderPlan compile(
+            ValidatedPresentationTree tree,
+            ResolvedTheme theme,
+            LayoutCatalog catalog,
+            RenderingAssetBundle assets,
+            ResolvedFontProfile fontProfile,
+            RenderingTemplatePack templatePack,
+            String visualSeed
+    ) {
+        return compileInternal(tree, theme, catalog, assets, fontProfile,
+                Objects.requireNonNull(templatePack, "templatePack"),
+                visualSeed == null ? "" : visualSeed);
     }
 
     private DraftSlideRenderPlan compileInternal(
@@ -110,7 +125,8 @@ public final class RenderPlanCompiler {
             LayoutCatalog catalog,
             RenderingAssetBundle assets,
             ResolvedFontProfile fontProfile,
-            RenderingTemplatePack templatePack
+            RenderingTemplatePack templatePack,
+            String visualSeed
     ) {
         Objects.requireNonNull(tree, "tree");
         Objects.requireNonNull(theme, "theme");
@@ -168,7 +184,8 @@ public final class RenderPlanCompiler {
                     assets,
                     pageType == PageType.SUMMARY ? summaryOrdinal : 0,
                     pageType == PageType.SUMMARY ? summaryCount : 0);
-            SelectedLayout selected = selector.select(features, recentLayouts);
+            SelectedLayout selected = selector.select(features, recentLayouts, visualSeed,
+                    page.path("pageNumber").asInt());
             ObjectNode compiled = compileWithFallbacks(
                     page,
                     treeDocument,
@@ -253,6 +270,8 @@ public final class RenderPlanCompiler {
         ArrayNode elements = slide.putArray("elements");
         elements.add(background(slideId, styles));
         boolean openingProposal="OPENING_PROPOSAL".equalsIgnoreCase(tree.path("metadata").path("presentationMode").asText());
+        // Keep dense opening-proposal content on a neutral canvas; decorated
+        // source surfaces remain on cover, agenda, section and image pages.
         if (templatePack != null && !(openingProposal && (pageType == PageType.CONTENT || pageType == PageType.SUMMARY))) {
             templatePack.surfaceAssetId(pageType).ifPresent(assetId ->
                     elements.add(templateSurfaceElement(slideId, assetId, assets, styles)));
@@ -305,22 +324,26 @@ public final class RenderPlanCompiler {
         String subtitle = hasText(metadata, "englishTitle")
                 ? requiredText(metadata, "englishTitle")
                 : requiredText(page, "description");
+        if("OPENING_PROPOSAL".equalsIgnoreCase(metadata.path("presentationMode").asText())
+                && subtitle.equals(page.path("title").asText()))subtitle="开题报告";
         addText(elements, slideId, "subtitle", subtitle, requiredSlot(recipe, "subtitle"),
                 "subtitle", styles.hasComponent("surfaceSubtitle")?"surfaceSubtitle":"bodyText", "body", 2, "CENTER", "MIDDLE", 230, fonts, styles);
         List<String> metadataLines = new ArrayList<>();
-        String presenter=metadata.path("presenter").asText("").strip(),major=requiredText(metadata,"major");
-        metadataLines.add(presenter.isBlank()?"专业："+major:String.format(Locale.ROOT, "汇报人：%s    专业：%s",presenter,major));
+        String presenter=metadata.path("presenter").asText("").strip(),major=metadata.path("major").asText("").strip();
+        String identityLine=(presenter.isBlank()?"":"汇报人："+presenter)
+                +(major.isBlank()?"":(presenter.isBlank()?"":"    ")+"专业："+major);
+        if(!identityLine.isBlank())metadataLines.add(identityLine);
         String advisor=metadata.path("advisor").asText("").strip();
         String advisorLine = advisor.isBlank()?"":"指导教师：" + advisor;
         String studentNumber = metadata.path("studentNumber").asText("").strip();
         if (!studentNumber.isBlank()) advisorLine += (advisorLine.isBlank()?"":"    ")+"学号：" + studentNumber;
         if(!advisorLine.isBlank())metadataLines.add(advisorLine);
-        String institutionLine = requiredText(metadata, "institution");
+        String institutionLine = metadata.path("institution").asText("").strip();
         String date = metadata.path("date").asText("").strip();
-        if (!date.isBlank()) institutionLine += "    " + date;
-        metadataLines.add(institutionLine);
+        if (!date.isBlank()) institutionLine += (institutionLine.isBlank()?"":"    ") + date;
+        if (!institutionLine.isBlank()) metadataLines.add(institutionLine);
         String metadataText = String.join("\n", metadataLines);
-        addText(elements, slideId, "metadata", metadataText, requiredSlot(recipe, "metadata"),
+        if(!metadataText.isBlank())addText(elements, slideId, "metadata", metadataText, requiredSlot(recipe, "metadata"),
                 "body", styles.hasComponent("surfaceBody")?"surfaceBody":"bodyText", "body", 3, "CENTER", "MIDDLE", 230, fonts, styles);
     }
 
@@ -1145,7 +1168,7 @@ public final class RenderPlanCompiler {
                 "CENTER", "MIDDLE", 220, fonts, styles);
         addText(elements, slideId, "body", requiredText(page, "description"), requiredSlot(recipe, "body"),
                 "subtitle", styles.hasComponent("surfaceSubtitle")?"surfaceSubtitle":"bodyText", "body", 2, "CENTER", "MIDDLE", 230, fonts, styles);
-        if (recipe.slots().containsKey("footer")) {
+        if (recipe.slots().containsKey("footer") && hasText(metadata, "institution")) {
             addText(elements, slideId, "footer", requiredText(metadata, "institution"),
                     recipe.slots().get("footer"), "footnote", styles.hasComponent("surfaceFootnote")?"surfaceFootnote":"pageNumber", "body", 2,
                     "CENTER", "MIDDLE", 240, fonts, styles);

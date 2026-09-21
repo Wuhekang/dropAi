@@ -93,7 +93,7 @@ public final class ProductionRenderPlanCoordinator {
         DeterministicTextMetricsService metrics=new DeterministicTextMetricsService(new AwtGlyphMetricsModel());
         RenderPlanCompiler compiler=new RenderPlanCompiler(new PageRenderabilityValidator(),metrics,
                 new ImageFitCalculator(),new TableMetricsCalculator(metrics));
-        DraftSlideRenderPlan draft=compiler.compile(adapted.tree(),theme,catalog,assets,fonts,templatePack);
+        DraftSlideRenderPlan draft=compiler.compile(adapted.tree(),theme,catalog,assets,fonts,templatePack,request.visualSeed());
         RenderPlanValidationContext context=context(adapted.tree(),assets,theme,catalog,fonts,metrics,draft);
         RenderPlanValidationResult result=new RenderPlanValidator().validate(draft,context);
         if(!result.valid())throw new IllegalStateException("Production RenderPlan validation failed: "+result.issues());

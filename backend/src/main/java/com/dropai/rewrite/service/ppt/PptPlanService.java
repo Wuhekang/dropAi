@@ -143,8 +143,9 @@ public class PptPlanService {
                 new PptOutlineValidatorV1.ValidationRequest(metadata, outline));
         outlineValidator.requireValid(validated);
         String templatePackId = RenderingTemplatePackRegistry.selectedPackId(project);
+        String visualSeed = string(readJson(string(project.get("template_metadata_json"))).get("visualSeed"));
         ProductionRenderPlanRequest renderPlanRequest = new ProductionRenderPlanRequest(
-                projectId, metadata, blocks, validated, input, templatePackId);
+                projectId, metadata, blocks, validated, input, templatePackId, visualSeed);
 
         Map<String, String> assetIdByPath = new LinkedHashMap<>();
         for (var asset : storedAssets) {
