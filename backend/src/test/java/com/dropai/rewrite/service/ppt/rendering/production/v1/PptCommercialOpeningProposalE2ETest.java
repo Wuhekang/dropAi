@@ -15,7 +15,9 @@ import com.dropai.rewrite.service.ppt.rendering.template.v1.RenderingTemplatePac
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.apache.poi.sl.usermodel.ShapeType;
 import org.apache.poi.xslf.usermodel.XMLSlideShow;
+import org.apache.poi.xslf.usermodel.XSLFAutoShape;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -80,6 +82,12 @@ class PptCommercialOpeningProposalE2ETest {
         assertEquals(first.plan().document().path("slides").size(),receipt.slideCount());
         try(InputStream in=Files.newInputStream(generated);XMLSlideShow deck=new XMLSlideShow(in)){
             assertEquals(receipt.slideCount(),deck.getSlides().size());
+            long comparisonEllipses=deck.getSlides().get(3).getShapes().stream()
+                    .filter(XSLFAutoShape.class::isInstance)
+                    .map(XSLFAutoShape.class::cast)
+                    .filter(shape->shape.getShapeType()==ShapeType.ELLIPSE)
+                    .count();
+            assertTrue(comparisonEllipses>=5,"Comparison rings must remain native ellipses after rendering");
         }
 
         String outputProperty=System.getProperty("ppt.opening.output","").strip();
@@ -106,10 +114,18 @@ class PptCommercialOpeningProposalE2ETest {
         }
         assertTrue(layouts.size()>=8,"Expected at least eight deterministic compositions: "+layouts);
         for(int index=2;index<sequence.size();index++)assertFalse(sequence.get(index).equals(sequence.get(index-1))&&sequence.get(index).equals(sequence.get(index-2)),"Layout repeated three times: "+sequence.get(index)+" sequence="+sequence+" slides="+slideLabels(plan));
-        assertEquals(LayoutIds.CONTENT_COMPARISON_COLUMNS,findByTitle(plan,PptContentPlannerV2.LITERATURE_COMPARISON_TITLE).path("layoutId").asText());
-        assertEquals(LayoutIds.CONTENT_THREE_CARDS,findByTitle(plan,PptContentPlannerV2.VALUE_QUADRANT_TITLE).path("layoutId").asText());
-        assertEquals(LayoutIds.CONTENT_PROCESS_STEPS,findByTitle(plan,PptContentPlannerV2.RESEARCH_TIMELINE_TITLE).path("layoutId").asText());
-        assertEquals(LayoutIds.CONTENT_PROCESS_STEPS,findByTitle(plan,PptContentPlannerV2.METRICS_PROGRESS_TITLE).path("layoutId").asText());
+        assertEquals(LayoutIds.CONTENT_COMPARISON_FOCUS,findByTitle(plan,PptContentPlannerV2.LITERATURE_COMPARISON_TITLE).path("layoutId").asText());
+        assertEquals(LayoutIds.CONTENT_QUADRANT_MATRIX,findByTitle(plan,PptContentPlannerV2.VALUE_QUADRANT_TITLE).path("layoutId").asText());
+        assertEquals(LayoutIds.CONTENT_RESEARCH_TIMELINE,findByTitle(plan,PptContentPlannerV2.RESEARCH_TIMELINE_TITLE).path("layoutId").asText());
+        assertEquals(LayoutIds.CONTENT_PROGRESS_ROADMAP,findByTitle(plan,PptContentPlannerV2.METRICS_PROGRESS_TITLE).path("layoutId").asText());
+        assertElementGroup(findByTitle(plan,PptContentPlannerV2.LITERATURE_COMPARISON_TITLE),"compare-","SHAPE",5);
+        assertElementGroup(findByTitle(plan,PptContentPlannerV2.VALUE_QUADRANT_TITLE),"quadrant-0","SHAPE",4);
+        assertElementGroup(findByTitle(plan,PptContentPlannerV2.RESEARCH_TIMELINE_TITLE),"timeline-node-","SHAPE",5);
+        assertElementGroup(findByTitle(plan,PptContentPlannerV2.RESEARCH_TIMELINE_TITLE),"timeline-rail-","CONNECTOR",4);
+        assertElementGroup(findByTitle(plan,"研究方法与指标体系"),"method-","SHAPE",5);
+        assertElementGroup(findByTitle(plan,"研究内容总体框架"),"framework-card-","SHAPE",4);
+        assertElementGroup(findByTitle(plan,PptContentPlannerV2.METRICS_PROGRESS_TITLE),"roadmap-stage-","SHAPE",5);
+        assertElementGroup(findByTitle(plan,"预期成果与应用价值"),"outcome-stage-","SHAPE",4);
         for(String title:List.of(PptContentPlannerV2.LITERATURE_COMPARISON_TITLE,PptContentPlannerV2.VALUE_QUADRANT_TITLE,PptContentPlannerV2.RESEARCH_TIMELINE_TITLE,PptContentPlannerV2.METRICS_PROGRESS_TITLE)){
             JsonNode slide=findByTitle(plan,title);
             assertFalse(java.util.stream.StreamSupport.stream(slide.path("elements").spliterator(),false).anyMatch(element->"IMAGE".equals(element.path("elementType").asText())),title+" must be native editable content");
@@ -120,6 +136,7 @@ class PptCommercialOpeningProposalE2ETest {
     }
 
     private boolean hasAnchor(JsonNode slide){return java.util.stream.StreamSupport.stream(slide.path("elements").spliterator(),false).anyMatch(element->Set.of("SHAPE","CONNECTOR","IMAGE","TABLE").contains(element.path("elementType").asText()));}
+    private void assertElementGroup(JsonNode slide,String idFragment,String elementType,int minimumCount){long count=java.util.stream.StreamSupport.stream(slide.path("elements").spliterator(),false).filter(element->element.path("elementId").asText().contains(idFragment)&&elementType.equals(element.path("elementType").asText())).count();assertTrue(count>=minimumCount,slide.path("layoutId").asText()+" must keep its native "+idFragment+" grammar; found "+count);}
     private List<String> slideLabels(ObjectNode plan){List<String> labels=new ArrayList<>();for(JsonNode slide:plan.path("slides")){String title="";for(JsonNode element:slide.path("elements"))if("TEXT".equals(element.path("elementType").asText())&&element.path("elementId").asText().endsWith("-title")){title=element.path("text").asText();break;}labels.add(slide.path("layoutId").asText()+":"+title);}return labels;}
     private JsonNode findByTitle(ObjectNode plan,String title){for(JsonNode slide:plan.path("slides"))for(JsonNode element:slide.path("elements"))if("TEXT".equals(element.path("elementType").asText())&&title.equals(element.path("text").asText().replace("\n","")))return slide;throw new AssertionError("Missing slide: "+title);}
     private void writeReport(ObjectMapper mapper,Path output,Path source,ObjectNode plan,String hash)throws Exception{ObjectNode report=mapper.createObjectNode();report.put("source",source.toString());report.put("sourceSha256",sha(Files.readAllBytes(source)));report.put("pptxSha256",sha(Files.readAllBytes(output)));report.put("renderPlanHash",hash);report.put("slideCount",plan.path("slides").size());Map<String,Integer> counts=new TreeMap<>();plan.path("slides").forEach(slide->counts.merge(slide.path("layoutId").asText(),1,Integer::sum));ObjectNode layouts=report.putObject("layoutCounts");counts.forEach(layouts::put);report.put("nativeOpeningGrammar",true);report.put("placeholderCount",0);Files.writeString(output.resolveSibling(output.getFileName()+".qa.json"),mapper.writerWithDefaultPrettyPrinter().writeValueAsString(report)+"\n",StandardCharsets.UTF_8);}

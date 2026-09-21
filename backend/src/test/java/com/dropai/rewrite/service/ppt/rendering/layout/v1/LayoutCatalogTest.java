@@ -22,12 +22,12 @@ class LayoutCatalogTest {
     private final LayoutCatalogLoader loader = new LayoutCatalogLoader();
 
     @Test
-    void loadsTheFrozenTwentyTwoRecipesInContractOrder() {
+    void loadsTheFrozenThirtyRecipesInContractOrder() {
         LayoutCatalog catalog = loader.loadAcademicV1();
 
         assertEquals("academic-layouts-v1", catalog.catalogId());
-        assertEquals("1.2.0", catalog.catalogVersion());
-        assertEquals(22, catalog.recipes().size());
+        assertEquals("1.3.0", catalog.catalogVersion());
+        assertEquals(30, catalog.recipes().size());
         assertEquals(LayoutIds.ORDERED, catalog.recipes().stream().map(LayoutRecipe::layoutId).toList());
         assertEquals(LayoutIds.ALL, catalog.recipesById().keySet());
         assertTrue(catalog.catalogHash().matches("sha256:[a-f0-9]{64}"));
@@ -76,8 +76,16 @@ class LayoutCatalogTest {
                 Map.entry(LayoutIds.CONTENT_PROCESS_STEPS,List.of("keyPointCard")),
                 Map.entry(LayoutIds.CONTENT_COMPARISON_COLUMNS,List.of("keyPointCard")),
                 Map.entry(LayoutIds.CONTENT_ARCHITECTURE_LAYERS,List.of("keyPointCard")),
+                Map.entry(LayoutIds.CONTENT_COMPARISON_FOCUS,List.of("keyPointCard","summaryCard")),
+                Map.entry(LayoutIds.CONTENT_QUADRANT_MATRIX,List.of("keyPointCard","summaryCard")),
+                Map.entry(LayoutIds.CONTENT_RESEARCH_TIMELINE,List.of("keyPointCard","summaryCard")),
+                Map.entry(LayoutIds.CONTENT_PROGRESS_ROADMAP,List.of("keyPointCard","summaryCard")),
+                Map.entry(LayoutIds.CONTENT_METHOD_ORBIT,List.of("keyPointCard","summaryCard")),
+                Map.entry(LayoutIds.CONTENT_FRAMEWORK_FLOW,List.of("keyPointCard","summaryCard")),
+                Map.entry(LayoutIds.CONTENT_PROBLEM_SOLUTION_BRIDGE,List.of("keyPointCard","summaryCard")),
                 Map.entry(LayoutIds.SUMMARY_ACHIEVEMENTS,List.of("keyPointCard","summaryCard")),
-                Map.entry(LayoutIds.SUMMARY_FUTURE,List.of("keyPointCard","summaryCard")));
+                Map.entry(LayoutIds.SUMMARY_FUTURE,List.of("keyPointCard","summaryCard")),
+                Map.entry(LayoutIds.SUMMARY_OUTCOME_CHAIN,List.of("keyPointCard","summaryCard")));
 
         catalog.recipes().forEach(recipe -> {
             if (expectedContainedTextLayouts.containsKey(recipe.layoutId())) {

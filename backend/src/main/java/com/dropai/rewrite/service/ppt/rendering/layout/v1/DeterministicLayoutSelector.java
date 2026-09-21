@@ -112,9 +112,11 @@ public final class DeterministicLayoutSelector {
             case AGENDA -> LayoutIds.AGENDA_VERTICAL_STEPS;
             case SECTION -> LayoutIds.SECTION_CENTERED;
             case THANKS -> LayoutIds.THANKS_CENTERED;
-            case SUMMARY -> features.summaryCount() > 1 && features.summaryOrdinal() == features.summaryCount()
-                    ? LayoutIds.SUMMARY_FUTURE
-                    : LayoutIds.SUMMARY_ACHIEVEMENTS;
+            case SUMMARY -> features.summaryCount() == 1
+                    ? LayoutIds.SUMMARY_OUTCOME_CHAIN
+                    : features.summaryOrdinal() == features.summaryCount()
+                        ? LayoutIds.SUMMARY_FUTURE
+                        : LayoutIds.SUMMARY_ACHIEVEMENTS;
             case TABLE -> preferredTableLayout(features.tableKind());
             case IMAGE -> preferredImageLayout(features);
             case CONTENT -> preferredContentLayout(features);
@@ -151,14 +153,36 @@ public final class DeterministicLayoutSelector {
             return LayoutIds.CONTENT_TEXT_VISUAL_SPLIT;
         }
         return switch (features.contentType()) {
-            case PROCESS -> LayoutIds.CONTENT_PROCESS_STEPS;
-            case COMPARISON -> features.keyPointCount() == 4
-                    ? LayoutIds.CONTENT_THREE_CARDS
-                    : LayoutIds.CONTENT_COMPARISON_COLUMNS;
-            case ARCHITECTURE -> LayoutIds.CONTENT_ARCHITECTURE_LAYERS;
-            case METRICS -> features.keyPointCount() >= 4
-                    ? LayoutIds.CONTENT_PROCESS_STEPS
-                    : LayoutIds.CONTENT_THREE_CARDS;
+            case PROCESS -> features.pagePurpose() == com.dropai.rewrite.service.ppt.rendering.contract.v1.enums.PagePurpose.METHOD
+                    ? LayoutIds.CONTENT_RESEARCH_TIMELINE
+                    : LayoutIds.CONTENT_PROCESS_STEPS;
+            case COMPARISON -> {
+                if (features.pagePurpose() == com.dropai.rewrite.service.ppt.rendering.contract.v1.enums.PagePurpose.PROBLEM
+                        && features.keyPointCount() == 4) {
+                    yield LayoutIds.CONTENT_PROBLEM_SOLUTION_BRIDGE;
+                }
+                if (features.pagePurpose() == com.dropai.rewrite.service.ppt.rendering.contract.v1.enums.PagePurpose.BACKGROUND
+                        && features.keyPointCount() == 4) {
+                    yield LayoutIds.CONTENT_QUADRANT_MATRIX;
+                }
+                if (features.pagePurpose() == com.dropai.rewrite.service.ppt.rendering.contract.v1.enums.PagePurpose.BACKGROUND
+                        && features.keyPointCount() == 2) {
+                    yield LayoutIds.CONTENT_COMPARISON_FOCUS;
+                }
+                yield LayoutIds.CONTENT_COMPARISON_COLUMNS;
+            }
+            case ARCHITECTURE -> features.pagePurpose() == com.dropai.rewrite.service.ppt.rendering.contract.v1.enums.PagePurpose.METHOD
+                    && features.keyPointCount() == 4
+                    ? LayoutIds.CONTENT_METHOD_ORBIT
+                    : features.pagePurpose() == com.dropai.rewrite.service.ppt.rendering.contract.v1.enums.PagePurpose.DESIGN
+                        && features.keyPointCount() == 4
+                        ? LayoutIds.CONTENT_FRAMEWORK_FLOW
+                        : LayoutIds.CONTENT_ARCHITECTURE_LAYERS;
+            case METRICS -> features.pagePurpose() == com.dropai.rewrite.service.ppt.rendering.contract.v1.enums.PagePurpose.TEST
+                    ? LayoutIds.CONTENT_PROGRESS_ROADMAP
+                    : features.keyPointCount() >= 4
+                        ? LayoutIds.CONTENT_PROCESS_STEPS
+                        : LayoutIds.CONTENT_THREE_CARDS;
             case KEY_POINTS -> features.keyPointCount() >= 3 && features.keyPointCount() <= 4
                     ? LayoutIds.CONTENT_THREE_CARDS
                     : LayoutIds.CONTENT_SINGLE_INSIGHT;

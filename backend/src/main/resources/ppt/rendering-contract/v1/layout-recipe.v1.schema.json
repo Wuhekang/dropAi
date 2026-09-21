@@ -69,6 +69,13 @@
         "content-process-steps.v1",
         "content-comparison-columns.v1",
         "content-architecture-layers.v1",
+        "content-comparison-focus.v1",
+        "content-quadrant-matrix.v1",
+        "content-research-timeline.v1",
+        "content-progress-roadmap.v1",
+        "content-method-orbit.v1",
+        "content-framework-flow.v1",
+        "content-problem-solution-bridge.v1",
         "image-proof-screenshot-wide.v1",
         "image-diagram-with-notes.v1",
         "image-result-chart-with-finding.v1",
@@ -80,6 +87,7 @@
         "table-test-result-status.v1",
         "summary-achievements.v1",
         "summary-future.v1",
+        "summary-outcome-chain.v1",
         "thanks-centered.v1"
       ]
     },

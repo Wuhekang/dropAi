@@ -19,7 +19,8 @@ public final class ShapeElementRenderer implements ElementRenderer {
         try {
             ObjectNode style = PlanElementSupport.requiredObject(element, "resolvedStyle");
             XSLFAutoShape shape = context.slide().createAutoShape();
-            shape.setShapeType(shapeType(PlanElementSupport.requiredText(element, "shapeType")));
+            String requestedShapeType = PlanElementSupport.requiredText(element, "shapeType");
+            shape.setShapeType(shapeType(requestedShapeType));
             shape.setAnchor(PlanElementSupport.anchor(element));
             shape.setFillColor(PlanElementSupport.color(style, "fillColor"));
             int opacityPermille = PlanElementSupport.requiredInt(style, "opacityPermille");
@@ -33,11 +34,13 @@ public final class ShapeElementRenderer implements ElementRenderer {
                 shape.setLineWidth(PlanElementSupport.points(borderWidthEmu));
             }
             long cornerRadiusEmu = PlanElementSupport.requiredLong(style, "cornerRadiusEmu");
-            PoiElementSupport.applyRoundedGeometry(
-                    PoiElementSupport.shapeProperties(shape),
-                    cornerRadiusEmu,
-                    PlanElementSupport.requiredLong(element, "widthEmu"),
-                    PlanElementSupport.requiredLong(element, "heightEmu"));
+            if ("ROUNDED_RECTANGLE".equals(requestedShapeType)) {
+                PoiElementSupport.applyRoundedGeometry(
+                        PoiElementSupport.shapeProperties(shape),
+                        cornerRadiusEmu,
+                        PlanElementSupport.requiredLong(element, "widthEmu"),
+                        PlanElementSupport.requiredLong(element, "heightEmu"));
+            }
             if (style.path("shadow").isObject()) {
                 PoiElementSupport.applyShadow(
                         PoiElementSupport.shapeProperties(shape),

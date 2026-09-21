@@ -33,6 +33,12 @@ class DeterministicLayoutSelectorTest {
         assertLayout(LayoutIds.CONTENT_PROCESS_STEPS, noMedia(PageType.CONTENT, PagePurpose.IMPLEMENTATION, ContentType.PROCESS, 3, 160, 0, 0));
         assertLayout(LayoutIds.CONTENT_COMPARISON_COLUMNS, noMedia(PageType.CONTENT, PagePurpose.RESULT, ContentType.COMPARISON, 2, 180, 0, 0));
         assertLayout(LayoutIds.CONTENT_ARCHITECTURE_LAYERS, noMedia(PageType.CONTENT, PagePurpose.DESIGN, ContentType.ARCHITECTURE, 3, 170, 0, 0));
+        assertLayout(LayoutIds.CONTENT_COMPARISON_FOCUS, noMedia(PageType.CONTENT, PagePurpose.BACKGROUND, ContentType.COMPARISON, 2, 180, 0, 0));
+        assertLayout(LayoutIds.CONTENT_QUADRANT_MATRIX, noMedia(PageType.CONTENT, PagePurpose.BACKGROUND, ContentType.COMPARISON, 4, 220, 0, 0));
+        assertLayout(LayoutIds.CONTENT_RESEARCH_TIMELINE, noMedia(PageType.CONTENT, PagePurpose.METHOD, ContentType.PROCESS, 5, 260, 0, 0));
+        assertLayout(LayoutIds.CONTENT_PROGRESS_ROADMAP, noMedia(PageType.CONTENT, PagePurpose.TEST, ContentType.METRICS, 5, 280, 0, 0));
+        assertLayout(LayoutIds.CONTENT_METHOD_ORBIT, noMedia(PageType.CONTENT, PagePurpose.METHOD, ContentType.ARCHITECTURE, 4, 240, 0, 0));
+        assertLayout(LayoutIds.CONTENT_FRAMEWORK_FLOW, noMedia(PageType.CONTENT, PagePurpose.DESIGN, ContentType.ARCHITECTURE, 4, 240, 0, 0));
 
         assertLayout(LayoutIds.CONTENT_TEXT_VISUAL_SPLIT,
                 image(PageType.CONTENT, PagePurpose.DESIGN, ContentType.MIXED, ImageRole.INFORMATION, AssetKind.DIAGRAM, 1_600_000));
@@ -53,6 +59,8 @@ class DeterministicLayoutSelectorTest {
                 noMedia(PageType.SUMMARY, PagePurpose.SUMMARY, ContentType.KEY_POINTS, 3, 170, 1, 2));
         assertLayout(LayoutIds.SUMMARY_FUTURE,
                 noMedia(PageType.SUMMARY, PagePurpose.SUMMARY, ContentType.KEY_POINTS, 3, 170, 2, 2));
+        assertLayout(LayoutIds.SUMMARY_OUTCOME_CHAIN,
+                noMedia(PageType.SUMMARY, PagePurpose.SUMMARY, ContentType.KEY_POINTS, 4, 240, 1, 1));
         assertLayout(LayoutIds.THANKS_CENTERED,
                 noMedia(PageType.THANKS, PagePurpose.SUMMARY, ContentType.NARRATIVE, 2, 60, 0, 0));
     }

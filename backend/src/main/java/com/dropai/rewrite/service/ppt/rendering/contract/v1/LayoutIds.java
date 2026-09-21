@@ -14,6 +14,13 @@ public final class LayoutIds {
     public static final String CONTENT_PROCESS_STEPS = "content-process-steps.v1";
     public static final String CONTENT_COMPARISON_COLUMNS = "content-comparison-columns.v1";
     public static final String CONTENT_ARCHITECTURE_LAYERS = "content-architecture-layers.v1";
+    public static final String CONTENT_COMPARISON_FOCUS = "content-comparison-focus.v1";
+    public static final String CONTENT_QUADRANT_MATRIX = "content-quadrant-matrix.v1";
+    public static final String CONTENT_RESEARCH_TIMELINE = "content-research-timeline.v1";
+    public static final String CONTENT_PROGRESS_ROADMAP = "content-progress-roadmap.v1";
+    public static final String CONTENT_METHOD_ORBIT = "content-method-orbit.v1";
+    public static final String CONTENT_FRAMEWORK_FLOW = "content-framework-flow.v1";
+    public static final String CONTENT_PROBLEM_SOLUTION_BRIDGE = "content-problem-solution-bridge.v1";
     public static final String IMAGE_PROOF_SCREENSHOT_WIDE = "image-proof-screenshot-wide.v1";
     public static final String IMAGE_DIAGRAM_WITH_NOTES = "image-diagram-with-notes.v1";
     public static final String IMAGE_RESULT_CHART_WITH_FINDING = "image-result-chart-with-finding.v1";
@@ -25,6 +32,7 @@ public final class LayoutIds {
     public static final String TABLE_TEST_RESULT_STATUS = "table-test-result-status.v1";
     public static final String SUMMARY_ACHIEVEMENTS = "summary-achievements.v1";
     public static final String SUMMARY_FUTURE = "summary-future.v1";
+    public static final String SUMMARY_OUTCOME_CHAIN = "summary-outcome-chain.v1";
     public static final String THANKS_CENTERED = "thanks-centered.v1";
 
     public static final List<String> ORDERED = List.of(
@@ -38,6 +46,13 @@ public final class LayoutIds {
             CONTENT_PROCESS_STEPS,
             CONTENT_COMPARISON_COLUMNS,
             CONTENT_ARCHITECTURE_LAYERS,
+            CONTENT_COMPARISON_FOCUS,
+            CONTENT_QUADRANT_MATRIX,
+            CONTENT_RESEARCH_TIMELINE,
+            CONTENT_PROGRESS_ROADMAP,
+            CONTENT_METHOD_ORBIT,
+            CONTENT_FRAMEWORK_FLOW,
+            CONTENT_PROBLEM_SOLUTION_BRIDGE,
             IMAGE_PROOF_SCREENSHOT_WIDE,
             IMAGE_DIAGRAM_WITH_NOTES,
             IMAGE_RESULT_CHART_WITH_FINDING,
@@ -49,6 +64,7 @@ public final class LayoutIds {
             TABLE_TEST_RESULT_STATUS,
             SUMMARY_ACHIEVEMENTS,
             SUMMARY_FUTURE,
+            SUMMARY_OUTCOME_CHAIN,
             THANKS_CENTERED
     );
 

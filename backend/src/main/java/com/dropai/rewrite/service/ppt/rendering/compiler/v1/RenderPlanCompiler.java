@@ -416,6 +416,20 @@ public final class RenderPlanCompiler {
                     fonts, styles);
             case LayoutIds.CONTENT_COMPARISON_COLUMNS -> compileComparisonColumns(
                     elements, slideId, page, recipe, fonts, styles);
+            case LayoutIds.CONTENT_COMPARISON_FOCUS -> compileComparisonFocus(
+                    elements, slideId, page.path("keyPoints"), requiredSlot(recipe, "keyPoints"), fonts, styles);
+            case LayoutIds.CONTENT_QUADRANT_MATRIX -> compileQuadrantMatrix(
+                    elements, slideId, page.path("keyPoints"), requiredSlot(recipe, "keyPoints"), fonts, styles);
+            case LayoutIds.CONTENT_RESEARCH_TIMELINE -> compileResearchTimeline(
+                    elements, slideId, page.path("keyPoints"), requiredSlot(recipe, "keyPoints"), fonts, styles);
+            case LayoutIds.CONTENT_PROGRESS_ROADMAP -> compileProgressRoadmap(
+                    elements, slideId, page.path("keyPoints"), requiredSlot(recipe, "keyPoints"), fonts, styles);
+            case LayoutIds.CONTENT_METHOD_ORBIT -> compileMethodOrbit(
+                    elements, slideId, page.path("keyPoints"), requiredSlot(recipe, "keyPoints"), fonts, styles);
+            case LayoutIds.CONTENT_FRAMEWORK_FLOW -> compileFrameworkFlow(
+                    elements, slideId, page.path("keyPoints"), requiredSlot(recipe, "keyPoints"), fonts, styles);
+            case LayoutIds.CONTENT_PROBLEM_SOLUTION_BRIDGE -> compileProblemSolutionBridge(
+                    elements, slideId, page.path("keyPoints"), requiredSlot(recipe, "keyPoints"), fonts, styles);
             case LayoutIds.CONTENT_TEXT_VISUAL_SPLIT -> compileTextVisualSplit(
                     elements, slideId, page, recipe, assets, fonts, styles);
             default -> {
@@ -549,6 +563,318 @@ public final class RenderPlanCompiler {
                 "body", "keyPointCard", "body", 8,
                 "LEFT", "MIDDLE", 230, fonts, styles);
         if(paired&&recipe.slots().containsKey("conclusion"))addText(elements,slideId,"conclusion",requiredText(page,"description"),recipe.slots().get("conclusion"),"caption","summaryCard","body",3,"LEFT","MIDDLE",240,fonts,styles);
+    }
+
+    /** Two-sided comparison with explicit focal contrast instead of two empty card columns. */
+    private void compileComparisonFocus(
+            ArrayNode elements, String slideId, JsonNode values, LayoutRecipe.Slot slot,
+            ResolvedFontProfile fonts, ThemePlanStyleResolver styles
+    ) {
+        List<String> items = requiredTextItems(values, "comparison focus");
+        if (items.size() != 2) {
+            throw new RenderPlanCompilationException(PptQualityCode.UNRENDERABLE_PAGE,
+                    "Comparison focus requires exactly two points");
+        }
+        SlotGeometry content = SlotGeometry.from(slot, styles);
+        long centerGap = Emu.inches(new BigDecimal("1.15"));
+        long panelWidth = Math.subtractExact(content.widthEmu(), centerGap) / 2L;
+        long panelY = Math.addExact(content.yEmu(), Emu.inches(new BigDecimal("1.02")));
+        long panelHeight = Math.subtractExact(content.heightEmu(), Emu.inches(new BigDecimal("1.08")));
+        SlotGeometry left = new SlotGeometry(content.xEmu(), panelY, panelWidth, panelHeight);
+        SlotGeometry right = new SlotGeometry(content.rightEmu() - panelWidth, panelY, panelWidth, panelHeight);
+        ObjectNode leftRing = addDecorShape(elements, slideId, "compare-left", left, "ELLIPSE", "keyPointCard",
+                "colors.surface.canvas", "colors.accent.primary", 110, styles);
+        ObjectNode rightRing = addDecorShape(elements, slideId, "compare-right", right, "ELLIPSE", "keyPointCard",
+                "colors.surface.canvas", "colors.accent.secondary", 110, styles);
+        leftRing.withObject("/resolvedStyle").put("borderWidthEmu", Emu.points(new BigDecimal("7")));
+        rightRing.withObject("/resolvedStyle").put("borderWidthEmu", Emu.points(new BigDecimal("7")));
+        leftRing.withObject("/resolvedStyle").remove("shadow");
+        rightRing.withObject("/resolvedStyle").remove("shadow");
+
+        String[] first = splitLabel(items.get(0));
+        String[] second = splitLabel(items.get(1));
+        long badgeSize = Emu.inches(new BigDecimal("0.86"));
+        SlotGeometry leftBadge = new SlotGeometry(
+                left.xEmu() + (left.widthEmu() - badgeSize) / 2L,
+                content.yEmu(), badgeSize, badgeSize);
+        SlotGeometry rightBadge = new SlotGeometry(
+                right.xEmu() + (right.widthEmu() - badgeSize) / 2L,
+                content.yEmu(), badgeSize, badgeSize);
+        addDecorShape(elements, slideId, "compare-left-badge", leftBadge, "ELLIPSE", "summaryCard",
+                "colors.accent.primary", "colors.accent.primary", 120, styles);
+        addDecorShape(elements, slideId, "compare-right-badge", rightBadge, "ELLIPSE", "summaryCard",
+                "colors.accent.secondary", "colors.accent.secondary", 120, styles);
+        addTextWithColor(elements, slideId, "compare-left-badge-text", first[0], inset(leftBadge,
+                        styles.spacingEmu("xsPt"), styles.spacingEmu("xsPt")),
+                "bodyStrong", "summaryCard", "body", 2, "CENTER", "MIDDLE", 230,
+                "colors.text.inverse", fonts, styles);
+        addTextWithColor(elements, slideId, "compare-right-badge-text", second[0], inset(rightBadge,
+                        styles.spacingEmu("xsPt"), styles.spacingEmu("xsPt")),
+                "bodyStrong", "summaryCard", "body", 2, "CENTER", "MIDDLE", 230,
+                "colors.text.inverse", fonts, styles);
+        addText(elements, slideId, "compare-left-text", first[1], inset(left,
+                        styles.spacingEmu("mdPt"), styles.spacingEmu("mdPt")),
+                "bodyStrong", "keyPointCard", "body", 6, "CENTER", "MIDDLE", 230, fonts, styles);
+        addText(elements, slideId, "compare-right-text", second[1], inset(right,
+                        styles.spacingEmu("mdPt"), styles.spacingEmu("mdPt")),
+                "bodyStrong", "keyPointCard", "body", 6, "CENTER", "MIDDLE", 230, fonts, styles);
+
+        long vsSize = Emu.inches(new BigDecimal("0.68"));
+        SlotGeometry versus = new SlotGeometry(
+                content.xEmu() + (content.widthEmu() - vsSize) / 2L,
+                panelY + (panelHeight - vsSize) / 2L, vsSize, vsSize);
+        addDecorShape(elements, slideId, "compare-vs", versus, "ELLIPSE", "summaryCard",
+                "colors.surface.dark", "colors.surface.dark", 140, styles);
+        addTextWithColor(elements, slideId, "compare-vs-text", "VS", versus,
+                "bodyStrong", "summaryCard", "body", 1, "CENTER", "MIDDLE", 150,
+                "colors.text.inverse", fonts, styles);
+    }
+
+    /** Genuine 2x2 matrix with visible axes and four independent native quadrants. */
+    private void compileQuadrantMatrix(
+            ArrayNode elements, String slideId, JsonNode values, LayoutRecipe.Slot slot,
+            ResolvedFontProfile fonts, ThemePlanStyleResolver styles
+    ) {
+        List<String> items = requiredTextItems(values, "quadrant");
+        if (items.size() != 4) {
+            throw new RenderPlanCompilationException(PptQualityCode.UNRENDERABLE_PAGE,
+                    "Quadrant matrix requires exactly four points");
+        }
+        SlotGeometry content = SlotGeometry.from(slot, styles);
+        // Keep an explicit visual gutter between the four value fields so the
+        // matrix reads as four independent quadrants instead of one card grid.
+        long axisGap = Emu.inches(new BigDecimal("0.30"));
+        List<SlotGeometry> rows = splitVertical(content, 2, axisGap);
+        List<SlotGeometry> quadrants = new ArrayList<>(4);
+        quadrants.addAll(splitHorizontal(rows.get(0), 2, axisGap));
+        quadrants.addAll(splitHorizontal(rows.get(1), 2, axisGap));
+        String[] fills = {"colors.accent.soft", "colors.surface.elevated", "colors.surface.elevated", "colors.accent.soft"};
+        String[] borders = {"colors.accent.primary", "colors.accent.secondary", "colors.accent.secondary", "colors.accent.primary"};
+        for (int i = 0; i < 4; i++) {
+            String role = String.format(Locale.ROOT, "quadrant-%02d", i + 1);
+            addDecorShape(elements, slideId, role, quadrants.get(i), "ROUNDED_RECTANGLE", "keyPointCard",
+                    fills[i], borders[i], 110, styles);
+            addText(elements, slideId, role + "-text", String.format(Locale.ROOT, "%02d  %s", i + 1, items.get(i)),
+                    inset(quadrants.get(i), styles.spacingEmu("mdPt"), styles.spacingEmu("smPt")),
+                    "bodyStrong", "keyPointCard", "body", 5, "LEFT", "MIDDLE", 230, fonts, styles);
+        }
+        long axisThickness = Math.max(1L, axisGap / 3L);
+        long centerX = content.xEmu() + content.widthEmu() / 2L;
+        long centerY = content.yEmu() + content.heightEmu() / 2L;
+        long centerClear = axisThickness * 2L;
+        addDecorShape(elements, slideId, "quadrant-axis-v-top",
+                new SlotGeometry(centerX - axisThickness / 2L, content.yEmu(), axisThickness,
+                        Math.max(1L, centerY - centerClear - content.yEmu())),
+                "RECTANGLE", "summaryCard", "colors.accent.primary", "colors.accent.primary", 105, styles);
+        addDecorShape(elements, slideId, "quadrant-axis-v-bottom",
+                new SlotGeometry(centerX - axisThickness / 2L, centerY + centerClear, axisThickness,
+                        Math.max(1L, content.bottomEmu() - centerY - centerClear)),
+                "RECTANGLE", "summaryCard", "colors.accent.primary", "colors.accent.primary", 105, styles);
+        addDecorShape(elements, slideId, "quadrant-axis-h-left",
+                new SlotGeometry(content.xEmu(), centerY - axisThickness / 2L,
+                        Math.max(1L, centerX - centerClear - content.xEmu()), axisThickness),
+                "RECTANGLE", "summaryCard", "colors.accent.secondary", "colors.accent.secondary", 105, styles);
+        addDecorShape(elements, slideId, "quadrant-axis-h-right",
+                new SlotGeometry(centerX + centerClear, centerY - axisThickness / 2L,
+                        Math.max(1L, content.rightEmu() - centerX - centerClear), axisThickness),
+                "RECTANGLE", "summaryCard", "colors.accent.secondary", "colors.accent.secondary", 105, styles);
+    }
+
+    /** Alternating milestone labels around a central rail; no repeated card shell. */
+    private void compileResearchTimeline(
+            ArrayNode elements, String slideId, JsonNode values, LayoutRecipe.Slot slot,
+            ResolvedFontProfile fonts, ThemePlanStyleResolver styles
+    ) {
+        List<String> items = requiredTextItems(values, "research timeline");
+        SlotGeometry content = SlotGeometry.from(slot, styles);
+        long margin = Emu.inches(new BigDecimal("0.42"));
+        long railY = content.yEmu() + content.heightEmu() / 2L;
+        long startX = content.xEmu() + margin;
+        long endX = content.rightEmu() - margin;
+        long node = Emu.inches(new BigDecimal("0.52"));
+        long labelHeight = Emu.inches(new BigDecimal("1.25"));
+        long labelWidth = Math.min(Emu.inches(new BigDecimal("2.15")),
+                Math.max(Emu.inches(new BigDecimal("1.65")), content.widthEmu() / items.size() - Emu.inches(new BigDecimal("0.08"))));
+        for (int i = 0; i < items.size(); i++) {
+            long x = items.size() == 1 ? (startX + endX) / 2L : startX + (endX - startX) * i / (items.size() - 1L);
+            if (i > 0) {
+                long previousX = items.size() == 1 ? x : startX + (endX - startX) * (i - 1L) / (items.size() - 1L);
+                addConnectorBetweenPoints(elements, slideId, String.format(Locale.ROOT, "timeline-rail-%02d", i),
+                        previousX + node / 2L, railY, x - node / 2L, railY,
+                        "NONE", i == items.size() - 1 ? "TRIANGLE" : "NONE", 104, styles);
+            }
+            SlotGeometry dot = new SlotGeometry(x - node / 2L, railY - node / 2L, node, node);
+            addDecorShape(elements, slideId, String.format(Locale.ROOT, "timeline-node-%02d", i + 1), dot,
+                    "ELLIPSE", "summaryCard", i % 2 == 0 ? "colors.accent.primary" : "colors.accent.secondary",
+                    i % 2 == 0 ? "colors.accent.primary" : "colors.accent.secondary", 120, styles);
+            addTextWithColor(elements, slideId, String.format(Locale.ROOT, "timeline-node-%02d-text", i + 1),
+                    String.format(Locale.ROOT, "%02d", i + 1), dot, "bodyStrong", "summaryCard", "body", 1,
+                    "CENTER", "MIDDLE", 130, "colors.text.inverse", fonts, styles);
+            long labelY = i % 2 == 0
+                    ? railY - node / 2L - labelHeight - Emu.inches(new BigDecimal("0.16"))
+                    : railY + node / 2L + Emu.inches(new BigDecimal("0.16"));
+            long labelX = Math.max(content.xEmu(), Math.min(x - labelWidth / 2L, content.rightEmu() - labelWidth));
+            SlotGeometry label = new SlotGeometry(labelX, labelY, labelWidth, labelHeight);
+            addText(elements, slideId, String.format(Locale.ROOT, "timeline-label-%02d", i + 1), items.get(i),
+                    label, "bodyStrong", "keyPointCard", "body", 5,
+                    "CENTER", i % 2 == 0 ? "BOTTOM" : "TOP", 230, fonts, styles);
+        }
+    }
+
+    /** Staggered roadmap whose geometry is intentionally different from the research timeline. */
+    private void compileProgressRoadmap(
+            ArrayNode elements, String slideId, JsonNode values, LayoutRecipe.Slot slot,
+            ResolvedFontProfile fonts, ThemePlanStyleResolver styles
+    ) {
+        List<String> items = requiredTextItems(values, "progress roadmap");
+        SlotGeometry content = SlotGeometry.from(slot, styles);
+        long gap = Emu.inches(new BigDecimal("0.18"));
+        long blockWidth = Math.subtractExact(content.widthEmu(), gap * (items.size() - 1L)) / items.size();
+        long blockHeight = Emu.inches(new BigDecimal("1.55"));
+        long rise = items.size() <= 1 ? 0L : Math.max(1L, (content.heightEmu() - blockHeight) / (items.size() - 1L));
+        List<SlotGeometry> blocks = new ArrayList<>();
+        for (int i = 0; i < items.size(); i++) {
+            long x = content.xEmu() + i * (blockWidth + gap);
+            long y = content.bottomEmu() - blockHeight - i * rise;
+            blocks.add(new SlotGeometry(x, y, blockWidth, blockHeight));
+        }
+        for (int i = 1; i < blocks.size(); i++) {
+            SlotGeometry a = blocks.get(i - 1), b = blocks.get(i);
+            addConnectorBetweenPoints(elements, slideId, String.format(Locale.ROOT, "roadmap-link-%02d", i),
+                    a.rightEmu(), a.yEmu() + a.heightEmu() / 2L,
+                    b.xEmu(), b.yEmu() + b.heightEmu() / 2L,
+                    "NONE", "TRIANGLE", 104, styles);
+        }
+        for (int i = 0; i < blocks.size(); i++) {
+            SlotGeometry block = blocks.get(i);
+            String fill = i == blocks.size() - 1 ? "colors.accent.primary" : i % 2 == 0
+                    ? "colors.accent.soft" : "colors.surface.elevated";
+            String border = i == blocks.size() - 1 ? "colors.accent.primary" : "colors.border.strong";
+            addDecorShape(elements, slideId, String.format(Locale.ROOT, "roadmap-stage-%02d", i + 1), block,
+                    "ROUNDED_RECTANGLE", "keyPointCard", fill, border, 110, styles);
+            if (i == blocks.size() - 1) {
+                addTextWithColor(elements, slideId, String.format(Locale.ROOT, "roadmap-stage-%02d-text", i + 1),
+                        String.format(Locale.ROOT, "%02d\n%s", i + 1, items.get(i)),
+                        inset(block, styles.spacingEmu("smPt"), styles.spacingEmu("xsPt")),
+                        "bodyStrong", "keyPointCard", "body", 5, "CENTER", "MIDDLE", 230,
+                        "colors.text.inverse", fonts, styles);
+            } else {
+                addText(elements, slideId, String.format(Locale.ROOT, "roadmap-stage-%02d-text", i + 1),
+                        String.format(Locale.ROOT, "%02d\n%s", i + 1, items.get(i)),
+                        inset(block, styles.spacingEmu("smPt"), styles.spacingEmu("xsPt")),
+                        "bodyStrong", "keyPointCard", "body", 5, "CENTER", "MIDDLE", 230, fonts, styles);
+            }
+        }
+    }
+
+    /** Hub-and-spoke method map. */
+    private void compileMethodOrbit(
+            ArrayNode elements, String slideId, JsonNode values, LayoutRecipe.Slot slot,
+            ResolvedFontProfile fonts, ThemePlanStyleResolver styles
+    ) {
+        List<String> items = requiredTextItems(values, "method orbit");
+        SlotGeometry content = SlotGeometry.from(slot, styles);
+        if (items.size() < 3 || items.size() > 4) {
+            compileArchitectureLayers(elements, slideId, values, slot, fonts, styles);
+            return;
+        }
+        long boxW = Emu.inches(new BigDecimal("3.65"));
+        long boxH = Emu.inches(new BigDecimal("1.22"));
+        long centerW = Emu.inches(new BigDecimal("1.55"));
+        long centerH = Emu.inches(new BigDecimal("1.05"));
+        SlotGeometry hub = new SlotGeometry(content.xEmu() + (content.widthEmu() - centerW) / 2L,
+                content.yEmu() + (content.heightEmu() - centerH) / 2L, centerW, centerH);
+        List<SlotGeometry> boxes = List.of(
+                new SlotGeometry(content.xEmu(), content.yEmu(), boxW, boxH),
+                new SlotGeometry(content.rightEmu() - boxW, content.yEmu(), boxW, boxH),
+                new SlotGeometry(content.xEmu(), content.bottomEmu() - boxH, boxW, boxH),
+                new SlotGeometry(content.rightEmu() - boxW, content.bottomEmu() - boxH, boxW, boxH));
+        for (int i = 0; i < items.size(); i++) {
+            SlotGeometry box = boxes.get(i);
+            addDecorShape(elements, slideId, String.format(Locale.ROOT, "method-%02d", i + 1), box,
+                    "ROUNDED_RECTANGLE", "keyPointCard", i % 2 == 0 ? "colors.accent.soft" : "colors.surface.elevated",
+                    i % 2 == 0 ? "colors.accent.primary" : "colors.accent.secondary", 110, styles);
+            addText(elements, slideId, String.format(Locale.ROOT, "method-%02d-text", i + 1), items.get(i),
+                    inset(box, styles.spacingEmu("smPt"), styles.spacingEmu("xsPt")),
+                    "bodyStrong", "keyPointCard", "body", 4, "CENTER", "MIDDLE", 230, fonts, styles);
+        }
+        addDecorShape(elements, slideId, "method-hub", hub, "ELLIPSE", "summaryCard",
+                "colors.accent.primary", "colors.accent.primary", 130, styles);
+        addTextWithColor(elements, slideId, "method-hub-text", "研究方法", hub,
+                "bodyStrong", "summaryCard", "body", 2, "CENTER", "MIDDLE", 140,
+                "colors.text.inverse", fonts, styles);
+    }
+
+    /** Alternating vertical logic spine for conceptual frameworks. */
+    private void compileFrameworkFlow(
+            ArrayNode elements, String slideId, JsonNode values, LayoutRecipe.Slot slot,
+            ResolvedFontProfile fonts, ThemePlanStyleResolver styles
+    ) {
+        List<String> items = requiredTextItems(values, "framework flow");
+        SlotGeometry content = SlotGeometry.from(slot, styles);
+        long spineX = content.xEmu() + content.widthEmu() / 2L;
+        long node = Emu.inches(new BigDecimal("0.42"));
+        long cardW = Emu.inches(new BigDecimal("4.15"));
+        long gap = Emu.inches(new BigDecimal("0.12"));
+        List<SlotGeometry> rows = splitVertical(content, items.size(), gap);
+        for (int i = 0; i < items.size(); i++) {
+            SlotGeometry row = rows.get(i);
+            if (i > 0) {
+                SlotGeometry previous = rows.get(i - 1);
+                addConnectorBetweenPoints(elements, slideId, String.format(Locale.ROOT, "framework-spine-%02d", i),
+                        spineX, previous.yEmu() + previous.heightEmu() / 2L + node / 2L,
+                        spineX, row.yEmu() + row.heightEmu() / 2L - node / 2L,
+                        "NONE", i == items.size() - 1 ? "TRIANGLE" : "NONE", 103, styles);
+            }
+            long cardX = i % 2 == 0 ? content.xEmu() : content.rightEmu() - cardW;
+            SlotGeometry card = new SlotGeometry(cardX, row.yEmu(), cardW, row.heightEmu());
+            SlotGeometry dot = new SlotGeometry(spineX - node / 2L,
+                    row.yEmu() + (row.heightEmu() - node) / 2L, node, node);
+            addDecorShape(elements, slideId, String.format(Locale.ROOT, "framework-card-%02d", i + 1), card,
+                    "ROUNDED_RECTANGLE", "keyPointCard", i % 2 == 0 ? "colors.accent.soft" : "colors.surface.elevated",
+                    i % 2 == 0 ? "colors.accent.primary" : "colors.accent.secondary", 110, styles);
+            addText(elements, slideId, String.format(Locale.ROOT, "framework-card-%02d-text", i + 1), items.get(i),
+                    inset(card, styles.spacingEmu("mdPt"), styles.spacingEmu("xsPt")),
+                    "bodyStrong", "keyPointCard", "body", 4, i % 2 == 0 ? "LEFT" : "RIGHT", "MIDDLE", 230,
+                    fonts, styles);
+            addDecorShape(elements, slideId, String.format(Locale.ROOT, "framework-node-%02d", i + 1), dot,
+                    "ELLIPSE", "summaryCard", "colors.accent.primary", "colors.accent.primary", 125, styles);
+        }
+    }
+
+    /** Two-row problem-to-response bridge. */
+    private void compileProblemSolutionBridge(
+            ArrayNode elements, String slideId, JsonNode values, LayoutRecipe.Slot slot,
+            ResolvedFontProfile fonts, ThemePlanStyleResolver styles
+    ) {
+        List<String> items = requiredTextItems(values, "problem solution bridge");
+        if (items.size() != 4) {
+            compileHorizontalCards(elements, slideId, values, slot, "bridge", fonts, styles, true);
+            return;
+        }
+        SlotGeometry content = SlotGeometry.from(slot, styles);
+        List<SlotGeometry> rows = splitVertical(content, 2, styles.spacingEmu("mdPt"));
+        long centerGap = Emu.inches(new BigDecimal("1.15"));
+        long boxW = (content.widthEmu() - centerGap) / 2L;
+        for (int i = 0; i < 2; i++) {
+            SlotGeometry row = rows.get(i);
+            SlotGeometry problem = new SlotGeometry(content.xEmu(), row.yEmu(), boxW, row.heightEmu());
+            SlotGeometry response = new SlotGeometry(content.rightEmu() - boxW, row.yEmu(), boxW, row.heightEmu());
+            addConnectorBetweenPoints(elements, slideId, String.format(Locale.ROOT, "bridge-link-%02d", i + 1),
+                    problem.rightEmu(), problem.yEmu() + problem.heightEmu() / 2L,
+                    response.xEmu(), response.yEmu() + response.heightEmu() / 2L,
+                    "NONE", "TRIANGLE", 104, styles);
+            addDecorShape(elements, slideId, String.format(Locale.ROOT, "bridge-problem-%02d", i + 1), problem,
+                    "ROUNDED_RECTANGLE", "keyPointCard", "colors.surface.elevated", "colors.accent.secondary", 110, styles);
+            addDecorShape(elements, slideId, String.format(Locale.ROOT, "bridge-response-%02d", i + 1), response,
+                    "ROUNDED_RECTANGLE", "keyPointCard", "colors.accent.soft", "colors.accent.primary", 110, styles);
+            addText(elements, slideId, String.format(Locale.ROOT, "bridge-problem-%02d-text", i + 1), items.get(i),
+                    inset(problem, styles.spacingEmu("mdPt"), styles.spacingEmu("smPt")),
+                    "bodyStrong", "keyPointCard", "body", 4, "LEFT", "MIDDLE", 230, fonts, styles);
+            addText(elements, slideId, String.format(Locale.ROOT, "bridge-response-%02d-text", i + 1), items.get(i + 2),
+                    inset(response, styles.spacingEmu("mdPt"), styles.spacingEmu("smPt")),
+                    "bodyStrong", "keyPointCard", "body", 4, "LEFT", "MIDDLE", 230, fonts, styles);
+        }
     }
 
     private void compileTextVisualSplit(
@@ -742,6 +1068,11 @@ public final class RenderPlanCompiler {
             int slideCount
     ) {
         addStandardTitle(elements, slideId, page, recipe, fonts, styles);
+        if (LayoutIds.SUMMARY_OUTCOME_CHAIN.equals(recipe.layoutId())) {
+            compileOutcomeChain(elements, slideId, page, recipe, fonts, styles);
+            addFooter(elements, slideId, recipe, index, slideCount, fonts, styles);
+            return;
+        }
         SlotGeometry keyPoints=SlotGeometry.from(requiredSlot(recipe,"keyPoints"),styles);
         addCard(elements,slideId,"key-points",keyPoints,styles);
         addText(elements, slideId, "key-points-text", bullets(page.path("keyPoints")),
@@ -753,6 +1084,51 @@ public final class RenderPlanCompiler {
                 inset(conclusion,styles.spacingEmu("mdPt"),styles.spacingEmu("xsPt")), "bodyStrong", "summaryCard", "body", 4,
                 "LEFT", "MIDDLE", 240, fonts, styles);
         addFooter(elements, slideId, recipe, index, slideCount, fonts, styles);
+    }
+
+    /** Deliverables become a left-to-right value chain instead of another bullet card. */
+    private void compileOutcomeChain(
+            ArrayNode elements, String slideId, JsonNode page, LayoutRecipe recipe,
+            ResolvedFontProfile fonts, ThemePlanStyleResolver styles
+    ) {
+        List<String> items = requiredTextItems(page.path("keyPoints"), "outcome chain");
+        SlotGeometry content = SlotGeometry.from(requiredSlot(recipe, "keyPoints"), styles);
+        List<SlotGeometry> stages = splitHorizontal(content, items.size(), styles.spacingEmu("lgPt"));
+        for (int i = 1; i < stages.size(); i++) {
+            SlotGeometry a = stages.get(i - 1), b = stages.get(i);
+            addConnectorBetweenPoints(elements, slideId, String.format(Locale.ROOT, "outcome-link-%02d", i),
+                    a.rightEmu(), a.yEmu() + a.heightEmu() / 2L,
+                    b.xEmu(), b.yEmu() + b.heightEmu() / 2L,
+                    "NONE", "TRIANGLE", 104, styles);
+        }
+        for (int i = 0; i < stages.size(); i++) {
+            SlotGeometry stage = stages.get(i);
+            long markerSize = Emu.inches(new BigDecimal("0.66"));
+            SlotGeometry marker = new SlotGeometry(stage.xEmu() + (stage.widthEmu() - markerSize) / 2L,
+                    stage.yEmu(), markerSize, markerSize);
+            SlotGeometry body = new SlotGeometry(stage.xEmu(),
+                    stage.yEmu() + markerSize + Emu.inches(new BigDecimal("0.14")),
+                    stage.widthEmu(), stage.heightEmu() - markerSize - Emu.inches(new BigDecimal("0.14")));
+            addDecorShape(elements, slideId, String.format(Locale.ROOT, "outcome-marker-%02d", i + 1), marker,
+                    "ELLIPSE", "summaryCard", i == stages.size() - 1 ? "colors.accent.secondary" : "colors.accent.primary",
+                    i == stages.size() - 1 ? "colors.accent.secondary" : "colors.accent.primary", 120, styles);
+            addTextWithColor(elements, slideId, String.format(Locale.ROOT, "outcome-marker-%02d-text", i + 1),
+                    String.format(Locale.ROOT, "%02d", i + 1), marker,
+                    "bodyStrong", "summaryCard", "body", 1, "CENTER", "MIDDLE", 130,
+                    "colors.text.inverse", fonts, styles);
+            addDecorShape(elements, slideId, String.format(Locale.ROOT, "outcome-stage-%02d", i + 1), body,
+                    "ROUNDED_RECTANGLE", "keyPointCard", i % 2 == 0 ? "colors.accent.soft" : "colors.surface.elevated",
+                    i % 2 == 0 ? "colors.accent.primary" : "colors.accent.secondary", 110, styles);
+            addText(elements, slideId, String.format(Locale.ROOT, "outcome-stage-%02d-text", i + 1), items.get(i),
+                    inset(body, styles.spacingEmu("smPt"), styles.spacingEmu("smPt")),
+                    "bodyStrong", "keyPointCard", "body", 5, "CENTER", "MIDDLE", 230, fonts, styles);
+        }
+        SlotGeometry conclusion = SlotGeometry.from(requiredSlot(recipe, "conclusion"), styles);
+        addDecorShape(elements, slideId, "outcome-conclusion", conclusion,
+                "ROUNDED_RECTANGLE", "summaryCard", "colors.accent.soft", "colors.accent.primary", 110, styles);
+        addText(elements, slideId, "outcome-conclusion-text", requiredText(page, "description"),
+                inset(conclusion, styles.spacingEmu("mdPt"), styles.spacingEmu("xsPt")),
+                "bodyStrong", "summaryCard", "body", 4, "CENTER", "MIDDLE", 240, fonts, styles);
     }
 
     private void compileThanks(
@@ -806,7 +1182,7 @@ public final class RenderPlanCompiler {
                 "RIGHT", "MIDDLE", 260, fonts, styles);
     }
 
-    private void addText(
+    private ObjectNode addText(
             ArrayNode elements,
             String slideId,
             String role,
@@ -822,11 +1198,11 @@ public final class RenderPlanCompiler {
             ResolvedFontProfile fonts,
             ThemePlanStyleResolver styles
     ) {
-        addText(elements, slideId, role, text, SlotGeometry.from(slot, styles), typographyStyle,
+        return addText(elements, slideId, role, text, SlotGeometry.from(slot, styles), typographyStyle,
                 component, fontRole, maxLines, horizontalAlign, verticalAlign, zIndex, fonts, styles);
     }
 
-    private void addText(
+    private ObjectNode addText(
             ArrayNode elements,
             String slideId,
             String role,
@@ -884,6 +1260,20 @@ public final class RenderPlanCompiler {
         element.put("requiredWidthEmu", fitted.requiredWidthEmu());
         element.put("requiredHeightEmu", fitted.requiredHeightEmu());
         elements.add(element);
+        return element;
+    }
+
+    private ObjectNode addTextWithColor(
+            ArrayNode elements, String slideId, String role, String text, SlotGeometry geometry,
+            String typographyStyle, String component, String fontRole, int maxLines,
+            String horizontalAlign, String verticalAlign, int zIndex, String textColorToken,
+            ResolvedFontProfile fonts, ThemePlanStyleResolver styles
+    ) {
+        ObjectNode element = addText(elements, slideId, role, text, geometry, typographyStyle, component,
+                fontRole, maxLines, horizontalAlign, verticalAlign, zIndex, fonts, styles);
+        ((ObjectNode) element.path("resolvedStyle")).put("textColor", styles.colorToken(textColorToken));
+        element.set("styleSource", styles.styleSource(component, textColorToken));
+        return element;
     }
 
     private void addCard(
@@ -944,6 +1334,57 @@ public final class RenderPlanCompiler {
         connector.put("startArrow", "NONE");
         connector.put("endArrow", "TRIANGLE");
         elements.add(connector);
+    }
+
+    private void addConnectorBetweenPoints(
+            ArrayNode elements, String slideId, String role,
+            long startX, long startY, long endX, long endY,
+            String startArrow, String endArrow, int zIndex,
+            ThemePlanStyleResolver styles
+    ) {
+        long x = Math.min(startX, endX);
+        long y = Math.min(startY, endY);
+        ObjectNode connector = baseElement(
+                slideId + "-" + role,
+                "CONNECTOR",
+                x, y,
+                Math.max(1L, Math.abs(endX - startX)),
+                Math.max(1L, Math.abs(endY - startY)),
+                zIndex,
+                styles.connectorStyle());
+        connector.set("styleSource", styles.styleSource("keyPointCard", "colors.accent.primary"));
+        connector.put("startXEmu", startX);
+        connector.put("startYEmu", startY);
+        connector.put("endXEmu", endX);
+        connector.put("endYEmu", endY);
+        connector.put("lineType", "STRAIGHT");
+        connector.put("startArrow", startArrow);
+        connector.put("endArrow", endArrow);
+        elements.add(connector);
+    }
+
+    private ObjectNode addDecorShape(
+            ArrayNode elements, String slideId, String role, SlotGeometry geometry,
+            String shapeType, String component, String fillToken, String borderToken,
+            int zIndex, ThemePlanStyleResolver styles
+    ) {
+        ObjectNode style = styles.shapeStyle(component);
+        style.put("fillColor", styles.colorToken(fillToken));
+        style.put("borderColor", styles.colorToken(borderToken));
+        ObjectNode shape = baseElement(slideId + "-" + role, "SHAPE",
+                geometry.xEmu(), geometry.yEmu(), geometry.widthEmu(), geometry.heightEmu(), zIndex, style);
+        shape.set("styleSource", styles.styleSource(component, fillToken));
+        shape.put("shapeType", shapeType);
+        elements.add(shape);
+        return shape;
+    }
+
+    private String[] splitLabel(String value) {
+        int index = Math.max(value.indexOf('：'), value.indexOf(':'));
+        if (index > 0 && index < value.length() - 1) {
+            return new String[]{value.substring(0, index).strip(), value.substring(index + 1).strip()};
+        }
+        return new String[]{"对比", value.strip()};
     }
 
     private ObjectNode imageElement(
