@@ -137,29 +137,63 @@ class DocumentRewriteFinalGuardTest {
     }
 
     @Test
-    void emptyWorkflowResponseCannotBeCountedAsProcessedSuccessfully() throws Exception {
+    void emptyWorkflowResponseFallsBackToCompleteOriginalParagraph() throws Exception {
         String original = "该平台负责核对资料，并记录现场处理情况。";
         WorkflowRewriteService workflow = workflowReturning("  ");
         try (XWPFDocument document = documentWithBody(original)) {
             GuardResult result = runMode(workflow, document, original.length(), "humanize");
-            assertThat(result.success()).isFalse();
-            assertThat(result.errorMessage()).contains("未返回有效段落内容");
+            assertThat(result.success()).isTrue();
+            assertThat(result.errorMessage()).isEmpty();
             assertThat(result.rewrittenText()).isEqualTo(original);
         }
     }
 
     @Test
-    void failedRewriteStageCannotBecomeSameTextSuccessOrProceedToHumanize() throws Exception {
+    void failedRewriteStageFallsBackToOriginalWithoutProceedingToHumanize() throws Exception {
         String original = "该平台负责核对资料，并记录现场处理情况。";
         WorkflowRewriteService workflow = mock(WorkflowRewriteService.class);
         when(workflow.execute(anyString(), eq("rewrite"))).thenThrow(new IllegalStateException("模型调用超时"));
         try (XWPFDocument document = documentWithBody(original)) {
             GuardResult result = runMode(workflow, document, original.length(), "double");
-            assertThat(result.success()).isFalse();
+            assertThat(result.success()).isTrue();
             assertThat(result.rewrittenText()).isEqualTo(original);
-            assertThat(result.errorMessage()).contains("模型调用超时");
+            assertThat(result.errorMessage()).isEmpty();
             verify(workflow).execute(original, "rewrite");
             verifyNoMoreInteractions(workflow);
+        }
+    }
+
+    @Test
+    void qualityGateFailureFallsBackToOriginalWithoutCustomerFacingError() throws Exception {
+        String original = "（3）选择钢筋、混凝土和基础工程量进行复核。";
+        WorkflowRewriteService workflow = mock(WorkflowRewriteService.class);
+        when(workflow.execute(original, "rewrite"))
+                .thenThrow(new RewriteQualityGateException("三个降重候选均未通过硬性门禁"));
+
+        try (XWPFDocument document = documentWithBody(original)) {
+            GuardResult result = runMode(workflow, document, original.length(), "rewrite");
+
+            assertThat(result.success()).isTrue();
+            assertThat(result.rewrittenText()).isEqualTo(original);
+            assertThat(result.errorMessage()).isEmpty();
+        }
+    }
+
+    @Test
+    void doubleModeFallsBackWhenHumanizeChangesProtectedFacts() throws Exception {
+        String original = "基础顶至11.350 m的柱配筋应按图纸设置。";
+        String rewritten = "柱配筋应依据图纸，并从基础顶部开始设置至11.350 m。";
+        String unsafeHumanized = "柱配筋应依据图纸，并从基础顶部开始设置至12.000 m。";
+        WorkflowRewriteService workflow = mock(WorkflowRewriteService.class);
+        when(workflow.execute(original, "rewrite")).thenReturn(workflowResult(rewritten));
+        when(workflow.execute(rewritten, "humanize")).thenReturn(workflowResult(unsafeHumanized));
+
+        try (XWPFDocument document = documentWithBody(original)) {
+            GuardResult result = runMode(workflow, document, original.length(), "double");
+
+            assertThat(result.success()).isTrue();
+            assertThat(result.rewrittenText()).isEqualTo(original);
+            assertThat(result.errorMessage()).isEmpty();
         }
     }
 

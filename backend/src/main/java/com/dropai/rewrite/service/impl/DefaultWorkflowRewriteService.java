@@ -145,10 +145,10 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
             }
         }
         if (lastAssessment != null && !lastAssessment.accepted()) {
-            throw new IllegalStateException("三个降重候选均未通过硬性门禁："
+            throw new RewriteQualityGateException("三个降重候选均未通过硬性门禁："
                     + String.join("；", lastAssessment.issues()));
         }
-        throw new IllegalStateException("三个降重候选均未通过受保护内容校验", lastFailure);
+        throw new RewriteQualityGateException("三个降重候选均未通过受保护内容校验", lastFailure);
     }
 
     private String preprocess(String text) {

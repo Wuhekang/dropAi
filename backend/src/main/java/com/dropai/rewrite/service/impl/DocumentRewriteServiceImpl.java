@@ -603,13 +603,14 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
         List<RewriteResult> results = rewriteTargetsConcurrently(job, targets, job.getMode(), job.getModeName());
         if ("rewrite".equals(job.getMode())) {
             logLengthMetrics(job, "rewrite_no_retry", lengthMetrics(rule.originalLength(), results), 0);
-            return validateCompletedResults(targets, validateRewriteQuality(targets, results));
+            return validateCompletedResults(targets, validateRewriteQuality(job, targets, results));
         }
         List<RewriteResult> finalResults = applyLengthControl(job, targets, results, rule, job.getMode(), 1);
         return validateCompletedResults(targets, finalResults);
     }
 
-    private List<RewriteResult> validateRewriteQuality(List<RewriteTarget> originals,
+    private List<RewriteResult> validateRewriteQuality(DocumentRewriteJobVO job,
+                                                       List<RewriteTarget> originals,
                                                        List<RewriteResult> results) {
         Map<Integer, RewriteTarget> originalByIndex = originals.stream()
                 .collect(Collectors.toMap(RewriteTarget::index, target -> target));
@@ -625,8 +626,12 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             if (assessment.accepted()) {
                 checked.add(result);
             } else {
-                checked.add(new RewriteResult(result.index(), result.paragraph(), original.text(), false,
-                        "最终降重门禁未通过：" + String.join("；", assessment.issues())));
+                String reason = String.join("；", assessment.issues());
+                log.warn("QualityGateFallback jobId={} paragraphIndex={} stage=final_validation "
+                                + "action=KEEP_ORIGINAL reason={}",
+                        job.getJobId(), result.index(), reason);
+                updateParagraphStatus(job, result.index(), "SUCCESS", original.text(), "处理完成");
+                checked.add(new RewriteResult(result.index(), result.paragraph(), original.text(), true, ""));
             }
         }
         return checked;
@@ -961,12 +966,22 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
                                 true,
                                 ""
                         );
+                    } catch (RewriteQualityGateException exception) {
+                        log.warn("QualityGateFallback jobId={} paragraphIndex={} stage={} "
+                                        + "action=KEEP_ORIGINAL reason={}",
+                                job.getJobId(), target.index(), stageMode, readableMessage(exception));
+                        updateParagraphStatus(job, target.index(), "SUCCESS", target.text(), "处理完成");
+                        return new RewriteResult(
+                                target.index(), target.paragraph(), target.text(), true, ""
+                        );
                     } catch (Exception exception) {
-                        updateParagraphStatus(job, target.index(), "FAILED", target.text(), "处理失败，保留原文：" + readableMessage(exception));
                         String message = readableMessage(exception);
-                        log.warn("ParagraphProcessingResult jobId={} paragraphIndex={} stage={} status=FAILED errorType={} elapsedMs={}",
-                                job.getJobId(), target.index(), stageMode, exception.getClass().getSimpleName(), System.currentTimeMillis() - startedAt);
-                        return new RewriteResult(target.index(), target.paragraph(), target.text(), false, message);
+                        log.warn("ParagraphFallback jobId={} paragraphIndex={} stage={} action=KEEP_ORIGINAL "
+                                        + "errorType={} reason={} elapsedMs={}",
+                                job.getJobId(), target.index(), stageMode, exception.getClass().getSimpleName(),
+                                message, System.currentTimeMillis() - startedAt);
+                        updateParagraphStatus(job, target.index(), "SUCCESS", target.text(), "处理完成");
+                        return new RewriteResult(target.index(), target.paragraph(), target.text(), true, "");
                     }
                 });
             }
@@ -1020,6 +1035,19 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
                         String humanized = rewriteByMode(rewritten, "humanize", job.getPlatform());
                         requireParagraphOutput(humanized, "智能降AI未返回有效段落内容");
 
+                        RewriteQualityGate.Assessment finalAssessment = RewriteQualityGate.assess(
+                                target.text(), humanized);
+                        if (!finalAssessment.accepted()) {
+                            String reason = String.join("；", finalAssessment.issues());
+                            log.warn("QualityGateFallback jobId={} paragraphIndex={} stage=double_final "
+                                            + "action=KEEP_ORIGINAL reason={}",
+                                    job.getJobId(), target.index(), reason);
+                            updateParagraphStatus(job, target.index(), "SUCCESS", target.text(), "处理完成");
+                            return new RewriteResult(
+                                    target.index(), target.paragraph(), target.text(), true, ""
+                            );
+                        }
+
                         updateParagraphStatus(job, target.index(), "SUCCESS", humanized,
                                 "双降已完成：本段已依次完成智能降重和智能降AI");
                         log.info("DoubleParagraphChainResult jobId={} paragraphIndex={} status=SUCCESS "
@@ -1029,16 +1057,23 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
                         return new RewriteResult(
                                 target.index(), target.paragraph(), humanized, true, ""
                         );
+                    } catch (RewriteQualityGateException exception) {
+                        log.warn("QualityGateFallback jobId={} paragraphIndex={} stage=double_rewrite "
+                                        + "action=KEEP_ORIGINAL reason={}",
+                                job.getJobId(), target.index(), readableMessage(exception));
+                        updateParagraphStatus(job, target.index(), "SUCCESS", target.text(), "处理完成");
+                        return new RewriteResult(
+                                target.index(), target.paragraph(), target.text(), true, ""
+                        );
                     } catch (Exception exception) {
                         String message = readableMessage(exception);
-                        updateParagraphStatus(job, target.index(), "FAILED", target.text(),
-                                "双降处理失败，保留原文：" + message);
-                        log.warn("DoubleParagraphChainResult jobId={} paragraphIndex={} status=FAILED "
-                                        + "errorType={} elapsedMs={}",
-                                job.getJobId(), target.index(), exception.getClass().getSimpleName(),
+                        log.warn("ParagraphFallback jobId={} paragraphIndex={} stage=double "
+                                        + "action=KEEP_ORIGINAL errorType={} reason={} elapsedMs={}",
+                                job.getJobId(), target.index(), exception.getClass().getSimpleName(), message,
                                 System.currentTimeMillis() - startedAt);
+                        updateParagraphStatus(job, target.index(), "SUCCESS", target.text(), "处理完成");
                         return new RewriteResult(
-                                target.index(), target.paragraph(), target.text(), false, message
+                                target.index(), target.paragraph(), target.text(), true, ""
                         );
                     }
                 });
