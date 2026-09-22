@@ -132,7 +132,7 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
                 lastAssessment = RewriteQualityGate.assess(original, candidate);
                 if (lastAssessment.accepted()) {
                     steps.add(new WorkflowStepVO("REWRITE_HARD_GATE", "降重硬性门禁",
-                            "第 " + attempt + " 个候选通过连续片段、四字片段与结构变化检查"));
+                            "第 " + attempt + " 个候选通过受保护数据原值与顺序检查"));
                     return candidate;
                 }
                 feedback = RewriteQualityGate.feedback(lastAssessment);

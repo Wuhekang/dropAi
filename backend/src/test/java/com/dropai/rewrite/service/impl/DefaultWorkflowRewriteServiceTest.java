@@ -225,33 +225,45 @@ class DefaultWorkflowRewriteServiceTest {
     }
 
     @Test
-    void rewriteModeRetriesUntilAStructurallyDifferentCandidatePasses() {
+    void rewriteModeRetriesOnlyWhenFactsAreChanged() {
         AiRewriteService aiRewriteService = mock(AiRewriteService.class);
-        String original = "带式输送机主要由驱动装置、传动滚筒、改向滚筒、托辊、机架和张紧装置组成，各部分共同完成物料的连续输送。";
-        String accepted = "输送带运行时，动力从电机经减速器传到主动滚筒。托辊承担带体载荷，尾部滚筒改变回程方向，张紧机构补偿带体伸长。";
+        String original = "电机额定电压为380V，转速依据试验记录确定。";
         when(aiRewriteService.rewriteWithFeedback(anyString(), anyString(), anyInt(), anyString()))
-                .thenAnswer(invocation -> invocation.getArgument(0))
-                .thenReturn(accepted);
+                .thenAnswer(invocation -> ((String) invocation.getArgument(0)) + " 220V")
+                .thenAnswer(invocation -> invocation.getArgument(0));
         DefaultWorkflowRewriteService service = service(aiRewriteService);
 
-        assertThat(service.execute(original, "rewrite").getRewrittenText()).isEqualTo(accepted);
+        assertThat(service.execute(original, "rewrite").getRewrittenText()).isEqualTo(original);
         ArgumentCaptor<String> feedback = ArgumentCaptor.forClass(String.class);
         verify(aiRewriteService, times(2))
                 .rewriteWithFeedback(anyString(), anyString(), anyInt(), feedback.capture());
-        assertThat(feedback.getAllValues().get(1)).contains("降重硬性门禁");
+        assertThat(feedback.getAllValues().get(1)).contains("受保护数据验收");
     }
 
     @Test
-    void rewriteModeFailsAfterThreeWeakCandidates() {
+    void rewriteModeFailsAfterThreeFactChangingCandidates() {
         AiRewriteService aiRewriteService = mock(AiRewriteService.class);
-        String original = "带式输送机主要由驱动装置、传动滚筒、改向滚筒、托辊、机架和张紧装置组成，各部分共同完成物料的连续输送。";
+        String original = "电机额定电压为380V，转速依据试验记录确定。";
         when(aiRewriteService.rewriteWithFeedback(anyString(), anyString(), anyInt(), anyString()))
-                .thenAnswer(invocation -> invocation.getArgument(0));
+                .thenAnswer(invocation -> ((String) invocation.getArgument(0)) + " 220V");
 
         assertThatThrownBy(() -> service(aiRewriteService).execute(original, "rewrite"))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("三个降重候选");
         verify(aiRewriteService, times(3))
+                .rewriteWithFeedback(anyString(), anyString(), anyInt(), anyString());
+    }
+
+    @Test
+    void rewriteModeAcceptsUnchangedModelOutput() {
+        AiRewriteService aiRewriteService = mock(AiRewriteService.class);
+        String original = "C30：97.51 m³；C20：15.80 m³。";
+        when(aiRewriteService.rewriteWithFeedback(anyString(), anyString(), anyInt(), anyString()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        assertThat(service(aiRewriteService).execute(original, "rewrite").getRewrittenText())
+                .isEqualTo(original);
+        verify(aiRewriteService, times(1))
                 .rewriteWithFeedback(anyString(), anyString(), anyInt(), anyString());
     }
 

@@ -121,6 +121,22 @@ class DocumentRewriteFinalGuardTest {
     }
 
     @Test
+    void doubleModeAcceptsUnchangedDataDominantParagraphAfterBothStages() throws Exception {
+        String original = "C30：97.51 m³；C20：15.80 m³。";
+        WorkflowRewriteService workflow = workflowReturning(original);
+
+        try (XWPFDocument document = documentWithBody(original)) {
+            GuardResult result = runMode(workflow, document, original.length(), "double");
+
+            assertThat(result.success()).isTrue();
+            assertThat(result.rewrittenText()).isEqualTo(original);
+            verify(workflow).execute(original, "rewrite");
+            verify(workflow).execute(original, "humanize");
+            verifyNoMoreInteractions(workflow);
+        }
+    }
+
+    @Test
     void emptyWorkflowResponseCannotBeCountedAsProcessedSuccessfully() throws Exception {
         String original = "该平台负责核对资料，并记录现场处理情况。";
         WorkflowRewriteService workflow = workflowReturning("  ");
@@ -148,16 +164,16 @@ class DocumentRewriteFinalGuardTest {
     }
 
     @Test
-    void pureRewriteRejectsAnUnchangedLongParagraph() throws Exception {
+    void pureRewriteAcceptsAnUnchangedLongParagraph() throws Exception {
         String original = "带式输送机主要由驱动装置、传动滚筒、改向滚筒、托辊、机架和张紧装置组成，各部分共同完成物料的连续输送。";
         WorkflowRewriteService workflow = workflowReturning(original);
 
         try (XWPFDocument document = documentWithBody(original)) {
             GuardResult result = runMode(workflow, document, original.length(), "rewrite");
 
-            assertThat(result.success()).isFalse();
+            assertThat(result.success()).isTrue();
             assertThat(result.rewrittenText()).isEqualTo(original);
-            assertThat(result.errorMessage()).contains("最终降重门禁未通过");
+            assertThat(result.errorMessage()).isEmpty();
         }
     }
 

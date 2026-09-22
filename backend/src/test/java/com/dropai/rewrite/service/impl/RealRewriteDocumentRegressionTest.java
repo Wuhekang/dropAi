@@ -29,6 +29,50 @@ class RealRewriteDocumentRegressionTest {
         audit(path, 360, 17_000);
     }
 
+    @Test
+    void suppliedBamaCostDocumentKeepsEditableBodyCoverage() throws Exception {
+        auditCleanDocument(requiredPath("dropai.test.bama.docx"), 45, 5_400);
+    }
+
+    @Test
+    void suppliedGuangxiCostDocumentKeepsEditableBodyCoverage() throws Exception {
+        auditCleanDocument(requiredPath("dropai.test.guangxi.docx"), 50, 5_800);
+    }
+
+    private void auditCleanDocument(Path path, int minimumTargets, int minimumCharacters) throws Exception {
+        DocumentRewriteServiceImpl service = new DocumentRewriteServiceImpl(
+                null, null, null, null, null, null, null);
+        try (InputStream stream = Files.newInputStream(path);
+             XWPFDocument document = new XWPFDocument(stream)) {
+            DocumentRewriteJobVO job = new DocumentRewriteJobVO();
+            job.setMode("rewrite");
+            job.setPlatform("GENERAL");
+            Method collect = DocumentRewriteServiceImpl.class.getDeclaredMethod(
+                    "collectRewriteTargets", DocumentRewriteJobVO.class, XWPFDocument.class);
+            collect.setAccessible(true);
+            List<?> targets = (List<?>) collect.invoke(service, job, document);
+            int characters = 0;
+            for (Object target : targets) {
+                Method textMethod = target.getClass().getDeclaredMethod("text");
+                textMethod.setAccessible(true);
+                String paragraph = (String) textMethod.invoke(target);
+                characters += paragraph.length();
+                assertThat(RewriteQualityGate.assess(paragraph, paragraph).accepted()).isTrue();
+            }
+            assertThat(targets.size()).as("rewrite targets in %s", path.getFileName())
+                    .isGreaterThanOrEqualTo(minimumTargets);
+            assertThat(characters).as("rewrite characters in %s", path.getFileName())
+                    .isGreaterThanOrEqualTo(minimumCharacters);
+
+            Method finalGuard = DocumentRewriteServiceImpl.class.getDeclaredMethod(
+                    "assertNoUnresolvedPlaceholders", XWPFDocument.class);
+            finalGuard.setAccessible(true);
+            finalGuard.invoke(service, document);
+        } finally {
+            service.shutdown();
+        }
+    }
+
     private void audit(Path path, int minimumTargets, int minimumCharacters) throws Exception {
         DocumentRewriteServiceImpl service = new DocumentRewriteServiceImpl(
                 null, null, null, null, null, null, null);
