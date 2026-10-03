@@ -47,18 +47,14 @@ final class PptAutoVisualDirector {
             case "ELECTRICAL_ENGINEERING" -> List.of(
                     RenderingTemplatePackRegistry.ELECTRICAL_COLLEGE_DEFENSE_V1,
                     RenderingTemplatePackRegistry.SMALL_BEAR_WATERCOLOR_BLUE_V1,
-                    RenderingTemplatePackRegistry.ACADEMIC_PURPLE,
                     RenderingTemplatePackRegistry.BEAR_MINIMAL_TAN_V1);
             case "COMPUTER_ENGINEERING" -> List.of(
-                    RenderingTemplatePackRegistry.SMALL_BEAR_WATERCOLOR_BLUE_V1,
-                    RenderingTemplatePackRegistry.ACADEMIC_PURPLE,
                     RenderingTemplatePackRegistry.BEAR_MINIMAL_TAN_V1,
-                    RenderingTemplatePackRegistry.BEAR_MORANDI_OLIVE_V1);
+                    RenderingTemplatePackRegistry.SMALL_BEAR_WATERCOLOR_BLUE_FULL_V1);
             case "BUSINESS_SOCIAL" -> List.of(
                     RenderingTemplatePackRegistry.BEAR_EDITORIAL_OLIVE_V1,
                     RenderingTemplatePackRegistry.BEAR_MORANDI_OLIVE_V1,
                     RenderingTemplatePackRegistry.BEAR_MINIMAL_TAN_V1,
-                    RenderingTemplatePackRegistry.ACADEMIC_PURPLE,
                     RenderingTemplatePackRegistry.BEAR_MORANDI_CORAL_V1);
             case "DESIGN_ENVIRONMENT" -> List.of(
                     RenderingTemplatePackRegistry.BEAR_FLORAL_BEIGE_V1,
@@ -67,7 +63,6 @@ final class PptAutoVisualDirector {
                     RenderingTemplatePackRegistry.SMALL_BEAR_WATERCOLOR_BLUE_V1,
                     RenderingTemplatePackRegistry.BEAR_MINIMAL_TAN_V1);
             default -> List.of(
-                    RenderingTemplatePackRegistry.ACADEMIC_PURPLE,
                     RenderingTemplatePackRegistry.SMALL_BEAR_WATERCOLOR_BLUE_V1,
                     RenderingTemplatePackRegistry.BEAR_MINIMAL_TAN_V1,
                     RenderingTemplatePackRegistry.BEAR_EDITORIAL_OLIVE_V1,
@@ -94,7 +89,8 @@ final class PptAutoVisualDirector {
                 .toLowerCase(Locale.ROOT);
         if (containsAny(text, "护理", "医学", "患者", "临床", "营养", "康复")) return "NURSING_MEDICAL";
         if (containsAny(text, "电气", "自动化", "机器视觉", "电机", "电力", "控制工程")) return "ELECTRICAL_ENGINEERING";
-        if (containsAny(text, "计算机", "软件", "spring boot", "java", "vue", "信息系统", "网络工程")) return "COMPUTER_ENGINEERING";
+        if (containsAny(text, "计算机", "软件", "spring boot", "java", "vue", "信息系统", "网络工程",
+                "智能问答", "推荐系统", "知识图谱", "图书推荐")) return "COMPUTER_ENGINEERING";
         if (containsAny(text, "财务", "会计", "审计", "金融", "经济", "工商管理", "企业管理", "乡村治理", "法学", "教育学", "汉语言")) return "BUSINESS_SOCIAL";
         if (containsAny(text, "环境设计", "视觉传达", "景观", "室内", "建筑", "艺术设计", "数字媒体")) return "DESIGN_ENVIRONMENT";
         return "GENERAL_ACADEMIC";

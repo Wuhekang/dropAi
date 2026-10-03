@@ -26,6 +26,7 @@ public final class RenderingTemplatePack {
     private final String templatePackHash;
     private final ArrayNode assets;
     private final Map<PageType, String> surfaceAssetIds;
+    private final boolean decorateOpeningProposalContent;
     private final AssetBinaryResolver assetResolver;
 
     RenderingTemplatePack(
@@ -38,6 +39,7 @@ public final class RenderingTemplatePack {
             String templatePackHash,
             ArrayNode assets,
             Map<PageType, String> surfaceAssetIds,
+            boolean decorateOpeningProposalContent,
             AssetBinaryResolver assetResolver
     ) {
         this.templatePackId = required(templatePackId, "templatePackId");
@@ -54,6 +56,7 @@ public final class RenderingTemplatePack {
                         Objects.requireNonNull(type, "surface page type"),
                         required(assetId, "surface assetId")));
         this.surfaceAssetIds = Collections.unmodifiableMap(surfaces);
+        this.decorateOpeningProposalContent = decorateOpeningProposalContent;
         this.assetResolver = Objects.requireNonNull(assetResolver, "assetResolver");
     }
 
@@ -67,6 +70,7 @@ public final class RenderingTemplatePack {
     public ArrayNode assets() { return assets.deepCopy(); }
     public AssetBinaryResolver assetResolver() { return assetResolver; }
     public boolean decorated() { return !surfaceAssetIds.isEmpty(); }
+    public boolean decorateOpeningProposalContent() { return decorateOpeningProposalContent; }
     public Optional<String> surfaceAssetId(PageType pageType) {
         return Optional.ofNullable(surfaceAssetIds.get(pageType));
     }

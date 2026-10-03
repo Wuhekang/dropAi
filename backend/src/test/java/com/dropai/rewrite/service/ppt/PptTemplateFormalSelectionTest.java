@@ -49,6 +49,7 @@ class PptTemplateFormalSelectionTest {
                 .toList();
         assertEquals(List.of(PptTemplateService.ACADEMIC_PURPLE,
                 PptTemplateService.SMALL_BEAR_WATERCOLOR_BLUE_V1,
+                PptTemplateService.SMALL_BEAR_WATERCOLOR_BLUE_FULL_V1,
                 "electrical-college-defense-v1",
                 "bear-morandi-coral-v1",
                 "bear-morandi-olive-v1",
@@ -73,7 +74,7 @@ class PptTemplateFormalSelectionTest {
         Map<String, Object> retried = service.recommend(PROJECT_ID);
 
         assertTrue(List.of(PptTemplateService.SMALL_BEAR_WATERCOLOR_BLUE_V1,
-                PptTemplateService.ACADEMIC_PURPLE,
+                PptTemplateService.SMALL_BEAR_WATERCOLOR_BLUE_FULL_V1,
                 PptTemplateService.BEAR_MINIMAL_TAN_V1,
                 PptTemplateService.BEAR_MORANDI_OLIVE_V1).contains(result.get("templatePackId")));
         assertEquals(result.get("templatePackId"), result.get("templateId"));

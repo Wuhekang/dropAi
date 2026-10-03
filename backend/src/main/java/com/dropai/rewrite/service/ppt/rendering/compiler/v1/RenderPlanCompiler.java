@@ -270,9 +270,12 @@ public final class RenderPlanCompiler {
         ArrayNode elements = slide.putArray("elements");
         elements.add(background(slideId, styles));
         boolean openingProposal="OPENING_PROPOSAL".equalsIgnoreCase(tree.path("metadata").path("presentationMode").asText());
-        // Keep dense opening-proposal content on a neutral canvas; decorated
-        // source surfaces remain on cover, agenda, section and image pages.
-        if (templatePack != null && !(openingProposal && (pageType == PageType.CONTENT || pageType == PageType.SUMMARY))) {
+        // Dense opening-proposal pages stay neutral by default. A reviewed pack
+        // may explicitly opt in to a safe all-page surface in its manifest.
+        boolean neutralOpeningContent = openingProposal
+                && (pageType == PageType.CONTENT || pageType == PageType.SUMMARY)
+                && (templatePack == null || !templatePack.decorateOpeningProposalContent());
+        if (templatePack != null && !neutralOpeningContent) {
             templatePack.surfaceAssetId(pageType).ifPresent(assetId ->
                     elements.add(templateSurfaceElement(slideId, assetId, assets, styles)));
         }

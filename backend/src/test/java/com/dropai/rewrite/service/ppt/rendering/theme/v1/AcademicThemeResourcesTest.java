@@ -32,6 +32,7 @@ class AcademicThemeResourcesTest {
         assertEquals(Set.of(
                 ThemeRegistry.ACADEMIC_PURPLE,
                 ThemeRegistry.SMALL_BEAR_WATERCOLOR_BLUE_V1,
+                ThemeRegistry.SMALL_BEAR_WATERCOLOR_BLUE_FULL_V1,
                 ThemeRegistry.ELECTRICAL_COLLEGE_DEFENSE_V1,
                 ThemeRegistry.BEAR_MORANDI_CORAL_V1,
                 ThemeRegistry.BEAR_MORANDI_OLIVE_V1,

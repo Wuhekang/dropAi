@@ -18,6 +18,25 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class RenderingTemplatePackRegistryTest {
     @Test
+    void fullWatercolorVariantDecoratesEveryPageWithoutChangingOriginalPack() {
+        RenderingTemplatePackRegistry registry = new RenderingTemplatePackRegistry();
+        RenderingTemplatePack full = registry.require(
+                RenderingTemplatePackRegistry.SMALL_BEAR_WATERCOLOR_BLUE_FULL_V1);
+        RenderingTemplatePack original = registry.require(
+                RenderingTemplatePackRegistry.SMALL_BEAR_WATERCOLOR_BLUE_V1);
+
+        for (PageType type : PageType.values()) {
+            assertEquals("tpl-small-bear-watercolor-blue-full-v1-watercolor",
+                    full.surfaceAssetId(type).orElseThrow(), type.name());
+        }
+        assertTrue(full.decorateOpeningProposalContent());
+        assertFalse(original.decorateOpeningProposalContent());
+        assertNotEquals(full.templatePackHash(), original.templatePackHash());
+        assertNotEquals(original.surfaceAssetId(PageType.CONTENT),
+                original.surfaceAssetId(PageType.COVER));
+    }
+
+    @Test
     void decoratedPackIsClasspathOnlyHashVerifiedAndCoversEveryPageType() {
         RenderingTemplatePack pack = decorated(new RenderingTemplatePackRegistry());
 

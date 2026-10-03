@@ -49,6 +49,25 @@ class PptAutoVisualDirectorTest {
         assertFalse(direction.candidatePool().contains(PptTemplateService.ELECTRICAL_COLLEGE_DEFENSE_V1));
     }
 
+    @Test
+    void intelligentBookRecommendationGetsDecoratedComputerVisuals() {
+        var direction = director.direct(project("safety-books", "",
+                "安全类图书智能问答与推荐系统的设计与实现", 0, 13));
+
+        assertEquals("COMPUTER_ENGINEERING", direction.domain());
+        assertFalse(direction.candidatePool().contains(PptTemplateService.ACADEMIC_PURPLE));
+        assertTrue(Set.of(PptTemplateService.BEAR_MINIMAL_TAN_V1,
+                PptTemplateService.SMALL_BEAR_WATERCOLOR_BLUE_FULL_V1).contains(direction.templatePackId()));
+    }
+
+    @Test
+    void automaticDirectionNeverUsesUndecoratedAcademicBaseline() {
+        for (String topic : new String[]{"安全类图书智能问答与推荐系统", "患者营养护理", "财务偿债能力", "电气设备设计", "一般学术研究"}) {
+            var direction = director.direct(project(topic, "", topic, 0, 13));
+            assertFalse(direction.candidatePool().contains(PptTemplateService.ACADEMIC_PURPLE), topic);
+        }
+    }
+
     private Map<String, Object> project(String id, String major, String topic, int images, int slides) {
         Map<String, Object> project = new LinkedHashMap<>();
         project.put("id", id);
