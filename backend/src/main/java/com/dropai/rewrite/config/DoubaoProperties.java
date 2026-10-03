@@ -44,7 +44,10 @@ public class DoubaoProperties {
     }
 
     public String getApiKey() {
-        return apiKey;
+        if (apiKey != null && !apiKey.isBlank()) {
+            return apiKey;
+        }
+        return DesktopEnvLoader.get("DOUBAO_API_KEY");
     }
 
     public void setApiKey(String apiKey) {

@@ -11,14 +11,14 @@
     <div class="ai-head"><span>AI</span><div><b>Dokiai 助手</b><small>{{ busy ? '正在协助处理' : '在线 · 已就绪' }}</small></div><i></i></div>
     <div class="ai-card"><small>当前阶段</small><strong>{{ currentStep.name }}</strong><p>{{ description || currentStep.tip }}</p></div>
     <div v-if="assistantItems.length" class="ai-facts"><div v-for="item in assistantItems" :key="item.label"><small>{{ item.label }}</small><b>{{ item.value }}</b></div></div>
-    <div class="ai-checks"><div><i>✓</i><span><b>项目数据同步</b><small>更改将自动保存</small></span></div><div><i>✓</i><span><b>工作流连续</b><small>阶段成果会传递到下一步</small></span></div><div :class="{pending:busy}"><i>{{ busy?'···':'✓' }}</i><span><b>{{ busy?'AI 正在处理':'AI 已就绪' }}</b><small>{{ busy?'可继续浏览当前页面':'等待你的下一步操作' }}</small></span></div></div>
-    <div class="ai-note"><b>创作原则</b><p>正文只使用已确认的文献、章节、图片和表格，不创建不存在的素材。</p></div>
+    <div class="ai-checks"><div><i>✓</i><span><b>只需输入题目</b><small>大纲与图表位置自动生成</small></span></div><div><i>✓</i><span><b>只确认一次大纲</b><small>其余步骤自动进行</small></span></div><div :class="{pending:busy}"><i>{{ busy?'···':'✓' }}</i><span><b>{{ busy?'AI 正在处理':'AI 已就绪' }}</b><small>{{ busy?'请稍候':'等待输入论文题目' }}</small></span></div></div>
+    <div class="ai-note"><b>创作原则</b><p>纯文字稿不联网检索文献，图表与表格按已确认的大纲生成。</p></div>
   </aside>
 </template>
 <script setup>
 import { computed } from 'vue';import { useRouter } from 'vue-router'
 const props=defineProps({current:{type:Number,default:1},projectName:{type:String,default:''},description:{type:String,default:''},busy:{type:Boolean,default:false},assistantItems:{type:Array,default:()=>[]}});const router=useRouter()
-const steps=[{no:1,name:'文献研究',en:'RESEARCH',path:'/writing-generator',tip:'建立可信的参考文献库，为后续写作准备研究依据。'},{no:2,name:'结构设计',en:'STRUCTURE',path:'/writing-generator/outline',tip:'确认章节结构，并为每节设置图片与表格需求。'},{no:3,name:'素材管理',en:'MATERIALS',path:'/writing-generator/outline#materials',tip:'识别、命名并确认图片和表格所属章节。'},{no:4,name:'AI 写作',en:'WRITING',path:'/writing-generator/generate',tip:'按章节生成正文，并实时查看当前任务状态。'},{no:5,name:'DOCX 导出',en:'EXPORT',path:'/writing-generator/export',tip:'汇总正文、图表、图注和参考文献，导出完整文档。'}]
+const steps=[{no:1,name:'输入题目',en:'TOPIC',path:'/writing',tip:'只需输入论文题目，其他内容由系统自动准备。'},{no:2,name:'确认大纲',en:'OUTLINE',path:'/writing-generator/outline',tip:'一次确认题目、标题及图表位置。'},{no:3,name:'生成全文',en:'WRITING',path:'/writing-generator/generate',tip:'按二级标题生成正文并自动检查。'},{no:4,name:'下载文档',en:'EXPORT',path:'/writing-generator/export',tip:'查看并下载完整的 Word 文档。'}]
 const currentStep=computed(()=>steps.find(x=>x.no===props.current)||steps[0])
 </script>
 <style scoped>
@@ -27,4 +27,8 @@ const currentStep=computed(()=>steps.find(x=>x.no===props.current)||steps[0])
 .studio-rail{width:240px;background:rgba(255,255,255,.82);border-right-color:rgba(110,79,255,.12);color:#2b2f3a;backdrop-filter:blur(22px)}.studio-brand>span{border:0;background:linear-gradient(135deg,#6e4fff,#ff55b0);box-shadow:0 8px 22px rgba(110,79,255,.2)}.studio-brand strong{color:#252936}.project-label b{color:#252936}.studio-rail nav button{color:#7c8290}.studio-rail nav button:hover{color:#6e4fff;background:rgba(110,79,255,.06)}.studio-rail nav button.active{color:#6e4fff;background:linear-gradient(135deg,rgba(110,79,255,.13),rgba(255,85,176,.09))}.studio-rail nav button>i{border-color:#d8dae3;background:#fff;color:#969ba8}.studio-rail nav button.active>i{border-color:#6e4fff;background:#6e4fff;color:#fff}.studio-rail nav button.done{color:#8b77d9}.studio-rail nav button.done>i{border-color:#ded5ff;background:#eee9ff;color:#7558dc}.back{border-color:#cfc6ff;background:rgba(255,255,255,.55);color:#6e4fff}.ai-assistant{width:260px;border-left-color:rgba(110,79,255,.1);background:rgba(255,255,255,.82);color:#2b2f3a}.ai-head>span{background:linear-gradient(135deg,#6e4fff,#ff55b0)}.ai-card{background:linear-gradient(135deg,rgba(110,79,255,.08),rgba(255,85,176,.06))}.ai-checks i{color:#145b4d;background:#e7f3ef}.ai-note{background:#282938}
 .ai-facts{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px}.ai-facts>div{display:grid;gap:4px;padding:10px;border:1px solid rgba(110,79,255,.1);border-radius:10px;background:rgba(255,255,255,.58)}.ai-facts small{color:#8c90a0;font-size:9px}.ai-facts b{color:#5044a5;font-size:12px}
 .back{padding:8px 2px;border:0;background:transparent;color:#7560ce;text-align:left}.back:hover{text-decoration:underline}
+.studio-rail,.ai-assistant{background:#fff;backdrop-filter:none;border-color:#e2deeb}
+.studio-rail nav button{color:#4b5160}
+.ai-card p,.ai-note p{font-size:12px;line-height:1.65}
+@media(max-width:900px){.studio-rail nav{grid-template-columns:repeat(4,1fr)}}
 </style>

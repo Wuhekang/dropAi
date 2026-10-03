@@ -1,9 +1,9 @@
 <template>
   <main class="export-page">
-    <DocumentStudioChrome :current="5" :assistant-items="assistantItems" />
+    <DocumentStudioChrome :current="4" :assistant-items="assistantItems" />
 
     <header class="page-heading">
-      <span>STEP 5 · EXPORT STUDIO</span>
+      <span>STEP 4 · EXPORT</span>
       <h1>AI成果交付中心</h1>
       <p>检查最终成果、管理文档版本，并交付排版完整的 DOCX 文件。</p>
     </header>
@@ -12,7 +12,7 @@
       <div>
         <small>PROJECT DELIVERY</small>
         <h2>{{ projectName }}</h2>
-        <p>{{ professionalType }} · {{ statusLabel }}</p>
+        <p>{{ statusLabel }}</p>
       </div>
       <div class="project-meta">
         <span>完成时间<strong>{{ completedTime }}</strong></span>
@@ -28,13 +28,13 @@
           <div class="document-info">
             <small>FINAL DOCUMENT</small>
             <h2>{{ documentName }}</h2>
-            <p>正文、图片、图注、表格与参考文献统一汇总。</p>
+            <p>正文、原生图表与表格统一汇总。</p>
             <div class="content-tags"><span v-for="item in contents" :key="item">✓ {{ item }}</span></div>
             <div class="document-stats">
               <span><b>{{ wordCountLabel }}</b>字数</span>
               <span><b>{{ pageCountLabel }}</b>{{ pageCount ? '预计页数' : '页数' }}</span>
-              <span><b>{{ referenceCount }}</b>参考文献</span>
-              <span><b>{{ imageCount }}</b>图片</span>
+              <span><b>{{ branchCount }}</b>二级标题</span>
+              <span><b>{{ chartCount }}</b>原生图表</span>
             </div>
           </div>
           <button class="primary-action" type="button" :disabled="!downloadUrl" @click="download">下载 DOCX</button>
@@ -82,17 +82,16 @@ import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRouter } from 'vue-router'
 import DocumentStudioChrome from '../../components/DocumentStudioChrome.vue'
-import { downloadArtifact, getWritingProgress, getWritingV2Flow, startWritingGeneration } from '../../api/rewrite'
+import { downloadArtifact, getWritingProgress, getWritingProject, startWritingGeneration } from '../../api/rewrite'
 
 const router = useRouter()
-const projectId = ref(sessionStorage.getItem('dropai_writing_project_id') || '')
+const projectId = ref(sessionStorage.getItem('dropai_writing_project_id') || localStorage.getItem('dropai_writing_project_id') || '')
 const flow = ref({})
 const progress = ref({})
 const repairing = ref(false)
-const contents = ['正文', '图片', '图注', '表格', '参考文献']
+const contents = ['正文', '原生图表', '表格', '自动目录']
 
-const projectName = computed(() => flow.value.project_name || flow.value.project_title || flow.value.title || flow.value.topic || sessionStorage.getItem('writing_project_title') || '未命名项目')
-const professionalType = computed(() => flow.value.professional_type || ({environment:'环境设计',visual_communication:'视觉传达',interior_design:'室内设计',general:'普通论文'})[flow.value.document_mode] || '专业类型待确认')
+const projectName = computed(() => flow.value.project_name || flow.value.project_title || flow.value.title || flow.value.topic || sessionStorage.getItem('writing_project_title') || localStorage.getItem('writing_project_title') || '未命名项目')
 const status = computed(() => String(progress.value.status || flow.value.status || 'WAITING').toUpperCase())
 const completed = computed(() => ['SUCCESS', 'COMPLETED', 'DONE'].includes(status.value))
 const statusLabel = computed(() => completed.value ? '交付完成' : ['GENERATING', 'RUNNING', 'PROCESSING'].includes(status.value) ? '生成中' : status.value === 'FAILED' ? '生成失败' : '等待生成')
@@ -110,15 +109,15 @@ const wordCount = computed(() => Number(progress.value.word_count || flow.value.
 const pageCount = computed(() => Number(progress.value.page_count || flow.value.page_count || (wordCount.value ? Math.ceil(wordCount.value / 800) : 0)))
 const wordCountLabel = computed(() => wordCount.value ? wordCount.value.toLocaleString() : '待统计')
 const pageCountLabel = computed(() => pageCount.value || '待统计')
-const referenceCount = computed(() => Number(flow.value.reference_count || flow.value.references?.length || 0))
-const imageCount = computed(() => Number(flow.value.image_count || flow.value.materials?.length || 0))
-const qualityChecks = computed(() => ['章节完整', 'GB/T 7714', '图片引用', '图表编号', 'DOCX 排版'].map(label => ({ label, state: repairing.value ? 'fixing' : completed.value ? 'passed' : 'pending', message: repairing.value ? '正在自动规范交付内容' : completed.value ? '已完成生成阶段检查' : '文档生成后自动检查' })))
+const branchCount = computed(() => chapters.value.reduce((sum, chapter) => sum + (chapter.sections?.length || 0), 0))
+const chartCount = computed(() => chapters.value.reduce((sum,chapter) => sum+(chapter.charts?.length||0),0))
+const qualityChecks = computed(() => ['章节完整', '目录结构', '字数达标', '原生图表', 'DOCX 排版'].map(label => ({ label, state: repairing.value ? 'fixing' : completed.value ? 'passed' : 'pending', message: repairing.value ? '正在重新生成并校验' : completed.value ? '质量检查已通过' : '文档生成后自动检查' })))
 const passedCount = computed(() => qualityChecks.value.filter(item => item.state === 'passed').length)
-const suggestions = computed(() => completed.value ? ['建议在线预览后再下载最终文件。', '生成新版本不会覆盖当前版本记录。'] : ['当前尚无可交付文件，请先完成 AI 正文生成。', '质量问题将在交付前自动规范，不阻断流程。'])
+const suggestions = computed(() => completed.value ? ['建议在线预览后再下载最终文件。', '生成新版本不会覆盖当前版本记录。'] : ['当前尚无可交付文件，请先完成 AI 正文生成。', '未达到质量要求时会显示具体失败原因。'])
 const assistantItems = computed(() => [{label:'交付状态',value:statusLabel.value},{label:'当前版本',value:currentVersion.value},{label:'文档字数',value:wordCountLabel.value},{label:'质量检查',value:`${passedCount.value}/5`}])
 
 function formatTime(value){ if(!value) return '尚未完成'; const date = new Date(value); return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString('zh-CN',{hour12:false}) }
-async function load(){ if(!projectId.value) return; try{ const [flowData,progressData] = await Promise.all([getWritingV2Flow(projectId.value),getWritingProgress(projectId.value)]); flow.value=flowData || {}; progress.value=progressData || {} }catch(error){ ElMessage.warning(error?.responseData?.message || error?.message || '项目交付信息暂时无法读取') } }
+async function load(){ if(!projectId.value) return; try{ const [flowData,progressData] = await Promise.all([getWritingProject(projectId.value),getWritingProgress(projectId.value)]); flow.value=flowData || {}; progress.value=progressData || {} }catch(error){ ElMessage.warning(error?.responseData?.message || error?.message || '项目交付信息暂时无法读取') } }
 async function getArtifact(){ if(!downloadUrl.value) throw new Error('DOCX 文件尚未就绪'); return downloadArtifact(downloadUrl.value) }
 async function download(){ try{ const blob=await getArtifact(); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=documentName.value; a.click(); URL.revokeObjectURL(url) }catch(error){ ElMessage.warning(error.message) } }
 async function preview(){ try{ const blob=await getArtifact(); window.open(URL.createObjectURL(blob),'_blank') }catch(error){ ElMessage.warning(error.message) } }
