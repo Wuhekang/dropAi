@@ -59,6 +59,7 @@ class ThemeBoundaryTest {
                         "bear-morandi-coral-v1.json",
                         "bear-morandi-olive-v1.json",
                         "electrical-college-defense-v1.json",
+                        "small-bear-watercolor-blue-full-v1.json",
                         "small-bear-watercolor-blue-v1.json"),
                 resources.stream().map(path -> path.getFileName().toString()).collect(java.util.stream.Collectors.toSet()));
 

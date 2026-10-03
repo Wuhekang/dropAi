@@ -57,6 +57,7 @@ public final class RenderPlanCompiler {
     private final ImageFitCalculator imageFitCalculator;
     private final TableMetricsCalculator tableMetricsCalculator;
     private final PageLayoutFeatureExtractor featureExtractor;
+    private final SemanticVisualProfileResolver semanticVisuals;
 
     public RenderPlanCompiler(
             PageRenderabilityValidator renderabilityValidator,
@@ -69,6 +70,7 @@ public final class RenderPlanCompiler {
         this.imageFitCalculator = Objects.requireNonNull(imageFitCalculator, "imageFitCalculator");
         this.tableMetricsCalculator = Objects.requireNonNull(tableMetricsCalculator, "tableMetricsCalculator");
         this.featureExtractor = new PageLayoutFeatureExtractor();
+        this.semanticVisuals = new SemanticVisualProfileResolver();
     }
 
     public DraftSlideRenderPlan compile(
@@ -296,8 +298,82 @@ public final class RenderPlanCompiler {
             case THANKS -> compileThanks(elements, slideId, page, tree.path("metadata"), recipe,
                     fontProfile, styles);
         }
+        if (pageType == PageType.CONTENT || pageType == PageType.TABLE || pageType == PageType.SUMMARY) {
+            applySemanticVisualStyle(elements, slideId, page, styles);
+        }
         sortElements(elements);
         return slide;
+    }
+
+    private void applySemanticVisualStyle(
+            ArrayNode elements,
+            String slideId,
+            JsonNode page,
+            ThemePlanStyleResolver styles
+    ) {
+        SemanticVisualProfileResolver.VisualProfile profile = semanticVisuals.resolve(page);
+        String primaryColor = styles.colorToken(profile.primaryColorToken());
+        String secondaryColor = styles.colorToken(profile.secondaryColorToken());
+
+        int ordinal = 0;
+        for (JsonNode value : elements) {
+            if (!value.isObject()) continue;
+            ObjectNode element = (ObjectNode) value;
+            String elementId = element.path("elementId").asText("");
+            if (elementId.endsWith("-background") || elementId.contains("-template-surface")) continue;
+            ObjectNode resolvedStyle = element.path("resolvedStyle").isObject()
+                    ? (ObjectNode) element.path("resolvedStyle") : null;
+            if (resolvedStyle == null) continue;
+            String elementType = element.path("elementType").asText("");
+            if ("SHAPE".equals(elementType) && !elementId.contains("-compare-")) {
+                if (resolvedStyle.path("borderWidthEmu").asLong() > 0L) {
+                    resolvedStyle.put("borderColor", ordinal++ % 2 == 0 ? primaryColor : secondaryColor);
+                }
+            } else if ("CONNECTOR".equals(elementType) && !elementId.contains("-compare-")) {
+                resolvedStyle.put("lineColor", ordinal++ % 2 == 0 ? primaryColor : secondaryColor);
+            }
+        }
+
+        SlotGeometry marker = semanticMarkerGeometry(profile.markerShape(), styles);
+        ObjectNode markerStyle = styles.shapeStyle("keyPointCard");
+        markerStyle.put("fillColor", primaryColor);
+        markerStyle.put("borderColor", primaryColor);
+        markerStyle.put("borderWidthEmu", 0L);
+        markerStyle.put("opacityPermille", 920);
+        markerStyle.remove("shadow");
+        ObjectNode markerElement = baseElement(
+                slideId + "-semantic-accent",
+                "SHAPE",
+                marker.xEmu(),
+                marker.yEmu(),
+                marker.widthEmu(),
+                marker.heightEmu(),
+                210,
+                markerStyle);
+        markerElement.set("styleSource", styles.styleSource(
+                "keyPointCard", profile.primaryColorToken()));
+        markerElement.put("shapeType", profile.markerShape());
+        elements.add(markerElement);
+    }
+
+    private SlotGeometry semanticMarkerGeometry(String markerShape, ThemePlanStyleResolver styles) {
+        long safeLeft = Emu.inches(styles.safeLeftIn());
+        long markerTop = Math.max(styles.safeTopEmu(), Emu.inches(new BigDecimal("1.30")));
+        if ("ELLIPSE".equals(markerShape)) {
+            long diameter = Emu.inches(new BigDecimal("0.16"));
+            return new SlotGeometry(
+                    safeLeft,
+                    markerTop,
+                    diameter,
+                    diameter);
+        }
+        long width = Emu.inches(new BigDecimal("0.82"));
+        return new SlotGeometry(
+                safeLeft,
+                markerTop,
+                width,
+                Emu.inches(new BigDecimal(
+                        "ROUNDED_RECTANGLE".equals(markerShape) ? "0.11" : "0.07")));
     }
 
     private void sortElements(ArrayNode elements) {

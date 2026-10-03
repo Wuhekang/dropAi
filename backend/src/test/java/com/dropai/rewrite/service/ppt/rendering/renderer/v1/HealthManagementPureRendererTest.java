@@ -76,7 +76,7 @@ class HealthManagementPureRendererTest {
         assertEquals(RendererTestSupport.countPlanElements(fixture.document(), "IMAGE"), images);
         assertEquals(25, images);
         assertEquals(RendererTestSupport.countPlanElements(fixture.document(), "SHAPE"), shapes);
-        assertEquals(73, shapes);
+        assertEquals(85, shapes);
         assertEquals(RendererTestSupport.countPlanElements(fixture.document(), "TABLE"), tables);
         assertEquals(2, tables);
         assertEquals(RendererTestSupport.countPlanElements(fixture.document(), "CONNECTOR"), connectors);

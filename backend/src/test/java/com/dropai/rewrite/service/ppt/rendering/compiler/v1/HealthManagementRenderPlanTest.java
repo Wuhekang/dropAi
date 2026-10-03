@@ -25,6 +25,7 @@ import java.util.Set;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -43,7 +44,7 @@ class HealthManagementRenderPlanTest {
                 plan.path("slides").get(39).path("pageType").asText()));
         assertEquals(2, countElements(plan, "TABLE"));
         assertEquals(25, countElements(plan, "IMAGE"));
-        assertEquals(73, countElements(plan, "SHAPE"));
+        assertEquals(85, countElements(plan, "SHAPE"));
         assertEquals(4, countElements(plan, "CONNECTOR"));
         assertTrue(uniqueText(plan.path("slides"), "layoutId").stream().allMatch(LayoutIds.ALL::contains));
         assertEquals(LayoutIds.CONTENT_ARCHITECTURE_LAYERS,
@@ -58,6 +59,16 @@ class HealthManagementRenderPlanTest {
         assertVisualGroup(plan.path("slides").get(2), "card-01");
         assertVisualGroup(plan.path("slides").get(4), "layer-01");
         assertVisualGroup(plan.path("slides").get(15), "step-01");
+        JsonNode problemAccent = elementById(plan.path("slides").get(3), "slide-004-semantic-accent");
+        JsonNode methodAccent = elementById(plan.path("slides").get(4), "slide-005-semantic-accent");
+        JsonNode evidenceAccent = elementById(plan.path("slides").get(25), "slide-026-semantic-accent");
+        assertEquals("RECTANGLE", problemAccent.path("shapeType").asText());
+        assertEquals("ROUNDED_RECTANGLE", methodAccent.path("shapeType").asText());
+        assertEquals("ELLIPSE", evidenceAccent.path("shapeType").asText());
+        assertNotEquals(problemAccent.path("resolvedStyle").path("fillColor").asText(),
+                methodAccent.path("resolvedStyle").path("fillColor").asText());
+        assertNotEquals(methodAccent.path("resolvedStyle").path("fillColor").asText(),
+                evidenceAccent.path("resolvedStyle").path("fillColor").asText());
         JsonNode firstImage = firstElement(plan.path("slides").get(5), "IMAGE");
         assertTrue(firstImage.path("resolvedStyle").path("shadow").isObject());
         assertFalse(plan.path("slides").get(5).path("elements").get(0)
