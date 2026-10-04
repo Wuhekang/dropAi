@@ -19,6 +19,12 @@ public class MechanicalPaperExporter {
         try(InputStream template=getClass().getResourceAsStream("/templates/mechanical-paper.docx")) {
             if(template==null) throw new IOException("机械论文排版母版缺失");
             try(XWPFDocument document=new XWPFDocument(template)) {
+                // The source has a floating PAGE textbox on top of the normal centered PAGE field.
+                // Keep the real footer paragraph/field; remove only the duplicate page-number drawing.
+                for(var footer:document.getFooterList())for(var paragraph:footer.getParagraphs())for(int index=paragraph.getRuns().size()-1;index>=0;index--) {
+                    var run=paragraph.getRuns().get(index);
+                    if(!run.getCTR().getPictList().isEmpty()&&run.getCTR().xmlText().contains("PAGE"))paragraph.removeRun(index);
+                }
                 Map<String,CTPPr> roles=new HashMap<>();
                 for(var p:document.getParagraphs()) if(p.getCTP().isSetPPr()) roles.put(p.getText(),(CTPPr)p.getCTP().getPPr().copy());
                 while(!document.getBodyElements().isEmpty()) document.removeBodyElement(0);
@@ -50,15 +56,19 @@ public class MechanicalPaperExporter {
                         for(var text:content.path("paragraphs")) paragraph(document,roles,"{{BODY}}",text.asText());
                         for(var formula:content.path("formulas")) {
                             var p=document.createParagraph();p.setAlignment(ParagraphAlignment.CENTER);
-                            p.getCTP().addNewOMath().addNewR().addNewT().setStringValue(formula.asText());
-                            p.createRun().setText("  （"+chapter+"-"+(++equationNo)+"）");
+                            var properties=p.getCTP().isSetPPr()?p.getCTP().getPPr():p.getCTP().addNewPPr();
+                            properties.addNewKeepLines().setVal(true);
+                            // Word interprets spaced slashes next to units inconsistently during BuildUp.
+                            // An explicit division glyph preserves the calculation, without guessing fractions.
+                            p.getCTP().addNewOMath().addNewR().addNewT().setStringValue(formula.asText().replace("/"," ÷ "));
+                            p.createRun().setText("  （"+chapter+"‑"+(++equationNo)+"）");
                         }
                         for(var table:content.path("tables")) table(document,roles,section.id(),table);
                         for(var figure:MechanicalPaperPlan.FIGURES) if(figure.section().equals(section.id())) {
                             var image=state.tasks.get("image:"+figure.id());
                             if(!"completed".equals(image.status) || image.file.isBlank()) throw new IOException("配图缺失："+figure.id());
-                            String caption=figure.kind().equals("photo")?"应用实物图":MechanicalPaperService.find(state.design,"figures",figure.id()).path("caption").asText();
-                            picture(document,roles,directory.resolve(image.file),"图 "+figure.id()+" "+caption);
+                            String caption=figure.kind().equals("photo")?"应用实物图":cleanCaption(MechanicalPaperService.find(state.design,"figures",figure.id()).path("caption").asText());
+                            picture(document,roles,directory.resolve(image.file),"图 "+figure.id()+" "+caption,figure.kind().equals("photo")?340:411);
                         }
                     }
                 }
@@ -89,9 +99,9 @@ public class MechanicalPaperExporter {
         }
         return p;
     }
-    private void picture(XWPFDocument doc,Map<String,CTPPr> roles,Path file,String caption) throws Exception {
+    private void picture(XWPFDocument doc,Map<String,CTPPr> roles,Path file,String caption,double maximumWidth) throws Exception {
         var bitmap=ImageIO.read(file.toFile());if(bitmap==null) throw new IOException("图片无法读取");
-        double width=411.0,height=width*bitmap.getHeight()/bitmap.getWidth();
+        double width=maximumWidth,height=width*bitmap.getHeight()/bitmap.getWidth();
         if(height>365) {width*=365/height;height=365;}
         var p=doc.createParagraph();p.setAlignment(ParagraphAlignment.CENTER);p.setKeepNext(true);p.setSpacingAfter(0);
         try(InputStream input=Files.newInputStream(file)) {
@@ -101,7 +111,7 @@ public class MechanicalPaperExporter {
         paragraph(doc,roles,"{{CAPTION}}",caption);
     }
     private void table(XWPFDocument doc,Map<String,CTPPr> roles,String section,JsonNode data) {
-        var caption=paragraph(doc,roles,"{{CAPTION}}","表 "+section.charAt(0)+"-1 "+data.path("caption").asText());caption.setKeepNext(true);
+        var caption=paragraph(doc,roles,"{{CAPTION}}","表 "+section.charAt(0)+"-1 "+cleanCaption(data.path("caption").asText()));caption.setKeepNext(true);
         int columns=data.path("headers").size();
         XWPFTable table=doc.createTable(data.path("rows").size()+1,columns);table.setWidth("100%");
         var borders=table.getCTTbl().getTblPr().addNewTblBorders();
@@ -120,4 +130,5 @@ public class MechanicalPaperExporter {
         }
         doc.createParagraph();
     }
+    static String cleanCaption(String text) {return text.replaceFirst("^(?:\\s*[图表]\\s*\\d+\\s*[-－—.]\\s*\\d+\\s*)+","").trim();}
 }

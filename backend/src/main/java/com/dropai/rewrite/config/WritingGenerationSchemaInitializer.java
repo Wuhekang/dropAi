@@ -85,7 +85,7 @@ public class WritingGenerationSchemaInitializer implements ApplicationRunner {
                 "CREATE INDEX idx_writing_reference_language ON writing_reference (project_id, language)",
                 "CREATE INDEX idx_writing_reference_citation ON writing_reference (project_id, citation_number)",
                 "CREATE INDEX idx_writing_reference_provider_record ON writing_reference (provider, provider_record_id)",
-                "INSERT INTO feature_pricing (feature_code, feature_name, cost_points, enabled) SELECT 'WRITING_DOCX', '纯文字稿生成', 60, 1 WHERE NOT EXISTS (SELECT 1 FROM feature_pricing WHERE feature_code = 'WRITING_DOCX')"
+                "INSERT INTO feature_pricing (feature_code, feature_name, cost_points, enabled) SELECT 'WRITING_DOCX', '纯文字稿生成', 300, 1 WHERE NOT EXISTS (SELECT 1 FROM feature_pricing WHERE feature_code = 'WRITING_DOCX')"
         );
     }
 

@@ -26,6 +26,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class WritingGenerationStartTest {
     @Test
@@ -40,11 +41,13 @@ class WritingGenerationStartTest {
         jdbc.execute("CREATE TABLE writing_export_file (id VARCHAR(64), project_id VARCHAR(64), created_at TIMESTAMP)");
         jdbc.update("INSERT INTO writing_project (id,user_id,title,status,progress) VALUES ('p1',1,'测试题目','OUTLINE_READY',18)");
         TaskExecutor executor = mock(TaskExecutor.class);
+        PointService points=mock(PointService.class);
+        when(points.featureCostPoints(PointService.WRITING_DOCX)).thenReturn(300);
         WritingGenerationService service = new WritingGenerationService(jdbc,
                 mock(ReferenceSearchService.class), mock(ChartRenderService.class),
                 mock(CitationManagerService.class), mock(DocxExportService.class),
                 mock(WritingQualityGate.class), mock(DocumentJobMapper.class),
-                mock(PointService.class), executor, new ObjectMapper(), mock(DoubaoWritingService.class));
+                points, executor, new ObjectMapper(), mock(DoubaoWritingService.class));
         AuthContext.setUserId(1L);
         try {
             TransactionTemplate transaction = new TransactionTemplate(new DataSourceTransactionManager(source));
@@ -54,6 +57,7 @@ class WritingGenerationStartTest {
                 verify(executor, never()).execute(any(Runnable.class));
             });
             verify(executor, times(1)).execute(any(Runnable.class));
+            verify(points).ensureEnoughCustom(1L,300);
             service.start("p1");
             assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM writing_generation_task WHERE project_id='p1'", Integer.class));
             verify(executor, times(1)).execute(any(Runnable.class));

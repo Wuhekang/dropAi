@@ -9,9 +9,11 @@ import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientResponseException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -25,16 +27,23 @@ import java.util.Map;
 public class DoubaoImageProvider implements ImageGenerationProvider {
     private final Environment environment;
     private final ObjectMapper mapper = new ObjectMapper();
-    private volatile HttpClient httpClient;
-    private HttpClient client() {
-        HttpClient value=httpClient;
-        if(value==null) {synchronized(this) {value=httpClient;if(value==null)httpClient=value=HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(20)).build();}}
+    private volatile RestClient httpClient;
+    private RestClient client() {
+        RestClient value=httpClient;
+        if(value==null) {synchronized(this) {value=httpClient;if(value==null) {
+            SimpleClientHttpRequestFactory factory=new SimpleClientHttpRequestFactory();
+            factory.setConnectTimeout(Duration.ofSeconds(20));
+            factory.setReadTimeout(Duration.ofSeconds(Integer.parseInt(value("DOUBAO_IMAGE_TIMEOUT_SECONDS","180"))));
+            httpClient=value=RestClient.builder().requestFactory(factory).build();
+        }}}
         return value;
     }
 
+    @org.springframework.beans.factory.annotation.Autowired
     public DoubaoImageProvider(Environment environment) {
         this.environment = environment;
     }
+    DoubaoImageProvider(Environment environment,RestClient client) {this.environment=environment;this.httpClient=client;}
 
     @Override
     public ImageGenerationResult generate(ImageGenerationRequest request) {
@@ -67,38 +76,32 @@ public class DoubaoImageProvider implements ImageGenerationProvider {
             Map<String, Object> payload = new LinkedHashMap<>();
             payload.put("model", result.getModel());
             payload.put("prompt", prompt);
-            payload.put("size", value("DOUBAO_IMAGE_SIZE", "1024x1024"));
-            payload.put("n", 1);
+            payload.put("size", value("DOUBAO_IMAGE_SIZE", "2K"));
+            payload.put("stream", false);
+            if(!result.getModel().matches(".*seedream-5-0-(pro|flash).*")) payload.put("sequential_image_generation", "disabled");
+            payload.put("response_format", "b64_json");
+            payload.put("watermark", Boolean.parseBoolean(value("DOUBAO_IMAGE_WATERMARK", "false")));
+            if(request != null && !request.getReferenceImageUrls().isEmpty()) payload.put("image",request.getReferenceImageUrls());
             audit.put("request", sanitizedPayload(payload));
 
-            HttpRequest httpRequest = HttpRequest.newBuilder(URI.create(result.getEndpoint()))
-                    .timeout(Duration.ofSeconds(90))
-                    .header("Content-Type", "application/json")
-                    .header("Authorization", "Bearer " + apiKey())
-                    .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(payload), StandardCharsets.UTF_8))
-                    .build();
-            HttpResponse<byte[]> response = client().send(httpRequest, HttpResponse.BodyHandlers.ofByteArray());
-            audit.put("httpStatus", response.statusCode());
-            if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                String body = truncate(new String(response.body(), StandardCharsets.UTF_8), 1200);
-                result.setStatus("failed");
-                result.setMessage("Doubao image endpoint returned HTTP " + response.statusCode() + ": " + body);
-                writeAudit(audit, "failed", result.getMessage(), response.statusCode(), body);
-                return result;
-            }
+            var response = client().post().uri(URI.create(result.getEndpoint()))
+                    .header(HttpHeaders.AUTHORIZATION,"Bearer "+apiKey()).contentType(MediaType.APPLICATION_JSON)
+                    .body(payload).retrieve().toEntity(byte[].class);
+            int status=response.getStatusCode().value();
+            audit.put("httpStatus", status);
 
-            JsonNode root = mapper.readTree(response.body());
+            JsonNode root = mapper.readTree(response.getBody());
             ImageBytes image = extractImage(root);
             if (image.taskId() != null && !image.taskId().isBlank()) {
                 result.setStatus("pending");
                 result.setMessage("Doubao image request returned async taskId=" + image.taskId() + "; polling endpoint is not configured.");
-                writeAudit(audit, "pending", result.getMessage(), response.statusCode(), truncate(root.toString(), 1200));
+                writeAudit(audit, "pending", result.getMessage(), status, truncate(root.toString(), 1200));
                 return result;
             }
             if (image.bytes() == null || image.bytes().length == 0) {
                 result.setStatus("failed");
                 result.setMessage("Doubao image response did not contain url, b64_json, base64, or image bytes.");
-                writeAudit(audit, "failed", result.getMessage(), response.statusCode(), truncate(root.toString(), 1200));
+                writeAudit(audit, "failed", result.getMessage(), status, truncate(root.toString(), 1200));
                 return result;
             }
 
@@ -106,7 +109,7 @@ public class DoubaoImageProvider implements ImageGenerationProvider {
             if (bufferedImage == null || bufferedImage.getWidth() < 64 || bufferedImage.getHeight() < 64) {
                 result.setStatus("failed");
                 result.setMessage("Downloaded/generated image is not a valid image or is too small.");
-                writeAudit(audit, "failed", result.getMessage(), response.statusCode(), "invalid image bytes");
+                writeAudit(audit, "failed", result.getMessage(), status, "invalid image bytes");
                 return result;
             }
             Path imagePath = outputDir().resolve("doubao-" + java.util.UUID.randomUUID() + image.extension());
@@ -119,7 +122,12 @@ public class DoubaoImageProvider implements ImageGenerationProvider {
             audit.put("height", bufferedImage.getHeight());
             audit.put("fileSize", image.bytes().length);
             audit.put("filePath", imagePath.toAbsolutePath().toString());
-            writeAudit(audit, "success", result.getMessage(), response.statusCode(), "");
+            writeAudit(audit, "success", result.getMessage(), status, "");
+            return result;
+        } catch (RestClientResponseException exception) {
+            result.setStatus("failed");
+            result.setMessage("Image endpoint returned HTTP "+exception.getStatusCode().value()+": "+truncate(exception.getResponseBodyAsString(),500));
+            writeAudit(audit,"failed",result.getMessage(),exception.getStatusCode().value(),"");
             return result;
         } catch (Exception exception) {
             result.setStatus("failed");
@@ -137,7 +145,7 @@ public class DoubaoImageProvider implements ImageGenerationProvider {
         result.setEnabled(Boolean.parseBoolean(value("DOUBAO_IMAGE_ENABLED", "false")));
         result.setApiKeyConfigured(!apiKey().isBlank());
         result.setEndpoint(value("DOUBAO_IMAGE_ENDPOINT", defaultImageEndpoint()));
-        result.setModel(value("DOUBAO_IMAGE_MODEL", value("DOUBAO_MODEL", "")));
+        result.setModel(value("DOUBAO_IMAGE_MODEL", ""));
         result.setStatus(result.isEnabled() && result.isApiKeyConfigured() ? "ready" : "disabled");
         result.setMessage(result.isEnabled()
                 ? "Image provider configuration loaded; API key is kept server-side."
@@ -155,10 +163,9 @@ public class DoubaoImageProvider implements ImageGenerationProvider {
         }
         String url = text(node, "url", "");
         if (!url.isBlank()) {
-            HttpRequest download = HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofSeconds(60)).GET().build();
-            HttpResponse<byte[]> response = client().send(download, HttpResponse.BodyHandlers.ofByteArray());
-            String mime = response.headers().firstValue("Content-Type").orElse("application/octet-stream");
-            return new ImageBytes(response.body(), mime, extension(mime), "");
+            var response = client().get().uri(URI.create(url)).retrieve().toEntity(byte[].class);
+            String mime = response.getHeaders().getFirst("Content-Type");
+            return new ImageBytes(response.getBody(), mime, extension(mime), "");
         }
         String b64 = text(node, "b64_json", text(node, "base64", text(node, "image", "")));
         if (!b64.isBlank()) {
@@ -183,9 +190,9 @@ public class DoubaoImageProvider implements ImageGenerationProvider {
     private void writeAudit(Map<String, Object> audit, String status, String message, int httpStatus, String response) {
         try {
             audit.put("status", status);
-            audit.put("message", message);
+            audit.put("message", redact(message));
             if (httpStatus > 0) audit.put("httpStatus", httpStatus);
-            if (response != null && !response.isBlank()) audit.put("response", response);
+            if (response != null && !response.isBlank()) audit.put("response", redact(response));
             Path path = outputDir().resolve("image-generation-audit.json");
             Files.writeString(path, mapper.writerWithDefaultPrettyPrinter().writeValueAsString(audit), StandardCharsets.UTF_8);
         } catch (Exception ignored) {
@@ -195,6 +202,7 @@ public class DoubaoImageProvider implements ImageGenerationProvider {
 
     private Map<String, Object> sanitizedPayload(Map<String, Object> payload) {
         Map<String, Object> sanitized = new LinkedHashMap<>(payload);
+        if(sanitized.containsKey("image")) sanitized.put("image","<reference images>");
         sanitized.put("apiKey", "<server-side>");
         return sanitized;
     }
@@ -207,6 +215,9 @@ public class DoubaoImageProvider implements ImageGenerationProvider {
 
     private String apiKey() {
         return value("DOUBAO_API_KEY", "");
+    }
+    private String redact(String text) {
+        String key=apiKey();return text==null?"":key.isBlank()?text:text.replace(key,"<redacted>");
     }
 
     private String defaultImageEndpoint() {

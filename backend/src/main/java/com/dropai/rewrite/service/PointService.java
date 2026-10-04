@@ -28,6 +28,9 @@ public class PointService {
     public static final String CAD_GENERATE = "CAD_GENERATE";
     public static final String MODEL_GENERATE = "MODEL_GENERATE";
     public static final String DOCX_GENERATE = "DOCX_GENERATE";
+    public static final String MECHANICAL_PAPER = "MECHANICAL_PAPER";
+    public static final String WRITING_DOCX = "WRITING_DOCX";
+    public static final String PPT_GENERATE = "PPT_GENERATE";
     public static final String ZIP_EXPORT = "ZIP_EXPORT";
     public static final String DOCUMENT_REWRITE = "DOCUMENT_REWRITE";
     public static final String DOCUMENT_HUMANIZE = "DOCUMENT_HUMANIZE";

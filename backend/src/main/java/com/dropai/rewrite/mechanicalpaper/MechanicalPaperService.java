@@ -18,6 +18,7 @@ import java.util.function.Supplier;
 
 @Service
 public class MechanicalPaperService {
+    private static final org.slf4j.Logger log=org.slf4j.LoggerFactory.getLogger(MechanicalPaperService.class);
     static final String FEATURE = "MECHANICAL_PAPER";
     private final DocumentJobMapper jobs;
     private final ObjectMapper mapper;
@@ -48,7 +49,7 @@ public class MechanicalPaperService {
         return Map.of("ready", imageReady && searchReady && text.apiKeyConfigured(), "imageReady",imageReady,
             "searchReady",searchReady,"textReady",text.apiKeyConfigured(),"message",
             !imageReady ? "Doki 图片服务尚未配置，请联系管理员启用" : !searchReady ? "Doki 实物图检索尚未启用" : "Doki 生成服务已就绪",
-            "costPoints",points.featureCostPoints(PointService.DOCX_GENERATE));
+            "costPoints",points.featureCostPoints(PointService.MECHANICAL_PAPER));
     }
     public synchronized Map<String,Object> start(Long userId, String title) {
         String normalized = title == null ? "" : title.trim();
@@ -62,18 +63,19 @@ public class MechanicalPaperService {
             return view(load(existing.get(0)),userId);
         }
         if (!Boolean.TRUE.equals(readiness().get("ready"))) throw new IllegalStateException(String.valueOf(readiness().get("message")));
-        points.checkPoints(PointService.DOCX_GENERATE);
+        points.checkPoints(PointService.MECHANICAL_PAPER);
         MechanicalPaperState state = new MechanicalPaperState();
         state.id="mp_"+UUID.randomUUID().toString().replace("-", ""); state.title=normalized;
         state.tasks.put("plan",new MechanicalPaperState.Task("统一结构与参数规划"));
         for (var section : MechanicalPaperPlan.SECTIONS) state.tasks.put("text:"+section.id(),new MechanicalPaperState.Task(section.id()+" "+section.title()));
         for (var figure : MechanicalPaperPlan.FIGURES) state.tasks.put("image:"+figure.id(),new MechanicalPaperState.Task("图"+figure.id()+" "+figure.caption()));
         state.tasks.put("export",new MechanicalPaperState.Task("Word 排版与交付检查"));
+        state.tasks.put("summary",new MechanicalPaperState.Task("摘要与正文一致性检查"));
         DocumentJobRecord job = new DocumentJobRecord();
         job.setJobId(state.id); job.setUserId(userId); job.setFileName(normalized+".docx"); job.setSourceFeature(FEATURE);
-        job.setMode("mechanical_thesis"); job.setModeName("机械论文"); job.setPlatform("DOKI"); job.setPlatformName("Doki");
+        job.setMode("mechanical_thesis"); job.setModeName("机械说明书"); job.setPlatform("DOKI"); job.setPlatformName("Doki");
         job.setStatus("RUNNING"); job.setTotalParagraphs(state.tasks.size()); job.setProcessedParagraphs(0); job.setRewrittenParagraphs(0);
-        job.setCharCount(0); job.setPointsCharged(false); job.setCostPoints(points.featureCostPoints(PointService.DOCX_GENERATE));
+        job.setCharCount(0); job.setPointsCharged(false); job.setCostPoints(points.featureCostPoints(PointService.MECHANICAL_PAPER));
         job.setMessage("Doki 正在规划设计参数"); job.setParagraphsJson(json(state));
         job.setCreatedAt(LocalDateTime.now()); job.setUpdatedAt(LocalDateTime.now()); jobs.insert(job);
         active.put(state.id,state); coordinators.submit(()->run(state,userId));
@@ -89,7 +91,7 @@ public class MechanicalPaperService {
         var state = load(owned(userId,id));
         if (active.containsKey(id) || "SUCCESS".equals(state.status)) return view(state,userId);
         if (!Boolean.TRUE.equals(readiness().get("ready"))) throw new IllegalStateException("Doki 生成服务尚未就绪");
-        points.checkPoints(PointService.DOCX_GENERATE);
+        points.checkPoints(PointService.MECHANICAL_PAPER);
         state.status="RUNNING"; state.error="";
         state.tasks.values().stream().filter(task->!"completed".equals(task.status)).forEach(task->{task.status="waiting";task.error="";task.startedAt=0;});
         save(state); active.put(id,state); coordinators.submit(()->run(state,userId));
@@ -110,8 +112,14 @@ public class MechanicalPaperService {
     private void run(MechanicalPaperState state,Long userId) {
         try {
             Path dir=directory(state.id); Files.createDirectories(dir);
+            normalizeCaptions(state.design);
             task(state,"plan",()-> {
-                var design=parse(text.generate("你是机械设计论文规划者，只返回严格 JSON。",planPrompt(state.title))); validateDesign(design);
+                JsonNode design=state.design;
+                try{validateDesign(design);}catch(Exception invalid){design=null;}
+                if(design==null)design=parse(text.generateJson("你是机械设计论文规划者，只返回严格 JSON。",planPrompt(state.title)));
+                normalizeCaptions(design);
+                synchronized(state){state.design=design;save(state);}
+                validateDesign(design);
                 synchronized(state) {
                     state.design=design;
                     for(var section:MechanicalPaperPlan.SECTIONS) state.tasks.get("text:"+section.id()).label=section.id()+" "+find(design,"sections",section.id()).path("title").asText();
@@ -120,6 +128,12 @@ public class MechanicalPaperService {
                 return design;
             });
             stage(state,"正文与配图并行生成");
+            for(var section:MechanicalPaperPlan.SECTIONS) {
+                var completed=state.tasks.get("text:"+section.id());
+                if("completed".equals(completed.status))try{validateSection(completed.content,section);}catch(IllegalStateException invalid){
+                    synchronized(state){completed.status="waiting";state.tasks.get("export").status="waiting";var summary=state.tasks.get("summary");if(summary!=null)summary.status="waiting";save(state);}
+                }
+            }
             List<CompletableFuture<Void>> pending = new ArrayList<>();
             for (var section:MechanicalPaperPlan.SECTIONS) pending.add(CompletableFuture.runAsync(()->task(state,"text:"+section.id(),()->writeSection(state,section)),sections));
             for (var figure:MechanicalPaperPlan.FIGURES) pending.add(CompletableFuture.runAsync(()->task(state,"image:"+figure.id(),()-> {
@@ -129,9 +143,23 @@ public class MechanicalPaperService {
                         var photo=photos.find(state.title,dir); t.file=photo.file();t.pageUrl=photo.pageUrl();t.imageUrl=photo.imageUrl();
                     } else {
                         ImageGenerationRequest request=new ImageGenerationRequest(); request.setPrompt(figurePrompt(state.design,figure));
-                        var result=images.generate(request);
-                        if (!"success".equals(result.getStatus())) throw new IllegalStateException("Doki 图片生成未完成，请重试此任务");
-                        var original=Path.of(result.getFilePath());
+                        if(List.of("stress","displacement").contains(figure.kind())) {
+                            try(var style=MechanicalPaperService.class.getResourceAsStream("/templates/mechanical-cloud-style.png")) {
+                                if(style!=null) request.setReferenceImageUrls(List.of("data:image/png;base64,"+Base64.getEncoder().encodeToString(style.readAllBytes())));
+                            }
+                        }
+                        Path original=null;
+                        for(int attempt=0;attempt<2;attempt++) {
+                            var result=images.generate(request);
+                            if (!"success".equals(result.getStatus())) throw new IllegalStateException("Doki 图片生成未完成，请重试此任务");
+                            original=Path.of(result.getFilePath());
+                            var verdict=parse(text.inspectImage("你是工程配图文字核验员，只返回JSON。",
+                                "核验图内可见文字。若含有示意、AI生成、水印、伪称实际求解成功等字样，accepted为false。图类为"+figure.kind()+"；网格图不得出现声称实际计算出的节点/单元总数，云图不得出现具体应力MPa/位移mm结果或真实求解完成状态；其他图中的设计尺寸和材料标注允许。不要评价绘图精度，只核验实际可见文字。返回{\"accepted\":true或false}。",
+                                "data:image/"+(original.toString().endsWith(".jpg")?"jpeg":"png")+";base64,"+Base64.getEncoder().encodeToString(Files.readAllBytes(original))));
+                            if(verdict.path("accepted").asBoolean(false))break;
+                            original=null;request.setPrompt(request.getPrompt()+"\n上一张图片文字检查未通过。重新生成，只允许短图名和必要标签，不写示意、AI、水印、软件名、节点数、单元数或求解结果值。");
+                        }
+                        if(original==null)throw new IllegalStateException("Doki 配图文字检查未通过，请重试此任务");
                         String filename="figure-"+figure.id()+ (original.toString().endsWith(".jpg")?".jpg":".png");
                         Files.copy(original,dir.resolve(filename),StandardCopyOption.REPLACE_EXISTING); t.file=filename;
                     }
@@ -140,8 +168,18 @@ public class MechanicalPaperService {
             }),figures));
             CompletableFuture.allOf(pending.toArray(CompletableFuture[]::new)).join();
             stage(state,"字数与结构检查");
-            state.wordCount=MechanicalPaperPlan.SECTIONS.stream().mapToInt(s->bodyWords(state.tasks.get("text:"+s.id()).content)).sum();
+            repairBodyLength(state);
             if (state.wordCount < 6000 || state.wordCount > 9000) throw new IllegalStateException("Doki 正文字数检查未通过，请重试调整");
+            synchronized(state){state.tasks.computeIfAbsent("summary",key->new MechanicalPaperState.Task("摘要与正文一致性检查"));save(state);}
+            task(state,"summary",()-> {
+                var summary=parse(text.generateJson("你是机械说明书编辑，只返回JSON。",
+                    "根据实际正文写中英文摘要，中文约300字。本文只做结构方案绘制、解析强度刚度计算和定性分布分析；没有实际CAD建模或有限元求解。不得声称完成三维模型建模、进行了仿真验证、真实网格求解或实验；不写编辑说明、示意或虚假等词。返回{\"abstract\":\"中文\",\"englishAbstract\":\"English\"}。题目："+state.title+"。实际正文："+
+                    MechanicalPaperPlan.SECTIONS.stream().map(s->state.tasks.get("text:"+s.id()).content.path("paragraphs").toString()).toList()));
+                if(summary.path("abstract").asText().isBlank()||summary.path("englishAbstract").asText().isBlank())throw new IllegalStateException("Doki 摘要检查未通过");
+                return summary;
+            });
+            var summary=state.tasks.get("summary").content;
+            synchronized(state){((com.fasterxml.jackson.databind.node.ObjectNode)state.design).put("abstract",summary.path("abstract").asText()).put("englishAbstract",summary.path("englishAbstract").asText());save(state);}
             stage(state,"Word 排版与导出");
             task(state,"export",()-> {
                 try { exporter.export(state,dir); return mapper.createObjectNode().put("file","paper.docx"); }
@@ -150,8 +188,26 @@ public class MechanicalPaperService {
             billing.complete(userId,state);
             state.status="SUCCESS";stage(state,"生成完成");
         } catch(Exception e) {
+            Throwable cause=e;while(cause.getCause()!=null)cause=cause.getCause();
+            log.warn("Mechanical paper task failed id={} causeType={}",state.id,cause.getClass().getSimpleName());
             state.status="FAILED";state.error=friendly(e); save(state);
         } finally { active.remove(state.id); }
+    }
+    private void repairBodyLength(MechanicalPaperState state) {
+        for(int attempt=0;attempt<=4;attempt++) {
+            state.wordCount=MechanicalPaperPlan.SECTIONS.stream().mapToInt(s->bodyWords(state.tasks.get("text:"+s.id()).content)).sum();
+            if(state.wordCount>=6000&&state.wordCount<=9000)return;
+            var section=MechanicalPaperPlan.SECTIONS.stream().max(Comparator.comparingDouble(s-> {
+                double ratio=(double)bodyWords(state.tasks.get("text:"+s.id()).content)/s.words();
+                return state.wordCount>9000?ratio:-ratio;
+            })).orElseThrow();
+            var task=state.tasks.get("text:"+section.id());
+            synchronized(state){task.status="waiting";var summary=state.tasks.get("summary");if(summary!=null)summary.status="waiting";save(state);}
+            if(attempt==4)break; // A retry must regenerate this branch, not loop over all-completed tasks.
+            int target=Math.max(250,Math.min(1100,bodyWords(task.content)+8050-state.wordCount));
+            var adjusted=new MechanicalPaperPlan.Section(section.id(),section.chapter(),section.title(),target);
+            task(state,"text:"+section.id(),()->writeSection(state,adjusted));
+        }
     }
     private JsonNode writeSection(MechanicalPaperState state,MechanicalPaperPlan.Section section) {
         String prompt="题目："+state.title+"。共享设计参数与计算依据："+state.design+"\n只写二级小节 "+section.id()+"，标题使用规划中的对应标题。"
@@ -160,13 +216,26 @@ public class MechanicalPaperService {
             +"{\"paragraphs\":[\"自然段\"],\"formulas\":[\"可编辑线性数学表达，含代入计算及单位\"],\"tables\":[{\"caption\":\"表题\",\"headers\":[\"名称\",\"值\"],\"rows\":[[\"项\",\"值\"]]}]}。"
             +"第三章每节至少3条公式；仅2.1、4.1、5.3各一个表格，其他节tables为空；公式仅第三章。正文准确提及该节图号与对象。"
             +"不要增加三级标题，避免套话和重复段落。";
+        JsonNode lastValid=null;
         for(int attempt=0;attempt<3;attempt++) {
-            JsonNode result=parse(text.generate("你是机械论文作者，以材料力学解析计算和一致的设计假定撰写。严格返回 JSON。",prompt));
-            validateSection(result,section);
+            JsonNode result=parse(text.generateJson("你是机械论文作者，以材料力学解析计算和一致的设计假定撰写。严格返回 JSON。",prompt));
+            try{validateSection(result,section);}catch(IllegalStateException invalid){prompt+="\n上次检查未通过："+invalid.getMessage()+"。重新输出，任何正文或图名都不要含示意、待补充或参考文献序号。";continue;}
+            if(lastValid==null || Math.abs(bodyWords(result)-section.words())<Math.abs(bodyWords(lastValid)-section.words()))lastValid=result;
             int count=bodyWords(result);
             if(count >= Math.ceil(section.words()*.90) && count <= Math.floor(section.words()*1.06)) return result;
-            prompt += "\n上次正文实测为"+count+"字；重新输出整个小节，补充或精简具体结构分析至"+section.words()+"字，不重复凑字。";
+            prompt += "\n上次paragraphs正文实测为"+count+"字；公式、表格和标题不计入字数。重新输出整个小节，至少4个完整自然段，补充或精简具体结构分析至"+section.words()+"字，不重复凑字。";
         }
+        if(lastValid!=null && bodyWords(lastValid)<section.words()*.9) {
+            int extra=Math.max(120,section.words()-bodyWords(lastValid));
+            JsonNode addition=parse(text.generateJson("你是机械说明书作者，只输出严格 JSON。",
+                "在此小节末尾追加"+extra+"字具体设计分析，至少两个自然段，不重复已有内容、不含示意、来源、编辑说明或引用序号。只返回{\"paragraphs\":[\"自然段\"]}。共享参数："+state.design+"，小节："+section.id()+"，已有内容："+lastValid));
+            var expanded=lastValid.deepCopy();
+            var paragraphs=(com.fasterxml.jackson.databind.node.ArrayNode)expanded.path("paragraphs");
+            if(addition.path("paragraphs").isArray())for(var paragraph:addition.path("paragraphs"))if(paragraph.isTextual()&&!paragraph.asText().isBlank())paragraphs.add(paragraph.asText());
+            validateSection(expanded,section);lastValid=expanded;
+        }
+        // Per-section budgets guide balance; the user's hard limit applies to the whole body.
+        if(lastValid!=null && bodyWords(lastValid)>=Math.ceil(section.words()*.75) && bodyWords(lastValid)<=Math.floor(section.words()*1.5))return lastValid;
         throw new IllegalStateException("Doki 小节字数未达到要求，请重试");
     }
     static int bodyWords(JsonNode content) {
@@ -180,6 +249,7 @@ public class MechanicalPaperService {
         boolean needsTable=List.of("2.1","4.1","5.3").contains(section.id());
         if(node.path("tables").size()!=(needsTable?1:0)) throw new IllegalStateException("Doki 表格位置不符合稿件结构");
         for(var p:node.path("paragraphs")) if(!p.isTextual() || p.asText().matches("(?s).*?(资料来源|此处插入|待补充|待核验|图.*?示意|\\[[0-9]+]).*")) throw new IllegalStateException("Doki 正文内容检查未通过");
+        for(var p:node.path("paragraphs"))if(p.asText().matches("(?s).*(通过三维建模|完成三维建模|通过[^。]*有限元分析|进行了仿真验证).*"))throw new IllegalStateException("Doki 正文不得声称进行了实际CAD建模或有限元求解，请用解析计算与结构表达说明");
         for(var table:node.path("tables")) {
             int columns=table.path("headers").size();
             if(columns<2 || columns>6 || table.path("rows").isEmpty() || table.path("rows").size()>15) throw new IllegalStateException("Doki 表格结构检查未通过");
@@ -188,12 +258,19 @@ public class MechanicalPaperService {
     }
     static void validateDesign(JsonNode design) {
         if(design.path("parts").size()!=4 || design.path("sections").size()!=MechanicalPaperPlan.SECTIONS.size()
-           || design.path("figures").size()!=14 || design.path("inputs").asText().isBlank() || design.path("calculations").asText().isBlank()
+           || design.path("figures").size()!=14 || design.path("inputs").asText().isBlank() || !planningCalculationsPresent(design.path("calculations"))
            || design.path("abstract").asText().isBlank() || design.path("englishAbstract").asText().isBlank() || design.path("keywords").isEmpty()) throw new IllegalStateException("Doki 设计规划不完整");
         Set<String> partNames=new HashSet<>();
         for(var part:design.path("parts")) if(part.path("name").asText().isBlank() || part.path("geometry").asText().isBlank() || !partNames.add(part.path("name").asText())) throw new IllegalStateException("Doki 零件规划不完整或存在重复");
         for(var s:MechanicalPaperPlan.SECTIONS) if(find(design,"sections",s.id()).path("title").asText().isBlank()) throw new IllegalStateException("Doki 章节规划不完整");
         for(var f:MechanicalPaperPlan.FIGURES) if(!f.kind().equals("photo") && (find(design,"figures",f.id()).path("description").asText().isBlank() || find(design,"figures",f.id()).path("caption").asText().isBlank())) throw new IllegalStateException("Doki 配图规划不完整");
+    }
+    private static boolean planningCalculationsPresent(JsonNode value) {
+        return value.isTextual()?!value.asText().isBlank():value.isArray()&&value.size()>=6;
+    }
+    private static void normalizeCaptions(JsonNode design) {
+        if(design==null)return;
+        for(var figure:design.path("figures"))if(figure instanceof com.fasterxml.jackson.databind.node.ObjectNode object)object.put("caption",figure.path("caption").asText().replace("示意",""));
     }
     public static JsonNode find(JsonNode root,String field,String id) {
         for(JsonNode item:root.path(field)) if(id.equals(item.path("id").asText())) return item;
@@ -202,19 +279,27 @@ public class MechanicalPaperService {
     static String planPrompt(String title) {
         return "为题目【"+title+"】规划完整机械设计论文，不改变题目、不要把非夹具题目写成夹具。制定一组明确且自洽的方案级设计假定：用途、尺寸、材料、载荷、结构、工况、单位，计算依据使用解析公式而非编造仿真或实验。"
             +"正文六章，一级标题："+MechanicalPaperPlan.CHAPTERS+"；二级章节槽："+MechanicalPaperPlan.SECTIONS
-            +"。配图位置固定："+MechanicalPaperPlan.FIGURES+"。第一章实物图在程序中单独真实检索，不在规划中生成图1-1。四个零件必须不同且属于同一总装。图5-4/5是同一承载件、5-6/7是同一功能件。"
+            +"。配图位置固定："+MechanicalPaperPlan.FIGURES+"。第一章实物图在程序中单独真实检索，不在规划中生成图1-1。四个零件必须不同且属于同一总装。图5-4/5是同一承载件、5-6/7是同一功能件。摘要不得声称实际进行了CAD建模、有限元求解或仿真验证。"
             +"输出 JSON：{\"abstract\":\"中文摘要300字\",\"englishAbstract\":\"英文摘要\",\"keywords\":[\"关键词\"],\"inputs\":\"统一参数、结构与设计工况假定\",\"calculations\":\"第三章解析公式、代入数据、单位与结果，至少6项\","
             +"\"parts\":[{\"name\":\"实际零件名\",\"geometry\":\"统一尺寸材料孔位\"}],\"sections\":[{\"id\":\"1.1\",\"title\":\"适配题目的二级标题\"}],\"figures\":[{\"id\":\"2-1\",\"caption\":\"准确零件/图名，不含示意\",\"description\":\"画面要求、对应零件、结构、尺寸、载荷与约束\"}]}。sections完整14项，figures完整14项，parts恰好4项。不给参考文献，不生成封面、诚信声明、流程图。";
     }
     static String figurePrompt(JsonNode design,MechanicalPaperPlan.Figure figure) {
         var specification=find(design,"figures",figure.id());
+        if(figure.kind().equals("mesh"))return "生成单张机械结构网格划分配图。对象："+specification.path("caption").asText()+"。仅依据此几何信息："+design.path("parts")
+            +"。浅灰白工程视口背景，单一承载零件等轴视角，表面清晰均匀的细三角网格，孔边局部加密，蓝色约束符号和左下XYZ轴。"
+            +"只显示图名和XYZ，不要任何数字、单位、节点数、单元数、网格质量、软件界面、软件品牌、示意、AI、水印或求解结果。网格仅用于讨论分区与细化策略，不代表真实软件求解。横向画幅。";
+        if(List.of("stress","displacement").contains(figure.kind()))return
+            "生成单张工程定性分析配图。本图对象："+specification.path("caption").asText()+"；仅使用这些几何信息构建对象："+design.path("parts")
+            +"。参考图片仅用于背景、视角、坐标轴、色标位置和约束箭头风格，不复制梁结构、软件字样或数值。浅灰白背景，单一零件等轴视角，细网格、紫红载荷箭头、蓝色约束符号，左下XYZ轴，右侧蓝低红高的竖直彩虹色标。"
+            +"仅显示本图短标题、XYZ、相对分布、高、低；除以上文字外不写任何标注。不得出现任何数字、MPa、mm、应力结果、位移结果、软件名称、最大值、材料许用值、计算结论、示意、AI、水印或求解状态。"
+            +"这是"+figure.kind()+"的相对分布图，不代表实际有限元求解。清晰横向构图，结构与几何信息一致。";
         String common="仅生成一张机械论文插图，不拼贴不同图。统一设计依据："+design.path("inputs").asText()+"；零件尺寸："+design.path("parts")
-            +"。本图："+specification.path("caption").asText()+"。内容："+specification.path("description").asText()
+            +"。本图："+specification.path("caption").asText().replace("示意","")+"。内容："+specification.path("description").asText().replace("示意","")
             +"。清晰横向构图，文字简洁准确且大字号，结构必须与总装一致。图内不得出现示意、AI、Doki、水印、资料来源、论文图号或编辑说明。";
         return common+switch(figure.kind()) {
-            case "stress","displacement" -> "严格采用工程分析视口视觉：浅灰到白色背景，单一三维零件等轴视角，细网格，紫红色载荷箭头，蓝色约束符号，左下角XYZ坐标，右侧竖直彩虹色标从蓝色低值到红色高值。"
+            case "stress","displacement" -> "参考图仅用于视口版式、背景、坐标轴、箭头和色标位置，不复制参考图梁的几何结构、数值、单位或软件字样。本图对象必须是本图规划的零件。严格采用工程分析视口视觉：浅灰到白色背景，单一三维零件等轴视角，细网格，紫红色载荷箭头，蓝色约束符号，左下角XYZ坐标，右侧竖直彩虹色标从蓝色低值到红色高值。"
                 +"左上短标题为"+specification.path("caption").asText()+"，小字定性分析。色标仅标相对分布、高、低；不得编造仿真数值、单位量程、软件名、软件界面、求解成功标志或真实截图。分析类型："+figure.kind()+"。";
-            case "part","drawing" -> "白底黑线机械工程图，正投影视图和必要轴测图，尺寸线箭头规范清楚，尺寸只使用共享参数，不添加学校标题栏，零件材料与标注准确。";
+            case "part","drawing" -> "白底黑线机械工程图，清晰的主视、俯视和必要轴测图。尺寸线箭头规范，仅标3至5个关键尺寸，只使用共享参数，不增加数字0、不改单位、不把毫米放大十倍。视图投影关系和孔位必须对应，侧视图不得重复俯视图。删除非必要文字，不添加学校标题栏，零件材料与标注准确。";
             case "mesh" -> "浅灰白工程视口背景，三维零件表面细密三角网格，孔位及边缘适当加密，坐标轴和约束符号清楚，无软件品牌和虚构节点数。";
             case "force" -> "白底黑线受力简图，箭头、尺寸、支承和符号清晰，与第三章解析计算的结构与载荷一致。";
             default -> "白底，金属材料三维装配渲染，实际零件清楚完整，总装几何、数量和孔位必须与共享设计参数一致。";

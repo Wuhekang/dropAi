@@ -17,7 +17,7 @@
           {{ working ? '正在生成研究大纲…' : '生成大纲' }}
         </button>
       </div>
-      <p class="input-note">无需选择论文类型或字数；本模块不联网检索文献。</p>
+      <p class="input-note">无需选择论文类型或字数；本模块不联网检索文献。完整稿 300 积分 / 篇，生成成功后扣费。</p>
       <div v-if="working" class="progress-box">
         <div><span :style="{ width: `${progress}%` }"></span></div>
         <b>{{ statusText }}</b>
