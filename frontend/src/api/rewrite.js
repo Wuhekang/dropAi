@@ -781,3 +781,10 @@ export function getDiagramPreview(previewId) { return request.get(`/diagram/prev
 export function uploadPptTemplateZip(file) { const form = new FormData(); form.append('file', file?.raw || file); return request.post('/ppt/templates/upload', form, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 600000 }) }
 export function recommendPptTemplate(id) { return request.get(`/ppt/projects/${id}/template/recommend`) }
 export function selectPptTemplate(id, data) { return request.put(`/ppt/projects/${id}/template`, data) }
+export function mechanicalPaperReadiness() { return request.get('/mechanical-papers/readiness') }
+export function createMechanicalPaper(title) { return request.post('/mechanical-papers', { title }) }
+export function listMechanicalPapers() { return request.get('/mechanical-papers') }
+export function getMechanicalPaper(id) { return request.get(`/mechanical-papers/${id}`) }
+export function retryMechanicalPaper(id) { return request.post(`/mechanical-papers/${id}/retry`) }
+export function downloadMechanicalPaper(id) { return request.get(`/mechanical-papers/${id}/download`, { responseType: 'blob' }) }
+export function getMechanicalPaperImage(id, figureId) { return request.get(`/mechanical-papers/${id}/images/${figureId}`, { responseType: 'blob' }) }

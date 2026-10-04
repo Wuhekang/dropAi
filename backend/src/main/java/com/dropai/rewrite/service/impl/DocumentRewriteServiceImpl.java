@@ -1462,7 +1462,9 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
         job.setCreatedAt(record.getCreatedAt());
         job.setUpdatedAt(record.getUpdatedAt());
         if ("SUCCESS".equals(record.getStatus()) || record.getOutputFile() != null || isUsableFile(resolvedOutputPath(record.getJobId()))) {
-            job.setDownloadUrl("/api/document/rewrite/download/" + record.getJobId());
+            job.setDownloadUrl("MECHANICAL_PAPER".equals(record.getSourceFeature())
+                    ? "/api/mechanical-papers/" + record.getJobId() + "/download"
+                    : "/api/document/rewrite/download/" + record.getJobId());
         }
         try {
             job.setParagraphs(objectMapper.readValue(record.getParagraphsJson(), new TypeReference<List<DocumentParagraphJobVO>>() {}));

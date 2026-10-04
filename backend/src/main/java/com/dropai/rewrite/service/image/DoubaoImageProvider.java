@@ -25,7 +25,12 @@ import java.util.Map;
 public class DoubaoImageProvider implements ImageGenerationProvider {
     private final Environment environment;
     private final ObjectMapper mapper = new ObjectMapper();
-    private final HttpClient httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(20)).build();
+    private volatile HttpClient httpClient;
+    private HttpClient client() {
+        HttpClient value=httpClient;
+        if(value==null) {synchronized(this) {value=httpClient;if(value==null)httpClient=value=HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(20)).build();}}
+        return value;
+    }
 
     public DoubaoImageProvider(Environment environment) {
         this.environment = environment;
@@ -72,7 +77,7 @@ public class DoubaoImageProvider implements ImageGenerationProvider {
                     .header("Authorization", "Bearer " + apiKey())
                     .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(payload), StandardCharsets.UTF_8))
                     .build();
-            HttpResponse<byte[]> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofByteArray());
+            HttpResponse<byte[]> response = client().send(httpRequest, HttpResponse.BodyHandlers.ofByteArray());
             audit.put("httpStatus", response.statusCode());
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 String body = truncate(new String(response.body(), StandardCharsets.UTF_8), 1200);
@@ -104,7 +109,7 @@ public class DoubaoImageProvider implements ImageGenerationProvider {
                 writeAudit(audit, "failed", result.getMessage(), response.statusCode(), "invalid image bytes");
                 return result;
             }
-            Path imagePath = outputDir().resolve("doubao-" + System.currentTimeMillis() + image.extension());
+            Path imagePath = outputDir().resolve("doubao-" + java.util.UUID.randomUUID() + image.extension());
             Files.write(imagePath, image.bytes());
             result.setStatus("success");
             result.setFilePath(imagePath.toAbsolutePath().toString());
@@ -151,7 +156,7 @@ public class DoubaoImageProvider implements ImageGenerationProvider {
         String url = text(node, "url", "");
         if (!url.isBlank()) {
             HttpRequest download = HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofSeconds(60)).GET().build();
-            HttpResponse<byte[]> response = httpClient.send(download, HttpResponse.BodyHandlers.ofByteArray());
+            HttpResponse<byte[]> response = client().send(download, HttpResponse.BodyHandlers.ofByteArray());
             String mime = response.headers().firstValue("Content-Type").orElse("application/octet-stream");
             return new ImageBytes(response.body(), mime, extension(mime), "");
         }
