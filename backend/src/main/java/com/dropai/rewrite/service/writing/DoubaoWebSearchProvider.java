@@ -135,6 +135,28 @@ public class DoubaoWebSearchProvider implements ReferenceSearchProvider {
                 .toList();
     }
 
+    /** Uses the same configured Responses model and web_search connector as literature search. */
+    public List<DoubaoWebSearchSourceExtractor.SourceEvidence> searchMechanicalImagePages(String topic) {
+        if (!available()) throw new IllegalStateException("Doki 联网检索服务未启用");
+        Map<String, Object> request = new LinkedHashMap<>();
+        request.put("model", properties.getWebSearchModel());
+        request.put("stream", false);
+        request.put("max_output_tokens", 2048);
+        request.put("tools", List.of(Map.of("type", "web_search")));
+        request.put("tool_choice", "auto");
+        request.put("input", "必须使用 web_search。检索与机械论文题目【" + topic + "】对应的真实设备或夹具实物照片页面，优先设备制造商或高校公开页面。不要生成图片，不要找论文文献，不要登录。返回至多三个包含实物图片的产品详情网页并说明设备名称，不返回搜索引擎结果页。");
+        request.put("include", List.of("web_search_call.action.sources"));
+        JsonNode response;
+        try { response=postResponses(request); }
+        catch(RestClientResponseException error) {
+            if(!looksLikeUnsupportedInclude(error)) throw error;
+            request.remove("include");response=postResponses(request);
+        }
+        var extraction = sourceExtractor.extract(response);
+        if (!extraction.toolInvoked() || !extraction.hasAcceptedSources()) throw new IllegalStateException("Doki 未检索到可核验的实物图页面，请重试");
+        return extraction.sources().stream().limit(6).toList();
+    }
+
     private ResponsesResult executeResponsesRequest(ReferenceSearchQuery query) {
         Map<String, Object> request = responsesRequest(query, true);
         try {

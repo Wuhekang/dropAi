@@ -1,6 +1,7 @@
 <template>
-  <main class="page">
-    <nav><button class="brand" @click="router.push('/')"><i>D</i><span>DokiAI<small>MECHANICAL ASSISTANT</small></span></button><button class="ghost" @click="router.push('/dashboard')">返回工作台</button></nav>
+  <MechanicalPaperStudio v-if="paperMode" @back="paperMode=false" />
+  <main v-else class="page">
+    <nav><button class="brand" @click="router.push('/')"><i>D</i><span>DokiAI<small>MECHANICAL ASSISTANT</small></span></button><div><button class="ghost" @click="paperMode=true">论文设计</button><button class="ghost" @click="router.push('/dashboard')">返回工作台</button></div></nav>
     <header class="hero">
       <div><em>AI MECHANICAL DESIGN WORKFLOW · V2</em><h1>AI机械设计助手</h1><p>从需求理解到结构方案，<br>帮助工程设计快速完成概念验证</p><button @click="scrollToInput">开始设计 <b>→</b></button><button class="case-button" @click="showCases = !showCases">查看案例</button></div>
       <div class="hero-visual"><span>STRUCTURE INTELLIGENCE</span><div class="machine"><i/><i/><i/><i/><b>AI</b></div><footer><strong>视觉理解</strong><strong>结构推理</strong><strong>工程输出</strong></footer></div>
@@ -29,7 +30,9 @@
 </template>
 
 <script setup>
+import MechanicalPaperStudio from '../../components/MechanicalPaperStudio.vue'
 import { computed, defineComponent, h, ref } from 'vue'; import { useRouter } from 'vue-router'; import { ElMessage } from 'element-plus'; import { analyzeMechanicalAssistant, downloadMechanicalAssistantReport } from '../../api/rewrite'
+const paperMode=ref(true)
 const router=useRouter(), inputSection=ref(), showCases=ref(false), busy=ref(false), progress=ref(0), activeStep=ref(0), result=ref(null), activeSolution=ref(0), zoomed=ref(false); const projectName=ref(''),description=ref(''),files=ref([])
 const steps=['图片结构识别','零件关系分析','工作原理判断','设计方案生成']; const progressText=computed(()=>['读取上传资料与视觉证据…','建立机械模块与连接关系…','推断动力路径与装配逻辑…','形成三个可比较的概念方案…'][activeStep.value]||'整理工程资料…'); const analysis=computed(()=>result.value?.analysis||{}); const solutions=computed(()=>analysis.value.solutions||[]); const currentSolution=computed(()=>solutions.value[activeSolution.value]||{})
 const cases=[{icon:'↝',name:'自动送料机构设计',desc:'同步带 / 链传动 / 丝杆对比',text:'设计一套自动送料机构，用于小型金属工件连续输送，节拍每分钟20件，要求维护方便。'},{icon:'⚙',name:'齿轮减速机构',desc:'传动比分配与轴系布局',text:'设计两级齿轮减速机构，输入功率1.5kW，需要分析轴、齿轮、箱体和轴承布置。'},{icon:'⌁',name:'机械臂结构设计',desc:'关节、驱动与末端执行器',text:'设计桌面级三轴机械臂概念方案，负载2kg，工作半径600mm。'},{icon:'⇢',name:'输送机设计',desc:'机架、滚筒和张紧结构',text:'设计宽度400mm的轻型皮带输送机，输送距离3m，需要给出驱动和张紧建议。'}]
