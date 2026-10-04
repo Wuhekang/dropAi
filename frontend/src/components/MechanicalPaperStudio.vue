@@ -2,20 +2,20 @@
   <main class="paper-studio">
     <aside class="paper-sidebar">
       <button class="brand" @click="router.push('/dashboard')"><span>D</span><b>Doki<small>机械设计</small></b></button>
-      <div class="mode-switch"><button class="selected">论文设计</button><button @click="$emit('back')">结构方案</button></div>
-      <p class="sidebar-label">论文章节</p>
+      <div class="mode-switch"><button class="selected">机械说明书</button><button @click="$emit('back')">结构方案</button></div>
+      <p class="sidebar-label">说明书章节</p>
       <a v-for="(chapter, i) in chapters" :key="chapter" :href="`#paper-chapter-${i+1}`"><span>{{ i+1 }}</span>{{ chapter }}</a>
       <section v-if="history.length" class="history"><p class="sidebar-label">最近任务</p><button v-for="item in history" :key="item.id" :class="{selected: job?.id===item.id}" @click="restore(item.id)">{{ item.title }}<small>{{ stateLabel(item.status) }}</small></button></section>
       <footer>题目驱动 · 图文完整交付</footer>
     </aside>
     <section class="paper-main">
-      <header class="page-header"><div><span>机械设计 / 论文设计</span><h1>机械设计论文</h1><p>输入题目，Doki 自动规划正文与配图，生成完整 Word 稿件。</p></div><button class="secondary" @click="router.push('/dashboard')">返回工作台</button></header>
+      <header class="page-header"><div><span>机械设计 / 机械说明书</span><h1>机械说明书</h1><p>输入题目，Doki 自动规划正文与配图，生成完整 Word 稿件。</p></div><button class="secondary" @click="router.push('/dashboard')">返回工作台</button></header>
       <section class="input-panel">
-        <label for="paper-title">论文题目</label>
+        <label for="paper-title">说明书题目</label>
         <div class="title-input"><input id="paper-title" v-model="title" maxlength="120" placeholder="例如：板类零件钻孔夹具结构设计" :disabled="busy || running" @keyup.enter="start"><button class="primary" :disabled="busy || running || !title.trim() || !readiness.ready" @click="start">{{ busy ? '正在创建…' : running ? '正在生成' : '立即生成' }}</button></div>
         <p>无需编辑大纲。约 8000 字，包含实物图、结构图、计算公式、至少 4 张零件图及 4 张云图。</p>
         <p v-if="!readiness.ready" class="notice">{{ readiness.message || '正在检查 Doki 生成服务…' }}</p>
-        <small v-else>生成完成后按现有文档生成标准扣除 {{ readiness.costPoints }} 积分，失败不扣费。</small>
+        <small v-else>{{ readiness.costPoints }} 积分 / 篇，生成成功后扣费，失败不扣费。下载不重复扣费。</small>
       </section>
       <p v-if="networkError" class="notice">{{ networkError }} <button class="text-button" @click="resumePolling">重新连接</button></p>
       <template v-if="job">
@@ -25,7 +25,7 @@
           <div class="progress-meta"><span>{{ completed }}/{{ job.tasks?.length || 31 }} 项已完成</span><span v-if="running">已等待 {{ elapsed }} · {{ runningTasks.length }} 项处理中</span><span v-else>{{ stateLabel(job.status) }}{{ job.wordCount ? ` · 正文 ${job.wordCount} 字` : '' }}</span></div>
           <p v-if="running" class="live-status">{{ runningTasks.slice(0,3).map(task=>task.label).join(' · ') || '任务已排队，Doki 正在准备生成' }}<span class="waiting-dots">…</span></p>
           <p v-if="job.error" class="notice">{{ job.error }}</p>
-          <div class="actions"><button v-if="['FAILED','INTERRUPTED'].includes(job.status)" class="primary" :disabled="busy || !readiness.ready" @click="retry">继续生成</button><button v-if="job.status==='SUCCESS'" class="primary" :disabled="downloading" @click="download">{{ downloading ? '正在下载…' : '下载 Word 论文' }}</button><button v-if="!running" class="secondary" @click="newPaper">生成另一篇</button></div>
+          <div class="actions"><button v-if="['FAILED','INTERRUPTED'].includes(job.status)" class="primary" :disabled="busy || !readiness.ready" @click="retry">继续生成</button><button v-if="job.status==='SUCCESS'" class="primary" :disabled="downloading" @click="download">{{ downloading ? '正在下载…' : '下载 Word 说明书' }}</button><button v-if="!running" class="secondary" @click="newPaper">生成另一篇</button></div>
         </section>
         <section class="chapter-progress"><h2>章节生成进度</h2><article v-for="(chapter, i) in chapters" :id="`paper-chapter-${i+1}`" :key="chapter" class="chapter-card"><header><div><span class="chapter-icon">{{ chapterDone(i+1) ? '✓' : i+1 }}</span><div><h3>第 {{ i+1 }} 章 · {{ chapter }}</h3><small>{{ chapterTasks(i+1).filter(t=>t.status==='completed').length }}/{{ chapterTasks(i+1).length }} 小节完成 · {{ chapterFigures(i+1).filter(f=>f.status==='completed').length }}/{{ chapterFigures(i+1).length }} 配图完成</small></div></div><span>{{ chapterDone(i+1) ? '已完成' : running ? '处理中' : '待完成' }}</span></header><div class="section-tags"><span v-for="task in chapterTasks(i+1)" :key="task.id" :class="task.status">{{ task.label }} <b>{{ task.status==='completed' ? '✓' : task.status==='running' ? '生成中' : task.status==='failed' ? '需重试' : '等待' }}</b></span></div><div v-if="chapterFigures(i+1).length" class="figure-tags"><span v-for="figure in chapterFigures(i+1)" :key="figure.id">图 {{ figure.id }} · {{ figure.caption }} {{ figure.status==='completed' ? '✓' : '' }}</span></div></article></section>
         <section v-if="job.status==='SUCCESS' && previews.length" class="preview-panel"><h2>配图预览</h2><p>云图用于定性结构分析，数值计算采用正文解析公式。</p><div class="preview-grid"><figure v-for="preview in previews" :key="preview.id"><img :src="preview.url" :alt="preview.caption" loading="lazy"><figcaption>图 {{ preview.id }} · {{ preview.caption }}</figcaption></figure></div></section>

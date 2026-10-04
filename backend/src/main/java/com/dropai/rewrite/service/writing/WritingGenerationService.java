@@ -396,9 +396,7 @@ public class WritingGenerationService {
     }
 
     private int estimateCost(String projectId) {
-        int chapters = WritingJdbc.list(jdbcTemplate, "SELECT id FROM writing_chapter WHERE project_id=?", projectId).size();
-        int charts = WritingJdbc.list(jdbcTemplate, "SELECT id FROM writing_chart WHERE project_id=?", projectId).size();
-        return Math.max(60, 40 + chapters * 8 + charts * 2);
+        return pointService.featureCostPoints(PointService.WRITING_DOCX);
     }
 
     private synchronized void reportBranchProgress(String projectId, String taskId,

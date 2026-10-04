@@ -73,7 +73,7 @@ public class PptSchemaInitializer implements ApplicationRunner {
             "CREATE TABLE IF NOT EXISTS ppt_source_table (id VARCHAR(64) PRIMARY KEY,project_id VARCHAR(64) NOT NULL,source_chapter_id VARCHAR(64),table_order INT NOT NULL,headers_json "+text+",rows_json "+text+",summary "+text+")"+suffix,
             "CREATE TABLE IF NOT EXISTS ppt_page_task (id VARCHAR(64) PRIMARY KEY,project_id VARCHAR(64) NOT NULL,slide_plan_id VARCHAR(64) NOT NULL,status VARCHAR(24) NOT NULL DEFAULT 'WAITING',progress INT NOT NULL DEFAULT 0,retry_count INT NOT NULL DEFAULT 0,error_message "+text+",output_fragment_path VARCHAR(700),started_at "+time+",completed_at "+time+")"+suffix,
             "CREATE TABLE IF NOT EXISTS ppt_template (id VARCHAR(64) PRIMARY KEY,user_id BIGINT NOT NULL,template_name VARCHAR(255) NOT NULL,style VARCHAR(40) NOT NULL,suitable_major VARCHAR(255),slide_types_json "+text+",metadata_json "+text+",file_path VARCHAR(700) NOT NULL,status VARCHAR(40) NOT NULL DEFAULT 'READY',created_at "+time+" NOT NULL,updated_at "+time+" NOT NULL)"+suffix,
-            "INSERT INTO feature_pricing (feature_code,feature_name,cost_points,enabled) SELECT 'PPT_GENERATE','PPT智能生成',100,1 WHERE NOT EXISTS (SELECT 1 FROM feature_pricing WHERE feature_code='PPT_GENERATE')"
+            "INSERT INTO feature_pricing (feature_code,feature_name,cost_points,enabled) SELECT 'PPT_GENERATE','PPT智能生成',300,1 WHERE NOT EXISTS (SELECT 1 FROM feature_pricing WHERE feature_code='PPT_GENERATE')"
         );
     }
 }

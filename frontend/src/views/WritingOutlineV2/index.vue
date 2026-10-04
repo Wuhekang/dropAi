@@ -3,7 +3,7 @@
     <DocumentStudioChrome :current="2" :project-name="project.title || '纯文字稿大纲'" :busy="busy"
       description="这是全文生成前唯一一次确认。可修改题目、一级至三级标题以及原生图表和表格数量。" />
     <header class="page-head">
-      <div><span>PURE TEXT PAPER · OUTLINE</span><h1>纯文字稿大纲确认</h1><p>确认后系统将按每个二级标题并行调用豆包，自动生成、补写并组装完整 Word。</p></div>
+      <div><span>PURE TEXT PAPER · OUTLINE</span><h1>纯文字稿大纲确认</h1><p>确认后 Doki 将按每个二级标题并行生成、补写并组装完整 Word。300 积分 / 篇，生成成功后扣费。</p></div>
       <div class="metrics"><b>{{ chapters.length }}<small>章</small></b><b>{{ secondCount }}<small>二级标题</small></b><b>{{ thirdCount }}<small>三级标题</small></b><b>{{ chartCount }}<small>原生图表</small></b></div>
     </header>
 

@@ -35,17 +35,43 @@ public class MatrixDesignService {
     }
 
     public String generate(String instructions, String input) {
+        return generate(instructions,input,false);
+    }
+
+    /** Mechanical paper branches need bounded JSON output without the default long thinking pass. */
+    public String generateJson(String instructions, String input) {
+        return generate(instructions,input,true);
+    }
+
+    private String generate(String instructions,String input,boolean fastJson) {
+        return generate(instructions,input,fastJson,null);
+    }
+
+    /** Uses the existing multimodal text model, not the image generation endpoint. */
+    public String inspectImage(String instructions,String input,String imageDataUri) {
+        return generate(instructions,input,true,imageDataUri);
+    }
+
+    private String generate(String instructions,String input,boolean fastJson,String imageDataUri) {
         if (!properties.isEnabled()) throw new IllegalStateException("大模型设计生成服务已关闭");
         String apiKey = normalize(properties.getApiKey());
         if (apiKey.isBlank()) throw new IllegalStateException("未配置 DOUBAO_API_KEY，无法调用豆包大模型服务");
-        Map<String, Object> body = Map.of(
+        Map<String, Object> body = new java.util.LinkedHashMap<>(Map.of(
                 "model", properties.getModel(),
                 "stream", false,
                 "messages", List.of(
                         Map.of("role", "system", "content", instructions),
-                        Map.of("role", "user", "content", input)
+                        Map.of("role", "user", "content", imageDataUri==null ? input : List.of(
+                            Map.of("type","text","text",input),
+                            Map.of("type","image_url","image_url",Map.of("url",imageDataUri))))
                 )
-        );
+        ));
+        if(fastJson) {
+            body.put("thinking",Map.of("type","disabled"));
+            body.put("max_tokens",8192);
+            body.put("response_format",Map.of("type","json_object"));
+            body.put("temperature",0.25);
+        }
         String lastError = "";
         for (int attempt = 1; attempt <= 3; attempt++) {
             try {

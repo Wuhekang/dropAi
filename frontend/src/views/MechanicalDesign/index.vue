@@ -1,7 +1,7 @@
 <template>
   <MechanicalPaperStudio v-if="paperMode" @back="paperMode=false" />
   <main v-else class="page">
-    <nav><button class="brand" @click="router.push('/')"><i>D</i><span>DokiAI<small>MECHANICAL ASSISTANT</small></span></button><div><button class="ghost" @click="paperMode=true">论文设计</button><button class="ghost" @click="router.push('/dashboard')">返回工作台</button></div></nav>
+    <nav><button class="brand" @click="router.push('/')"><i>D</i><span>DokiAI<small>MECHANICAL ASSISTANT</small></span></button><div><button class="ghost" @click="paperMode=true">机械说明书</button><button class="ghost" @click="router.push('/dashboard')">返回工作台</button></div></nav>
     <header class="hero">
       <div><em>AI MECHANICAL DESIGN WORKFLOW · V2</em><h1>AI机械设计助手</h1><p>从需求理解到结构方案，<br>帮助工程设计快速完成概念验证</p><button @click="scrollToInput">开始设计 <b>→</b></button><button class="case-button" @click="showCases = !showCases">查看案例</button></div>
       <div class="hero-visual"><span>STRUCTURE INTELLIGENCE</span><div class="machine"><i/><i/><i/><i/><b>AI</b></div><footer><strong>视觉理解</strong><strong>结构推理</strong><strong>工程输出</strong></footer></div>

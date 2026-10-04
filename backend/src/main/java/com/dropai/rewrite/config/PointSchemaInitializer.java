@@ -165,6 +165,13 @@ public class PointSchemaInitializer implements ApplicationRunner {
         seed("DOCUMENT_DOUBLE", "双降增强（每千字）", 20);
         seed("DIAGRAM_PREVIEW", "智能画图预览生成", 10);
         seed("LITERATURE_SEARCH", "文献搜索（每篇）", 1);
+        // Rename legacy tariff entries once; later explicit administrator price changes remain intact.
+        for(String[] tariff:List.of(new String[]{"MECHANICAL_PAPER","机械说明书（每篇）"},new String[]{"WRITING_DOCX","纯文字稿（每篇）"},new String[]{"PPT_GENERATE","PPT生成（每篇）"})) {
+            jdbcTemplate.update("UPDATE feature_pricing SET cost_points=300,feature_name=? WHERE feature_code=? AND feature_name<>?",tariff[1],tariff[0],tariff[1]);
+        }
+        seed("MECHANICAL_PAPER", "机械说明书（每篇）", 300);
+        seed("WRITING_DOCX", "纯文字稿（每篇）", 300);
+        seed("PPT_GENERATE", "PPT生成（每篇）", 300);
     }
 
     private void seed(String code, String name, int cost) {

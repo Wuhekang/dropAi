@@ -31,15 +31,17 @@ class MechanicalPaperWorkflowTest {
         when(repository.selectById(anyString())).thenAnswer(call->records.get(call.getArgument(0)));
         when(repository.updateById(any(DocumentJobRecord.class))).thenAnswer(call->{DocumentJobRecord update=call.getArgument(0),record=records.get(update.getJobId());record.setStatus(update.getStatus());record.setParagraphsJson(update.getParagraphsJson());return 1;});
         when(text.apiKeyConfigured()).thenReturn(true);when(text.modelName()).thenReturn("existing-text-model");
+        when(text.inspectImage(anyString(),anyString(),anyString())).thenReturn("{\"accepted\":true}");
         var health=new ImageGenerationResult();health.setEnabled(true);health.setApiKeyConfigured(true);health.setEndpoint("https://provider.invalid/images");health.setModel("configured-image-model");when(images.health()).thenReturn(health);
         Path bitmap=dir.resolve("generated.png");Files.write(bitmap,new byte[]{1,2,3});
         var generated=new ImageGenerationResult();generated.setStatus("success");generated.setFilePath(bitmap.toString());when(images.generate(any())).thenReturn(generated);
         when(photos.find(anyString(),any())).thenReturn(new MechanicalPaperPhotoService.Photo("photo.png","https://manufacturer.invalid/item","https://manufacturer.invalid/item.png"));
         CountDownLatch started=new CountDownLatch(MechanicalPaperPlan.SECTIONS.size()),release=new CountDownLatch(1);
         var design=design();
-        when(text.generate(anyString(),anyString())).thenAnswer(call->{
+        when(text.generateJson(anyString(),anyString())).thenAnswer(call->{
             String prompt=call.getArgument(1);
             if(prompt.contains("章节槽"))return design.toString();
+            if(prompt.contains("根据实际正文写中英文摘要"))return "{\"abstract\":\"解析计算与结构方案摘要\",\"englishAbstract\":\"Analytical calculation and structural design.\"}";
             started.countDown();assertTrue(release.await(8,TimeUnit.SECONDS));
             var section=MechanicalPaperPlan.SECTIONS.stream().filter(s->prompt.contains("二级小节 "+s.id()+"，")).findFirst().orElseThrow();
             return section(section).toString();

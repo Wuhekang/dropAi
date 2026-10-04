@@ -1,7 +1,7 @@
 <template>
   <main class="writing-page">
     <DocumentStudioChrome :current="completed ? 4 : 3" :project-name="projectName" :busy="running || starting" :assistant-items="assistantItems" :description="completed ? '文档已完成，可以下载 Word。' : '正在并行生成正文并检查图表和格式。'" />
-    <header><span>STEP 3 · AI WRITING</span><h1>纯文字稿生成中心</h1><p>所有二级标题同时启动独立分支，随后完成原生图表和 Word 质检。</p></header>
+    <header><span>STEP 3 · AI WRITING</span><h1>纯文字稿生成中心</h1><p>所有二级标题同时启动独立分支，随后完成原生图表和 Word 质检。300 积分 / 篇，生成成功后扣费。</p></header>
 
     <section class="project-overview panel">
       <div class="project-identity"><small>当前项目</small><h2>{{ projectName }}</h2><p>{{ stage }}</p><div class="context-stats"><span>章节数量<b>{{ chapters.length }}</b></span><span>并行分支<b>{{ branchCount }}</b></span><span>原生图表<b>{{ chartCount }}</b></span><span>原生表格<b>{{ tableCount }}</b></span></div></div>

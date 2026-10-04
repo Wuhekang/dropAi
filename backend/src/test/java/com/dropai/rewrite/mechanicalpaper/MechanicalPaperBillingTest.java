@@ -14,7 +14,7 @@ class MechanicalPaperBillingTest {
         when(jdbc.queryForMap(anyString(),eq(state.id))).thenReturn(Map.of("user_id",1L,"points_charged",false),Map.of("user_id",1L,"points_charged",true));
         var billing=new MechanicalPaperBilling(jdbc,points,new ObjectMapper());
         billing.complete(1L,state);billing.complete(1L,state);
-        verify(points,times(1)).deductFeatureForJob(1L,state.id,PointService.DOCX_GENERATE,"机械论文生成");
+        verify(points,times(1)).deductFeatureForJob(1L,state.id,PointService.MECHANICAL_PAPER,"机械说明书生成");
         assertEquals("RUNNING",state.status,"in-memory success must not be exposed before transaction commit");
     }
     @Test void billingRejectsWrongOwner() {

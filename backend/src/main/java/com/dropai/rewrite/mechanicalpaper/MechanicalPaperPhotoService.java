@@ -1,6 +1,8 @@
 package com.dropai.rewrite.mechanicalpaper;
 
 import com.dropai.rewrite.service.writing.DoubaoWebSearchProvider;
+import com.dropai.rewrite.service.MatrixDesignService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 import javax.imageio.ImageIO;
 import java.io.*;
@@ -12,26 +14,51 @@ import java.util.regex.*;
 
 @Service
 public class MechanicalPaperPhotoService {
+    private static final org.slf4j.Logger log=org.slf4j.LoggerFactory.getLogger(MechanicalPaperPhotoService.class);
     private final DoubaoWebSearchProvider search;
-    public MechanicalPaperPhotoService(DoubaoWebSearchProvider search) { this.search = search; }
+    private final MatrixDesignService vision;
+    public MechanicalPaperPhotoService(DoubaoWebSearchProvider search,MatrixDesignService vision) { this.search = search; this.vision=vision; }
     public record Photo(String file, String pageUrl, String imageUrl) {}
     public Photo find(String title, Path directory) throws Exception {
+        Set<URI> seen=new HashSet<>();int inspected=0;
         for (var source : search.searchMechanicalImagePages(title)) {
+            URI page=URI.create(source.url());
+            log.info("Mechanical photo checking host {}",page.getHost());
+            int pageInspected=0;
             try {
-                String html = new String(download(URI.create(source.url()), 2_000_000), StandardCharsets.UTF_8);
-                for (URI image : imageCandidates(URI.create(source.url()), html)) {
+                byte[] pageBytes=download(page,12_000_000);
+                var candidates=sourceCandidates(page,pageBytes);
+                for (URI image : candidates) {
+                    if(pageInspected>=3 || inspected>=12 || !seen.add(image))continue;
                     try {
-                        byte[] bytes = download(image, 12_000_000);
+                        byte[] bytes = image.equals(page)?pageBytes:download(image, 12_000_000);
                         var bitmap = ImageIO.read(new ByteArrayInputStream(bytes));
-                        if (bitmap == null || bitmap.getWidth() < 400 || bitmap.getHeight() < 300) continue;
+                        if (bitmap == null || bitmap.getWidth() < 320 || bitmap.getHeight() < 240) continue;
+                        pageInspected++;inspected++;
+                        // Normalize color mode and bound pixels before sending to the existing vision model.
+                        double ratio=Math.min(1,1200.0/Math.max(bitmap.getWidth(),bitmap.getHeight()));
+                        var preview=new java.awt.image.BufferedImage((int)(bitmap.getWidth()*ratio),(int)(bitmap.getHeight()*ratio),java.awt.image.BufferedImage.TYPE_INT_RGB);
+                        var graphics=preview.createGraphics();graphics.setColor(java.awt.Color.WHITE);graphics.fillRect(0,0,preview.getWidth(),preview.getHeight());graphics.drawImage(bitmap,0,0,preview.getWidth(),preview.getHeight(),null);graphics.dispose();
+                        var encoded=new ByteArrayOutputStream();ImageIO.write(preview,"jpeg",encoded);
+                        String response=vision.inspectImage("你是实物图核验员，只返回JSON。",
+                            "判断图片是否是题目【"+title+"】同类设备或夹具的真实实物照片，用于第一章介绍同类产品，不要求与后续原创设计尺寸或形状完全相同。接受完整实拍钻模或工业钻孔夹具，允许不同被加工工件；拒绝工程图、目录页、渲染图、广告拼图、刀具夹头、单个工具和与钻孔定位夹紧无关的产品。钻孔夹具应有专用夹具体或定位夹紧及导向结构，不是钻头夹头。返回{\"accepted\":true或false,\"reason\":\"理由\"}。",
+                            "data:image/jpeg;base64,"+Base64.getEncoder().encodeToString(encoded.toByteArray()));
+                        int begin=response.indexOf('{'),end=response.lastIndexOf('}');
+                        if(begin<0||end<begin)continue;
+                        var verdict=new ObjectMapper().readTree(response.substring(begin,end+1));
+                        log.info("Mechanical photo candidate accepted={} reason={}",verdict.path("accepted").asBoolean(false),verdict.path("reason").asText());
+                        if(!verdict.path("accepted").asBoolean(false))continue;
                         Path file = directory.resolve("photo.png");
                         ImageIO.write(bitmap, "png", file.toFile());
                         return new Photo(file.getFileName().toString(), source.url(), image.toString());
-                    } catch (Exception ignored) { }
+                    } catch (Exception error) { log.debug("Mechanical photo candidate unavailable: {}",error.getClass().getSimpleName()); }
                 }
             } catch (Exception ignored) { }
         }
         throw new IllegalStateException("Doki 未找到可下载的实物照片，请重试实物图任务");
+    }
+    static List<URI> sourceCandidates(URI source,byte[] bytes) throws IOException {
+        return ImageIO.read(new ByteArrayInputStream(bytes))!=null?List.of(source):imageCandidates(source,new String(bytes,StandardCharsets.UTF_8));
     }
     static List<URI> imageCandidates(URI page, String html) {
         List<URI> result = new ArrayList<>();

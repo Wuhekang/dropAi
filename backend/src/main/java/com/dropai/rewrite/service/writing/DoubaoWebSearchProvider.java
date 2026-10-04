@@ -142,19 +142,26 @@ public class DoubaoWebSearchProvider implements ReferenceSearchProvider {
         request.put("model", properties.getWebSearchModel());
         request.put("stream", false);
         request.put("max_output_tokens", 2048);
+        request.put("thinking", Map.of("type","disabled"));
         request.put("tools", List.of(Map.of("type", "web_search")));
         request.put("tool_choice", "auto");
-        request.put("input", "必须使用 web_search。检索与机械论文题目【" + topic + "】对应的真实设备或夹具实物照片页面，优先设备制造商或高校公开页面。不要生成图片，不要找论文文献，不要登录。返回至多三个包含实物图片的产品详情网页并说明设备名称，不返回搜索引擎结果页。");
+        request.put("input", "必须使用 web_search。检索与机械论文题目【" + topic + "】同类真实完整设备或专用夹具的制造商产品照片页面，不必尺寸完全相同。先翻译核心设备名为英文关键词并用英文搜索产品页，优先厂家实物照片。若题目是钻孔夹具，搜索 industrial drill jig fixture manufacturer photo，不要钻头夹头/刀柄/collet chuck，不要只有设计原理的科普页面。不要生成图片，不要找论文文献，不要登录。返回至多三个包含完整实物照片的产品详情网页并说明设备名称，不返回搜索引擎结果页、技术图纸、PDF目录或专利页面。");
         request.put("include", List.of("web_search_call.action.sources"));
         JsonNode response;
-        try { response=postResponses(request); }
+        try { response=postMechanicalResponses(request); }
         catch(RestClientResponseException error) {
             if(!looksLikeUnsupportedInclude(error)) throw error;
-            request.remove("include");response=postResponses(request);
+            request.remove("include");response=postMechanicalResponses(request);
         }
         var extraction = sourceExtractor.extract(response);
         if (!extraction.toolInvoked() || !extraction.hasAcceptedSources()) throw new IllegalStateException("Doki 未检索到可核验的实物图页面，请重试");
         return extraction.sources().stream().limit(6).toList();
+    }
+
+    private JsonNode postMechanicalResponses(Map<String,Object> request) {
+        var factory=new SimpleClientHttpRequestFactory();factory.setConnectTimeout(Duration.ofSeconds(5));factory.setReadTimeout(Duration.ofSeconds(60));
+        return restClient.mutate().requestFactory(factory).build().post().uri(endpoint())
+            .header(HttpHeaders.AUTHORIZATION,"Bearer "+normalizeApiKey(properties.getApiKey())).contentType(MediaType.APPLICATION_JSON).body(request).retrieve().body(JsonNode.class);
     }
 
     private ResponsesResult executeResponsesRequest(ReferenceSearchQuery query) {

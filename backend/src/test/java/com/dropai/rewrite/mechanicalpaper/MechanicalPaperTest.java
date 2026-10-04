@@ -27,10 +27,11 @@ class MechanicalPaperTest {
         assertTrue(Math.floor(target*.90)>=6000);
     }
     @Test void cloudsDoNotInventSolverScreenshots() throws Exception {
-        JsonNode design=mapper.readTree("{\"inputs\":\"设计参数\",\"parts\":[],\"figures\":[{\"id\":\"5-4\",\"caption\":\"承载件应力分布\",\"description\":\"承载件\"}]}");
+        JsonNode design=mapper.readTree("{\"inputs\":\"最大应力82MPa\",\"parts\":[],\"figures\":[{\"id\":\"5-4\",\"caption\":\"承载件应力分布\",\"description\":\"最大值82MPa\"}]}");
         String prompt=MechanicalPaperService.figurePrompt(design,MechanicalPaperPlan.FIGURES.get(11));
-        assertTrue(prompt.contains("浅灰到白色"));assertTrue(prompt.contains("右侧竖直彩虹色标"));
-        assertTrue(prompt.contains("不得编造仿真数值"));assertTrue(prompt.contains("定性分析"));
+        assertTrue(prompt.contains("浅灰白背景"));assertTrue(prompt.contains("竖直彩虹色标"));
+        assertTrue(prompt.contains("不得出现任何数字"));assertTrue(prompt.contains("定性分析"));
+        assertFalse(prompt.contains("82MPa"));assertFalse(prompt.contains("设计参数"));
     }
     @Test void downloadsRejectPrivateAddresses() {
         for(String url:List.of("http://127.0.0.1/a.png","http://192.168.1.3/img","http://169.254.169.254/latest","http://[::1]/","file:///x","http://user:pw@example.com/a"))
@@ -40,11 +41,18 @@ class MechanicalPaperTest {
         List<URI> images=MechanicalPaperPhotoService.imageCandidates(URI.create("https://example.com/product/a"),"<meta content='/real.jpg' property='og:image'><img src='/logo.jpg' alt='logo'><img src='/fixture.png'>");
         assertEquals(List.of(URI.create("https://example.com/real.jpg"),URI.create("https://example.com/fixture.png")),images);
     }
+    @Test void searchImageSourcesAreNotParsedAsHtml() throws Exception {
+        var output=new java.io.ByteArrayOutputStream();ImageIO.write(new BufferedImage(400,300,BufferedImage.TYPE_INT_RGB),"png",output);
+        var source=URI.create("https://public.example/photo.png");
+        assertEquals(List.of(source),MechanicalPaperPhotoService.sourceCandidates(source,output.toByteArray()));
+    }
     @Test void sectionChecksRejectMalformedTablesAndMissingEquations() throws Exception {
         var section=MechanicalPaperPlan.SECTIONS.stream().filter(s->s.id().equals("3.1")).findFirst().orElseThrow();
         assertThrows(IllegalStateException.class,()->MechanicalPaperService.validateSection(mapper.readTree("{\"paragraphs\":[\"分析\"],\"formulas\":[],\"tables\":[]}"),section));
         final var intro=MechanicalPaperPlan.SECTIONS.get(0);
         assertThrows(IllegalStateException.class,()->MechanicalPaperService.validateSection(mapper.readTree("{\"paragraphs\":[\"资料来源待补充\"],\"formulas\":[],\"tables\":[]}"),intro));
+        assertThrows(IllegalStateException.class,()->MechanicalPaperService.validateSection(mapper.readTree("{\"paragraphs\":[\"通过三维建模和有限元分析验证结构\"],\"formulas\":[],\"tables\":[]}"),intro));
+        assertEquals("设计参数",MechanicalPaperExporter.cleanCaption("表2-1 表 2-1 设计参数"));
     }
     @Test void exportedWordHasNativeMathActualTocAllImagesAndPageBreaks() throws Exception {
         var state=fixture();
@@ -53,6 +61,9 @@ class MechanicalPaperTest {
             String xml=new String(zip.getInputStream(zip.getEntry("word/document.xml")).readAllBytes(),java.nio.charset.StandardCharsets.UTF_8);
             assertTrue(xml.contains("TOC "));assertTrue(xml.contains("oMath"));
             assertFalse(xml.contains("{{"));assertFalse(xml.contains("诚信声明"));assertFalse(xml.contains("资料来源"));
+            var footerEntry=zip.stream().filter(e->e.getName().matches("word/footer\\d+\\.xml")).findFirst().orElseThrow();
+            String footerXml=new String(zip.getInputStream(footerEntry).readAllBytes(),java.nio.charset.StandardCharsets.UTF_8);
+            assertEquals(1,footerXml.split("PAGE",-1).length-1);assertFalse(footerXml.contains("<w:pict"));
         }
         try(var document=new XWPFDocument(Files.newInputStream(temporary.resolve("paper.docx")))) {
             assertEquals(15,document.getAllPictures().size());assertEquals(3,document.getTables().size());
