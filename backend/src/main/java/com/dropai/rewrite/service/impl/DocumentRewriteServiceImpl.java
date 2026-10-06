@@ -120,6 +120,12 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
     @Transactional
     public DocumentRewriteJobVO submit(MultipartFile file, String mode, String platform, String requestId) {
         Long userId = AuthContext.requireUserId();
+        String normalizedMode = normalizeMode(mode);
+        String normalizedPlatform = normalizePlatform(platform);
+        // Reject before reserving an id or charging: the specialist is a single humanize pass.
+        if ("GEZIDA".equals(normalizedPlatform) && !"humanize".equals(normalizedMode)) {
+            throw new IllegalArgumentException("格子达专项仅支持降AI，请切换为降AI模式后提交");
+        }
         String idempotencyKey = idempotencyKey(userId, requestId);
         boolean idempotencyReserved = false;
         if (idempotencyKey != null) {
@@ -142,8 +148,6 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             throw new IllegalStateException("每个账号最多同时处理 2 个文档，请等待当前任务完成");
         }
         String originalName = file.getOriginalFilename() == null ? "document.docx" : file.getOriginalFilename();
-        String normalizedMode = normalizeMode(mode);
-        String normalizedPlatform = normalizePlatform(platform);
         if (!originalName.toLowerCase().endsWith(".docx")) {
             throw new IllegalArgumentException("当前仅支持上传 .docx 文件");
         }
@@ -343,7 +347,18 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
                     .sorted(Comparator.comparingInt(RewriteResult::index))
                     .forEach(result -> {
                         if (result.success() && !result.rewrittenText().equals(originalTextByIndex.get(result.index()))) {
-                            replaceParagraphText(result.paragraph(), result.rewrittenText());
+                            if ("GEZIDA".equals(job.getPlatform())) {
+                                try {
+                                    GezidaParagraphWriter.replace(result.paragraph(), result.rewrittenText());
+                                } catch (IllegalStateException exception) {
+                                    log.warn("ParagraphFallback jobId={} paragraphIndex={} stage=gezida_format action=KEEP_ORIGINAL reason={}",
+                                            jobId, result.index(), exception.getMessage());
+                                    updateParagraphStatus(job, result.index(), "SUCCESS", originalTextByIndex.get(result.index()), "处理完成");
+                                    return;
+                                }
+                            } else {
+                                replaceParagraphText(result.paragraph(), result.rewrittenText());
+                            }
                             job.setRewrittenParagraphs(job.getRewrittenParagraphs() + 1);
                         }
                     });
@@ -397,7 +412,7 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
         if (trimmed.length() < 8) {
             return false;
         }
-        if (isHeadingParagraph(paragraph, trimmed)) {
+        if ("gezida".equals(mode) ? isGezidaHeadingParagraph(paragraph, trimmed) : isHeadingParagraph(paragraph, trimmed)) {
             return false;
         }
         if (isCatalogLine(trimmed)
@@ -475,6 +490,8 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
     private List<RewriteTarget> collectRewriteTargets(DocumentRewriteJobVO job, XWPFDocument document) {
         List<XWPFParagraph> paragraphs = collectParagraphs(document);
         List<RewriteTarget> targets = new ArrayList<>();
+        boolean gezida = "GEZIDA".equals(job.getPlatform());
+        String selectionMode = gezida ? "gezida" : job.getMode();
         boolean rewriteAbstractBody = shouldRewriteAbstractBody(job);
         boolean useAbstractBoundary = paragraphs.stream()
                 .map(XWPFParagraph::getText)
@@ -498,7 +515,7 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
                 } else if (useAbstractBoundary && rewriteAbstractBody && isInlineAbstractParagraph(trimmed)) {
                     boundaryReached = true;
                     inBody = true;
-                    if (shouldRewriteBodyParagraph(paragraph, trimmed, job.getMode())) {
+                    if (shouldRewriteBodyParagraph(paragraph, trimmed, selectionMode)) {
                         targets.add(new RewriteTarget(index, paragraph, trimmed));
                     }
                 } else if (!useAbstractBoundary && isSameParagraph(paragraph, catalogBodyStart)) {
@@ -514,14 +531,14 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
                 inBody = rewriteAbstractBody;
                 continue;
             }
-            if (isBodyStartTitle(trimmed)) {
+            if (isBodyStartTitle(trimmed) && (!gezida || isGezidaHeadingParagraph(paragraph, trimmed))) {
                 inBody = true;
                 continue;
             }
             if (isInlineAbstractParagraph(trimmed)) {
                 inBody = rewriteAbstractBody;
                 if (rewriteAbstractBody) {
-                    if (shouldRewriteBodyParagraph(paragraph, trimmed, job.getMode())) {
+                    if (shouldRewriteBodyParagraph(paragraph, trimmed, selectionMode)) {
                         targets.add(new RewriteTarget(index, paragraph, trimmed));
                     }
                 }
@@ -534,7 +551,7 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             if (!inBody) {
                 continue;
             }
-            if (shouldRewriteBodyParagraph(paragraph, trimmed, job.getMode())) {
+            if (shouldRewriteBodyParagraph(paragraph, trimmed, selectionMode)) {
                 targets.add(new RewriteTarget(index, paragraph, trimmed));
             }
         }
@@ -604,6 +621,11 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
         if ("rewrite".equals(job.getMode())) {
             logLengthMetrics(job, "rewrite_no_retry", lengthMetrics(rule.originalLength(), results), 0);
             return validateCompletedResults(targets, validateRewriteQuality(job, targets, results));
+        }
+        if ("GEZIDA".equals(job.getPlatform())) {
+            // Length is diagnostic only: sentence deletion can lose evidence and undo the specialist.
+            logLengthMetrics(job, "gezida_observe_only", lengthMetrics(rule.originalLength(), results), 0);
+            return validateCompletedResults(targets, results);
         }
         List<RewriteResult> finalResults = applyLengthControl(job, targets, results, rule, job.getMode(), 1);
         return validateCompletedResults(targets, finalResults);
@@ -1290,6 +1312,34 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             }
         }
         return isHeadingLikeNumberedTitle(text);
+    }
+
+    private boolean isGezidaHeadingParagraph(XWPFParagraph paragraph, String text) {
+        if (paragraph.getCTP().isSetPPr() && paragraph.getCTP().getPPr().isSetOutlineLvl()
+                && paragraph.getCTP().getPPr().getOutlineLvl().getVal().intValue() < 9) {
+            return true;
+        }
+        String styleId = paragraph.getStyle();
+        java.util.Set<String> visited = new java.util.HashSet<>();
+        var styles = paragraph.getDocument() == null ? null : paragraph.getDocument().getStyles();
+        while (styleId != null && visited.add(styleId)) {
+            if (isGezidaHeadingStyle(styleId)) return true;
+            XWPFStyle style = styles == null ? null : styles.getStyle(styleId);
+            if (style == null) break;
+            if (isGezidaHeadingStyle(style.getName())) return true;
+            var definition = style.getCTStyle();
+            if (definition.isSetPPr() && definition.getPPr().isSetOutlineLvl()
+                    && definition.getPPr().getOutlineLvl().getVal().intValue() < 9) return true;
+            styleId = definition.isSetBasedOn() ? definition.getBasedOn().getVal() : null;
+        }
+        // A sentence referring to a chapter is not itself a chapter title.
+        return text.length() <= 80 && !text.matches("(?s).*[，。！？!?；;].*")
+                && (isCommonBodyStartTitle(text) || isHeadingLikeNumberedTitle(text));
+    }
+
+    private boolean isGezidaHeadingStyle(String name) {
+        return isHeadingStyleName(name) || (name != null
+                && name.replaceAll("\\s+", "").matches("(?i).*(?:[1-9]级标题|heading[1-9])"));
     }
 
     private boolean isHeadingStyleName(String styleName) {

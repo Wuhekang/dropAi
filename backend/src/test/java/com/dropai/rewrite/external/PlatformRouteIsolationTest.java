@@ -14,9 +14,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 class PlatformRouteIsolationTest {
     private static final String DEFAULT_SKILL_RESOURCE = "skills/humanize-zh-academic/SKILL.md";
     private static final String DEFAULT_SKILL_SHA256 =
-            "440a5e76f540cf5dfaaf9c89f5b1585d339b7772b14ba12307cc71d22a974d39";
+            "1807c1174e55bcda0cea7d9ff94aaa6be91c7789246c1f7356941d764b91aada";
     private static final String DAYA_SKILL_SHA256 =
-            "c51fc3653c43b2a77de721c75bd419f7a1d22f7528a9dfb4d5562485a4a49d56";
+            // Normalized LF hash of the unchanged 01c09450 resource.
+            "56a4f111b7d7aa70f3b1226175b4b96c9c6b33ad995e06ffa6dce1a91f350d7d";
 
     @Test
     void nativeSkillCanChangeWhileTheDayaSkillRemainsGoldenAndIsolated() throws Exception {
@@ -29,8 +30,13 @@ class PlatformRouteIsolationTest {
         Set<String> selectableRoutes = new LinkedHashSet<>();
         selectableRoutes.add("GENERAL");
         selectableRoutes.add(XuejiePlatform.DAYA.name());
+        selectableRoutes.add("GEZIDA");
 
-        assertThat(selectableRoutes).containsExactly("GENERAL", "DAYA").doesNotContain("TEST");
+        assertThat(selectableRoutes).containsExactly("GENERAL", "DAYA", "GEZIDA").doesNotContain("TEST");
+        String gezida = new ClassPathResource("skills/gezida-academic/SKILL.md")
+                .getContentAsString(StandardCharsets.UTF_8);
+        assertThat(gezida).contains("格子达学术表达专项", "必要的编号列举", "可以保留");
+        assertThat(gezida).isNotEqualTo(defaultSkill);
 
         PlatformRewriteSkillCatalog catalog = new PlatformRewriteSkillCatalog();
         String dayaSkillHash = sha256(catalog.load(XuejiePlatform.DAYA)

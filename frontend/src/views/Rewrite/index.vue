@@ -37,7 +37,7 @@
               type="button"
               :class="{ active: docMode === mode.value }"
               :disabled="docBusy"
-              @click="docMode = mode.value"
+              @click="changeDocumentMode(mode.value)"
             >
               {{ mode.label }}
             </button>
@@ -90,13 +90,17 @@
           </div>
           <label>
             <span class="sr-only">选择平台</span>
-            <select v-model="docPlatform" :disabled="docBusy">
+            <select :value="docPlatform" :disabled="docBusy" @change="changeDocumentPlatform($event.target.value)">
               <option v-for="item in platformOptions" :key="item.value" :value="item.value">
                 {{ item.label }}
               </option>
             </select>
           </label>
         </div>
+        <button type="button" class="ghost-button gezida-switch" :disabled="docBusy"
+          :aria-pressed="docPlatform === 'GEZIDA'" @click="changeDocumentPlatform(docPlatform === 'GEZIDA' ? 'GENERAL' : 'GEZIDA')">
+          {{ docPlatform === 'GEZIDA' ? '切回原生降 AI' : '切换格子达专项降 AI' }}
+        </button>
       </div>
 
       <aside class="document-process">
@@ -246,6 +250,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRouter } from 'vue-router'
 import { canDownloadRewriteDocument, isCompletedDocumentStatus, isTerminalDocumentStatus, rewriteJobProgress as jobProgress } from '../../utils/documentJobStatus'
+import { documentPlatforms, documentRoute, selectDocumentMode, selectDocumentPlatform } from '../../utils/documentPlatform'
 import {
   downloadDocument,
   getAiStatus,
@@ -267,18 +272,7 @@ const modes = [
   { value: 'double', label: '双降 · 推荐', apiMode: 'double', featureCode: 'DOCUMENT_DOUBLE' }
 ]
 
-const platformOptions = [
-  {
-    value: 'GENERAL',
-    label: 'dropai原生降ai（可处理维普知网）',
-    description: '默认沿用现有降 AI 原则、积分规则与文档处理链。'
-  },
-  {
-    value: 'DAYA',
-    label: '大雅',
-    description: 'Doki按大雅报告片段口径重组正文，并专项打碎第一、第二、第三等列举结构。'
-  }
-]
+const platformOptions = documentPlatforms
 
 const docMode = ref('double')
 const docPlatform = ref('GENERAL')
@@ -312,11 +306,12 @@ const aiStatus = reactive({ provider: '', model: '', endpoint: '', testStatus: '
 
 const pageSize = 10
 
-const activeDocMode = computed(() => modes.find(item => item.value === docMode.value) || modes[0])
+const activeDocumentRoute = computed(() => documentRoute(docMode.value, docPlatform.value))
+const activeDocMode = computed(() => modes.find(item => item.value === activeDocumentRoute.value.mode) || modes[0])
 const activeTextMode = computed(() => modes.find(item => item.value === textMode.value) || modes[0])
 const activePlatformOption = computed(() => platformOptions.find(item => item.value === docPlatform.value) || platformOptions[0])
-const externalDocumentPlatform = computed(() => docMode.value !== 'rewrite' && docPlatform.value !== 'GENERAL')
-const documentProviderBadge = computed(() => externalDocumentPlatform.value ? `${activePlatformOption.value.label}适配` : '模型已连接')
+const externalDocumentPlatform = computed(() => activeDocumentRoute.value.external)
+const documentProviderBadge = computed(() => docPlatform.value === 'GEZIDA' ? '格子达专项 · 原生处理' : externalDocumentPlatform.value ? `${activePlatformOption.value.label}适配` : '模型已连接')
 const documentProcessing = computed(() => ['PENDING', 'RUNNING'].includes(documentJob.status))
 const docBusy = computed(() => documentPrechecking.value || documentUploading.value || documentProcessing.value)
 const documentCostText = computed(() => documentPrecheck.costPoints > 0 ? `${documentPrecheck.costPoints} 积分` : '免费')
@@ -386,9 +381,27 @@ const pagedDocuments = computed(() => {
   return rewriteDocumentJobs.value.slice(start, start + pageSize)
 })
 
-watch(docMode, async () => {
-  if (selectedDocument.value && !isCompletedDocumentStatus(documentJob.status)) await runDocumentPrecheck(false)
+watch([docMode, docPlatform], async () => {
+  documentPrecheck.requestId = createRequestId()
+  if (selectedDocument.value) {
+    resetDocumentJob()
+    await runDocumentPrecheck(false)
+  }
 })
+
+function changeDocumentPlatform(platform) {
+  if (docBusy.value) return
+  const selection = selectDocumentPlatform(docMode.value, platform)
+  docMode.value = selection.mode
+  docPlatform.value = selection.platform
+}
+
+function changeDocumentMode(mode) {
+  if (docBusy.value) return
+  const selection = selectDocumentMode(mode, docPlatform.value)
+  docMode.value = selection.mode
+  docPlatform.value = selection.platform
+}
 
 function clearTextResult() {
   rewrittenText.value = ''
@@ -462,7 +475,7 @@ async function submitDocument() {
   try {
     const job = externalDocumentPlatform.value
       ? await uploadExternalDocument(selectedDocument.value, activeDocMode.value.apiMode, docPlatform.value, documentPrecheck.requestId)
-      : await uploadDocument(selectedDocument.value, activeDocMode.value.apiMode, 'GENERAL', documentPrecheck.requestId)
+      : await uploadDocument(selectedDocument.value, activeDocMode.value.apiMode, activeDocumentRoute.value.platform, documentPrecheck.requestId)
     setDocumentJob(job)
     upsertDocumentJob(job)
     setDocProgress(jobProgress(job), documentStepText.value)
@@ -984,6 +997,10 @@ onBeforeUnmount(stopDocumentPolling)
   font-weight: 720;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.gezida-switch {
+  margin-top: 12px;
 }
 
 .platform-selector {

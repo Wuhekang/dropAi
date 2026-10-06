@@ -3,6 +3,7 @@ import test from 'node:test'
 import { readFileSync } from 'node:fs'
 import vm from 'node:vm'
 import { computed, nextTick, reactive, ref, watch } from 'vue'
+import { documentPlatforms, documentRoute, selectDocumentMode, selectDocumentPlatform } from '../src/utils/documentPlatform.js'
 import {
   canDownloadRewriteDocument,
   hasDocumentDownload,
@@ -53,12 +54,14 @@ function rewritePage(job) {
   const counts = { polls: 0, downloads: 0, uploads: 0, clicks: 0 }
   const notifications = []
   const filenames = []
+  const submissions = []
   const source = readFileSync(new URL('../src/views/Rewrite/index.vue', import.meta.url), 'utf8')
     .match(/<script setup>([\s\S]*?)<\/script>/)[1]
     .replace(/^import[\s\S]*?from\s+['"][^'"]+['"]\r?\n/gm, '')
   const noop = () => {}
   const context = vm.createContext({
     computed, nextTick, reactive, ref, watch,
+    documentPlatforms, documentRoute, selectDocumentMode, selectDocumentPlatform,
     onMounted: noop, onBeforeUnmount: noop,
     useRouter: () => ({ push: noop, replace: noop }),
     ElMessage: Object.fromEntries(['success', 'warning', 'error'].map(type => [type, message => notifications.push({ type, message })])), ElMessageBox: {},
@@ -67,15 +70,30 @@ function rewritePage(job) {
     getDocumentJob: async () => job,
     getDocumentJobs: async () => [],
     downloadDocument: async () => { counts.downloads += 1; return new Blob(['valid-docx']) },
-    uploadDocument: async () => { counts.uploads += 1; return job },
-    uploadExternalDocument: async () => { counts.uploads += 1; return job },
+    uploadDocument: async (...args) => { counts.uploads += 1; submissions.push({ external: false, args }); return job },
+    uploadExternalDocument: async (...args) => { counts.uploads += 1; submissions.push({ external: true, args }); return job },
     window: { setInterval: () => { counts.polls += 1; return 1 }, clearInterval: noop, setTimeout: noop },
     URL: { createObjectURL: () => 'blob:document', revokeObjectURL: noop },
     document: { createElement: () => ({ click() { counts.clicks += 1; filenames.push(this.download) } }) }
   })
-  vm.runInContext(`${source}\nglobalThis.page = { startDocumentPolling, handleDocumentAction, downloadDocumentJob, setDocumentJob, documentJob, docProgress, docActionDisabled, docActionText, taskStateLabel, downloadStateText, partialCompletionNotice };`, context)
-  return { page: context.page, counts, notifications, filenames }
+  vm.runInContext(`${source}\nglobalThis.page = { startDocumentPolling, handleDocumentAction, downloadDocumentJob, setDocumentJob, documentJob, docProgress, docActionDisabled, docActionText, taskStateLabel, downloadStateText, partialCompletionNotice, changeDocumentPlatform, changeDocumentMode, docMode, docPlatform, activeDocMode, selectedDocument, documentPrecheck, submitDocument };`, context)
+  return { page: context.page, counts, notifications, filenames, submissions }
 }
+
+test('actual Gezida switch bills humanize and sends GEZIDA to the native uploader', async () => {
+  const job = { jobId: 'gezida', status: 'SUCCESS', platform: 'GEZIDA', sourceFeature: 'REWRITE' }
+  const { page, submissions } = rewritePage(job)
+  page.changeDocumentPlatform('GEZIDA')
+  await nextTick()
+  assert.equal(page.docMode.value, 'humanize')
+  assert.equal(page.activeDocMode.value.featureCode, 'DOCUMENT_HUMANIZE')
+  page.selectedDocument.value = { name: 'sample.docx' }
+  Object.assign(page.documentPrecheck, { ready: true, canProcess: true, requestId: 'fresh-gezida-request' })
+  await page.submitDocument()
+  assert.equal(submissions.length, 1)
+  assert.equal(submissions[0].external, false)
+  assert.deepEqual(Array.from(submissions[0].args).slice(1), ['humanize', 'GEZIDA', 'fresh-gezida-request'])
+})
 
 test('actual partial-result action downloads the existing file, with no polling or resubmission', async () => {
   const job = { jobId: 'partial', status: 'PARTIAL_SUCCESS', platform: 'DAYA', downloadUrl: '/api/file', totalParagraphs: 182, processedParagraphs: 182 }

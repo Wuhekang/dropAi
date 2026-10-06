@@ -23,6 +23,17 @@ class DefaultWorkflowRewriteServiceTest {
     private static final String ORIGINAL = "该平台负责核对资料，并记录现场处理情况。";
 
     @Test
+    void gezidaPreservesContextualWordsAndProtectedNumbersWithoutGenericPolish() {
+        AiRewriteService ai = mock(AiRewriteService.class);
+        when(ai.rewriteWithFeedback(anyString(), anyString(), anyInt(), anyString()))
+                .thenAnswer(call -> call.getArgument(0));
+        String source = "（1）最后一个工作日核对数据；（2）很多记录随着批次更新，样本为30项。";
+        var result = service(ai).execute(source, "humanize@GEZIDA");
+        assertThat(result.getRewrittenText()).isEqualTo(source);
+        verify(ai, times(1)).rewriteWithFeedback(anyString(), org.mockito.ArgumentMatchers.eq("humanize@GEZIDA"), anyInt(), anyString());
+    }
+
+    @Test
     void nativeHumanizeAcceptsIdenticalValidModelOutputWithoutRetry() {
         AiRewriteService aiRewriteService = mock(AiRewriteService.class);
         when(aiRewriteService.rewriteWithFeedback(anyString(), anyString(), anyInt(), anyString()))

@@ -38,6 +38,7 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
         List<WorkflowStepVO> steps = new ArrayList<>();
         String preparedText = preprocess(originalText);
         String baseRewriteType = baseRewriteType(rewriteType);
+        boolean gezidaHumanize = isGezidaHumanize(rewriteType);
         boolean rewriteOnlyType = "rewrite".equals(baseRewriteType)
                 || "智能降重".equals(baseRewriteType)
                 || "降重复改写".equals(baseRewriteType);
@@ -80,14 +81,17 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
                 String retryFeedback = "上一版未通过受保护内容完整性检查：" + ex.getMessage() + "。"
                         + "请重新处理本段并完整输出正文；所有 [[DROP_AI_PROTECTED_数字]] 占位符必须逐字保留，"
                         + "每个恰好出现一次且保持原顺序。不要自行还原数字，不得删除、重复或移动占位符。"
-                        + "按照 Skill 处理后的有效正文可以与原文相同，不要为了制造差异改变受保护内容。";
+                        + (gezidaHumanize
+                            ? "修复标记时保留已完成的表达重组，不要把整段还原成原文来代替修复。"
+                            : "按照 Skill 处理后的有效正文可以与原文相同，不要为了制造差异改变受保护内容。");
                 String retried = rewriteSentences(protectedText.text(), rewriteType, originalRisk.getScore(), retryFeedback);
                 sentenceRewritten = protectedText.restore(retried);
                 steps.add(new WorkflowStepVO("PROTECTED_CONTENT_RETRY", "受保护内容重试",
                         "首轮输出遗漏、重复或调换了受保护内容占位符，已携带具体错误重试一次并通过完整性检查"));
             }
-            String polished = academicPolish(sentenceRewritten, baseRewriteType);
-            finalText = humanizeExpression(polished, useModelHumanize);
+            // The specialist edits meaning in context; blind word deletion can break that result.
+            String polished = gezidaHumanize ? sentenceRewritten : academicPolish(sentenceRewritten, baseRewriteType);
+            finalText = gezidaHumanize ? polished : humanizeExpression(polished, useModelHumanize);
         }
         requireNonBlankOutput(finalText, "模型输出经清理后为空");
 
@@ -96,9 +100,9 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
         steps.add(new WorkflowStepVO("SENTENCE_REWRITE", "分句改写 Skill",
                 "按句处理，约束为不改变核心含义、不新增虚假案例、不只做同义词替换；调用：" + sentenceProvider));
         steps.add(new WorkflowStepVO("ACADEMIC_POLISH", "学术风格润色 Skill",
-                "统一论文语气，减少口语化和过度扩写"));
+                gezidaHumanize ? "格子达专项已在模型内完成段落表达优化，不执行机械词语替换" : "统一论文语气，减少口语化和过度扩写"));
         steps.add(new WorkflowStepVO("HUMAN_EXPRESSION_ADJUST", "人工化表达调整 Skill",
-                useModelHumanize
+                gezidaHumanize ? "保留专项模型完整结果，不按词表删词，不追加通用润色" : useModelHumanize
                         ? "调用模型进行自然化表达调整，再用规则移除高频模板词；调用：" + finalProvider
                         : "使用规则移除高频模板词，调整连接方式和句式节奏"));
 
@@ -193,7 +197,8 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
     private String rewriteSentences(String text, String rewriteType, int beforeScore, String feedback) {
         String rawRewrite = aiRewriteService.rewriteWithFeedback(text, rewriteType, beforeScore, feedback);
         requireNonBlankOutput(rawRewrite, "模型返回空内容，当前段落未完成处理");
-        String rewritten = cleanupTemplatePhrases(normalizeAiOutput(rawRewrite, rewriteType));
+        String normalized = normalizeAiOutput(rawRewrite, rewriteType);
+        String rewritten = isGezidaHumanize(rewriteType) ? normalized : cleanupTemplatePhrases(normalized);
         requireNonBlankOutput(rewritten, "模型输出经清理后为空");
         return rewritten;
     }
@@ -304,6 +309,10 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
             case "GENERAL", "CNKI", "WEIPU", "WANFANG", "GEZIDA" -> true;
             default -> false;
         };
+    }
+
+    private boolean isGezidaHumanize(String rewriteType) {
+        return "GEZIDA".equals(platformCode(rewriteType)) && requiresStrictNativeProtection(rewriteType);
     }
 
     private QualityCheckVO qualityCheck(String originalText, String rewrittenText) {

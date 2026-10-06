@@ -13,7 +13,7 @@ class PlatformRewriteSkillCatalogTest {
         String second = catalog.load(XuejiePlatform.DAYA);
 
         assertThat(first)
-                .startsWith("---\nname: platform-ai-")
+                .matches("(?s)^---\\Rname: platform-ai-.*")
                 .contains("profile-id:")
                 .contains("DropAI 自定义")
                 .contains("## 共用硬约束")

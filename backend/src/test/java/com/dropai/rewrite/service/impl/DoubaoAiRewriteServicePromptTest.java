@@ -20,6 +20,30 @@ class DoubaoAiRewriteServicePromptTest {
     private static final String SKILL_MARKER = "NATIVE_HUMANIZE_SKILL_MARKER";
 
     @Test
+    void gezidaLoadsOnlyItsSpecialistAndDoesNotSendLocalRiskAsPlatformScore() throws Exception {
+        SkillPromptService skills = mock(SkillPromptService.class);
+        when(skills.loadSkill("gezida-academic")).thenReturn("GEZIDA_SPECIALIST_MARKER");
+        DoubaoAiRewriteService service = service(skills);
+        assertThat(systemPrompt(service, "humanize@GEZIDA"))
+                .contains("GEZIDA_SPECIALIST_MARKER")
+                .doesNotContain(SKILL_MARKER, "低于 20");
+        verify(skills).loadSkill("gezida-academic");
+        org.mockito.Mockito.verifyNoMoreInteractions(skills);
+        Method user = DoubaoAiRewriteService.class.getDeclaredMethod("userPrompt", String.class, String.class, int.class, String.class);
+        user.setAccessible(true);
+        assertThat((String) user.invoke(service, "测试正文", "humanize@GEZIDA", 99, "占位符遗漏"))
+                .contains("不叠加降重", "占位符遗漏", "测试正文", "编号列举可以保留")
+                .doesNotContain("改写前风险分：99", "85%", "115%");
+    }
+
+    @Test
+    void gezidaResourceContainsEvidenceBasedRulesAndNoDetectorPromise() {
+        String skill = new ResourceSkillPromptService().loadSkill("gezida-academic");
+        assertThat(skill).contains("14 个低风险", "不是检测算法", "个人数据", "必要的编号列举", "不按机械字数门禁删句")
+                .doesNotContain("杨美婷", "015820200522", "保证低于", "每句不超过 20");
+    }
+
+    @Test
     void nativeHumanizeLoadsTheResourceSkillAndAllowsAbstractBodies() throws Exception {
         SkillPromptService skillPromptService = mock(SkillPromptService.class);
         when(skillPromptService.loadSkill("humanize-zh-academic")).thenReturn(SKILL_MARKER);
