@@ -1,5 +1,6 @@
 package com.dropai.rewrite.external;
 
+import com.dropai.rewrite.utils.DocxRewriteBoundary;
 import jakarta.annotation.PreDestroy;
 
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
@@ -473,17 +474,15 @@ public class PlatformDoubaoDocumentProcessor {
      */
     List<Target> collectDayaTargets(XWPFDocument document) {
         List<XWPFParagraph> paragraphs = document.getParagraphs();
+        DocxRewriteBoundary.Scope scope = DocxRewriteBoundary.inspect(document);
         List<Target> targets = new ArrayList<>();
         DayaSection section = DayaSection.SKIP;
         String context = "正文";
         boolean hasAbstractBoundary = paragraphs.stream()
                 .map(XWPFParagraph::getText)
                 .map(this::normalize)
-                .anyMatch(this::isAbstractTitle);
-        boolean hasCatalogBoundary = paragraphs.stream()
-                .map(XWPFParagraph::getText)
-                .map(this::normalize)
-                .anyMatch(this::isCatalogTitle);
+                .anyMatch(text -> isAbstractTitle(text) || DocxRewriteBoundary.isInlineAbstract(text));
+        boolean hasCatalogBoundary = scope.hasCatalog();
         boolean boundaryReached = !hasAbstractBoundary && !hasCatalogBoundary;
         boolean catalogActive = false;
         boolean bodyStarted = false;
@@ -493,6 +492,22 @@ public class PlatformDoubaoDocumentProcessor {
             String text = normalize(paragraph.getText());
             String compactText = text.replaceAll("\\s+", "");
 
+            if (scope.inCatalog(paragraph)) {
+                catalogActive = true;
+                section = DayaSection.SKIP;
+                continue;
+            }
+            if (scope.afterCatalog(paragraph)) {
+                boundaryReached = true;
+                catalogActive = false;
+                bodyStarted = true;
+                section = DayaSection.INCLUDE;
+            }
+            if (DocxRewriteBoundary.isInlineAbstract(text)) {
+                boundaryReached = true;
+                section = DayaSection.INCLUDE;
+                context = "摘要正文";
+            }
             if (isChineseAbstractTitle(text)) {
                 boundaryReached = true;
                 catalogActive = false;
@@ -574,19 +589,31 @@ public class PlatformDoubaoDocumentProcessor {
 
     private List<Target> collectDayaTableTargets(XWPFDocument document) {
         List<Target> targets = new ArrayList<>();
+        DocxRewriteBoundary.Scope scope = DocxRewriteBoundary.inspect(document);
         DayaSection section = DayaSection.SKIP;
         String context = "正文";
         String caption = "";
         boolean hasAbstractBoundary = document.getParagraphs().stream()
                 .map(XWPFParagraph::getText).map(this::normalize).anyMatch(this::isAbstractTitle);
-        boolean hasCatalogBoundary = document.getParagraphs().stream()
-                .map(XWPFParagraph::getText).map(this::normalize).anyMatch(this::isCatalogTitle);
+        boolean hasCatalogBoundary = scope.hasCatalog();
         boolean boundaryReached = !hasAbstractBoundary && !hasCatalogBoundary;
         boolean catalogActive = false;
         boolean bodyStarted = false;
         int tableIndex = 0;
 
         for (var element : document.getBodyElements()) {
+            if (scope.inCatalog(element)) {
+                catalogActive = true;
+                section = DayaSection.SKIP;
+                if (element instanceof XWPFTable) tableIndex++;
+                continue;
+            }
+            if (scope.afterCatalog(element)) {
+                boundaryReached = true;
+                catalogActive = false;
+                bodyStarted = true;
+                section = DayaSection.INCLUDE;
+            }
             if (element instanceof XWPFParagraph paragraph) {
                 String text = normalize(paragraph.getText());
                 String compactText = text.replaceAll("\\s+", "");
@@ -941,21 +968,21 @@ public class PlatformDoubaoDocumentProcessor {
     }
 
     private boolean isAbstractTitle(String text) {
-        String compact = text.replaceAll("\\s+", "");
-        return compact.equals("摘要") || compact.equalsIgnoreCase("abstract");
+        return DocxRewriteBoundary.isAbstractTitle(text);
     }
 
     private boolean isChineseAbstractTitle(String text) {
-        return text.replaceAll("\\s+", "").equals("摘要");
+        return isAbstractTitle(text) && text.contains("摘");
     }
 
     private boolean isEnglishAbstractTitle(String text) {
-        return text.replaceAll("\\s+", "").equalsIgnoreCase("abstract");
+        return isAbstractTitle(text) && !text.contains("摘");
     }
 
     private boolean isKeywordLine(String text) {
         String compact = text.replaceAll("\\s+", "").toLowerCase(Locale.ROOT);
-        return compact.startsWith("关键词") || compact.startsWith("关键字") || compact.startsWith("keywords");
+        return DocxRewriteBoundary.isKeywordLine(text)
+                || compact.startsWith("关键词") || compact.startsWith("关键字") || compact.startsWith("keywords");
     }
 
     private boolean isTrailingSection(String text) {

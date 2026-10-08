@@ -38,17 +38,18 @@ class DocumentRewriteFinalGuardTest {
     }
 
     @Test
-    void lengthCompressionMayReturnToOriginalAfterSuccessfulModelProcessing() throws Exception {
-        String original = "该平台负责核对资料，并记录现场处理情况，同时保留必要的核验记录供后续复查。";
-        String expanded = original + "这项补充说明具有重要意义，可以为后续工作提供参考，并进一步体现整体优化效果。";
+    void softLengthReferenceDoesNotDeleteSentencesOrReturnToOriginal() throws Exception {
+        String original = "记录用于核对，不能用它证明验收完成。";
+        String expanded = "这些记录是供核对时使用的材料。即使查到了这些记录，也不能据此认定验收已经完成；核对时必须保留这一区别。";
         WorkflowRewriteService workflow = workflowReturning(expanded);
 
         try (XWPFDocument document = documentWithBody(original)) {
             GuardResult result = runMode(workflow, document, original.length(), "humanize");
 
             assertThat(result.success()).isTrue();
-            assertThat(result.rewrittenText()).isEqualTo(original);
+            assertThat(result.rewrittenText()).isEqualTo(expanded);
             verify(workflow).execute(original, "humanize");
+            verifyNoMoreInteractions(workflow);
         }
     }
 

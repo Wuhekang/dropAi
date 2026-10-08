@@ -1,5 +1,6 @@
 package com.dropai.rewrite.external;
 
+import com.dropai.rewrite.utils.DocxRewriteBoundary;
 import org.springframework.stereotype.Component;
 
 import java.util.LinkedHashMap;
@@ -15,7 +16,8 @@ public class PlatformDocumentTextProtector {
             "\\[\\[DROP_AI_PROTECTED_[0-9]+]]"
     );
     private static final Pattern PROTECTED = Pattern.compile(
-            "(?i)(\\[\\[DROP_STYLE_PROTECTED_[0-9]+]]|https?://\\S+|`[^`\\r\\n]+`|\\[[0-9０-９,，;；\\-–—~～\\s]+]|"
+            "(?i)(" + DocxRewriteBoundary.ABSTRACT_PREFIX_REGEX + "|"
+                    + "\\[\\[DROP_STYLE_PROTECTED_[0-9]+]]|https?://\\S+|`[^`\\r\\n]+`|\\[[0-9０-９,，;；\\-–—~～\\s]+]|"
                     + "(?:图|表|公式)\\s*[0-9０-９]+(?:[.．\\-—][0-9０-９]+)*|"
                     + "(?<![A-Za-z0-9_])[0-9０-９]+(?:[.．][0-9０-９]+)*(?:%|％|ms|s|kg|g|mm|cm|m|KB|MB|GB|℃)?(?![A-Za-z0-9_])|"
                     + "@[A-Za-z_][A-Za-z0-9_]*|"
@@ -27,7 +29,8 @@ public class PlatformDocumentTextProtector {
      * {@code (?i)} would make the all-capital abbreviation branch match every English word.
      */
     private static final Pattern DAYA_ENGLISH_PROTECTED = Pattern.compile(
-            "(\\[\\[DROP_STYLE_PROTECTED_[0-9]+]]|(?i:https?://\\S+)|`[^`\\r\\n]+`|"
+            "(" + DocxRewriteBoundary.ABSTRACT_PREFIX_REGEX + "|"
+                    + "\\[\\[DROP_STYLE_PROTECTED_[0-9]+]]|(?i:https?://\\S+)|`[^`\\r\\n]+`|"
                     + "\\[[0-9０-９,，;；\\-–—~～\\s]+]|"
                     + "(?:图|表|公式)\\s*[0-9０-９]+(?:[.．\\-—][0-9０-９]+)*|"
                     + "(?i:\\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|"

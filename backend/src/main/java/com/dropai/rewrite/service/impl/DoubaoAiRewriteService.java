@@ -146,14 +146,14 @@ public class DoubaoAiRewriteService implements AiRewriteService {
                 return nativeHumanizeProtectionPrompt() + "\n"
                         + skillPromptService.loadSkill(NATIVE_HUMANIZE_SKILL);
             }
-            return bodyOnlyProtectionPrompt() + "\n" + humanizeSystemPrompt();
+            return nativeHumanizeProtectionPrompt() + "\n" + humanizeSystemPrompt();
         }
         if (isDoubleMode(baseRewriteType)) {
             if (usesNativeAcademicSkill(rewriteType)) {
                 return nativeHumanizeProtectionPrompt() + "\n"
                         + skillPromptService.loadSkill(NATIVE_HUMANIZE_SKILL);
             }
-            return bodyOnlyProtectionPrompt() + "\n" + doubleSystemPrompt();
+            return nativeHumanizeProtectionPrompt() + "\n" + doubleSystemPrompt();
         }
         return bodyOnlyProtectionPrompt() + "\n" + """
                 你是学术写作优化助手。你的任务是帮助用户改进论文段落表达质量，而不是承诺规避任何检测。
@@ -228,7 +228,7 @@ public class DoubaoAiRewriteService implements AiRewriteService {
             return """
                     优化类型：%s
                     目标检测口径：%s
-                    改写前风险分：%d
+                    改写前风险分：%d（内部启发式参考，不是第三方实测分数）
                     上一次失败原因：%s
 
                     请严格按照系统 Prompt 的任务目标和禁止事项处理。
@@ -366,7 +366,10 @@ public class DoubaoAiRewriteService implements AiRewriteService {
                     当前为双降增强模式，第一阶段按智能降重规则处理，第二阶段再按智能降AI规则优化。
                     """;
         }
-        return "当前模式只执行智能降AI目标，不以降低查重率作为主要目标。";
+        return "当前模式只执行智能降AI目标，不以降低查重率作为主要目标。"
+                + "对报告标记或明显模板化的段落，先提取原有事实再整段重构，允许改变信息入口、句组和论述顺序；"
+                + "不限定微量改写，不靠逐句换词或增加修饰完成任务。"
+                + "长度参考原文85%—130%，仅作软参考，可为完整重组超出；数据、单位、引用、条件和保护片段原值及顺序不变。";
     }
 
     private String rewriteSystemPrompt() {
@@ -472,7 +475,7 @@ public class DoubaoAiRewriteService implements AiRewriteService {
                 以下内容必须100%原样保留，不得改动任何字符：
                 - 封面
                 - 目录
-                - 摘要（中英文）
+                - 摘要标题（中英文）
                 - 关键词（中英文）
                 - 参考文献
                 - 致谢
@@ -494,13 +497,12 @@ public class DoubaoAiRewriteService implements AiRewriteService {
                 【二、字数控制规则】
 
                 1. 总体控制
-                输出字数应与输入字数相当。
-                例如：原稿约8000字时，新稿控制在10000字以内；原稿约14000字时，新稿控制在18000字以内。
-                禁止无意义扩写，禁止为了优化表达而膨胀篇幅。
+                输出长度参考原文85%—130%，仅作软参考，必要时可超出。
+                不为了比例扩写或删句，事实完整性优先于长度；用户明确字数要求优先。
 
                 2. 段落级控制
-                每个被修改段落以每300字为一个处理单位，最大新增内容不超过30字。
-                优先替换表达，而不是新增解释。
+                高风险段落先提取原有事实、条件、因果与引用，再整段重构。
+                允许改变信息入口、主从关系、句组和论述顺序，不限定微量改写，不要求原句结构可还原。
 
                 3. 禁止行为
                 - 不允许为了凑字数增加新逻辑
@@ -521,7 +523,7 @@ public class DoubaoAiRewriteService implements AiRewriteService {
                 - 综上所述
                 - 因此可以得出
 
-                如果原文已经包含这些表达，可以轻微替换或删除，但不得因此扩写。
+                如果原文反复使用这些表达，应检查整段骨架并重新组织，不仅轻微替换或删除。
 
                 2. 句式要求
                 允许自然不对称表达。
@@ -540,7 +542,7 @@ public class DoubaoAiRewriteService implements AiRewriteService {
 
                 4. 降AI核心策略
                 优先级：
-                1）改写句式
+                1）从已有事实重构整段信息组织
                 2）调整语序
                 3）替换词汇
                 4）删除冗余连接
@@ -555,7 +557,7 @@ public class DoubaoAiRewriteService implements AiRewriteService {
 
                 【四、低扰动控制】
 
-                1. 原句结构应基本可还原。
+                1. 原句结构不必可还原，但事实、条件、否定、因果及结论必须保持一致。
                 2. 不改变段落数量。
                 3. 不改变原有章节顺序。
                 4. 不改变目录逻辑。
@@ -565,8 +567,8 @@ public class DoubaoAiRewriteService implements AiRewriteService {
 
                 【五、质量目标】
 
-                最终文本应尽量降低AI检测风险，目标是稳定控制在20%以内，理想控制在10%到15%。
-                但不得为了追求检测率破坏语义、结构、事实、数据、代码、表格、图表、公式、引用或字数控制。
+                减少机械重复和模板化表达，不承诺检测百分比；效果需要同平台实测。
+                不得破坏语义、结构、事实、数据、代码、表格、图表、公式或引用。
 
                 【六、输出要求】
                 输出完整论文正文。
@@ -623,7 +625,7 @@ public class DoubaoAiRewriteService implements AiRewriteService {
                 3. 保留标题、编号、引用、公式、表格、图片编号。
                 4. 不虚构数据。
                 5. 不加入无关内容。
-                6. 第二阶段必须遵守 DropAI V6 降AI规则：只处理正文自然语言段落，控制字数增长，每300字最多新增约30字，不做解释型扩写。
+                6. 第二阶段允许基于原有事实整段重构；长度参考原文85%—130%，仅作软参考，可超出但不增添事实，不靠堆修饰扩写。
                 7. 最终只输出优化后的完整正文。
                 """;
     }

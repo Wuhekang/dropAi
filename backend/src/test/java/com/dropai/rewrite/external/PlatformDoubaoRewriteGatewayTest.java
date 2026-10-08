@@ -155,7 +155,9 @@ class PlatformDoubaoRewriteGatewayTest {
         ArgumentCaptor<String> user = ArgumentCaptor.forClass(String.class);
         verify(doubao, times(1)).complete(system.capture(), user.capture(), anyInt());
         assertThat(system.getValue())
-                .contains("profile-id: daya-full-narrative-rebuild-v9")
+                .contains("profile-id: daya-full-narrative-rebuild-v10")
+                .contains("85%—130%", "仅为软参考", "允许大幅修改整段表达")
+                .doesNotContain("每句不超过 20 个汉字")
                 .contains("不得套用普通降 AI 的轻改逻辑")
                 .contains("每个输入段都必须按 Skill 实际处理", "风险标签只决定重组策略，不决定跳过")
                 .doesNotContain("PHASE=DAYA_TARGETED_RECHECK", "allowExpansion");
@@ -179,7 +181,8 @@ class PlatformDoubaoRewriteGatewayTest {
         ArgumentCaptor<String> system = ArgumentCaptor.forClass(String.class);
         verify(doubao, times(1)).complete(system.capture(), anyString(), anyInt());
         assertThat(system.getValue())
-                .contains("profile-id: daya-full-narrative-rebuild-v9")
+                .contains("profile-id: daya-full-narrative-rebuild-v10")
+                .contains("85%—130%", "仅为软参考", "允许大幅修改整段表达")
                 .contains("当前为大雅独立双降模式")
                 .contains("不得套用普通降重或普通降 AI 的轻改逻辑")
                 .contains("每个输入段都必须按 Skill 实际处理", "风险标签只决定重组策略，不决定跳过")

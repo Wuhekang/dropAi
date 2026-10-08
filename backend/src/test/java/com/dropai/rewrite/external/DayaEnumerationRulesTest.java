@@ -125,17 +125,16 @@ class DayaEnumerationRulesTest {
     }
 
     @Test
-    void rejectsResidualOrderingMarkersOrChineseSentencesOverTwentyCharacters() {
+    void rejectsResidualOrderingMarkersButAllowsLongSentences() {
         String original = "一是明确责任，二是核对数据，三是记录结果。";
 
         assertThatIllegalStateException()
                 .isThrownBy(() -> DayaEnumerationRules.validateRewrite(
                         original, "首先明确责任。随后核对数据。结果当天记录。"))
                 .withMessageContaining("文本型顺序标记");
-        assertThatIllegalStateException()
-                .isThrownBy(() -> DayaEnumerationRules.validateRewrite(
+        assertThatCode(() -> DayaEnumerationRules.validateRewrite(
                         original, "项目经理每天在现场逐项核对全部台账并记录所有处理结果。"))
-                .withMessageContaining("超过 20 个汉字");
+                .doesNotThrowAnyException();
         assertThatCode(() -> DayaEnumerationRules.validateRewrite(
                 original, "责任已经明确。数据与结果一并处理。"))
                 .doesNotThrowAnyException();

@@ -174,7 +174,8 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
                 || "双降".equals(rewriteType)
                 || (!rewriteOnlyType && risk.getScore() >= 45)) {
             rules.add("每个送入段落都由模型按 Skill 完整处理");
-            rules.add("禁止语义扩写");
+            rules.add("允许基于原有事实整段重构，不限定微量改写，不新增证据或遗漏独立信息");
+            rules.add("长度85%—130%仅作软参考，不为比例删句或扩写");
             rules.add("处理摘要正文和各章节正文自然语言段落");
             rules.add("保护摘要标题、关键词、章节标题、代码、表格、公式和引用");
             rules.add("完成处理的有效输出可以与原文相同，不以文字差异代替处理凭据");

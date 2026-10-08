@@ -1,5 +1,6 @@
 package com.dropai.rewrite.service;
 
+import com.dropai.rewrite.utils.DocxRewriteBoundary;
 import org.springframework.stereotype.Service;
 
 import java.util.LinkedHashMap;
@@ -24,7 +25,7 @@ public class TextStructureProtector {
     );
     private static final Pattern NATIVE_HUMANIZE_PROTECTED_BLOCKS = Pattern.compile(
             "(?ms)(" + STRUCTURED_PROTECTED_BLOCKS + "|"
-                    + "(?:^[\\t ]*(?:摘[\\t ]*要|Abstract|ABSTRACT)[\\t ]*[:：])|"
+                    + DocxRewriteBoundary.ABSTRACT_PREFIX_REGEX + "|"
                     + "(?:\\[[0-9０-９][0-9０-９,，、\\-–—\\s]*\\])|"
                     + "(?:(?<![0-9０-９])[-+]?[0-9０-９]+(?:[.,．][0-9０-９]+)*(?:[%％])?(?![0-9０-９]))|"
                     + URL_AND_INLINE_CODE_BLOCKS + ")"

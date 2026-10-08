@@ -12,7 +12,7 @@ class PlatformRewriteSkillCatalogTest {
         String first = catalog.load(XuejiePlatform.DAYA);
         String second = catalog.load(XuejiePlatform.DAYA);
 
-        assertThat(first)
+        assertThat(first.replace("\r\n", "\n"))
                 .startsWith("---\nname: platform-ai-")
                 .contains("profile-id:")
                 .contains("DropAI 自定义")
@@ -36,7 +36,7 @@ class PlatformRewriteSkillCatalogTest {
     @Test
     void dayaProfileContainsTheSevenReportAndEnumerationRules() {
         assertThat(catalog.load(XuejiePlatform.DAYA))
-                .contains("profile-id: daya-full-narrative-rebuild-v9")
+                .contains("profile-id: daya-full-narrative-rebuild-v10")
                 .contains("每个输入 `id` 都必须实际提交给模型")
                 .contains("风险识别只用于选择基础重构")
                 .contains("未命中标签", "允许跳过处理")
@@ -51,7 +51,7 @@ class PlatformRewriteSkillCatalogTest {
                 .contains("有效结果即使与原文相同也允许提交")
                 .contains("调用失败、空响应或内容损坏不得用原文冒充处理成功")
                 .contains("重度疑似占比", "轻度疑似单列参考")
-                .contains("第一/第二/第三", "每句不超过 20 个汉字")
+                .contains("第一/第二/第三", "不设置每句汉字数上限", "85%—130%", "仅为软参考")
                 .contains("中文摘要、英文摘要、正文自然语言段落")
                 .contains("正文表格中经应用筛出的长说明文字")
                 .contains("执行模型为豆包")

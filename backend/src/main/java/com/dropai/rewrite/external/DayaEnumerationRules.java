@@ -173,9 +173,6 @@ final class DayaEnumerationRules {
             String sentence = sentences.group().trim();
             if (sentence.isEmpty()) continue;
             sentenceCount++;
-            if (countHan(sentence) > 20) {
-                throw new IllegalStateException("大雅列举段存在超过 20 个汉字的句子");
-            }
         }
         if (sentenceCount == 0) throw new IllegalStateException("大雅列举段改写结果为空");
     }

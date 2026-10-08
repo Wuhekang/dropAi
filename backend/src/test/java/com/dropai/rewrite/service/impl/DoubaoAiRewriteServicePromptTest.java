@@ -5,6 +5,9 @@ import com.dropai.rewrite.service.SkillPromptService;
 import com.dropai.rewrite.service.ai.DoubaoModelRouter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.web.client.RestClient;
 
 import java.lang.reflect.Method;
@@ -18,6 +21,27 @@ import static org.mockito.Mockito.when;
 class DoubaoAiRewriteServicePromptTest {
 
     private static final String SKILL_MARKER = "NATIVE_HUMANIZE_SKILL_MARKER";
+
+    @ParameterizedTest
+    @ValueSource(strings = {"GENERAL", "CNKI", "WEIPU", "WANFANG", "GEZIDA"})
+    void allNativePlatformsReceiveDeepRebuildAndSoftLengthRules(String platform) throws Exception {
+        var skills = mock(SkillPromptService.class);
+        String actualSkill = new ClassPathResource("skills/humanize-zh-academic/SKILL.md")
+                .getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+        when(skills.loadSkill("humanize-zh-academic")).thenReturn(actualSkill);
+        var service = service(skills);
+        for (String mode : new String[]{"humanize", "double", "深度降低AI写作痕迹"}) {
+            String prompt = systemPrompt(service, mode + "@" + platform);
+            assertThat(prompt).contains("85%—130%", "软参考", "允许整段大幅重构表达", "不要求原句结构可还原")
+                    .doesNotContain("85% 到 115%", "再做轻微语序调整", "原文本身较短时，只做轻改。", "通常不超过原文 105%");
+            var user = DoubaoAiRewriteService.class.getDeclaredMethod(
+                    "userPrompt", String.class, String.class, int.class, String.class);
+            user.setAccessible(true);
+            assertThat((String) user.invoke(service, "原文正文。", mode + "@" + platform, 70, ""))
+                    .contains("不是第三方实测分数")
+                    .doesNotContain("85% 到 115%", "采用轻量改写");
+        }
+    }
 
     @Test
     void nativeHumanizeLoadsTheResourceSkillAndAllowsAbstractBodies() throws Exception {

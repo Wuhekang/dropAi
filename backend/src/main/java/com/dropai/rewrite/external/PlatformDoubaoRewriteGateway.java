@@ -152,7 +152,7 @@ public class PlatformDoubaoRewriteGateway {
         }
         String phaseRule = switch (phase) {
             case SINGLE_PASS -> throw new IllegalStateException("单阶段 Prompt 已提前返回");
-            case DAYA_TARGETED_RECHECK -> "当前受信任阶段指令：PHASE=DAYA_TARGETED_RECHECK。只处理应用标出的风险项。放弃首稿的微调措辞，从原稿事实重新组织信息入口、从句和句组；只有 rule=enumeration 的成组列举才把中文句子控制在每句 20 个汉字以内。";
+            case DAYA_TARGETED_RECHECK -> "当前受信任阶段指令：PHASE=DAYA_TARGETED_RECHECK。只处理应用标出的风险项。放弃首稿的微调措辞，从原稿事实重新组织信息入口、从句和句组；句长按信息关系决定，不设置每句汉字数上限。";
             case DAYA_RECOVERY_REWRITE -> "当前受信任阶段指令：PHASE=DAYA_RECOVERY_REWRITE。这是失败段的最后一次单段救援。rejection 是应用生成的可信校验原因，必须针对它纠正；不要复用 rejectedCandidate 的失败结构。只处理当前一个 id，仍以 original 中已有事实为边界，处理后正文允许与 original 相同。";
         };
         return """
@@ -220,7 +220,7 @@ public class PlatformDoubaoRewriteGateway {
                     + "ABSTRACT_MODULE_CHAIN 要压缩背景—对象—方法—结果—建议—价值的完整摘要模块，只保留能说明本稿的事实；"
                     + "METHOD_TUTORIAL_CHAIN 要删掉教科书式原理、步骤和计算流程，只说明该方法在本项目中的用途或限制；"
                     + "SOP_CONTROL_CHAIN 要打断责任—台账—预警—整改—复核—归档—考核的完整闭环，只留下必要动作；"
-                    + "TABLE_EXPLANATION_CHAIN 要避免逐项复述图表和公式，把数据意义压到一至两句；"
+                    + "TABLE_EXPLANATION_CHAIN 要避免逐项重复解释图表和公式，完整保留数据与独立判断，不设句数硬限；"
                     + "CONCLUSION_RECAP_CHAIN 要停止按章节复盘对象、方法、结果、建议和价值，直接保留关键发现与边界；"
                     + "LITERATURE_REVIEW_CHAIN 要避免连续使用同一句架罗列作者观点，改为围绕分歧或缺口叙述；"
                     + "DENSE_PARALLEL_CHAIN 要减少并列动作、逗号和分号串联，删掉不影响结论的流程说明；"
@@ -229,11 +229,11 @@ public class PlatformDoubaoRewriteGateway {
                     + "OUTCOME_CLAIM_CHAIN 要减少确保、实现、形成、推动、支撑等连续效果承诺，只留可核对的结果；"
                     + "SCHEMA_CHAIN 要把四节点及以上的破折号或箭头流程压成普通陈述，不得复建完整路径；"
                     + "ARGUMENT_CLOSURE_CHAIN 要打断‘但—若仅—难以—因此’式完整论证闭环，保留实际限制或结论即可；"
-                    + "RESULT_DATA_CHAIN 要停止逐项解释权重、得分、排序和变化，只用一至两句说明数据意味着什么；"
+                    + "RESULT_DATA_CHAIN 要减少对权重、得分、排序和变化的重复解释，保留全部独立信息，不设句数硬限；"
                     + "ABSTRACT_PROCESS_CHAIN 要删减体系、机制、路径、闭环、矩阵等抽象流程名词与成组动作；"
                     + "LONG_STRUCTURED_BODY 表示原段较长且结构完整，应依据原有事实处理整段，不得为了稀释风险补入原文没有的事实；"
                     + "FRAGMENTED_LINE_CHAIN 要删除正文内部所有回车、软换行和制表符，不得用换行伪装分条；"
-                    + "rule=enumeration 时每个中文句子不得超过 20 个汉字；"
+                    + "rule=enumeration 时按事实关系重建整段，不为句长删减条件或独立信息；"
                     + "rule=targeted_rebuild 时保持自然长短变化。"
                     + "每项只重写一次，严格按批处理协议返回：\n"
                     + objectMapper.writeValueAsString(payload);

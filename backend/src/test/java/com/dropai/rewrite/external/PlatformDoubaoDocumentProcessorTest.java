@@ -37,6 +37,50 @@ class PlatformDoubaoDocumentProcessorTest {
     Path temporaryDirectory;
     private final List<PlatformDoubaoDocumentProcessor> processors = new ArrayList<>();
 
+    @Test
+    void afterCatalogDayaIncludesProseWithoutHeadingAndDoesNotStopAtBracketedKeywords() throws Exception {
+        var processor = processor(mock(PlatformDoubaoRewriteGateway.class));
+        try (XWPFDocument document = new XWPFDocument()) {
+            document.createParagraph().createRun().setText("这段封面中的长说明内容不得进入正文改写的处理范围。");
+            document.createParagraph().createRun().setText("目录");
+            document.createParagraph().createRun().setText("摘要\tI");
+            document.createParagraph().createRun().setText("参考文献\t20");
+            String abstractText = "[摘 要]本研究围绕幼小衔接中的学习品质展开，所有观点与限制均按原稿保留。";
+            String body = "这是关键词之后直接连接的正常正文，没有一级标题也需要完整送入处理。";
+            document.createParagraph().createRun().setText(abstractText);
+            document.createParagraph().createRun().setText("【关键词】幼小衔接；学习品质；教育研究");
+            document.createParagraph().createRun().setText(body);
+            document.createParagraph().createRun().setText("参考文献");
+            document.createParagraph().createRun().setText("参考文献后面的长说明内容同样不能进入正文改写范围。");
+            String xml = document.getDocument().xmlText();
+            assertThat(processor.collectDayaTargets(document))
+                    .extracting(PlatformDoubaoDocumentProcessor.Target::originalText)
+                    .containsExactly(abstractText, body);
+            assertThat(document.getDocument().xmlText()).isEqualTo(xml);
+        }
+    }
+
+    @Test
+    void dayaRecognizesSdtCatalogAndItsTrailingBodyWithoutAHeading() throws Exception {
+        var processor = processor(mock(PlatformDoubaoRewriteGateway.class));
+        try (XWPFDocument document = new XWPFDocument()) {
+            document.createParagraph().createRun().setText("这段封面中的长说明内容不得进入正文改写的处理范围。");
+            var sdt = document.getDocument().getBody().addNewSdt();
+            sdt.addNewSdtPr().addNewDocPartObj().addNewDocPartGallery().setVal("Table of Contents");
+            sdt.addNewSdtContent().addNewP().addNewR().addNewT().setStringValue("参考文献 20");
+            String body = "自动目录结束后这段没有摘要标签也没有一级标题的正文仍须完整处理。";
+            document.createParagraph().createRun().setText(body);
+            document.createParagraph().createRun().setText("参考文献");
+            var bytes = new java.io.ByteArrayOutputStream();
+            document.write(bytes);
+            try (var parsed = new XWPFDocument(new java.io.ByteArrayInputStream(bytes.toByteArray()))) {
+                assertThat(processor.collectDayaTargets(parsed))
+                        .extracting(PlatformDoubaoDocumentProcessor.Target::originalText)
+                        .containsExactly(body);
+            }
+        }
+    }
+
     @AfterEach
     void shutdownProcessors() {
         processors.forEach(PlatformDoubaoDocumentProcessor::shutdownDayaBatchExecutor);
