@@ -38,6 +38,60 @@ class PlatformDoubaoDocumentProcessorTest {
     private final List<PlatformDoubaoDocumentProcessor> processors = new ArrayList<>();
 
     @Test
+    void dayaLeavesMixedGraphicParagraphsAndTablePicturesUntouchedWhileRewritingText() throws Exception {
+        Path source = temporaryDirectory.resolve("pictures-source.docx");
+        Path output = temporaryDirectory.resolve("pictures-output.docx");
+        byte[] image = java.util.Base64.getDecoder().decode(
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=");
+        String body = "现场人员核对庭院空间的布置情况，并把各区域的使用情况记录在原始台账中。";
+        String replacement = "庭院空间的布置由现场人员核对，各区域的使用情况则记录在原始台账中。";
+        try (var document = new XWPFDocument()) {
+            var heading = document.createParagraph();
+            heading.setStyle("Heading1");
+            heading.createRun().setText("第一章 绪论");
+            document.createParagraph().createRun().setText(body);
+            var mixed = document.createParagraph().createRun();
+            mixed.setText("图片旁的说明文字以及图片本身都应完整保留，不能因文字回填删掉图片。");
+            mixed.addPicture(new java.io.ByteArrayInputStream(image), org.apache.poi.xwpf.usermodel.Document.PICTURE_TYPE_PNG,
+                    "picture.png", 1000000, 500000);
+            var table = document.createTable(2, 2);
+            for (int i = 0; i < 2; i++) {
+                var run = table.getRow(0).getCell(i).getParagraphs().get(0).createRun();
+                run.setText("表格单元格中图片的文字说明需要保持原有图片和排版关系。");
+                run.addPicture(new java.io.ByteArrayInputStream(image), org.apache.poi.xwpf.usermodel.Document.PICTURE_TYPE_PNG,
+                        "picture.png", 1000000, 500000);
+                table.getRow(1).getCell(i).setText("图" + (i + 1) + " 图片来源说明");
+            }
+            try (var stream = Files.newOutputStream(source)) { document.write(stream); }
+        }
+        String mixedXml;
+        String tableXml;
+        try (var stream = Files.newInputStream(source); var document = new XWPFDocument(stream)) {
+            mixedXml = document.getParagraphs().get(2).getCTP().xmlText();
+            tableXml = document.getTables().get(0).getCTTbl().xmlText();
+        }
+        var gateway = mock(PlatformDoubaoRewriteGateway.class);
+        when(gateway.configured()).thenReturn(true);
+        when(gateway.rewriteBatch(anyList(), eq(XuejiePlatform.DAYA), eq(XuejieRewriteMode.HUMANIZE)))
+                .thenAnswer(invocation -> {
+                    List<PlatformDoubaoRewriteGateway.Segment> segments = invocation.getArgument(0);
+                    assertThat(segments).hasSize(1);
+                    assertThat(segments.get(0).text()).isEqualTo(body);
+                    return Map.of(segments.get(0).id(), replacement);
+                });
+        var result = processor(gateway).process(source, output, XuejiePlatform.DAYA, XuejieRewriteMode.HUMANIZE, null);
+        assertThat(result.failedParagraphs()).isZero();
+        assertThat(result.rewrittenParagraphs()).isEqualTo(1);
+        try (var stream = Files.newInputStream(output); var document = new XWPFDocument(stream)) {
+            assertThat(document.getParagraphs().get(1).getText()).isEqualTo(replacement);
+            assertThat(document.getParagraphs().get(2).getCTP().xmlText()).isEqualTo(mixedXml);
+            assertThat(document.getTables().get(0).getCTTbl().xmlText()).isEqualTo(tableXml);
+            assertThat(document.getAllPictures()).hasSize(1);
+            assertThat(document.getAllPictures().get(0).getData()).isEqualTo(image);
+        }
+    }
+
+    @Test
     void afterCatalogDayaIncludesProseWithoutHeadingAndDoesNotStopAtBracketedKeywords() throws Exception {
         var processor = processor(mock(PlatformDoubaoRewriteGateway.class));
         try (XWPFDocument document = new XWPFDocument()) {

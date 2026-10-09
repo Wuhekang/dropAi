@@ -11,6 +11,7 @@ import com.dropai.rewrite.service.PointService;
 import com.dropai.rewrite.service.TextStructureProtector;
 import com.dropai.rewrite.service.WorkflowRewriteService;
 import com.dropai.rewrite.utils.DocxRewriteBoundary;
+import com.dropai.rewrite.utils.DocxImageTextPreserver;
 import com.dropai.rewrite.vo.DocumentParagraphJobVO;
 import com.dropai.rewrite.vo.DocumentPrecheckVO;
 import com.dropai.rewrite.vo.DocumentRewriteJobVO;
@@ -344,8 +345,16 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
                     .sorted(Comparator.comparingInt(RewriteResult::index))
                     .forEach(result -> {
                         if (result.success() && !result.rewrittenText().equals(originalTextByIndex.get(result.index()))) {
-                            replaceParagraphText(result.paragraph(), result.rewrittenText());
-                            job.setRewrittenParagraphs(job.getRewrittenParagraphs() + 1);
+                            if (replaceParagraphText(result.paragraph(), result.rewrittenText())) {
+                                job.setRewrittenParagraphs(job.getRewrittenParagraphs() + 1);
+                            } else {
+                                // Output-stage structural fallback, not another model/quality-gate pass.
+                                log.warn("ImagePreservationFallback jobId={} paragraphIndex={} stage=docx_refill "
+                                                + "action=KEEP_ORIGINAL reason=UNSAFE_GRAPHIC_TEXT_STRUCTURE",
+                                        jobId, result.index());
+                                updateParagraphStatus(job, result.index(), "SUCCESS",
+                                        originalTextByIndex.get(result.index()), "处理完成");
+                            }
                         }
                     });
             long unchangedParagraphs = successfulParagraphs - job.getRewrittenParagraphs();
@@ -1185,7 +1194,10 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
                 || text.contains("TOC \\o");
     }
 
-    private void replaceParagraphText(XWPFParagraph paragraph, String text) {
+    private boolean replaceParagraphText(XWPFParagraph paragraph, String text) {
+        if (DocxImageTextPreserver.containsGraphics(paragraph)) {
+            return DocxImageTextPreserver.replaceText(paragraph, text);
+        }
         XWPFRun templateRun = paragraph.getRuns().isEmpty() ? null : paragraph.getRuns().get(0);
         CTRPr runProperties = null;
         if (templateRun != null && templateRun.getCTR().isSetRPr()) {
@@ -1200,6 +1212,7 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             run.getCTR().setRPr(runProperties);
         }
         run.setText(text == null ? "" : text);
+        return true;
     }
 
     private String readableMessage(Exception exception) {
