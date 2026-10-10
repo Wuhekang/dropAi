@@ -26,12 +26,41 @@ class MechanicalPaperTest {
         assertTrue(Math.ceil(target*1.06)<=9000);
         assertTrue(Math.floor(target*.90)>=6000);
     }
+    @Test void writingGuidanceKeepsExplanationSpecificAndFiguresAligned() {
+        var section=MechanicalPaperPlan.SECTIONS.stream().filter(s->s.id().equals("5.5")).findFirst().orElseThrow();
+        String guidance=MechanicalPaperService.sectionWritingGuidance(section);
+        assertTrue(guidance.contains("5.5仅分析图5-6/7"));
+        assertTrue(guidance.contains("不逐色描述"));
+        assertTrue(guidance.contains("不逐行转述"));
+        assertTrue(guidance.contains("说明一次"));
+        var calculation=MechanicalPaperPlan.SECTIONS.stream().filter(s->s.id().equals("3.1")).findFirst().orElseThrow();
+        assertTrue(MechanicalPaperService.sectionWritingGuidance(calculation).contains("公式变量单位"));
+        assertTrue(calculation.words()>section.words());
+    }
     @Test void cloudsDoNotInventSolverScreenshots() throws Exception {
         JsonNode design=mapper.readTree("{\"inputs\":\"最大应力82MPa\",\"parts\":[],\"figures\":[{\"id\":\"5-4\",\"caption\":\"承载件应力分布\",\"description\":\"最大值82MPa\"}]}");
         String prompt=MechanicalPaperService.figurePrompt(design,MechanicalPaperPlan.FIGURES.get(11));
         assertTrue(prompt.contains("浅灰白背景"));assertTrue(prompt.contains("竖直彩虹色标"));
         assertTrue(prompt.contains("不得出现任何数字"));assertTrue(prompt.contains("定性分析"));
         assertFalse(prompt.contains("82MPa"));assertFalse(prompt.contains("设计参数"));
+    }
+    @Test void assembliesUseCadViewportInsteadOfPhotorealMaterials() throws Exception {
+        JsonNode design=mapper.readTree("{\"inputs\":\"夹具\",\"parts\":[],\"figures\":[{\"id\":\"5-1\",\"caption\":\"总装图\",\"description\":\"夹具体与定位件\"}]}");
+        var figure=MechanicalPaperPlan.FIGURES.stream().filter(f->f.id().equals("5-1")).findFirst().orElseThrow();
+        String prompt=MechanicalPaperService.figurePrompt(design,figure);
+        assertTrue(prompt.contains("着色带边线"));assertTrue(prompt.contains("正交等轴测"));
+        assertTrue(prompt.contains("禁止金属颗粒"));assertTrue(prompt.contains("不伪造软件窗口"));
+        assertTrue(prompt.contains("不加标题、文字标签"));
+    }
+    @Test void cloudsShowLoadsAndConstraintsWithoutMixingParts() throws Exception {
+        JsonNode design=mapper.readTree("{\"parts\":[{\"name\":\"夹具体\",\"geometry\":\"板式\"},{\"name\":\"圆柱定位销\",\"geometry\":\"短台阶轴\"}],\"figures\":[{\"id\":\"5-4\",\"caption\":\"夹具体应力分布云图\"},{\"id\":\"5-7\",\"caption\":\"圆柱定位销位移分布云图\"}]}");
+        String stress=MechanicalPaperService.figurePrompt(design,MechanicalPaperPlan.FIGURES.stream().filter(f->f.id().equals("5-4")).findFirst().orElseThrow());
+        assertTrue(stress.contains("四个角部安装孔"));assertTrue(stress.contains("粗紫红箭头"));
+        assertTrue(stress.contains("固定约束"));assertTrue(stress.contains("局部黄红热点"));
+        assertFalse(stress.contains("短台阶轴"));
+        String displacement=MechanicalPaperService.figurePrompt(design,MechanicalPaperPlan.FIGURES.stream().filter(f->f.id().equals("5-7")).findFirst().orElseThrow());
+        assertTrue(displacement.contains("水平切削分力"));assertTrue(displacement.contains("从下部固定段蓝色向上端暖色"));
+        assertFalse(displacement.contains("板式"));
     }
     @Test void downloadsRejectPrivateAddresses() {
         for(String url:List.of("http://127.0.0.1/a.png","http://192.168.1.3/img","http://169.254.169.254/latest","http://[::1]/","file:///x","http://user:pw@example.com/a"))
@@ -52,6 +81,9 @@ class MechanicalPaperTest {
         final var intro=MechanicalPaperPlan.SECTIONS.get(0);
         assertThrows(IllegalStateException.class,()->MechanicalPaperService.validateSection(mapper.readTree("{\"paragraphs\":[\"资料来源待补充\"],\"formulas\":[],\"tables\":[]}"),intro));
         assertThrows(IllegalStateException.class,()->MechanicalPaperService.validateSection(mapper.readTree("{\"paragraphs\":[\"通过三维建模和有限元分析验证结构\"],\"formulas\":[],\"tables\":[]}"),intro));
+        var mesh=MechanicalPaperPlan.SECTIONS.stream().filter(s->s.id().equals("5.3")).findFirst().orElseThrow();
+        var fabricated=mapper.readTree("{\"paragraphs\":[\"网格划分\"],\"formulas\":[],\"tables\":[{\"caption\":\"模型\",\"headers\":[\"项\",\"值\"],\"rows\":[[\"节点总数\",\"18万\"]]}]}");
+        assertThrows(IllegalStateException.class,()->MechanicalPaperService.validateSection(fabricated,mesh));
         assertEquals("设计参数",MechanicalPaperExporter.cleanCaption("表2-1 表 2-1 设计参数"));
     }
     @Test void exportedWordHasNativeMathActualTocAllImagesAndPageBreaks() throws Exception {

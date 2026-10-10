@@ -57,6 +57,22 @@ class MechanicalPaperArkSmokeTest {
             Path snapshot=root.resolve("state.json");
             if(Files.isRegularFile(snapshot)) {
                 var state=mapper.readValue(Files.readString(snapshot),MechanicalPaperState.class);
+                // Explicit fixture for visual-review reruns when search is unavailable; never used by production.
+                String photoSnapshot=System.getProperty("mechanical.paper.ark-photo-fixture", "");
+                if(!photoSnapshot.isBlank()) {
+                    Path sourceSnapshot=Path.of(photoSnapshot).toAbsolutePath();
+                    var previous=mapper.readValue(Files.readString(sourceSnapshot),MechanicalPaperState.class);
+                    assertEquals(state.title,previous.title);
+                    var photo=previous.tasks.get("image:1-1");
+                    assertEquals("completed",photo.status);
+                    Files.copy(sourceSnapshot.getParent().resolve(previous.id).resolve(photo.file),root.resolve(state.id).resolve(photo.file),StandardCopyOption.REPLACE_EXISTING);
+                    state.tasks.put("image:1-1",photo);
+                    System.out.println("ARK_SMOKE reused previously verified same-topic photo fixture");
+                }
+                for(String sectionId:System.getProperty("mechanical.paper.ark-redo-text", "").split(",")) {
+                    var task=state.tasks.get("text:"+sectionId);
+                    if(task!=null) {task.status="waiting";state.status="FAILED";state.tasks.get("summary").status="waiting";state.tasks.get("export").status="waiting";}
+                }
                 for(String figureId:System.getProperty("mechanical.paper.ark-redo","").split(",")) {
                     var task=state.tasks.get("image:"+figureId);if(task!=null)task.status="waiting";
                 }

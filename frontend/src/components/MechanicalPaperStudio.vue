@@ -2,14 +2,14 @@
   <main class="paper-studio">
     <aside class="paper-sidebar">
       <button class="brand" @click="router.push('/dashboard')"><span>D</span><b>Doki<small>机械设计</small></b></button>
-      <div class="mode-switch"><button class="selected">机械说明书</button><button @click="$emit('back')">结构方案</button></div>
+      <div class="mode-switch"><button class="selected">机械说明稿</button><button @click="$emit('back')">结构方案</button></div>
       <p class="sidebar-label">说明书章节</p>
       <a v-for="(chapter, i) in chapters" :key="chapter" :href="`#paper-chapter-${i+1}`"><span>{{ i+1 }}</span>{{ chapter }}</a>
       <section v-if="history.length" class="history"><p class="sidebar-label">最近任务</p><button v-for="item in history" :key="item.id" :class="{selected: job?.id===item.id}" @click="restore(item.id)">{{ item.title }}<small>{{ stateLabel(item.status) }}</small></button></section>
       <footer>题目驱动 · 图文完整交付</footer>
     </aside>
     <section class="paper-main">
-      <header class="page-header"><div><span>机械设计 / 机械说明书</span><h1>机械说明书</h1><p>输入题目，Doki 自动规划正文与配图，生成完整 Word 稿件。</p></div><button class="secondary" @click="router.push('/dashboard')">返回工作台</button></header>
+      <header class="page-header"><div><span>机械设计 / 机械说明稿</span><h1>机械说明稿</h1><p>输入题目，Doki 自动规划正文与配图，生成完整 Word 稿件。</p></div><button class="secondary" @click="router.push('/dashboard')">返回工作台</button></header>
       <section class="input-panel">
         <label for="paper-title">说明书题目</label>
         <div class="title-input"><input id="paper-title" v-model="title" maxlength="120" placeholder="例如：板类零件钻孔夹具结构设计" :disabled="busy || running" @keyup.enter="start"><button class="primary" :disabled="busy || running || !title.trim() || !readiness.ready" @click="start">{{ busy ? '正在创建…' : running ? '正在生成' : '立即生成' }}</button></div>

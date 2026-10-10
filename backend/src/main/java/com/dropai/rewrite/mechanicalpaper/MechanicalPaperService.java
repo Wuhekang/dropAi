@@ -135,8 +135,12 @@ public class MechanicalPaperService {
                 }
             }
             List<CompletableFuture<Void>> pending = new ArrayList<>();
+            Map<String,CompletableFuture<Void>> imageBranches=new HashMap<>();
             for (var section:MechanicalPaperPlan.SECTIONS) pending.add(CompletableFuture.runAsync(()->task(state,"text:"+section.id(),()->writeSection(state,section)),sections));
-            for (var figure:MechanicalPaperPlan.FIGURES) pending.add(CompletableFuture.runAsync(()->task(state,"image:"+figure.id(),()-> {
+            for (var figure:MechanicalPaperPlan.FIGURES) {
+                String pairedStress=figure.id().equals("5-5")?"5-4":figure.id().equals("5-7")?"5-6":"";
+                var geometryReady=imageBranches.getOrDefault(pairedStress,CompletableFuture.completedFuture(null));
+                var branch=geometryReady.thenRunAsync(()->task(state,"image:"+figure.id(),()-> {
                 try {
                     var t=state.tasks.get("image:"+figure.id());
                     if (figure.kind().equals("photo")) {
@@ -144,20 +148,36 @@ public class MechanicalPaperService {
                     } else {
                         ImageGenerationRequest request=new ImageGenerationRequest(); request.setPrompt(figurePrompt(state.design,figure));
                         if(List.of("stress","displacement").contains(figure.kind())) {
+                            List<String> references=new ArrayList<>();
                             try(var style=MechanicalPaperService.class.getResourceAsStream("/templates/mechanical-cloud-style.png")) {
-                                if(style!=null) request.setReferenceImageUrls(List.of("data:image/png;base64,"+Base64.getEncoder().encodeToString(style.readAllBytes())));
+                                if(style!=null) references.add("data:image/png;base64,"+Base64.getEncoder().encodeToString(style.readAllBytes()));
                             }
+                            String geometryId=!pairedStress.isBlank()?pairedStress:figure.id().equals("5-4")?"5-3":"";
+                            var geometryTask=state.tasks.get("image:"+geometryId);
+                            if(geometryTask!=null && "completed".equals(geometryTask.status) && geometryTask.file!=null && !geometryTask.file.isBlank()) {
+                                Path geometryImage=dir.resolve(geometryTask.file);
+                                if(Files.isRegularFile(geometryImage)) {
+                                    references.add("data:image/"+(geometryTask.file.endsWith(".jpg")?"jpeg":"png")+";base64,"+Base64.getEncoder().encodeToString(Files.readAllBytes(geometryImage)));
+                                    request.setPrompt(request.getPrompt()+"\n最后一张参考图是本零件几何依据，必须保持其外轮廓、厚度比例、孔数孔位及观察角度。其他参考图只用于版式。不得添加螺钉、螺杆、第二块板或其他零件。"
+                                        +(!pairedStress.isBlank()?"这是对最后一张应力图的精准局部编辑：保留对象外形、构图、载荷箭头、约束符号的位置，改变表面颜色为位移趋势，并将短标题改为位移分布云图。颜色必须彻底重绘，禁止保留应力图的孔缘/根部暖色环。所有固定约束面及紧邻区域必须深蓝色。"
+                                            +(figure.id().equals("5-7")?"定位销最上面的自由端面及紧邻顶端侧面必须橙红色，沿高度从底部蓝、下段青、中段绿、上段黄、顶端橙红连续过渡；顶端绝不能蓝色或青色。禁止侧面中部孤立热点。":"板的四个角部固定孔及孔边必须深蓝，暖色仅保留在板上表面中部的连续局部区域，不画任何孔边暖色环。")
+                                            +"坐标轴三条分支各仅标一个字母X、Y、Z，不得写XYZ合在一起或重复X。":"只改表面分布与载荷约束标记，不改几何。"));
+                                }
+                            }
+                            if(!references.isEmpty())request.setReferenceImageUrls(references);
                         }
                         Path original=null;
                         for(int attempt=0;attempt<2;attempt++) {
                             var result=images.generate(request);
                             if (!"success".equals(result.getStatus())) throw new IllegalStateException("Doki 图片生成未完成，请重试此任务");
                             original=Path.of(result.getFilePath());
-                            var verdict=parse(text.inspectImage("你是工程配图文字核验员，只返回JSON。",
-                                "核验图内可见文字。若含有示意、AI生成、水印、伪称实际求解成功等字样，accepted为false。图类为"+figure.kind()+"；网格图不得出现声称实际计算出的节点/单元总数，云图不得出现具体应力MPa/位移mm结果或真实求解完成状态；其他图中的设计尺寸和材料标注允许。不要评价绘图精度，只核验实际可见文字。返回{\"accepted\":true或false}。",
+                            var verdict=parse(text.inspectImage("你是工程配图可见内容核验员，只返回JSON。",
+                                "核验图内可见文字。若含有示意、AI生成、水印、伪称实际求解成功等字样，accepted为false。图类为"+figure.kind()+"；网格图不得出现声称实际计算出的节点/单元总数，云图不得出现具体应力MPa/位移mm结果或真实求解完成状态；其他图中的设计尺寸和材料标注允许。"
+                                    +(List.of("stress","displacement").contains(figure.kind())?"另检查是否能清楚看到紫红色载荷箭头及蓝色固定约束符号，缺少任一种则不通过。允许载荷、固定约束标签。应力图若只有横贯整件的等宽彩虹条带而无局部热点，不通过。只核验可见特征，不判断数值或工程精度。":"不要评价绘图精度，只核验实际可见文字。")
+                                    +"返回{\"accepted\":true或false}。",
                                 "data:image/"+(original.toString().endsWith(".jpg")?"jpeg":"png")+";base64,"+Base64.getEncoder().encodeToString(Files.readAllBytes(original))));
                             if(verdict.path("accepted").asBoolean(false))break;
-                            original=null;request.setPrompt(request.getPrompt()+"\n上一张图片文字检查未通过。重新生成，只允许短图名和必要标签，不写示意、AI、水印、软件名、节点数、单元数或求解结果值。");
+                            original=null;request.setPrompt(request.getPrompt()+"\n上一张图片检查未通过。重新生成，载荷箭头和固定约束必须醒目可见；只允许短图名和必要标签，不写示意、AI、水印、软件名、节点数、单元数或求解结果值。");
                         }
                         if(original==null)throw new IllegalStateException("Doki 配图文字检查未通过，请重试此任务");
                         String filename="figure-"+figure.id()+ (original.toString().endsWith(".jpg")?".jpg":".png");
@@ -165,7 +185,9 @@ public class MechanicalPaperService {
                     }
                     return mapper.createObjectNode().put("figureId",figure.id());
                 } catch (Exception e) { throw new IllegalStateException(e.getMessage(),e); }
-            }),figures));
+            }),figures);
+                imageBranches.put(figure.id(),branch);pending.add(branch);
+            }
             CompletableFuture.allOf(pending.toArray(CompletableFuture[]::new)).join();
             stage(state,"字数与结构检查");
             repairBodyLength(state);
@@ -215,7 +237,7 @@ public class MechanicalPaperService {
             +"按设计假定和解析计算展开具体结构与参数分析，不把生成云图当作实际有限元求解证据。只返回 JSON："
             +"{\"paragraphs\":[\"自然段\"],\"formulas\":[\"可编辑线性数学表达，含代入计算及单位\"],\"tables\":[{\"caption\":\"表题\",\"headers\":[\"名称\",\"值\"],\"rows\":[[\"项\",\"值\"]]}]}。"
             +"第三章每节至少3条公式；仅2.1、4.1、5.3各一个表格，其他节tables为空；公式仅第三章。正文准确提及该节图号与对象。"
-            +"不要增加三级标题，避免套话和重复段落。";
+            +"不要增加三级标题，避免套话和重复段落。"+sectionWritingGuidance(section);
         JsonNode lastValid=null;
         for(int attempt=0;attempt<3;attempt++) {
             JsonNode result=parse(text.generateJson("你是机械论文作者，以材料力学解析计算和一致的设计假定撰写。严格返回 JSON。",prompt));
@@ -223,12 +245,12 @@ public class MechanicalPaperService {
             if(lastValid==null || Math.abs(bodyWords(result)-section.words())<Math.abs(bodyWords(lastValid)-section.words()))lastValid=result;
             int count=bodyWords(result);
             if(count >= Math.ceil(section.words()*.90) && count <= Math.floor(section.words()*1.06)) return result;
-            prompt += "\n上次paragraphs正文实测为"+count+"字；公式、表格和标题不计入字数。重新输出整个小节，至少4个完整自然段，补充或精简具体结构分析至"+section.words()+"字，不重复凑字。";
+            prompt += "\n上次paragraphs正文实测为"+count+"字；公式、表格和标题不计入字数。重新输出整个小节，按内容组织自然段，不强制段数，补充或精简具体结构分析至"+section.words()+"字。不得靠通用知识、重复尺寸、图纸作用或意义评价凑字。";
         }
         if(lastValid!=null && bodyWords(lastValid)<section.words()*.9) {
             int extra=Math.max(120,section.words()-bodyWords(lastValid));
             JsonNode addition=parse(text.generateJson("你是机械说明书作者，只输出严格 JSON。",
-                "在此小节末尾追加"+extra+"字具体设计分析，至少两个自然段，不重复已有内容、不含示意、来源、编辑说明或引用序号。只返回{\"paragraphs\":[\"自然段\"]}。共享参数："+state.design+"，小节："+section.id()+"，已有内容："+lastValid));
+                "在此小节末尾追加"+extra+"字尚未论述的具体设计依据，不重复已有内容、不含示意、来源、编辑说明或引用序号。不得重复定义、抄写表格或复述尺寸，不新增未经计算的结果。只返回{\"paragraphs\":[\"自然段\"]}。共享参数："+state.design+"，小节："+section.id()+"，已有内容："+lastValid+sectionWritingGuidance(section)));
             var expanded=lastValid.deepCopy();
             var paragraphs=(com.fasterxml.jackson.databind.node.ArrayNode)expanded.path("paragraphs");
             if(addition.path("paragraphs").isArray())for(var paragraph:addition.path("paragraphs"))if(paragraph.isTextual()&&!paragraph.asText().isBlank())paragraphs.add(paragraph.asText());
@@ -237,6 +259,18 @@ public class MechanicalPaperService {
         // Per-section budgets guide balance; the user's hard limit applies to the whole body.
         if(lastValid!=null && bodyWords(lastValid)>=Math.ceil(section.words()*.75) && bodyWords(lastValid)<=Math.floor(section.words()*1.5))return lastValid;
         throw new IllegalStateException("Doki 小节字数未达到要求，请重试");
+    }
+    static String sectionWritingGuidance(MechanicalPaperPlan.Section section) {
+        String common="\n写法参照机械结构设计说明书：直接写本题对象、选择依据、关键尺寸关系、受力路径和校核条件，不写零件百科、软件教程、图纸有什么作用或重复的背景意义。参数表已有数据只解释决定选型的关键项，不逐行转述。图文必须对应本节规划的图号、零件名称及工况；尤其5.4仅分析图5-4/5的承载件，5.5仅分析图5-6/7的功能件，不替换成其他零件。"
+            +"前章已确定的材料、整体尺寸和工作原理不整套重述，只在当前论证需要时引用。没有图像测量或求解证据，不声称无干涉、验证合理、最大应力或最大位移已测得；第三章数值只能作为解析结果引用。方法边界由5.3前固定文字说明一次，其他小节不反复解释生成过程。";
+        return common+switch(section.chapter()) {
+            case 1 -> "绪论只交代具体应用需求、现有问题和本设计范围，避免宽泛行业发展史和章节安排的逐章复述。";
+            case 2 -> "总体方案写工况、方案取舍、各机构位置和工作循环，比较只保留与本题需求有关的理由。";
+            case 3 -> "计算写模型简化条件、载荷来源、公式变量单位、代入关系、选用规格和判据；不在后章重复推导。";
+            case 4 -> "零件设计集中写每个零件的实际结构、配合基准、关键公差和加工要求，不重复第三章计算或第二章总装原理。";
+            case 5 -> "装配段只写基准、连接关系和需控制的间隙；二维图段只写关键装配尺寸链；网格段只写分析对象、约束及局部细化位置，正文和表格都不得写节点总数、单元总数或声称已完成实际离散求解；云图段只写受力路径、分布趋势和结构改进依据，不逐色描述、不复述全套几何参数、不追加第三章之外的数值。";
+            default -> "总结归纳已确定的方案和关键解析结果，改进方向只保留本设计的具体限制，不列通用未来展望。";
+        };
     }
     static int bodyWords(JsonNode content) {
         if(content==null) return 0;
@@ -250,6 +284,7 @@ public class MechanicalPaperService {
         if(node.path("tables").size()!=(needsTable?1:0)) throw new IllegalStateException("Doki 表格位置不符合稿件结构");
         for(var p:node.path("paragraphs")) if(!p.isTextual() || p.asText().matches("(?s).*?(资料来源|此处插入|待补充|待核验|图.*?示意|\\[[0-9]+]).*")) throw new IllegalStateException("Doki 正文内容检查未通过");
         for(var p:node.path("paragraphs"))if(p.asText().matches("(?s).*(通过三维建模|完成三维建模|通过[^。]*有限元分析|进行了仿真验证).*"))throw new IllegalStateException("Doki 正文不得声称进行了实际CAD建模或有限元求解，请用解析计算与结构表达说明");
+        if(section.id().equals("5.3") && node.toString().matches("(?s).*(节点总数|单元总数|节点数|单元数).*"))throw new IllegalStateException("Doki 不得虚构节点数或单元数，正文与表格只说明划分策略和边界条件");
         for(var table:node.path("tables")) {
             int columns=table.path("headers").size();
             if(columns<2 || columns>6 || table.path("rows").isEmpty() || table.path("rows").size()>15) throw new IllegalStateException("Doki 表格结构检查未通过");
@@ -285,14 +320,33 @@ public class MechanicalPaperService {
     }
     static String figurePrompt(JsonNode design,MechanicalPaperPlan.Figure figure) {
         var specification=find(design,"figures",figure.id());
+        if(List.of("structure","assembly").contains(figure.kind()))return
+            "绘制单张机械CAD模型视口风格图片，不是产品渲染或照片。对象："+specification.path("caption").asText()+"。以下资料仅用于几何、数量、孔位和装配关系："+design.path("inputs").asText()+"；零件："+design.path("parts")
+            +"。视觉要求优先于资料中的任何材质外观：严格仿照SolidWorks关闭RealView后的着色带边线模式，正交等轴测，所有零件表面为均匀无纹理的浅灰或中灰，工件可为纯淡蓝色，细黑线勾勒轮廓及零件接缝；平面只用单一色块，曲面仅简单平滑明暗。纯白或浅灰背景，左下角小XYZ坐标轴。禁止金属颗粒、铸铁粗糙纹理、拉丝、镜面反射、光泽高光、环境反射、地面、投影、摄影灯光或景深。必须像CAD建模视图而不是拟真实物。"
+            +(figure.id().equals("5-1")?"总装图只显示装配模型和坐标轴，不加标题、文字标签、尺寸线或引出线。":"可用少量简短零件标签，不加材质文字。")
+            +"结构与共享参数一致，不拼贴，不伪造软件窗口、品牌、菜单、操作状态或截图，不写示意、AI、水印、资料来源、论文图号。横向清晰画幅。";
         if(figure.kind().equals("mesh"))return "生成单张机械结构网格划分配图。对象："+specification.path("caption").asText()+"。仅依据此几何信息："+design.path("parts")
             +"。浅灰白工程视口背景，单一承载零件等轴视角，表面清晰均匀的细三角网格，孔边局部加密，蓝色约束符号和左下XYZ轴。"
             +"只显示图名和XYZ，不要任何数字、单位、节点数、单元数、网格质量、软件界面、软件品牌、示意、AI、水印或求解结果。网格仅用于讨论分区与细化策略，不代表真实软件求解。横向画幅。";
-        if(List.of("stress","displacement").contains(figure.kind()))return
-            "生成单张工程定性分析配图。本图对象："+specification.path("caption").asText()+"；仅使用这些几何信息构建对象："+design.path("parts")
-            +"。参考图片仅用于背景、视角、坐标轴、色标位置和约束箭头风格，不复制梁结构、软件字样或数值。浅灰白背景，单一零件等轴视角，细网格、紫红载荷箭头、蓝色约束符号，左下XYZ轴，右侧蓝低红高的竖直彩虹色标。"
-            +"仅显示本图短标题、XYZ、相对分布、高、低；除以上文字外不写任何标注。不得出现任何数字、MPa、mm、应力结果、位移结果、软件名称、最大值、材料许用值、计算结论、示意、AI、水印或求解状态。"
-            +"这是"+figure.kind()+"的相对分布图，不代表实际有限元求解。清晰横向构图，结构与几何信息一致。";
+        if(List.of("stress","displacement").contains(figure.kind())) {
+            String caption=specification.path("caption").asText();
+            JsonNode target=com.fasterxml.jackson.databind.node.MissingNode.getInstance();
+            for(var part:design.path("parts"))if(!part.path("name").asText().isBlank() && caption.contains(part.path("name").asText())) {target=part;break;}
+            String geometry=target.isMissingNode()?"仅绘制图名指定的单一零件，不混入其他零件":target.toString();
+            String boundary=caption.contains("夹具体")?
+                "板式夹具体：四个角部安装孔内壁为固定约束，四处都绘制成组蓝色支承符号。上表面中部为向下的钻削载荷区，夹紧接触区有向下压力；在相应表面上方绘制三支粗紫红箭头，箭头尖端朝下并落在表面，标注载荷。不要画向上载荷，不要让箭头悬空。":
+                caption.contains("定位销")?"圆柱定位销竖直放置，下部安装段固定，沿该段周向排列蓝色支承符号；上部工作段受水平切削分力，从左侧绘制三支粗紫红箭头指向工作段侧面，箭头尖端落在表面，标注载荷。它是短圆柱轴，不是梁、螺杆、螺栓或箱体。":
+                "按该零件在装配中的实际连接面显示固定约束，在工作受力面显示载荷，载荷箭头尖端须接触受力面。";
+            String distribution=figure.kind().equals("stress")?
+                "应力趋势：大部分表面为深蓝到浅蓝，仅在受力连接部、孔缘或固定根部出现小面积青绿过渡和局部黄红热点。热点沿真实几何边缘局部分布，不得把整个零件涂满红黄绿，不得使用贯穿整件的等宽彩虹条纹。定位销热点在固定段上缘根部，工作端主要低值。":
+                "位移趋势：固定部位为深蓝，随远离固定连接处平滑过渡为青绿，自由工作端或板中部只有局部黄橙高值。定位销从下部固定段蓝色向上端暖色渐变；板件从四角固定孔蓝色向中部局部暖色过渡。不要把应力热点分布直接复制为位移分布。";
+            return "生成单张工程定性分析配图。本图对象："+caption+"；仅使用本零件的几何信息："+geometry
+                +"。参考图片仅用于工程视口版式，不复制梁结构、软件字样或数值。浅灰白背景，单一零件正交等轴视角，主体占画面中间约三分之二，细淡网格，不使用发光、金属反光或照片级渲染。"
+                +"载荷与约束是本次最重要内容，箭头长度约主体高度五分之一，粗线、大箭头头部，与主体对比清楚；蓝色约束符号成组贴在固定面。用清晰大字载荷、固定约束及细引线标注，不能只画左下角坐标轴而省略边界条件。"+boundary+distribution
+                +"同一零件的应力与位移图必须保持几何、孔位、视角和载荷约束位置一致，仅改变颜色分布。左下XYZ坐标轴不得重复轴名；右侧小型蓝低红高竖直彩虹色标，色标不能遮挡主体。"
+                +"仅显示本图短标题、XYZ、相对分布、高、低、载荷、固定约束；除以上文字外不写任何标注。不得出现任何数字、MPa、mm、应力结果、位移结果、软件名称、最大值、材料许用值、计算结论、示意、AI、水印或求解状态。"
+                +"这是相对分布的定性分析图，不代表实际有限元求解。清晰横向构图。";
+        }
         String common="仅生成一张机械论文插图，不拼贴不同图。统一设计依据："+design.path("inputs").asText()+"；零件尺寸："+design.path("parts")
             +"。本图："+specification.path("caption").asText().replace("示意","")+"。内容："+specification.path("description").asText().replace("示意","")
             +"。清晰横向构图，文字简洁准确且大字号，结构必须与总装一致。图内不得出现示意、AI、Doki、水印、资料来源、论文图号或编辑说明。";
@@ -302,7 +356,7 @@ public class MechanicalPaperService {
             case "part","drawing" -> "白底黑线机械工程图，清晰的主视、俯视和必要轴测图。尺寸线箭头规范，仅标3至5个关键尺寸，只使用共享参数，不增加数字0、不改单位、不把毫米放大十倍。视图投影关系和孔位必须对应，侧视图不得重复俯视图。删除非必要文字，不添加学校标题栏，零件材料与标注准确。";
             case "mesh" -> "浅灰白工程视口背景，三维零件表面细密三角网格，孔位及边缘适当加密，坐标轴和约束符号清楚，无软件品牌和虚构节点数。";
             case "force" -> "白底黑线受力简图，箭头、尺寸、支承和符号清晰，与第三章解析计算的结构与载荷一致。";
-            default -> "白底，金属材料三维装配渲染，实际零件清楚完整，总装几何、数量和孔位必须与共享设计参数一致。";
+            default -> "采用SolidWorks默认建模视口的视觉风格，仅画模型区域，不伪造软件窗口、菜单或截图。正交等轴测视角，着色带边线模式，细黑色轮廓与零件接缝清晰，零件为均匀浅灰、中灰实体色，少量功能件可用克制的淡蓝色区分。背景为纯白或浅灰，无地面和摄影场景。关闭RealView与照片级渲染效果：不要金属颗粒、拉丝、锈迹、镜面反射、环境贴图、景深、强光、真实材质纹理和戏剧性阴影；只有简单平滑面着色，不要拟真实物照片。零件清楚完整，总装几何、数量和孔位必须与共享设计参数一致。";
         };
     }
     private JsonNode parse(String response) {

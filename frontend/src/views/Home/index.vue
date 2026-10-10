@@ -280,7 +280,7 @@ const creationCards = [
   { title: '文献分析', copy: '整理引用格式与摘要信息', icon: DataAnalysis, tone: 'green', route: '/literature' },
   { title: '学术优化', copy: '提升论文质量表达', icon: MagicStick, tone: 'gold', route: '/rewrite' },
   { title: '论文格式智能修改', copy: '上传学校模板与论文，一键规范标题、图表与正文', icon: Document, tone: 'green', route: '/word-formatter' },
-  { title: '机械说明书', copy: '300 积分 / 篇 · 完整正文与工程配图', icon: Cpu, tone: 'blue', route: '/mechanical-design' },
+  { title: '机械说明稿', copy: '300 积分 / 篇 · 完整正文与工程配图', icon: Cpu, tone: 'blue', route: '/mechanical-design' },
   { title: '图纸智能处理', copy: '识别图纸并分析机械结构', icon: Picture, tone: 'cyan', route: '/mechanical-design' },
   { title: '流程图生成', copy: '生成 UML、ER、流程图', icon: Share, tone: 'violet', route: '/drawing' },
   { title: 'PPT与答辩', copy: '300 积分 / 篇 · 生成展示材料', icon: VideoPlay, tone: 'coral', route: '/ppt-generator' }
