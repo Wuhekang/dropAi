@@ -12,7 +12,7 @@
           <el-input v-model="form.password" type="password" show-password placeholder="密码，至少 6 位" />
         </el-form-item>
         <el-button type="primary" :loading="loading" style="width:100%" @click="submit">
-          {{ registering ? '注册并进入 Dashboard' : '登录并进入 Dashboard' }}
+          {{ registering ? '注册并进入工作台' : '登录并进入工作台' }}
         </el-button>
       </el-form>
       <el-button text type="primary" style="width:100%;margin-top:12px" @click="registering = !registering">

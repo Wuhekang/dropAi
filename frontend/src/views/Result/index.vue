@@ -18,14 +18,14 @@
         <span class="eyebrow">结果页</span>
         <h1>{{ projectName }}</h1>
       </div>
-      <button class="primary-button" type="button" :disabled="!zipFile" @click="download(zipFile)">下载 ZIP</button>
+      <button class="primary-button" type="button" :disabled="!zipFile" @click="download(zipFile)">下载压缩包</button>
     </header>
 
     <section class="viewer-panel panel">
       <div class="real-model-state">
-        <strong>机械模型仅在 Mechanical Workspace 展示</strong>
-        <p>系统不使用 Primitive 模型冒充成果。请在 Mechanical Workspace 查看由 OpenCascade BRep 生成并验证的模型。</p>
-        <button class="primary-button" type="button" @click="router.push('/new-project')">打开 Mechanical Workspace</button>
+        <strong>机械模型仅在机械设计工作台展示</strong>
+        <p>系统不使用简易几何体冒充成果。请在机械设计工作台查看由 OpenCascade BRep 生成并验证的模型。</p>
+        <button class="primary-button" type="button" @click="router.push('/new-project')">打开机械设计工作台</button>
       </div>
     </section>
 
@@ -33,7 +33,7 @@
       <article class="product-card download-card">
         <span>CAD 图纸</span>
         <strong>{{ cadFiles.length || '--' }}</strong>
-        <button class="ghost-button" type="button" :disabled="!cadFiles[0]" @click="download(cadFiles[0])">下载 CAD</button>
+        <button class="ghost-button" type="button" :disabled="!cadFiles[0]" @click="download(cadFiles[0])">下载图纸</button>
       </article>
       <article class="product-card download-card">
         <span>论文文档</span>
@@ -42,8 +42,8 @@
       </article>
       <article class="product-card download-card">
         <span>完整成果包</span>
-        <strong>{{ zipFile ? 'ZIP' : '--' }}</strong>
-        <button class="ghost-button" type="button" :disabled="!zipFile" @click="download(zipFile)">下载 ZIP</button>
+        <strong>{{ zipFile ? '压缩包' : '--' }}</strong>
+        <button class="ghost-button" type="button" :disabled="!zipFile" @click="download(zipFile)">下载压缩包</button>
       </article>
     </section>
   </main>

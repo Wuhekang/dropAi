@@ -17,7 +17,7 @@
 
     <section class="hero-section">
       <div class="hero-copy-block">
-        <span class="eyebrow">AI Academic Workspace</span>
+        <span class="eyebrow">AI 学术工作台</span>
         <h1 class="hero-title">AI 学术写作助手</h1>
         <p class="hero-copy">智能优化论文表达，降低重复与AI痕迹。上传文档、选择优化方式、查看结果并下载，流程保持清晰可控。</p>
         <div class="hero-actions">
@@ -30,11 +30,11 @@
       <aside class="hero-orb panel">
         <div class="orb-head">
           <span class="status-pill"><span class="status-dot"></span>模型已连接</span>
-          <span class="tiny">Live workflow</span>
+          <span class="tiny">实时流程</span>
         </div>
         <div class="orb-center">
           <strong>DropAI</strong>
-          <span>Upload → Optimize → Download</span>
+          <span>上传 → 优化 → 下载</span>
         </div>
         <div class="metric-grid">
           <div><b>DOCX</b><span>文档优化</span></div>
@@ -55,7 +55,7 @@
     <section class="workspace-panel panel">
       <div class="workspace-input">
         <div class="section-head">
-          <span class="eyebrow">Input</span>
+          <span class="eyebrow">输入</span>
           <h2>上传文档或输入文本</h2>
           <p>首页保留轻量入口，正式处理会进入文档优化页，继续使用已有上传、预检、积分和下载流程。</p>
         </div>
@@ -68,7 +68,7 @@
 
       <div class="workspace-output">
         <div class="section-head">
-          <span class="eyebrow">Output</span>
+          <span class="eyebrow">输出</span>
           <h2>优化结果</h2>
           <p>结果会在处理完成后生成 Word 文档，可在历史记录或任务页下载。</p>
         </div>
@@ -83,17 +83,17 @@
 
     <section class="module-grid">
       <article class="product-card module-card" @click="router.push('/new-project')">
-        <span>Mechanical Design</span>
+        <span>机械设计</span>
         <h3>机械设计模块</h3>
         <p>任务书上传、模型生成、CAD、3D展示和论文生成入口保持可用。</p>
       </article>
       <article class="product-card module-card" @click="router.push('/computer-generator')">
-        <span>Computer Project</span>
+        <span>工程生成</span>
         <h3>工程生成</h3>
         <p>上传任务书和开题报告，自动分析并生成项目代码、SQL 和文档。</p>
       </article>
       <article class="product-card module-card" @click="router.push('/dashboard')">
-        <span>Workspace</span>
+        <span>工作台</span>
         <h3>我的文档</h3>
         <p>查看最近处理、成果包、积分余额和管理员入口。</p>
       </article>
@@ -102,7 +102,7 @@
     <section class="history-section panel">
       <div class="history-head">
         <div>
-          <span class="eyebrow">History</span>
+          <span class="eyebrow">历史</span>
           <h2>最近记录</h2>
         </div>
         <button class="ghost-button" type="button" :disabled="historyLoading" @click="loadHistory">刷新</button>
@@ -139,9 +139,9 @@ const historyPage = ref(1)
 const pageSize = 10
 
 const productModes = [
-  { kicker: 'Standard', title: '标准优化', copy: '适合常规论文表达整理，保持结构和事实稳定。' },
-  { kicker: 'AI Trace', title: 'AI痕迹优化', copy: '减少模板化表达、机械连接和过度总结。' },
-  { kicker: 'Deep', title: '深度优化', copy: '适合重复与AI痕迹都偏高的文档。' }
+  { kicker: '标准', title: '标准优化', copy: '适合常规论文表达整理，保持结构和事实稳定。' },
+  { kicker: 'AI痕迹', title: 'AI痕迹优化', copy: '减少模板化表达、机械连接和过度总结。' },
+  { kicker: '深度', title: '深度优化', copy: '适合重复与AI痕迹都偏高的文档。' }
 ]
 
 const historyTotalPages = computed(() => Math.max(1, Math.ceil(history.value.length / pageSize)))

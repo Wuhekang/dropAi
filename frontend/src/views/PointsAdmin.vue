@@ -2,7 +2,7 @@
   <main class="points-admin-page">
     <header class="admin-header">
       <div>
-        <span class="eyebrow">DROP AI POINTS CENTER</span>
+        <span class="eyebrow">DropAI 积分中心</span>
         <h1>积分管理</h1>
         <p>管理生成能力的积分消耗，并审核用户通过个人码提交的充值订单。</p>
       </div>
