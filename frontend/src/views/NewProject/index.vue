@@ -1,12 +1,12 @@
 <template>
   <main class="workspace">
     <nav class="topbar">
-      <button class="brand" @click="router.push('/')"><b>D</b> DropAI Mechanical</button>
+      <button class="brand" @click="router.push('/')"><b>D</b> DropAI 机械设计</button>
       <button @click="router.push('/dashboard')">返回控制台</button>
     </nav>
 
     <header class="header">
-      <div><span>FEATURE-BASED CAD WORKSPACE</span><h1>机械 CAD 设计</h1></div>
+      <div><span>基于特征的 CAD 工作台</span><h1>机械 CAD 设计</h1></div>
       <strong :class="statusClass">{{ statusText }}</strong>
     </header>
 
@@ -16,7 +16,7 @@
         <textarea v-model="requirement" placeholder="描述用途、载荷、行程、安装空间和制造约束" />
         <label class="upload">导入任务书<input type="file" accept=".docx,.pdf,.txt,.md" @change="uploadRequirement" /></label>
         <button :disabled="busy || !requirement.trim()" @click="designOnly">生成设计方案</button>
-        <button class="primary" :disabled="busy || !requirement.trim()" @click="execute">生成 PartDesign 成果</button>
+        <button class="primary" :disabled="busy || !requirement.trim()" @click="execute">生成零件设计成果</button>
         <button v-if="mechanicalResultId" :disabled="documentBusy" @click="generateDocument">生成设计文档</button>
         <button v-if="canResume" class="resume" :disabled="busy" @click="resumeGeneration">继续生成</button>
         <p v-if="jobId" class="job-status">{{ jobStage }} · {{ jobProgress }}%</p>
@@ -36,7 +36,7 @@
           <MechanicalBrepViewer :src="modelUrl" />
           <aside class="summary">
             <span>当前设计</span><h2>{{ project.productName || '等待设计' }}</h2>
-            <p>{{ project.concept?.selectedConcept || '提交需求后生成机械方案与可执行 Feature Spec。' }}</p>
+            <p>{{ project.concept?.selectedConcept || '提交需求后生成机械方案与可执行特征规格。' }}</p>
             <dl><template v-for="item in project.parameters || []" :key="item.name"><dt>{{ item.name }}</dt><dd>{{ item.value }} {{ item.unit }}</dd></template></dl>
           </aside>
         </div>
@@ -51,14 +51,14 @@
             </article>
           </template>
           <template v-else-if="activeTab === 'features'">
-            <header><h2>Feature Tree</h2><span>来自 FeatureBasedCADSpec</span></header>
+            <header><h2>特征树</h2><span>来自基于特征的 CAD 规格</span></header>
             <article v-for="part in project.parts || []" :key="part.partNumber" class="part">
               <div><b>{{ part.partNumber }}</b><strong>{{ part.name }}</strong><small>{{ part.material }} · {{ part.manufacturing }}</small></div>
               <ol><li v-for="feature in part.features" :key="feature.order"><i>{{ feature.order }}</i><b>{{ feature.type }}</b><span>{{ feature.intent }}</span></li></ol>
             </article>
           </template>
           <template v-else-if="activeTab === 'assembly'">
-            <header><h2>Assembly Constraints</h2><span>完成状态以 CAD 求解回执为准</span></header>
+            <header><h2>装配约束</h2><span>完成状态以 CAD 求解回执为准</span></header>
             <article v-for="(constraint, index) in project.assembly?.constraints || []" :key="index" class="constraint">
               <b>{{ constraint.type }}</b><span>{{ constraint.componentA }} · {{ constraint.referenceA }}</span><i>→</i><span>{{ constraint.componentB }} · {{ constraint.referenceB }}</span>
             </article>
@@ -101,18 +101,18 @@ const loadedPreviewKey = ref('')
 let pollTimer = null
 const process = [
   ['PRODUCT_DEFINITION', '产品定义'], ['FUNCTIONAL_DECOMPOSITION', '功能树'], ['MECHANICAL_ARCHITECTURE', '机械架构'],
-  ['PART_PLANNING', '零件规划'], ['ASSEMBLY_INTENT', '装配意图'], ['FEATURE_SPEC', 'Feature Spec'],
-  ['FEATURE_EXECUTION', 'PartDesign'], ['VALIDATION', '真实性验证'], ['PACKAGE', '成果']
+  ['PART_PLANNING', '零件规划'], ['ASSEMBLY_INTENT', '装配意图'], ['FEATURE_SPEC', '特征规格'],
+  ['FEATURE_EXECUTION', '零件设计'], ['VALIDATION', '真实性验证'], ['PACKAGE', '成果']
 ].map(([key, label]) => ({ key, label }))
 const tabs = [
-  { key: 'design', label: '设计方案' }, { key: 'features', label: 'Feature Tree' }, { key: 'assembly', label: '装配约束' },
+  { key: 'design', label: '设计方案' }, { key: 'features', label: '特征树' }, { key: 'assembly', label: '装配约束' },
   { key: 'drawing', label: '工程图' }, { key: 'analysis', label: '分析' }, { key: 'package', label: '成果包' }
 ]
 const categoryForTab = computed(() => ({ drawing: 'DRAWING', analysis: 'ANALYSIS', package: 'PACKAGE' })[activeTab.value] || '')
 const statusText = computed(() => project.status === 'COMPLETED' ? '真实性验证通过' : project.status === 'DESIGN_FAILED' ? '生成失败' : busy.value ? '正在执行' : '等待输入')
 const statusClass = computed(() => ({ failed: project.status === 'DESIGN_FAILED', passed: project.status === 'COMPLETED' }))
 
-async function designOnly() { await run(designMechanicalProject, 'Feature 设计方案已生成') }
+async function designOnly() { await run(designMechanicalProject, '特征设计方案已生成') }
 async function execute() {
   busy.value = true
   try {
@@ -226,7 +226,7 @@ async function run(action, message) {
 }
 function stageClass(key) { const state = (project.stages || []).find(item => item.stage === key); return { passed: state?.status === 'PASSED', running: state?.status === 'RUNNING', failed: state?.status === 'FAILED' } }
 function number(value) { return Number(value || 0).toFixed(2) }
-function toolName(key) { return ({ OPENCASCADE_BREP: 'OpenCascade', FREECAD_STEP_EXPORT: 'FreeCAD PartDesign', BROWSER_STL_VIEWER: '3D 预览', ENGINEERING_DRAWING: '工程图', RULE_ANALYSIS: '规则分析', CALCULIX_FEA: 'CalculiX FEA' })[key] || key }
+function toolName(key) { return ({ OPENCASCADE_BREP: 'OpenCascade 几何内核', FREECAD_STEP_EXPORT: 'FreeCAD 零件设计', BROWSER_STL_VIEWER: '3D 预览', ENGINEERING_DRAWING: '工程图', RULE_ANALYSIS: '规则分析', CALCULIX_FEA: 'CalculiX 有限元分析' })[key] || key }
 onMounted(async () => { try { Object.assign(tools, await getMechanicalTools()) } catch {} })
 onBeforeUnmount(() => { clearTimeout(pollTimer); if (modelUrl.value) URL.revokeObjectURL(modelUrl.value) })
 </script>

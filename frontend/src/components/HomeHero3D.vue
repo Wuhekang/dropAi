@@ -1,7 +1,7 @@
 <template>
   <section class="home-hero-3d">
     <div class="engine-state">
-      <span>OpenCascade BRep Engine</span>
+      <span>OpenCascade BRep 引擎</span>
       <strong>参数化 CAD 工程链</strong>
       <p>BRep 实体、STEP、工程图、分析云图和浏览器 3D 预览通过验证后才交付。</p>
     </div>

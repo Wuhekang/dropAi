@@ -16,7 +16,7 @@
     <section class="main">
       <header class="hero-panel panel">
         <div>
-          <span class="eyebrow">Pure Writing</span>
+          <span class="eyebrow">纯文字稿</span>
           <h1>纯文字稿生成</h1>
           <p>摘要、多章节正文、图表、表格、真实联网参考文献和 DOCX 导出一次串起来。</p>
         </div>
@@ -219,12 +219,12 @@
         <div class="provider-grid">
           <article v-for="provider in providerList" :key="provider.provider" class="provider-card">
             <strong>{{ provider.provider }}</strong>
-            <span>{{ provider.available ? 'OK' : provider.message }}</span>
+            <span>{{ provider.available ? '可用' : provider.message }}</span>
             <small>{{ provider.errorCode || provider.authorizationMode }}</small>
           </article>
         </div>
         <div class="stats">
-          <span>Provider：{{ project.search_provider || providerText }}</span>
+          <span>检索源：{{ project.search_provider || providerText }}</span>
           <span>状态：{{ project.search_status || '未搜索' }}</span>
           <span>文献：{{ references.length }}</span>
           <span>已验证：{{ verifiedCount }}</span>
@@ -238,7 +238,7 @@
           <el-table-column prop="publication_year" label="年份" width="80" />
           <el-table-column prop="source_platform" label="来源" width="110" />
           <el-table-column prop="verification_status" label="验证" width="130" />
-          <el-table-column label="URL" width="90">
+          <el-table-column label="链接" width="90">
             <template #default="{ row }">
               <button class="ghost-button small" type="button" :disabled="!(row.url || row.source_url)" @click="openReferenceUrl(row)">&#25171;&#24320;</button>
             </template>
@@ -372,8 +372,8 @@ const form = ref({
 const providerList = computed(() => Array.isArray(providerStatus.value) ? providerStatus.value : (providerStatus.value?.providers || []))
 const providerText = computed(() => {
   const providers = providerList.value
-  if (!providers.length) return 'Not checked'
-  return providers.map(item => `${item.provider || item.name}:${item.available ? 'OK' : 'OFF'}`).join(' / ')
+  if (!providers.length) return '未检测'
+  return providers.map(item => `${item.provider || item.name}:${item.available ? '可用' : '不可用'}`).join(' / ')
 })
 const verifiedCount = computed(() => references.value.filter(item => ['VERIFIED', 'PARTIALLY_VERIFIED'].includes(item.verification_status)).length)
 const referenceTotal = computed(() => Number(form.value.chineseReferenceCount || 0) + Number(form.value.englishReferenceCount || 0))
@@ -444,7 +444,11 @@ async function flushChapterSave() {
 }
 
 async function removeChapter(row) {
-  await ElMessageBox.confirm(`删除 ${row.title}？`, '确认删除')
+  await ElMessageBox.confirm(`删除 ${row.title}？`, '确认删除', {
+    confirmButtonText: '删除',
+    cancelButtonText: '取消',
+    type: 'warning'
+  })
   syncState(await deleteWritingChapter(projectId.value, row.id))
 }
 
@@ -504,7 +508,7 @@ function referenceSearchPayload(language) {
 async function generateReferencePlan() {
   const plan = await generateWritingReferenceSearchPlan(projectId.value, referenceSearchPayload('ZH'))
   providerStatus.value = { ...(providerStatus.value || {}), searchPlan: plan }
-  ElMessage.success(`Search queries: ${(plan.globalQueries || []).length}`)
+  ElMessage.success(`已生成 ${ (plan.globalQueries || []).length } 条检索词`)
 }
 
 async function searchChineseReferences() {
@@ -513,7 +517,7 @@ async function searchChineseReferences() {
   try {
     references.value = await searchWritingChineseReferences(projectId.value, referenceSearchPayload('ZH')) || []
     activeStep.value = 3
-    ElMessage.success(`Chinese references: ${references.value.length}`)
+    ElMessage.success(`已检索中文文献 ${references.value.length} 条`)
   } finally {
     searching.value = false
   }
@@ -525,7 +529,7 @@ async function searchEnglishReferences() {
   try {
     references.value = await searchWritingEnglishReferences(projectId.value, referenceSearchPayload('EN')) || []
     activeStep.value = 3
-    ElMessage.success(`English references: ${references.value.length}`)
+    ElMessage.success(`已检索英文文献 ${references.value.length} 条`)
   } finally {
     searching.value = false
   }
@@ -541,7 +545,7 @@ async function importReferencesFile(event) {
   try {
     const result = await importWritingReferences(projectId.value, file, 'IMPORTED_CATALOG')
     references.value = await searchWritingReferences(projectId.value) || references.value
-    ElMessage.success(`Imported references: ${result.successCount || 0}`)
+    ElMessage.success(`已导入文献 ${result.successCount || 0} 条`)
   } finally {
     event.target.value = ''
   }
@@ -549,22 +553,22 @@ async function importReferencesFile(event) {
 
 async function deduplicateReferences() {
   references.value = await deduplicateWritingReferences(projectId.value) || references.value
-  ElMessage.success('References deduplicated')
+  ElMessage.success('文献已去重')
 }
 
 async function verifyReferences() {
   references.value = await verifyWritingReferences(projectId.value) || references.value
-  ElMessage.success('References verified')
+  ElMessage.success('文献已验证')
 }
 
 async function assignReferences() {
   references.value = await assignWritingReferencesToChapters(projectId.value) || references.value
-  ElMessage.success('References assigned')
+  ElMessage.success('文献已按章节分配')
 }
 
 async function completeReference(row) {
   references.value = await completeWritingReferenceMetadata(projectId.value, row.id) || references.value
-  ElMessage.success('Metadata completion queued')
+  ElMessage.success('元数据补全已提交')
 }
 
 function openReferenceUrl(row) {
