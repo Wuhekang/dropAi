@@ -4,7 +4,9 @@
       <router-view />
     </div>
     <footer class="site-footer">
-      <span>备案码：1f6ab239bcc5293ba45a04ebc5063c8c</span>
+      <span>Dokiai Academic</span>
+      <span aria-hidden="true">·</span>
+      <span>备案码 1f6ab239bcc5293ba45a04ebc5063c8c</span>
     </footer>
   </div>
 
@@ -201,8 +203,11 @@ watch(() => route.fullPath, () => loadNotice(), { immediate: true })
 }
 
 .site-footer {
-  padding: 18px 20px 24px;
-  color: var(--muted-2);
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  padding: 28px 20px 32px;
+  color: #5c6b7a;
   font-size: 13px;
   line-height: 1.5;
   text-align: center;
