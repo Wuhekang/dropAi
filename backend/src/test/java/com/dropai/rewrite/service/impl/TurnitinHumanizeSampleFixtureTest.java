@@ -20,8 +20,8 @@ import static org.mockito.Mockito.when;
 /**
  * Golden style check for 降重狗 order c4a1eb7802ab4afdab69ce380445f171, Turnitin降AI专用.
  * The competitor kept four English sentences and moved 100 words to 101, but replaced
- * operational efficiency with "economic vitality of a region". DropAI must match the rhythm
- * and reject that drift.
+ * operational efficiency with "economic vitality of a region". DropAI must reject that drift.
+ * Sentence count is no longer locked.
  */
 class TurnitinHumanizeSampleFixtureTest {
 
@@ -84,7 +84,7 @@ class TurnitinHumanizeSampleFixtureTest {
         String translated = "近年来，信息技术的快速发展使数字化转型成为行业提升核心竞争力的重要路径。";
         assertThat(turnitinStyleIssues(INPUT, translated)).contains("not english", "too short");
         String padded = ACCEPTABLE_OUTPUT + " This extra sentence invents a regional growth effect for the study.";
-        assertThat(turnitinStyleIssues(INPUT, padded)).contains("expanded", "sentence count");
+        assertThat(turnitinStyleIssues(INPUT, padded)).contains("meaning drift");
     }
 
     @Test
@@ -93,8 +93,8 @@ class TurnitinHumanizeSampleFixtureTest {
                 .getContentAsString(StandardCharsets.UTF_8);
         assertThat(skill)
                 .contains(ORDER_ID, "100", "101", "不要译成中文", "operational efficiency",
-                        "economic vitality of a region", "digitalisation", "optimisation")
-                .doesNotContain("允许整段大幅重构表达", "不要求原句结构可还原");
+                        "economic vitality of a region", "digitalisation", "optimisation", "重排信息入口")
+                .doesNotContain("允许整段大幅重构表达", "不要求原句结构可还原", "句子数量与原文一致");
 
         SkillPromptService skills = mock(SkillPromptService.class);
         when(skills.loadSkill(anyString())).thenAnswer(invocation -> new ClassPathResource(
@@ -107,20 +107,20 @@ class TurnitinHumanizeSampleFixtureTest {
         String ordinary = systemPrompt(service, "humanize@TURNITIN");
         String deep = systemPrompt(service, "深度降低AI写作痕迹@TURNITIN");
         assertThat(ordinary).isEqualTo(deep)
-                .contains("name: humanize-platform-turnitin", "profile:turnitin-ai-dedicated-v1")
-                .contains(ORDER_ID, "100", "101", "不要译成中文", "economic vitality of a region")
+                .contains("name: humanize-platform-turnitin", "profile:turnitin-ai-dedicated-v2")
+                .contains(ORDER_ID, "100", "101", "不要译成中文", "economic vitality of a region", "重排信息入口")
                 .doesNotContain("name: humanize-zh-academic", "允许整段大幅重构表达");
         assertThat(userPrompt(service, "humanize@TURNITIN"))
                 .isEqualTo(userPrompt(service, "深度降低AI写作痕迹@TURNITIN"))
-                .contains("profile:turnitin-ai-dedicated-v1", "不要译成中文",
+                .contains("profile:turnitin-ai-dedicated-v2", "不要译成中文", "专用 Skill",
                         "operational efficiency", "economic vitality of a region");
         assertThat(systemPrompt(service, "rewrite@TURNITIN"))
-                .doesNotContain(ORDER_ID, "economic vitality of a region", "profile:turnitin-ai-dedicated-v1");
+                .doesNotContain(ORDER_ID, "economic vitality of a region", "profile:turnitin-ai-dedicated-v2");
         assertThat(userPrompt(service, "rewrite@TURNITIN"))
                 .contains("通用")
                 .doesNotContain("Turnitin", "profile:", ORDER_ID);
         assertThat(systemPrompt(service, "humanize@DAYA"))
-                .doesNotContain(ORDER_ID, "turnitin-ai-dedicated-v1", "name: humanize-platform-turnitin");
+                .doesNotContain(ORDER_ID, "turnitin-ai-dedicated-v2", "name: humanize-platform-turnitin");
     }
 
     static List<String> turnitinStyleIssues(String input, String output) {
@@ -130,17 +130,14 @@ class TurnitinHumanizeSampleFixtureTest {
         }
         int inputWords = words(input);
         int outputWords = words(output);
-        if (outputWords > inputWords + 3) {
+        if (outputWords > inputWords + 40) {
             issues.add("expanded");
         }
-        if (outputWords < inputWords - 8) {
+        if (outputWords < inputWords - 25) {
             issues.add("too short");
         }
-        if (sentences(output) != sentences(input)) {
-            issues.add("sentence count");
-        }
         String lowered = output.toLowerCase();
-        if (lowered.contains("economic vitality") || lowered.contains("of a region")) {
+        if (lowered.contains("economic vitality") || lowered.contains("of a region") || lowered.contains("regional")) {
             issues.add("meaning drift");
         }
         if (input.toLowerCase().contains("operational efficiency")

@@ -90,7 +90,10 @@ public final class DocxNativeStructureGuard {
                 return false;
             }
             String name = child.getLocalName();
-            if (!"rPr".equals(name) && !"t".equals(name)) {
+            // Line breaks and tabs are common in prose. They are not drawings.
+            if (!"rPr".equals(name) && !"t".equals(name) && !"br".equals(name) && !"cr".equals(name)
+                    && !"tab".equals(name) && !"lastRenderedPageBreak".equals(name)
+                    && !"softHyphen".equals(name) && !"noBreakHyphen".equals(name)) {
                 return false;
             }
         }

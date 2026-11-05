@@ -255,6 +255,69 @@ class DefaultWorkflowRewriteServiceTest {
     }
 
     @Test
+    void ordinaryHumanizeRetriesSameSentenceSkeletonAndKeepsALongerSplit() {
+        AiRewriteService aiRewriteService = mock(AiRewriteService.class);
+        String original = "近年来，随着信息技术的快速发展，数字化转型已经成为各行各业提升核心竞争力的重要路径。"
+                + "本文旨在通过构建一套系统化的分析框架，深入研究相关技术在实际场景中的应用效果，从而为后续优化提供有益参考。"
+                + "研究表明，通过合理配置资源并完善协同机制，可以有效提升整体运行效率，并在一定程度上降低运营成本。"
+                + "与此同时，还需要进一步关注数据安全与隐私保护问题，以确保技术方案具备可持续的实践价值。";
+        String paraphrase = original.replace("近年来，随着", "近些年来，由于").replace("本文旨在", "本文希望");
+        String rebuilt = "数字化转型被各个行业拿来提高核心竞争力，背景是信息技术这些年发展得很快。"
+                + "相关技术在实际场景中的应用效果，才是后续优化要参照的内容。"
+                + "分析框架只服务于这件事。"
+                + "资源如果配置得当，协同机制又能跟上，整体运行效率会上去。"
+                + "运营成本也会在一定程度上降下来。数据安全与隐私保护仍然要盯住，技术方案才谈得上可持续的实践价值。";
+        when(aiRewriteService.rewriteWithFeedback(anyString(), anyString(), anyInt(), anyString()))
+                .thenReturn(paraphrase, rebuilt);
+
+        WorkflowRewriteService.WorkflowRewriteResult result = service(aiRewriteService).execute(original, "humanize@CNKI");
+
+        assertThat(result.getRewrittenText()).isEqualTo(rebuilt);
+        assertThat(rebuilt.length()).isGreaterThan((int) (original.length() * 0.7));
+        ArgumentCaptor<String> feedback = ArgumentCaptor.forClass(String.class);
+        verify(aiRewriteService, times(2))
+                .rewriteWithFeedback(anyString(), anyString(), anyInt(), feedback.capture());
+        assertThat(feedback.getAllValues().get(0)).isEmpty();
+        assertThat(feedback.getAllValues().get(1)).contains("拆开或合并", "130%");
+        assertThat(result.getWorkflowSteps()).extracting(step -> step.getNodeType())
+                .contains("ORDINARY_STRUCTURE_RETRY")
+                .doesNotContain("UNCHANGED_RETRY");
+    }
+
+    @Test
+    void deepHumanizeDoesNotRetryASameSentenceSkeleton() {
+        AiRewriteService aiRewriteService = mock(AiRewriteService.class);
+        String original = "近年来，随着信息技术的快速发展，数字化转型已经成为各行各业提升核心竞争力的重要路径。"
+                + "本文旨在通过构建一套系统化的分析框架，深入研究相关技术在实际场景中的应用效果，从而为后续优化提供有益参考。"
+                + "研究表明，通过合理配置资源并完善协同机制，可以有效提升整体运行效率，并在一定程度上降低运营成本。"
+                + "与此同时，还需要进一步关注数据安全与隐私保护问题，以确保技术方案具备可持续的实践价值。";
+        when(aiRewriteService.rewriteWithFeedback(anyString(), anyString(), anyInt(), anyString()))
+                .thenReturn(original.replace("近年来，随着", "近些年来，由于"));
+
+        assertThat(service(aiRewriteService).execute(original, "深度降低AI写作痕迹@CNKI").getRewrittenText())
+                .contains("近些年来");
+        verify(aiRewriteService, times(1))
+                .rewriteWithFeedback(anyString(), anyString(), anyInt(), anyString());
+    }
+
+    @Test
+    void ordinaryStructureRetryFailureKeepsTheFirstDraft() {
+        AiRewriteService aiRewriteService = mock(AiRewriteService.class);
+        String original = "近年来，随着信息技术的快速发展，数字化转型已经成为各行各业提升核心竞争力的重要路径。"
+                + "本文旨在通过构建一套系统化的分析框架，深入研究相关技术在实际场景中的应用效果，从而为后续优化提供有益参考。"
+                + "研究表明，通过合理配置资源并完善协同机制，可以有效提升整体运行效率，并在一定程度上降低运营成本。"
+                + "与此同时，还需要进一步关注数据安全与隐私保护问题，以确保技术方案具备可持续的实践价值。";
+        String first = original.replace("近年来，随着", "近些年来，由于");
+        when(aiRewriteService.rewriteWithFeedback(anyString(), anyString(), anyInt(), anyString()))
+                .thenReturn(first)
+                .thenThrow(new IllegalStateException("retry transport failed"));
+
+        assertThat(service(aiRewriteService).execute(original, "humanize").getRewrittenText()).isEqualTo(first);
+        verify(aiRewriteService, times(2))
+                .rewriteWithFeedback(anyString(), anyString(), anyInt(), anyString());
+    }
+
+    @Test
     void rewriteModeAcceptsUnchangedModelOutput() {
         AiRewriteService aiRewriteService = mock(AiRewriteService.class);
         String original = "C30：97.51 m³；C20：15.80 m³。";

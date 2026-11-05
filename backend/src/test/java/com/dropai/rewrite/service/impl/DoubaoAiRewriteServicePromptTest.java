@@ -58,13 +58,13 @@ class DoubaoAiRewriteServicePromptTest {
                     .contains("85%—130%", "软参考", "允许整段大幅重构表达", "不要求原句结构可还原", "148903");
         } else {
             assertThat(ordinary)
-                    .contains("148902", "可以略短", "不要扩写", "防止该技术方案失效")
+                    .contains("148902", "可以略短", "重排信息入口", "防止该技术方案失效")
                     .doesNotContain("允许整段大幅重构表达", "不要求原句结构可还原");
         }
         assertThat(userPrompt(service, "humanize@" + platform))
                 .isEqualTo(userPrompt(service, "深度降低AI写作痕迹@" + platform))
-                .contains("profile:" + platform.toLowerCase() + "-ai-dedicated-v1")
-                .doesNotContain("profile:cnki-ordinary-v1", "profile:cnki-deep-v1");
+                .contains("profile:" + platform.toLowerCase() + "-ai-dedicated-v2", "重排信息入口")
+                .doesNotContain("profile:cnki-ordinary-v2", "profile:cnki-deep-v1", "不限定微量改写");
         verify(skills, times(2)).loadSkill(skillName);
     }
 
@@ -78,7 +78,7 @@ class DoubaoAiRewriteServicePromptTest {
 
         assertThat(prompt)
                 .contains(SKILL_MARKER)
-                .contains("profile:weipu-ordinary-v1")
+                .contains("profile:weipu-ordinary-v2")
                 .contains("中文摘要正文、英文摘要正文")
                 .contains("每个送入的段落都必须完整阅读", "处理后的有效正文可以与原文相同")
                 .doesNotContain("必须产生真实文字变化", "不得直接返回原文", "profile:weipu-deep-v1");
@@ -89,15 +89,15 @@ class DoubaoAiRewriteServicePromptTest {
     void depthPairPlatformsUseDifferentOrdinaryAndDeepProfiles() throws Exception {
         DoubaoAiRewriteService service = service(classpathSkills());
         assertThat(systemPrompt(service, "humanize@CNKI"))
-                .contains("profile:cnki-ordinary-v1")
-                .doesNotContain("profile:cnki-deep-v1", "profile:weipu-ordinary-v1");
+                .contains("profile:cnki-ordinary-v2", "重排信息入口")
+                .doesNotContain("profile:cnki-deep-v1", "profile:weipu-ordinary-v2", "不要整段换序");
         assertThat(systemPrompt(service, "深度降低AI写作痕迹@CNKI"))
                 .contains("profile:cnki-deep-v1", "知网深度改写")
-                .doesNotContain("profile:cnki-ordinary-v1");
+                .doesNotContain("profile:cnki-ordinary-v2");
         assertThat(systemPrompt(service, "降低AI写作痕迹@PAPERYY"))
-                .contains("profile:paperyy-ordinary-v1", "name: humanize-zh-academic");
+                .contains("profile:paperyy-ordinary-v2", "name: humanize-zh-academic");
         assertThat(systemPrompt(service, "智能降AI@ZHUQUE"))
-                .contains("profile:zhuque-ordinary-v1");
+                .contains("profile:zhuque-ordinary-v2");
         assertThat(systemPrompt(service, "深度降低AI写作痕迹@ZHUQUE"))
                 .contains("profile:zhuque-deep-v1")
                 .isNotEqualTo(systemPrompt(service, "humanize@ZHUQUE"));
@@ -121,12 +121,12 @@ class DoubaoAiRewriteServicePromptTest {
         String doublePrompt = systemPrompt(service, "double@GEZIDA");
         assertThat(doublePrompt)
                 .contains("name: humanize-zh-academic")
-                .doesNotContain("profile:gezida-ai-dedicated-v1", "name: humanize-platform-gezida");
+                .doesNotContain("profile:gezida-ai-dedicated-v2", "name: humanize-platform-gezida");
         assertThat(systemPrompt(service, "humanize-shared@GEZIDA"))
                 .contains("name: humanize-zh-academic")
                 .doesNotContain("profile:");
         assertThat(systemPrompt(service, "humanize-shared@WANFANG"))
-                .doesNotContain("name: humanize-platform-wanfang", "profile:wanfang-ai-dedicated-v1");
+                .doesNotContain("name: humanize-platform-wanfang", "profile:wanfang-ai-dedicated-v2");
         assertThat(userPrompt(service, "humanize-shared@CNKI"))
                 .contains("知网")
                 .doesNotContain("profile:");

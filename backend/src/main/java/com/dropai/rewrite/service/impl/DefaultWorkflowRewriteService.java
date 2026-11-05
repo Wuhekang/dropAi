@@ -7,6 +7,8 @@ import com.dropai.rewrite.utils.AiRiskAnalyzeUtil;
 import com.dropai.rewrite.vo.AiAnalyzeVO;
 import com.dropai.rewrite.vo.QualityCheckVO;
 import com.dropai.rewrite.vo.WorkflowStepVO;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -16,6 +18,7 @@ import java.util.List;
 @Service
 public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
 
+    private static final Logger log = LoggerFactory.getLogger(DefaultWorkflowRewriteService.class);
     private static final int MAX_REWRITE_CANDIDATES = 3;
     private static final List<String> BANNED_TEMPLATE_WORDS = Arrays.asList("首先", "其次", "最后", "综上所述");
     private static final List<String> BANNED_AI_PHRASES = Arrays.asList(
@@ -89,6 +92,8 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
             }
             String polished = academicPolish(sentenceRewritten, baseRewriteType);
             finalText = humanizeExpression(polished, useModelHumanize);
+            finalText = retryOrdinarySkeleton(preparedText, protectedText, rewriteType,
+                    baseRewriteType, originalRisk.getScore(), finalText, useModelHumanize, steps);
         }
         requireNonBlankOutput(finalText, "模型输出经清理后为空");
 
@@ -191,6 +196,52 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
             rules.add("压缩冗余限定语，保留关键论点");
         }
         return String.join("；", rules);
+    }
+
+    /**
+     * One extra model call when ordinary prose is still the same sentence skeleton.
+     * A longer structural retry is kept. A failed retry does not restore the source.
+     */
+    private String retryOrdinarySkeleton(
+            String original,
+            TextStructureProtector.ProtectedText protectedText,
+            String rewriteType,
+            String baseRewriteType,
+            int beforeScore,
+            String current,
+            boolean useModelHumanize,
+            List<WorkflowStepVO> steps
+    ) {
+        if (!OrdinaryRewriteAmplitude.applies(rewriteType)
+                || !OrdinaryRewriteAmplitude.needsStructureRetry(original, current)) {
+            return current;
+        }
+        try {
+            String retried = rewriteSentences(protectedText.text(), rewriteType, beforeScore,
+                    OrdinaryRewriteAmplitude.retryFeedback());
+            String restored = protectedText.restore(retried);
+            String candidate = humanizeExpression(academicPolish(restored, baseRewriteType), useModelHumanize);
+            requireNonBlankOutput(candidate, "结构重试输出经清理后为空");
+            boolean firstUnchanged = OrdinaryRewriteAmplitude.sameLetters(original, current);
+            boolean retryUnchanged = OrdinaryRewriteAmplitude.sameLetters(original, candidate);
+            boolean sentenceBoundaryMoved = OrdinaryRewriteAmplitude.sentences(candidate)
+                    != OrdinaryRewriteAmplitude.sentences(original);
+            boolean adopt = !retryUnchanged && (sentenceBoundaryMoved || firstUnchanged);
+            log.info("OrdinaryStructureRetry originalSentences={} firstSentences={} retrySentences={} "
+                            + "originalLength={} firstLength={} retryLength={} keptRetry={}",
+                    OrdinaryRewriteAmplitude.sentences(original),
+                    OrdinaryRewriteAmplitude.sentences(current),
+                    OrdinaryRewriteAmplitude.sentences(candidate),
+                    original.length(), current.length(), candidate.length(), adopt);
+            steps.add(new WorkflowStepVO("ORDINARY_STRUCTURE_RETRY", "普通降AI结构重试",
+                    adopt ? "首轮仍保持原句骨架，已采用拆合后的一版" : "结构重试未改变句子边界，保留首轮有效正文"));
+            return adopt ? candidate : current;
+        } catch (RuntimeException exception) {
+            log.warn("OrdinaryStructureRetry action=KEEP_FIRST reason={}", exception.getMessage());
+            steps.add(new WorkflowStepVO("ORDINARY_STRUCTURE_RETRY", "普通降AI结构重试",
+                    "结构重试未通过事实或正文检查，保留首轮有效正文"));
+            return current;
+        }
     }
 
     private String rewriteSentences(String text, String rewriteType, int beforeScore, String feedback) {
