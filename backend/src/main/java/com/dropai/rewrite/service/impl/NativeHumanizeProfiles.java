@@ -167,7 +167,8 @@ public final class NativeHumanizeProfiles {
         return switch (platform) {
             case "GEZIDA" -> """
                     【原生降AI平台档】profile:gezida-ai-dedicated-v1
-                    格子达使用降AI专用档。不要改用通用档、普通模式或深度改写。幅度以格子达专用 Skill 为准。
+                    格子达使用降AI专用档。不要改用通用档、普通模式或深度改写。
+                    篇幅与原文接近，可以略短，不要扩写。用口语化近义改写，软化“本文旨在、研究表明”，保留事实和原有句子数量。
                     """;
             case "PAPERPASS" -> """
                     【原生降AI平台档】profile:paperpass-ai-dedicated-v1

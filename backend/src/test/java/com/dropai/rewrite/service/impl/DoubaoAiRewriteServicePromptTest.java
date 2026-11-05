@@ -43,7 +43,7 @@ class DoubaoAiRewriteServicePromptTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"GEZIDA", "WANFANG", "PAPERPASS", "TURNITIN"})
+    @ValueSource(strings = {"WANFANG", "PAPERPASS", "TURNITIN"})
     void dedicatedPlatformsLoadTheirOwnSkillForBothIntensities(String platform) throws Exception {
         var skills = classpathSkills();
         var service = service(skills);
