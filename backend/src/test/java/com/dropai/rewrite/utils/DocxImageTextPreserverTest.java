@@ -5,6 +5,7 @@ import org.apache.poi.xwpf.usermodel.*;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTP;
 import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTR;
 
 import javax.imageio.ImageIO;
@@ -83,6 +84,32 @@ class DocxImageTextPreserverTest {
             String before = paragraph.getCTP().xmlText();
             assertThat(DocxImageTextPreserver.replaceText(paragraph, paragraph.getText().trim())).isTrue();
             assertThat(paragraph.getCTP().xmlText()).isEqualTo(before);
+        }
+    }
+
+    @Test
+    void humanizeRefillKeepsAnchorWrapAndRollsBackALostDrawing() throws Exception {
+        try (XWPFDocument document = fixture("anchor")) {
+            XWPFParagraph paragraph = target(document, "anchor");
+            String drawing = paragraph.getRuns().get(0).getCTR().getDrawingArray(0).xmlText();
+            String before = DocxImageTextPreserver.structureFingerprint(paragraph);
+            assertThat(drawing).contains("anchor", "wrapTopAndBottom");
+            assertThat(DocxImageTextPreserver.replaceTextPreservingStructure(paragraph, NEW_TEXT)).isTrue();
+            assertThat(paragraph.getText()).isEqualTo(NEW_TEXT);
+            assertThat(DocxImageTextPreserver.structureFingerprint(paragraph)).isEqualTo(before);
+            assertThat(paragraph.getCTP().xmlText()).contains("anchor", "wrapTopAndBottom");
+
+            CTP snapshot = (CTP) paragraph.getCTP().copy();
+            String intact = DocxImageTextPreserver.structureFingerprint(paragraph);
+            org.w3c.dom.Node drawingNode = paragraph.getCTP().getDomNode().getOwnerDocument()
+                    .getElementsByTagNameNS("http://schemas.openxmlformats.org/wordprocessingml/2006/main", "drawing")
+                    .item(0);
+            drawingNode.getParentNode().removeChild(drawingNode);
+            assertThat(DocxImageTextPreserver.keepWhenStructureIntact(paragraph, snapshot, intact)).isFalse();
+            String restored = paragraph.getCTP().xmlText();
+            assertThat(restored).contains("wrapTopAndBottom", "anchor");
+            assertThat(restored).contains("r:embed=\"rId2\"");
+            assertThat(DocxImageTextPreserver.structureFingerprint(paragraph)).contains("wrapTopAndBottom");
         }
     }
 

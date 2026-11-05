@@ -74,4 +74,55 @@ class DocxNativeStructureGuardTest {
             assertThat(paragraph.getCTP().xmlText()).doesNotContain("fldChar", "bookmarkStart", "drawing");
         }
     }
+
+    @Test
+    void pageNoteAndTocEntriesStayOutOfTheRewriteSpan() throws Exception {
+        try (XWPFDocument document = new XWPFDocument()) {
+            XWPFParagraph page = document.createParagraph();
+            page.createRun().setText("详见");
+            page.createRun().getCTR().addNewFldChar().setFldCharType(STFldCharType.BEGIN);
+            page.createRun().getCTR().addNewInstrText().setStringValue(" PAGEREF _Toc148898 \\h ");
+            page.createRun().getCTR().addNewFldChar().setFldCharType(STFldCharType.SEPARATE);
+            page.createRun().setText("12");
+            page.createRun().getCTR().addNewFldChar().setFldCharType(STFldCharType.END);
+            page.createRun().setText("页的分析过程必须保持页码域不变。");
+
+            XWPFParagraph note = document.createParagraph();
+            note.createRun().getCTR().addNewFldChar().setFldCharType(STFldCharType.BEGIN);
+            note.createRun().getCTR().addNewInstrText().setStringValue(" NOTEREF _RefNote1 \\h ");
+            note.createRun().getCTR().addNewFldChar().setFldCharType(STFldCharType.SEPARATE);
+            note.createRun().setText("1");
+            note.createRun().getCTR().addNewFldChar().setFldCharType(STFldCharType.END);
+            note.createRun().setText("对应的说明必须保留脚注引用域。");
+
+            XWPFParagraph begin = document.createParagraph();
+            begin.createRun().getCTR().addNewFldChar().setFldCharType(STFldCharType.BEGIN);
+            begin.createRun().getCTR().addNewInstrText().setStringValue(" TOC \\c \"图\" \\h \\z ");
+            begin.createRun().getCTR().addNewFldChar().setFldCharType(STFldCharType.SEPARATE);
+
+            XWPFParagraph entry = document.createParagraph();
+            entry.createRun().setText("总体结构示意这一目录项必须原样保留，不能送去改写。");
+
+            XWPFParagraph end = document.createParagraph();
+            end.createRun().getCTR().addNewFldChar().setFldCharType(STFldCharType.END);
+            XWPFParagraph body = document.createParagraph();
+            body.createRun().setText("目录之后的正文仍要改写，现场记录保持完整。");
+
+            for (XWPFParagraph paragraph : new XWPFParagraph[]{page, note, begin, end}) {
+                String before = paragraph.getCTP().xmlText();
+                assertThat(DocxNativeStructureGuard.containsLockedStructure(paragraph)).isTrue();
+                assertThat(DocxNativeStructureGuard.replacePreservingRuns(paragraph, "改写后的句子。")).isFalse();
+                assertThat(paragraph.getCTP().xmlText()).isEqualTo(before);
+            }
+            assertThat(DocxNativeStructureGuard.containsLockedStructure(entry)).isFalse();
+
+            DocxNativeStructureGuard.TocFieldScan scan = new DocxNativeStructureGuard.TocFieldScan();
+            assertThat(scan.observe(page)).isFalse();
+            assertThat(scan.observe(note)).isFalse();
+            assertThat(scan.observe(begin)).isTrue();
+            assertThat(scan.observe(entry)).isTrue();
+            assertThat(scan.observe(end)).isTrue();
+            assertThat(scan.observe(body)).isFalse();
+        }
+    }
 }

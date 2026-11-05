@@ -2,10 +2,13 @@ package com.dropai.rewrite.utils;
 
 import org.apache.poi.xwpf.usermodel.XWPFParagraph;
 import org.apache.xmlbeans.impl.xb.xmlschema.SpaceAttribute;
+import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTP;
 import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTText;
+import org.w3c.dom.NamedNodeMap;
 import org.w3c.dom.Node;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -34,6 +37,79 @@ public final class DocxImageTextPreserver {
     private static boolean isGraphic(Node node) {
         return W.equals(node.getNamespaceURI()) && GRAPHICS.contains(node.getLocalName())
                 || MC.equals(node.getNamespaceURI()) && "AlternateContent".equals(node.getLocalName());
+    }
+
+    /**
+     * Humanize refill. Visible w:t values may change; drawingML, VML, embedded picture
+     * relationships, anchors, and wrapping must stay byte-for-byte in the fingerprint.
+     * A mismatch restores the paragraph and reports that the edit was not applied.
+     */
+    public static boolean replaceTextPreservingStructure(XWPFParagraph paragraph, String replacement) {
+        CTP snapshot = (CTP) paragraph.getCTP().copy();
+        String before = structureFingerprint(paragraph);
+        if (!replaceText(paragraph, replacement)) {
+            return false;
+        }
+        return keepWhenStructureIntact(paragraph, snapshot, before);
+    }
+
+    static boolean keepWhenStructureIntact(XWPFParagraph paragraph, CTP snapshot, String before) {
+        if (before.equals(structureFingerprint(paragraph))) {
+            return true;
+        }
+        paragraph.getCTP().set(snapshot);
+        return false;
+    }
+
+    /**
+     * Markup other than wordprocessingml text nodes. w:t elements are counted, not valued,
+     * so a text refill compares equal while a lost anchor, wrap, or pict does not.
+     */
+    public static String structureFingerprint(XWPFParagraph paragraph) {
+        StringBuilder builder = new StringBuilder();
+        appendStructure(paragraph.getCTP().getDomNode(), builder);
+        return builder.toString();
+    }
+
+    private static void appendStructure(Node node, StringBuilder builder) {
+        if (node.getNodeType() == Node.TEXT_NODE || node.getNodeType() == Node.CDATA_SECTION_NODE) {
+            if (!isWordText(node.getParentNode())) {
+                builder.append(node.getNodeValue());
+            }
+            return;
+        }
+        if (node.getNodeType() != Node.ELEMENT_NODE) {
+            return;
+        }
+        if (isWordText(node)) {
+            builder.append("<w:t/>");
+            return;
+        }
+        builder.append('<').append(node.getNamespaceURI()).append(':').append(node.getLocalName());
+        NamedNodeMap attributes = node.getAttributes();
+        if (attributes != null) {
+            List<String> encoded = new ArrayList<>();
+            for (int index = 0; index < attributes.getLength(); index++) {
+                Node attribute = attributes.item(index);
+                String namespace = attribute.getNamespaceURI() == null ? "" : attribute.getNamespaceURI();
+                String local = attribute.getLocalName() == null ? attribute.getNodeName() : attribute.getLocalName();
+                encoded.add(namespace + ":" + local + "=" + attribute.getNodeValue());
+            }
+            Collections.sort(encoded);
+            for (String attribute : encoded) {
+                builder.append(' ').append(attribute);
+            }
+        }
+        builder.append('>');
+        for (Node child = node.getFirstChild(); child != null; child = child.getNextSibling()) {
+            appendStructure(child, builder);
+        }
+        builder.append("</").append(node.getLocalName()).append('>');
+    }
+
+    private static boolean isWordText(Node node) {
+        return node != null && node.getNodeType() == Node.ELEMENT_NODE
+                && W.equals(node.getNamespaceURI()) && "t".equals(node.getLocalName());
     }
 
     /**
