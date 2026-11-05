@@ -175,18 +175,21 @@ public final class NativeHumanizeProfiles {
                     PaperPass 使用降AI专用档。不要改用通用档、普通模式或深度改写。幅度以 PaperPass 专用 Skill 为准。
                     校准样本是降重狗订单 148903。要改句式骨架，但不得只做逐句换词。
                     末句必须仍是数据安全与隐私保护服务于可持续的实践价值。不得写成“不足之处，有待于探究”，不得新增原文没有的缺口或结论。
+                    第二轮订单 148945：门诊科室不得写成门诊科目。完整记录占比为91.5% 必须保住完整记录所占比例，不得写成“被记录的有91.5%”。
                     """;
             case "WANFANG" -> """
                     【原生降AI平台档】profile:wanfang-ai-dedicated-v1
                     万方使用降AI专用档。不要改用通用档、普通模式或深度改写。
                     校准样本是降重狗订单 148902：186 字到 182 字。软化起笔，用因为、并且、另外承接，篇幅可以略短，不要扩写。
                     末句必须保住可持续的实践价值。不得写成“防止该技术方案失效”。
+                    第二轮订单 148944：浸泡20分钟必须保留。25摄氏度、60%、3个重复、12片、36小时、每6小时、0.02克、显著性水平0.05 等数字不得删改。
                     """;
             case "TURNITIN" -> """
                     【原生降AI平台档】profile:turnitin-ai-dedicated-v1
                     Turnitin 使用英文降AI专用档。不要改用通用档、普通模式或深度改写。
                     英文节奏近义改写：句子数量不变，词数接近原文，保持英文，不要译成中文。
                     禁止事实漂移：operational efficiency 不得写成 economic vitality of a region。
+                    第二轮订单 148946：出口卡必须保留 speed、clarity of signs、whether the wait felt reasonable 三项。禁止 small-print 和 sense of anticipation。Holds that required items from closed storage were excluded 必须留下。
                     """;
             default -> "";
         };
