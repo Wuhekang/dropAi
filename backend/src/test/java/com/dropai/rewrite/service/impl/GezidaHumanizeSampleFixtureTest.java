@@ -19,7 +19,8 @@ import static org.mockito.Mockito.when;
 
 /**
  * Golden style check for 降重狗 order 148898, 格子达降AI专用.
- * The competitor rewrote 186 characters to 175: same four sentences, colloquial paraphrase, no padding.
+ * The competitor rewrote 186 characters to 175: colloquial paraphrase, no padding.
+ * Sentence splits and merges are allowed when facts and the length band hold.
  */
 class GezidaHumanizeSampleFixtureTest {
 
@@ -56,8 +57,9 @@ class GezidaHumanizeSampleFixtureTest {
         String skill = new ClassPathResource("skills/humanize-platform-gezida/SKILL.md")
                 .getContentAsString(StandardCharsets.UTF_8);
         assertThat(skill)
-                .contains("148898", "186", "175", "可以略短", "不要扩写", "本文旨在", "研究表明", "口语")
-                .doesNotContain("允许整段大幅重构表达", "不要求原句结构可还原");
+                .contains("148898", "186", "175", "可以略短", "不要扩写", "本文旨在", "研究表明", "口语",
+                        "重组句组", "90%—108%")
+                .doesNotContain("允许整段大幅重构表达", "不要求原句结构可还原", "不整段换骨架", "仅作软参考");
 
         SkillPromptService skills = mock(SkillPromptService.class);
         when(skills.loadSkill(anyString())).thenAnswer(invocation -> new ClassPathResource(
@@ -70,7 +72,7 @@ class GezidaHumanizeSampleFixtureTest {
         String ordinary = systemPrompt(service, "humanize@GEZIDA");
         String deep = systemPrompt(service, "深度降低AI写作痕迹@GEZIDA");
         assertThat(ordinary).isEqualTo(deep)
-                .contains("name: humanize-platform-gezida", "148898", "可以略短", "不要扩写")
+                .contains("name: humanize-platform-gezida", "148898", "可以略短", "不要扩写", "重组句组")
                 .contains("profile:gezida-ai-dedicated-v1")
                 .doesNotContain("name: humanize-zh-academic", "允许整段大幅重构表达");
         assertThat(userPrompt(service, "humanize@GEZIDA"))
@@ -79,23 +81,16 @@ class GezidaHumanizeSampleFixtureTest {
 
     static List<String> gezidaStyleIssues(String input, String output) {
         List<String> issues = new ArrayList<>();
-        if (output.length() > input.length()) {
+        if (output.length() > Math.floor(input.length() * 1.08)) {
             issues.add("expanded");
         }
         if (output.length() < Math.floor(input.length() * 0.90)) {
             issues.add("too short");
         }
-        if (sentences(output) != sentences(input)) {
-            issues.add("sentence count");
-        }
         if (output.contains("本文旨在") || output.contains("研究表明")) {
             issues.add("formal opening");
         }
         return issues;
-    }
-
-    private static int sentences(String text) {
-        return text.split("。", -1).length - 1;
     }
 
     private static String systemPrompt(DoubaoAiRewriteService service, String rewriteType) throws Exception {

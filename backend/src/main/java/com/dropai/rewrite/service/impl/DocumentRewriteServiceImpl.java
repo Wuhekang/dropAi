@@ -64,6 +64,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 public class DocumentRewriteServiceImpl implements DocumentRewriteService {
 
     private static final Logger log = LoggerFactory.getLogger(DocumentRewriteServiceImpl.class);
+    /** Native 降AI upper bound. Prefer {@link #HUMANIZE_LENGTH_PREFERRED_RATIO}. */
+    static final double HUMANIZE_LENGTH_FLOOR_RATIO = 0.90d;
+    static final double HUMANIZE_LENGTH_PREFERRED_RATIO = 1.05d;
+    static final double HUMANIZE_LENGTH_CEILING_RATIO = 1.08d;
     private final WorkflowRewriteService workflowRewriteService;
     private final AiRewriteService aiRewriteService;
     private final DoubaoProperties doubaoProperties;
@@ -685,10 +689,140 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             logLengthMetrics(job, "rewrite_no_retry", lengthMetrics(rule.originalLength(), results), 0);
             return validateCompletedResults(targets, validateRewriteQuality(job, targets, results));
         }
-        // Length is observational for humanize. Character overlap cannot tell whether a
-        // structurally rewritten sentence is dispensable, so never delete it to meet a quota.
+        if ("humanize".equals(job.getMode()) && !isDayaPlatform(job)) {
+            HumanizeLengthPass pass = enforceHumanizeLength(job, targets, results);
+            logLengthMetrics(job, "humanize_length_band",
+                    humanizeBandMetrics(rule.originalLength(), pass.results()), pass.extraAttempts());
+            return validateCompletedResults(targets, pass.results());
+        }
+        // 大雅 and any non-humanize leftover stay observational. Native 降AI is enforced above.
         logLengthMetrics(job, "humanize_soft_reference", humanizeLengthMetrics(rule.originalLength(), results), 0);
         return validateCompletedResults(targets, results);
+    }
+
+    /**
+     * Native 降AI length gate. Overlong paragraphs are retried, then compressed, then rejected
+     * back to the source paragraph. In-band text is kept, including a shorter rebuild.
+     */
+    private HumanizeLengthPass enforceHumanizeLength(
+            DocumentRewriteJobVO job,
+            List<RewriteTarget> targets,
+            List<RewriteResult> results
+    ) {
+        Map<Integer, RewriteTarget> originalByIndex = targets.stream()
+                .collect(Collectors.toMap(RewriteTarget::index, target -> target));
+        List<RewriteResult> enforced = new ArrayList<>();
+        int extraAttempts = 0;
+        for (RewriteResult result : results) {
+            RewriteTarget original = originalByIndex.get(result.index());
+            if (original == null || !result.success() || result.rewrittenText() == null) {
+                enforced.add(result);
+                continue;
+            }
+            int originalLength = textLength(original.text());
+            int ceiling = humanizeLengthCeiling(originalLength);
+            if (textLength(result.rewrittenText()) <= ceiling) {
+                log.info("HumanizeLength jobId={} paragraphIndex={} action=KEEP originalLength={} resultLength={} ceiling={}",
+                        job.getJobId(), result.index(), originalLength, textLength(result.rewrittenText()), ceiling);
+                enforced.add(result);
+                continue;
+            }
+            extraAttempts++;
+            String retried = tryHumanizeAgain(job, original.text());
+            if (!retried.isBlank() && textLength(retried) <= ceiling) {
+                log.info("HumanizeLength jobId={} paragraphIndex={} action=RETRY_ACCEPTED originalLength={} resultLength={} ceiling={}",
+                        job.getJobId(), result.index(), originalLength, textLength(retried), ceiling);
+                updateParagraphStatus(job, result.index(), "SUCCESS", retried, "处理完成");
+                enforced.add(new RewriteResult(result.index(), result.paragraph(), retried, true, ""));
+                continue;
+            }
+            String compressSource = shorterText(result.rewrittenText(), retried);
+            extraAttempts++;
+            String compressed = tryCompressHumanize(compressSource, originalLength, ceiling);
+            if (!compressed.isBlank()
+                    && textLength(compressed) <= ceiling
+                    && withinHumanizeFloor(compressed, originalLength)) {
+                log.info("HumanizeLength jobId={} paragraphIndex={} action=COMPRESS_ACCEPTED originalLength={} resultLength={} ceiling={}",
+                        job.getJobId(), result.index(), originalLength, textLength(compressed), ceiling);
+                updateParagraphStatus(job, result.index(), "SUCCESS", compressed, "处理完成");
+                enforced.add(new RewriteResult(result.index(), result.paragraph(), compressed, true, ""));
+                continue;
+            }
+            log.info("HumanizeLength jobId={} paragraphIndex={} action=REJECT_OVERLONG originalLength={} resultLength={} ceiling={}",
+                    job.getJobId(), result.index(), originalLength,
+                    textLength(result.rewrittenText()), ceiling);
+            updateParagraphStatus(job, result.index(), "SUCCESS", original.text(), "处理完成");
+            enforced.add(new RewriteResult(result.index(), result.paragraph(), original.text(), true, ""));
+        }
+        return new HumanizeLengthPass(enforced, extraAttempts);
+    }
+
+    private String tryHumanizeAgain(DocumentRewriteJobVO job, String text) {
+        try {
+            String retried = rewriteByMode(text, "humanize", job);
+            return retried == null ? "" : retried;
+        } catch (RuntimeException exception) {
+            log.warn("HumanizeLengthRetryFailed jobId={} reason={}", job.getJobId(), readableMessage(exception));
+            return "";
+        }
+    }
+
+    private String tryCompressHumanize(String text, int originalLength, int ceiling) {
+        if (text == null || text.isBlank()) {
+            return "";
+        }
+        int preferred = humanizePreferredCeiling(originalLength);
+        String feedback = "上一版有" + textLength(text) + "字，原文" + originalLength
+                + "字。请压到不超过" + preferred + "字，硬上限" + ceiling
+                + "字。只删除扩写、重复解释和模板化补充。"
+                + "保留事实、数字、单位、年份、因果强度、专名、引用和占位符，不要丢掉独立判断，不要新增内容。";
+        try {
+            WorkflowRewriteService.WorkflowRewriteResult result = workflowRewriteService.execute(
+                    text, "字数控制压缩", feedback);
+            if (result == null || result.getRewrittenText() == null) {
+                return "";
+            }
+            return result.getRewrittenText();
+        } catch (RuntimeException exception) {
+            log.warn("HumanizeLengthCompressFailed reason={}", readableMessage(exception));
+            return "";
+        }
+    }
+
+    private boolean withinHumanizeFloor(String text, int originalLength) {
+        if (originalLength <= 0) {
+            return true;
+        }
+        int floor = (int) Math.floor(originalLength * HUMANIZE_LENGTH_FLOOR_RATIO);
+        return textLength(text) >= floor;
+    }
+
+    static int humanizeLengthCeiling(int originalLength) {
+        if (originalLength <= 0) {
+            return 0;
+        }
+        return (int) Math.floor(originalLength * HUMANIZE_LENGTH_CEILING_RATIO);
+    }
+
+    static int humanizePreferredCeiling(int originalLength) {
+        if (originalLength <= 0) {
+            return 0;
+        }
+        return Math.min(humanizeLengthCeiling(originalLength),
+                Math.max(1, (int) Math.floor(originalLength * HUMANIZE_LENGTH_PREFERRED_RATIO)));
+    }
+
+    private String shorterText(String first, String second) {
+        String best = first == null ? "" : first;
+        if (second != null && !second.isBlank() && (best.isBlank() || textLength(second) < textLength(best))) {
+            return second;
+        }
+        return best;
+    }
+
+    private boolean isDayaPlatform(DocumentRewriteJobVO job) {
+        String platform = job == null || job.getPlatform() == null ? "" : job.getPlatform().trim();
+        return "DAYA".equalsIgnoreCase(platform) || "大雅".equals(platform);
     }
 
     private List<RewriteResult> validateRewriteQuality(DocumentRewriteJobVO job,
@@ -758,6 +892,15 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
         return new LengthMetrics(originalLength, finalLength, increase,
                 originalLength <= 0 ? 0 : increase * 1.0 / originalLength,
                 referenceMax, finalLength > referenceMax ? "ABOVE_SOFT_REFERENCE" : "WITHIN_SOFT_REFERENCE");
+    }
+
+    private LengthMetrics humanizeBandMetrics(int originalLength, List<RewriteResult> results) {
+        int finalLength = totalResultTextLength(results);
+        int ceiling = humanizeLengthCeiling(originalLength);
+        int increase = finalLength - originalLength;
+        return new LengthMetrics(originalLength, finalLength, increase,
+                originalLength <= 0 ? 0 : increase * 1.0 / originalLength,
+                ceiling, finalLength > ceiling ? "ABOVE_CEILING" : "WITHIN_BAND");
     }
 
     private void logLengthMetrics(DocumentRewriteJobVO job, String stage, LengthMetrics metrics, int retryCount) {
@@ -1416,6 +1559,9 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
     }
 
     private record LengthRule(int originalLength, int allowedMaxLength) {
+    }
+
+    private record HumanizeLengthPass(List<RewriteResult> results, int extraAttempts) {
     }
 
     private record LengthMetrics(

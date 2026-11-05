@@ -9,6 +9,14 @@ public interface WorkflowRewriteService {
 
     WorkflowRewriteResult execute(String originalText, String rewriteType);
 
+    /**
+     * Same as {@link #execute(String, String)}. {@code feedback} is passed to the model on the
+     * first attempt. Native 降AI length control uses it to name the character cap.
+     */
+    default WorkflowRewriteResult execute(String originalText, String rewriteType, String feedback) {
+        return execute(originalText, rewriteType);
+    }
+
     class WorkflowRewriteResult {
 
         private String rewrittenText;

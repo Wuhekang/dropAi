@@ -38,7 +38,7 @@ class DocumentRewriteFinalGuardTest {
     }
 
     @Test
-    void softLengthReferenceDoesNotDeleteSentencesOrReturnToOriginal() throws Exception {
+    void humanizeRejectsOverlongTextAfterRetryAndCompressStayOutsideTheBand() throws Exception {
         String original = "记录用于核对，不能用它证明验收完成。";
         String expanded = "这些记录是供核对时使用的材料。即使查到了这些记录，也不能据此认定验收已经完成；核对时必须保留这一区别。";
         WorkflowRewriteService workflow = workflowReturning(expanded);
@@ -47,9 +47,46 @@ class DocumentRewriteFinalGuardTest {
             GuardResult result = runMode(workflow, document, original.length(), "humanize");
 
             assertThat(result.success()).isTrue();
+            assertThat(result.rewrittenText()).isEqualTo(original);
+            assertThat(result.errorMessage()).isEmpty();
+            verify(workflow, org.mockito.Mockito.times(2)).execute(original, "humanize");
+            verify(workflow).execute(org.mockito.ArgumentMatchers.eq(expanded),
+                    org.mockito.ArgumentMatchers.eq("字数控制压缩"), org.mockito.ArgumentMatchers.anyString());
+        }
+    }
+
+    @Test
+    void humanizeKeepsCompressedTextInsideTheLengthBand() throws Exception {
+        String original = "记录用于核对，不能用它证明验收完成。";
+        String expanded = "这些记录是供核对时使用的材料。即使查到了这些记录，也不能据此认定验收已经完成；核对时必须保留这一区别。";
+        String compressed = "记录只用于核对，不能证明验收完成。";
+        WorkflowRewriteService workflow = mock(WorkflowRewriteService.class);
+        when(workflow.execute(anyString(), anyString())).thenReturn(workflowResult(expanded));
+        when(workflow.execute(anyString(), eq("字数控制压缩"), anyString())).thenReturn(workflowResult(compressed));
+
+        try (XWPFDocument document = documentWithBody(original)) {
+            GuardResult result = runMode(workflow, document, original.length(), "humanize");
+
+            assertThat(result.success()).isTrue();
+            assertThat(result.rewrittenText()).isEqualTo(compressed);
+            assertThat(compressed.length()).isLessThanOrEqualTo(
+                    DocumentRewriteServiceImpl.humanizeLengthCeiling(original.length()));
+        }
+    }
+
+    @Test
+    void rewriteModeDoesNotCompressAnOverlongParagraph() throws Exception {
+        String original = "记录用于核对，不能用它证明验收完成。";
+        String expanded = "这些记录是供核对时使用的材料。即使查到了这些记录，也不能据此认定验收已经完成；核对时必须保留这一区别。";
+        WorkflowRewriteService workflow = workflowReturning(expanded);
+
+        try (XWPFDocument document = documentWithBody(original)) {
+            GuardResult result = runMode(workflow, document, original.length(), "rewrite");
+
+            assertThat(result.success()).isTrue();
             assertThat(result.rewrittenText()).isEqualTo(expanded);
-            verify(workflow).execute(original, "humanize");
-            verifyNoMoreInteractions(workflow);
+            verify(workflow).execute(original, "rewrite");
+            verify(workflow, org.mockito.Mockito.never()).execute(anyString(), eq("字数控制压缩"), anyString());
         }
     }
 

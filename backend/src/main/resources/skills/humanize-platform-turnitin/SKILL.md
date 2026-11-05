@@ -8,7 +8,7 @@ profile-id: turnitin-ai-dedicated-v1
 
 本档只服务 Turnitin 英文降AI。它不是通用档，也没有普通模式和深度改写两档。不承诺检测百分比。
 
-校准样本是降重狗订单 c4a1eb7802ab4afdab69ce380445f171（Turnitin降AI专用）：同一段英文 100 词改成 101 词。句子数量不变，只调整英文节奏。不得译成中文。竞品把 operational efficiency 写成了 economic vitality of a region，这是事实漂移，本档禁止，不要照抄。
+校准样本是降重狗订单 c4a1eb7802ab4afdab69ce380445f171（Turnitin降AI专用）：同一段英文 100 词改成 101 词。可以改英文入口和句组，不要只做逐词替换。不得译成中文。竞品把 operational efficiency 写成了 economic vitality of a region，这是事实漂移，本档禁止，不要照抄。
 
 第二轮样本是降重狗订单 148946。竞品把出口卡的三项评分改成了 small-print 和 a sense of anticipation。这是原文没有的发明，禁止照抄。三项必须留下：speed、clarity of signs、whether the wait felt reasonable。Holds that required items from closed storage were excluded 必须保留，闭架提取的排除范围不能删、不能改成别的样本。
 
@@ -20,15 +20,15 @@ profile-id: turnitin-ai-dedicated-v1
 4. `[[DROP_AI_PROTECTED_数字]]` 必须逐字保留，顺序不变。
 5. 引用编号、专名、数字和单位保持原样。
 6. 英文段落保持英文，不要译成中文。中文句子不要翻译成英文，也不要改成英文论文腔。本档的句式规则只用在英文句子上。
-7. 词数与原文接近。样本是 100 个英文词到 101 个英文词。不要扩写，也不要靠删掉程度、条件来缩短。若别处出现 85%—130% 的软参考，或要求拆句、并句、整段换序，Turnitin 以本档为准。
-8. 每个送入段落都要处理。句子数量与原文一致。不要为了制造结构差异拆句、并句或打乱事实顺序。
+7. 词数贴近原文，优先略少。样本是 100 个英文词到 101 个英文词。控制在约90%—108%，优先不超过105%，不要扩写，也不要靠删掉程度、条件来缩短。若别处出现 85%—130% 或允许超出，Turnitin 以本档为准。
+8. 每个送入段落都要处理。允许段内改信息入口、拆句、并句并重组句组。模板起笔即使已经通顺也要改。不得跨段调序，不得丢掉独立判断，不得新增主体或地域。
 
 ## 专用策略
 
-按英文节奏近义改写，不整段换骨架。事实出现顺序与原文大体一致。
+按英文节奏打散模板入口，不要只做逐词替换。
 
-- 把时间状语收进句子，不要总以 In recent years, the rapid development of 起笔。例如：In recent years, the rapid development of information technology has made … → With the development of information technology in recent years, …
-- 软化研究腔动词，保留这句话。This paper aims to construct → This paper seeks to build；systematic analytical framework → organized analysis system；thereby providing useful references → and offer a reference。Research shows that → According to the above research。
+- 不要总以 In recent years, the rapid development of 起笔，即使这句已经通顺也要改入口。例如：In recent years, the rapid development of information technology has made … → With the development of information technology in recent years, …
+- 软化研究腔动词，并离开原模板。This paper aims to construct → This paper seeks to build；systematic analytical framework → organized analysis system；thereby providing useful references → and offer a reference。Research shows that → According to the above research。
 - 方法从句可以名词化，对象不变。reasonably allocating resources and improving collaborative mechanisms → a reasonable allocation of resources and the strengthening of collaborative mechanisms。不要把 collaborative mechanisms 改成 enterprises 之间的新关系。
 - 结果仍是 operational efficiency，可以写成 operating efficiency，不能写成 economic vitality、regional economy 或 a region。operating costs 和 to a certain extent 这类程度都要留下。
 - 安全句保持“仍需关注”。data security and privacy protection still require further attention 不要升级成 need to be guaranteed。

@@ -35,6 +35,12 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
 
     @Override
     public WorkflowRewriteResult execute(String originalText, String rewriteType) {
+        return execute(originalText, rewriteType, "");
+    }
+
+    @Override
+    public WorkflowRewriteResult execute(String originalText, String rewriteType, String feedback) {
+        String initialFeedback = feedback == null ? "" : feedback;
         List<WorkflowStepVO> steps = new ArrayList<>();
         String preparedText = preprocess(originalText);
         String baseRewriteType = baseRewriteType(rewriteType);
@@ -68,13 +74,16 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
                 || "降低AI写作痕迹".equals(baseRewriteType)
                 || "深度降低AI写作痕迹".equals(baseRewriteType)
                 || "双降".equals(baseRewriteType);
-        boolean useModelHumanize = !aiReductionType && !rewriteOnlyType && originalRisk.getScore() >= 45;
+        boolean lengthControlType = "字数控制压缩".equals(baseRewriteType);
+        boolean useModelHumanize = !aiReductionType && !rewriteOnlyType && !lengthControlType
+                && originalRisk.getScore() >= 45;
         String finalText;
         if (rewriteOnlyType) {
             finalText = rewriteWithHardGate(preparedText, protectedText, rewriteType,
                     originalRisk.getScore(), steps);
         } else {
-            String sentenceRewritten = rewriteSentences(protectedText.text(), rewriteType, originalRisk.getScore(), "");
+            String sentenceRewritten = rewriteSentences(
+                    protectedText.text(), rewriteType, originalRisk.getScore(), initialFeedback);
             try {
                 sentenceRewritten = protectedText.restore(sentenceRewritten);
             } catch (TextStructureProtector.ProtectedContentIntegrityException ex) {
@@ -177,7 +186,8 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
                 || (!rewriteOnlyType && risk.getScore() >= 45)) {
             rules.add("每个送入段落都由模型按 Skill 完整处理");
             rules.add("允许基于原有事实整段重构，不限定微量改写，不新增证据或遗漏独立信息");
-            rules.add("长度85%—130%仅作软参考，不为比例删句或扩写");
+            rules.add("篇幅贴近原文，优先略短，90%—108%，优先不超过105%，不要扩写");
+            rules.add("模板段必须重写入口和句组，不能因已经自然而整段保留");
             rules.add("处理摘要正文和各章节正文自然语言段落");
             rules.add("保护摘要标题、关键词、章节标题、代码、表格、公式和引用");
             rules.add("完成处理的有效输出可以与原文相同，不以文字差异代替处理凭据");
