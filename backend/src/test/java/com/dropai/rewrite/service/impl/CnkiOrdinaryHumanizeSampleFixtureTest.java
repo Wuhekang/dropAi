@@ -18,8 +18,8 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * Golden style check for 降重狗 order 148900, 知网普通模式.
- * 186 characters became 185: four sentences, softened openings, academic-lite paraphrase.
+ * Fact-lock check for 降重狗 order 148900, 知网普通模式.
+ * The historical 186-to-185 paraphrase is no longer the target amplitude.
  */
 class CnkiOrdinaryHumanizeSampleFixtureTest {
 
@@ -34,7 +34,7 @@ class CnkiOrdinaryHumanizeSampleFixtureTest {
             + "同时也要重视数据安全和隐私保护的问题，保证技术方案有持续的应用价值。";
 
     @Test
-    void order148900StaysOneCharacterShorterAndSoftensOpenings() {
+    void order148900KeepsFactsWhenOpeningsAreSoftened() {
         assertThat(INPUT).hasSize(186);
         assertThat(COMPETITOR_OUTPUT).hasSize(185);
         assertThat(cnkiOrdinaryIssues(INPUT, COMPETITOR_OUTPUT)).isEmpty();
@@ -45,8 +45,8 @@ class CnkiOrdinaryHumanizeSampleFixtureTest {
     }
 
     @Test
-    void expandedOrUnsoftenedTextFailsTheSampleCheck() {
-        assertThat(cnkiOrdinaryIssues(INPUT, INPUT + "综上所述。")).contains("expanded", "formal opening");
+    void templateClosingOrUnsoftenedTextFailsTheSampleCheck() {
+        assertThat(cnkiOrdinaryIssues(INPUT, INPUT + "综上所述。")).contains("template closing", "formal opening");
         assertThat(cnkiOrdinaryIssues(INPUT, INPUT)).contains("formal opening");
     }
 
@@ -63,36 +63,33 @@ class CnkiOrdinaryHumanizeSampleFixtureTest {
         String ordinary = systemPrompt(service, "humanize@CNKI");
         String deep = systemPrompt(service, "深度降低AI写作痕迹@CNKI");
         assertThat(ordinary)
-                .contains("name: humanize-zh-academic", "profile:cnki-ordinary-v1", "148900", "186", "185")
-                .contains("本文用", "从研究可知")
-                .doesNotContain("profile:cnki-deep-v1", "profile:gezida-ai-dedicated-v1");
+                .contains("name: humanize-zh-academic", "profile:cnki-ordinary-v2", "148900", "重排信息入口", "拆句")
+                .doesNotContain("profile:cnki-deep-v1", "profile:gezida-ai-dedicated-v2", "不要整段换序", "四句都保留");
         assertThat(deep)
                 .contains("profile:cnki-deep-v1", "知网深度改写")
-                .doesNotContain("148900", "profile:cnki-ordinary-v1");
+                .doesNotContain("148900", "profile:cnki-ordinary-v2");
         assertThat(userPrompt(service, "humanize@CNKI"))
-                .contains("profile:cnki-ordinary-v1", "148900", "从研究可知");
-        assertThat(userPrompt(service, "深度降低AI写作痕迹@CNKI")).doesNotContain("148900");
+                .contains("profile:cnki-ordinary-v2", "148900", "重排信息入口", "拆句");
+        assertThat(userPrompt(service, "深度降低AI写作痕迹@CNKI"))
+                .contains("不限定微量改写")
+                .doesNotContain("148900");
     }
 
     static List<String> cnkiOrdinaryIssues(String input, String output) {
         List<String> issues = new ArrayList<>();
-        if (output.length() > input.length()) {
+        if (output.length() > Math.ceil(input.length() * 1.55d)) {
             issues.add("expanded");
         }
-        if (output.length() < Math.floor(input.length() * 0.90)) {
+        if (output.length() < Math.floor(input.length() * 0.70d)) {
             issues.add("too short");
-        }
-        if (sentences(output) != sentences(input)) {
-            issues.add("sentence count");
         }
         if (output.contains("本文旨在") || output.contains("研究表明")) {
             issues.add("formal opening");
         }
+        if (output.contains("综上所述") || output.contains("具有重要意义")) {
+            issues.add("template closing");
+        }
         return issues;
-    }
-
-    private static int sentences(String text) {
-        return text.split("。", -1).length - 1;
     }
 
     private static String systemPrompt(DoubaoAiRewriteService service, String rewriteType) throws Exception {

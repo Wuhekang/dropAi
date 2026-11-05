@@ -685,9 +685,18 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             logLengthMetrics(job, "rewrite_no_retry", lengthMetrics(rule.originalLength(), results), 0);
             return validateCompletedResults(targets, validateRewriteQuality(job, targets, results));
         }
-        // Length is observational for humanize. Character overlap cannot tell whether a
-        // structurally rewritten sentence is dispensable, so never delete it to meet a quota.
-        logLengthMetrics(job, "humanize_soft_reference", humanizeLengthMetrics(rule.originalLength(), results), 0);
+        // Length is observational for ordinary and deep humanize. There is no
+        // REJECT_OVERLONG path: a stronger rewrite is kept when it passes the soft
+        // reference, and also when it exceeds it. Do not compress it back.
+        LengthMetrics humanizeLength = humanizeLengthMetrics(rule.originalLength(), results);
+        if ("ABOVE_SOFT_REFERENCE".equals(humanizeLength.status())) {
+            log.info("HumanizeLength KEEP_OVER_REFERENCE jobId={} originalLength={} finalLength={} "
+                            + "increaseRate={} lengthStatus={} action=KEEP reason=LENGTH_IS_SOFT",
+                    job.getJobId(), humanizeLength.originalLength(), humanizeLength.finalLength(),
+                    String.format(java.util.Locale.ROOT, "%.4f", humanizeLength.increaseRate()),
+                    humanizeLength.status());
+        }
+        logLengthMetrics(job, "humanize_soft_reference", humanizeLength, 0);
         return validateCompletedResults(targets, results);
     }
 
@@ -751,9 +760,17 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
         return new LengthMetrics(originalLength, finalLength, increaseLength, increaseRate, rule.allowedMaxLength(), status);
     }
 
+    /**
+     * Soft ceiling for ordinary humanize logs. Results above it are kept.
+     * 150% covers a split/merge rewrite without treating it as a failure.
+     */
+    static int humanizeSoftReferenceMax(int originalLength) {
+        return (int) Math.floor(originalLength * 1.50d);
+    }
+
     private LengthMetrics humanizeLengthMetrics(int originalLength, List<RewriteResult> results) {
         int finalLength = totalResultTextLength(results);
-        int referenceMax = (int) Math.floor(originalLength * 1.30);
+        int referenceMax = humanizeSoftReferenceMax(originalLength);
         int increase = finalLength - originalLength;
         return new LengthMetrics(originalLength, finalLength, increase,
                 originalLength <= 0 ? 0 : increase * 1.0 / originalLength,

@@ -74,4 +74,21 @@ class DocxNativeStructureGuardTest {
             assertThat(paragraph.getCTP().xmlText()).doesNotContain("fldChar", "bookmarkStart", "drawing");
         }
     }
+
+    @Test
+    void plainLineBreaksDoNotBlockAProseRewrite() throws Exception {
+        try (XWPFDocument document = new XWPFDocument()) {
+            XWPFParagraph paragraph = document.createParagraph();
+            var run = paragraph.createRun();
+            run.setText("友谊关口岸是陆路门户，");
+            run.addBreak();
+            run.setText("榴莲进口仍要看通关时效。");
+
+            assertThat(DocxNativeStructureGuard.containsLockedStructure(paragraph)).isFalse();
+            assertThat(DocxNativeStructureGuard.replacePreservingRuns(paragraph, "陆路门户承担榴莲进口，通关时效仍然要单独看。")).isTrue();
+            assertThat(paragraph.getText().replace("\n", "").trim())
+                    .isEqualTo("陆路门户承担榴莲进口，通关时效仍然要单独看。");
+            assertThat(paragraph.getCTP().xmlText()).contains("br");
+        }
+    }
 }

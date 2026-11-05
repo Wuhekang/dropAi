@@ -212,6 +212,7 @@ public class DoubaoAiRewriteService implements AiRewriteService {
 
                 对每个送入的段落都必须完整阅读并按照 Skill 处理，不得跳过正常正文。
                 处理后的有效正文可以与原文相同；不要仅为制造文字差异改动准确、自然或受保护的内容。
+                两句以上的论述段必须改写信息入口或句组，不能只做同义词替换。单句、锁定事实片段和结构性内容可以保持原样。
                 """;
     }
 
@@ -392,39 +393,25 @@ public class DoubaoAiRewriteService implements AiRewriteService {
                     当前为双降增强模式，第一阶段按智能降重规则处理，第二阶段再按智能降AI规则优化。
                     """;
         }
-        if (usesSampleRhythmInstruction(rewriteType, platform)) {
-            if (NativeHumanizeProfiles.kind(platform) == NativeHumanizeProfiles.Kind.DEDICATED) {
-                return "当前模式只执行智能降AI目标，不以降低查重率作为主要目标。"
-                        + "幅度、句式和篇幅以本段平台档及专用 Skill 为准。"
-                        + "不得新增原文没有的事实、主体、地域或结论。"
-                        + "若别处要求整段重构或按85%—130%扩写，与平台档冲突时以平台档为准。"
-                        + "数据、单位、引用、条件和保护片段原值及顺序不变。";
-            }
+        if (NativeHumanizeProfiles.kind(platform) == NativeHumanizeProfiles.Kind.DEDICATED) {
+            return "当前是普通降AI。正常论述段必须重排信息入口，并至少拆句、并句或重组一处句组，禁止停在逐句换词。"
+                    + "幅度和事实锁以本段平台档及专用 Skill 为准。平台档不再禁止结构改写。"
+                    + "年份、吨位、百分比、专名、引用、图表编号和原文结论保持原值，锁定项彼此的相对顺序不变。"
+                    + "不得新增原文没有的主体、地域或结论。"
+                    + "篇幅约70%–150%，只作软参考。不得因为超出130%就退回原文或近义换词版。";
+        }
+        if (isSharedHumanize(rewriteType) || NativeHumanizeProfiles.isDeep(rewriteType) || "DAYA".equals(platform)) {
             return "当前模式只执行智能降AI目标，不以降低查重率作为主要目标。"
-                    + "这是普通模式：按本段平台档做近义节奏改写，软化研究腔起笔，篇幅与原文接近，可以略有增减，不要增句。"
-                    + "不要整段换序，不要新增原文没有的事实或结论。"
-                    + "若与平台档冲突，以平台档为准；平台档优先于整段重构和85%—130%扩写。"
-                    + "数据、单位、引用、条件和保护片段原值及顺序不变。";
+                    + "对报告标记或明显模板化的段落，先提取原有事实再整段重构，允许改变信息入口、句组和论述顺序；"
+                    + "不限定微量改写，不靠逐句换词或增加修饰完成任务。"
+                    + "长度参考原文85%—130%，仅作软参考，可为完整重组超出；数据、单位、引用、条件和保护片段原值及顺序不变。";
         }
-        return "当前模式只执行智能降AI目标，不以降低查重率作为主要目标。"
-                + "对报告标记或明显模板化的段落，先提取原有事实再整段重构，允许改变信息入口、句组和论述顺序；"
-                + "不限定微量改写，不靠逐句换词或增加修饰完成任务。"
-                + "长度参考原文85%—130%，仅作软参考，可为完整重组超出；数据、单位、引用、条件和保护片段原值及顺序不变。";
-    }
-
-    /**
-     * Ordinary depth-pair prompts and dedicated 降AI prompts follow the sample rhythm.
-     * Deep overlays and the shared 双降 humanize pass keep the existing reconstruction instruction.
-     */
-    private boolean usesSampleRhythmInstruction(String rewriteType, String platform) {
-        if (isSharedHumanize(rewriteType) || !isHumanizeMode(rewriteType)) {
-            return false;
-        }
-        NativeHumanizeProfiles.Kind kind = NativeHumanizeProfiles.kind(platform);
-        if (kind == NativeHumanizeProfiles.Kind.DEDICATED) {
-            return true;
-        }
-        return kind == NativeHumanizeProfiles.Kind.DEPTH_PAIR && !NativeHumanizeProfiles.isDeep(rewriteType);
+        return "当前是普通降AI。正常论述段必须重排信息入口，并至少拆句、并句或重组一处句组，禁止停在逐句换词。"
+                + "不要保留这些骨架，近义词替换也不算完成：近年来随着；本文旨在；本文以……为研究对象；采用……等方法；研究表明；研究发现；据此，本文从……提出；以期为……提供参考。"
+                + "从原文已有的对象、数据或条件起笔。年份、吨位、百分比、专名、引用编号、图表结构和原文结论保持原值，锁定项彼此的相对顺序不变。"
+                + "不要把“具备持续的应用价值”写进原文没有这层意思的段落。"
+                + "篇幅约原文的70%–150%，只作软参考。不得因为超出130%就退回原文或近义换词版，也不要为了压长度删掉独立事实。"
+                + "单句和只剩锁定事实的片段可以少动。两句以上的论述段不能原样交回。";
     }
 
     private String rewriteSystemPrompt() {

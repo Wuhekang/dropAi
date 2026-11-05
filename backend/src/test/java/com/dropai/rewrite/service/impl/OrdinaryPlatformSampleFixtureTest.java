@@ -20,7 +20,8 @@ import static org.mockito.Mockito.when;
 /**
  * Golden style checks for 降重狗 ordinary / dedicated 降AI samples.
  * CNKI 148900, Gezida 148898 and Turnitin stay in their own fixtures.
- * Competitor meaning drift is rejected; a close paraphrase of the same rhythm passes.
+ * Competitor meaning drift is rejected. A fact-preserving paraphrase still passes the
+ * fact lock; prompts now require a structural rewrite instead of that rhythm.
  */
 class OrdinaryPlatformSampleFixtureTest {
 
@@ -91,7 +92,7 @@ class OrdinaryPlatformSampleFixtureTest {
                 .contains("meaning drift", "lost practical value")
                 .doesNotContain("expanded", "sentence count", "formal opening");
         assertThat(ordinaryIssues(INPUT, INPUT, "weipu")).contains("formal opening");
-        assertThat(ordinaryIssues(INPUT, INPUT + LONG_PAD, "weipu")).contains("expanded");
+        assertThat(ordinaryIssues(INPUT, INPUT + LONG_PAD, "weipu")).contains("template closing");
     }
 
     @Test
@@ -142,32 +143,35 @@ class OrdinaryPlatformSampleFixtureTest {
         DoubaoAiRewriteService service = service();
 
         assertThat(systemPrompt(service, "humanize@WEIPU"))
-                .contains("name: humanize-zh-academic", "profile:weipu-ordinary-v1", "148908", "持续使用的必要性")
-                .doesNotContain("profile:weipu-deep-v1");
+                .contains("name: humanize-zh-academic", "profile:weipu-ordinary-v2", "148908", "持续使用的必要性",
+                        "重排信息入口", "拆句")
+                .doesNotContain("profile:weipu-deep-v1", "不要整段换序", "四句都保留");
         assertThat(systemPrompt(service, "深度降低AI写作痕迹@WEIPU"))
                 .contains("profile:weipu-deep-v1", "维普深度改写")
-                .doesNotContain("148908", "profile:weipu-ordinary-v1");
+                .doesNotContain("148908", "profile:weipu-ordinary-v2");
         assertThat(userPrompt(service, "humanize@WEIPU"))
-                .contains("近义节奏", "148908", "持续使用的必要性")
-                .doesNotContain("不限定微量改写");
+                .contains("重排信息入口", "拆句", "148908", "持续使用的必要性")
+                .doesNotContain("不限定微量改写", "近义节奏", "不要整段换序");
         assertThat(userPrompt(service, "深度降低AI写作痕迹@WEIPU"))
                 .contains("不限定微量改写", "维普深度改写")
                 .doesNotContain("148908", "这是普通模式");
 
         assertThat(systemPrompt(service, "humanize@ZHUQUE"))
-                .contains("profile:zhuque-ordinary-v1", "148907", "运行效率", "运营成本", "综合运作水平")
-                .doesNotContain("profile:zhuque-deep-v1");
+                .contains("profile:zhuque-ordinary-v2", "148907", "运行效率", "运营成本", "综合运作水平", "重排信息入口")
+                .doesNotContain("profile:zhuque-deep-v1", "不要增删句子");
         assertThat(systemPrompt(service, "深度降低AI写作痕迹@ZHUQUE"))
                 .contains("profile:zhuque-deep-v1", "朱雀深度改写")
                 .doesNotContain("148907");
         assertThat(systemPrompt(service, "humanize@PAPERYY"))
-                .contains("profile:paperyy-ordinary-v1", "148904", "本文主要从", "经过研究发现", "持续的可行性")
+                .contains("profile:paperyy-ordinary-v2", "148904", "本文主要从", "经过研究发现", "持续的可行性", "拆句")
                 .doesNotContain("profile:paperyy-deep-v1");
         assertThat(systemPrompt(service, "深度降低AI写作痕迹@PAPERYY"))
                 .contains("profile:paperyy-deep-v1", "PaperYY 深度改写")
                 .doesNotContain("148904");
 
-        assertThat(userPrompt(service, "humanize@GENERAL")).contains("不限定微量改写").doesNotContain("近义节奏");
+        assertThat(userPrompt(service, "humanize@GENERAL"))
+                .contains("重排信息入口", "拆句", "70%", "150%")
+                .doesNotContain("近义节奏", "不要整段换序");
         assertThat(userPrompt(service, "humanize-shared@WEIPU"))
                 .contains("不限定微量改写")
                 .doesNotContain("148908", "profile:");
@@ -180,7 +184,7 @@ class OrdinaryPlatformSampleFixtureTest {
     void wanfangAndPaperPassSkillsCarryTheSampleWithoutChangingRewriteOrDaya() throws Exception {
         String wanfang = skill("humanize-platform-wanfang");
         assertThat(wanfang)
-                .contains("148902", "186", "182", "可以略短", "不要扩写", "因为", "并且", "另外",
+                .contains("148902", "186", "182", "可以略短", "重排信息入口", "因为", "并且", "另外",
                         "防止该技术方案失效")
                 .doesNotContain("允许整段大幅重构表达", "不要求原句结构可还原");
         String paperPass = skill("humanize-platform-paperpass");
@@ -192,7 +196,7 @@ class OrdinaryPlatformSampleFixtureTest {
         DoubaoAiRewriteService service = service();
         assertThat(systemPrompt(service, "humanize@WANFANG"))
                 .isEqualTo(systemPrompt(service, "深度降低AI写作痕迹@WANFANG"))
-                .contains("name: humanize-platform-wanfang", "profile:wanfang-ai-dedicated-v1", "148902");
+                .contains("name: humanize-platform-wanfang", "profile:wanfang-ai-dedicated-v2", "148902");
         assertThat(userPrompt(service, "humanize@WANFANG"))
                 .isEqualTo(userPrompt(service, "深度降低AI写作痕迹@WANFANG"))
                 .contains("专用 Skill", "148902", "防止该技术方案失效")
@@ -213,17 +217,17 @@ class OrdinaryPlatformSampleFixtureTest {
 
     static List<String> ordinaryIssues(String input, String output, String platform) {
         List<String> issues = new ArrayList<>();
-        if (output.length() > Math.ceil(input.length() * 1.15d)) {
+        if (output.length() > Math.ceil(input.length() * 1.55d)) {
             issues.add("expanded");
         }
-        if (output.length() < Math.floor(input.length() * 0.90d)) {
+        if (output.length() < Math.floor(input.length() * 0.70d)) {
             issues.add("too short");
-        }
-        if (sentences(output) != sentences(input)) {
-            issues.add("sentence count");
         }
         if (output.contains("本文旨在") || output.contains("研究表明")) {
             issues.add("formal opening");
+        }
+        if (output.contains("综上所述") || output.contains("具有重要意义")) {
+            issues.add("template closing");
         }
         switch (platform) {
             case "weipu" -> {
@@ -275,10 +279,6 @@ class OrdinaryPlatformSampleFixtureTest {
             default -> throw new IllegalArgumentException(platform);
         }
         return issues;
-    }
-
-    private static int sentences(String text) {
-        return text.split("。", -1).length - 1;
     }
 
     private static String skill(String name) throws Exception {
