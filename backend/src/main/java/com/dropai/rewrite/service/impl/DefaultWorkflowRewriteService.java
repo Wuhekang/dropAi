@@ -63,6 +63,7 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
         steps.add(new WorkflowStepVO("REWRITE_PLAN", "改写策略规划 Skill", strategy));
 
         boolean aiReductionType = "humanize".equals(baseRewriteType)
+                || NativeHumanizeProfiles.SHARED_HUMANIZE.equals(baseRewriteType)
                 || "double".equals(baseRewriteType)
                 || "降低AI写作痕迹".equals(baseRewriteType)
                 || "深度降低AI写作痕迹".equals(baseRewriteType)
@@ -168,6 +169,7 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
             rules.add("调整语序与句式结构");
         }
         if ("humanize".equals(rewriteType)
+                || NativeHumanizeProfiles.SHARED_HUMANIZE.equals(rewriteType)
                 || "double".equals(rewriteType)
                 || "降低AI写作痕迹".equals(rewriteType)
                 || "深度降低AI写作痕迹".equals(rewriteType)
@@ -280,18 +282,13 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
     }
 
     private String platformName(String platform) {
-        return switch (platform) {
-            case "CNKI" -> "知网";
-            case "WEIPU" -> "维普";
-            case "WANFANG" -> "万方";
-            case "GEZIDA" -> "格子达";
-            default -> "通用";
-        };
+        return NativeHumanizeProfiles.displayName(platform);
     }
 
     private boolean requiresStrictNativeProtection(String rewriteType) {
         String baseRewriteType = baseRewriteType(rewriteType);
         boolean aiReductionType = "humanize".equals(baseRewriteType)
+                || NativeHumanizeProfiles.SHARED_HUMANIZE.equals(baseRewriteType)
                 || "double".equals(baseRewriteType)
                 || "智能降AI".equals(baseRewriteType)
                 || "降低AI写作痕迹".equals(baseRewriteType)
@@ -301,10 +298,7 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
         if (!aiReductionType) {
             return false;
         }
-        return switch (platformCode(rewriteType)) {
-            case "GENERAL", "CNKI", "WEIPU", "WANFANG", "GEZIDA" -> true;
-            default -> false;
-        };
+        return NativeHumanizeProfiles.usesNativeSkill(platformCode(rewriteType));
     }
 
     private QualityCheckVO qualityCheck(String originalText, String rewrittenText) {

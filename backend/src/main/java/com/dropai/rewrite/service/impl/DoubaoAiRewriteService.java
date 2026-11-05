@@ -142,9 +142,19 @@ public class DoubaoAiRewriteService implements AiRewriteService {
             return bodyOnlyProtectionPrompt() + "\n" + rewriteSystemPrompt();
         }
         if (isHumanizeMode(baseRewriteType)) {
-            if (usesNativeAcademicSkill(rewriteType)) {
-                return nativeHumanizeProtectionPrompt() + "\n"
-                        + skillPromptService.loadSkill(NATIVE_HUMANIZE_SKILL);
+            String platform = platformCode(rewriteType);
+            if (isSharedHumanize(baseRewriteType)) {
+                if (usesNativeAcademicSkill(rewriteType)) {
+                    return nativeHumanizeProtectionPrompt() + "\n"
+                            + skillPromptService.loadSkill(NATIVE_HUMANIZE_SKILL);
+                }
+                return nativeHumanizeProtectionPrompt() + "\n" + humanizeSystemPrompt();
+            }
+            if (NativeHumanizeProfiles.usesNativeSkill(platform)) {
+                String prompt = nativeHumanizeProtectionPrompt() + "\n"
+                        + skillPromptService.loadSkill(NativeHumanizeProfiles.skillName(platform));
+                String overlay = NativeHumanizeProfiles.profileInstruction(baseRewriteType, platform);
+                return overlay.isBlank() ? prompt : prompt + "\n" + overlay;
             }
             return nativeHumanizeProtectionPrompt() + "\n" + humanizeSystemPrompt();
         }
@@ -225,6 +235,17 @@ public class DoubaoAiRewriteService implements AiRewriteService {
         }
         String platform = platformCode(rewriteType);
         if (isRewriteMode(baseRewriteType) || isHumanizeMode(baseRewriteType) || isDoubleMode(baseRewriteType)) {
+            boolean nativeHumanize = isHumanizeMode(baseRewriteType) && !isSharedHumanize(baseRewriteType);
+            String shownPlatform = nativeHumanize
+                    ? NativeHumanizeProfiles.displayName(platform)
+                    : platformName(platform);
+            String modeInstruction = focusedModeInstruction(baseRewriteType);
+            if (nativeHumanize) {
+                String overlay = NativeHumanizeProfiles.profileInstruction(baseRewriteType, platform);
+                if (!overlay.isBlank()) {
+                    modeInstruction = modeInstruction + "\n" + overlay;
+                }
+            }
             return """
                     优化类型：%s
                     目标检测口径：%s
@@ -238,8 +259,8 @@ public class DoubaoAiRewriteService implements AiRewriteService {
 
                     原文：
                     %s
-                    """.formatted(displayModeName(baseRewriteType), platformName(platform), beforeScore, isBlank(feedback) ? "无" : feedback,
-                    focusedModeInstruction(baseRewriteType), originalText);
+                    """.formatted(displayModeName(baseRewriteType), shownPlatform, beforeScore, isBlank(feedback) ? "无" : feedback,
+                    modeInstruction, originalText);
         }
         String extraRule = "";
         if ("深度降低AI写作痕迹".equals(baseRewriteType)) {
@@ -320,9 +341,14 @@ public class DoubaoAiRewriteService implements AiRewriteService {
 
     private boolean isHumanizeMode(String rewriteType) {
         return "humanize".equals(rewriteType)
+                || NativeHumanizeProfiles.SHARED_HUMANIZE.equals(rewriteType)
                 || "智能降AI".equals(rewriteType)
                 || "降低AI写作痕迹".equals(rewriteType)
                 || "深度降低AI写作痕迹".equals(rewriteType);
+    }
+
+    private boolean isSharedHumanize(String rewriteType) {
+        return NativeHumanizeProfiles.SHARED_HUMANIZE.equals(rewriteType);
     }
 
     private boolean isDoubleMode(String rewriteType) {

@@ -68,7 +68,7 @@ class DocumentRewriteFinalGuardTest {
             assertThat(result.success()).isTrue();
             assertThat(result.rewrittenText()).isEqualTo(humanizeDraft.getRewrittenText());
             assertThat(result.errorMessage()).isEmpty();
-            verify(workflow).execute(rewriteDraft.getRewrittenText(), "humanize");
+            verify(workflow).execute(rewriteDraft.getRewrittenText(), "humanize-shared");
             verify(workflow).execute(original, "rewrite");
             verifyNoMoreInteractions(workflow);
         }
@@ -80,13 +80,13 @@ class DocumentRewriteFinalGuardTest {
         String rewritten = "动力装置负责提供输送动力，滚筒、托辊、机架和张紧装置共同维持输送带运行。";
         WorkflowRewriteService workflow = mock(WorkflowRewriteService.class);
         when(workflow.execute(original, "rewrite")).thenReturn(workflowResult(rewritten));
-        when(workflow.execute(rewritten, "humanize")).thenReturn(workflowResult(original));
+        when(workflow.execute(rewritten, "humanize-shared")).thenReturn(workflowResult(original));
         try (XWPFDocument document = documentWithBody(original)) {
             GuardResult result = runMode(workflow, document, original.length(), "double");
             assertThat(result.success()).isTrue();
             assertThat(result.rewrittenText()).isEqualTo(original);
             verify(workflow).execute(original, "rewrite");
-            verify(workflow).execute(rewritten, "humanize");
+            verify(workflow).execute(rewritten, "humanize-shared");
             verifyNoMoreInteractions(workflow);
         }
     }
@@ -101,9 +101,9 @@ class DocumentRewriteFinalGuardTest {
         String secondHumanize = "管理人员从巡检记录中确认故障位置，再安排相应人员维修。";
         WorkflowRewriteService workflow = mock(WorkflowRewriteService.class);
         when(workflow.execute(first, "rewrite")).thenReturn(workflowResult(firstRewrite));
-        when(workflow.execute(firstRewrite, "humanize")).thenReturn(workflowResult(firstHumanize));
+        when(workflow.execute(firstRewrite, "humanize-shared")).thenReturn(workflowResult(firstHumanize));
         when(workflow.execute(second, "rewrite")).thenReturn(workflowResult(secondRewrite));
-        when(workflow.execute(secondRewrite, "humanize")).thenReturn(workflowResult(secondHumanize));
+        when(workflow.execute(secondRewrite, "humanize-shared")).thenReturn(workflowResult(secondHumanize));
 
         try (XWPFDocument document = documentWithBodies(first, second)) {
             List<GuardResult> results = runModeResults(
@@ -114,9 +114,9 @@ class DocumentRewriteFinalGuardTest {
                     .containsExactly(firstHumanize, secondHumanize);
             InOrder order = inOrder(workflow);
             order.verify(workflow).execute(first, "rewrite");
-            order.verify(workflow).execute(firstRewrite, "humanize");
+            order.verify(workflow).execute(firstRewrite, "humanize-shared");
             order.verify(workflow).execute(second, "rewrite");
-            order.verify(workflow).execute(secondRewrite, "humanize");
+            order.verify(workflow).execute(secondRewrite, "humanize-shared");
             order.verifyNoMoreInteractions();
         }
     }
@@ -132,7 +132,7 @@ class DocumentRewriteFinalGuardTest {
             assertThat(result.success()).isTrue();
             assertThat(result.rewrittenText()).isEqualTo(original);
             verify(workflow).execute(original, "rewrite");
-            verify(workflow).execute(original, "humanize");
+            verify(workflow).execute(original, "humanize-shared");
             verifyNoMoreInteractions(workflow);
         }
     }
@@ -187,7 +187,7 @@ class DocumentRewriteFinalGuardTest {
         String unsafeHumanized = "柱配筋应依据图纸，并从基础顶部开始设置至12.000 m。";
         WorkflowRewriteService workflow = mock(WorkflowRewriteService.class);
         when(workflow.execute(original, "rewrite")).thenReturn(workflowResult(rewritten));
-        when(workflow.execute(rewritten, "humanize")).thenReturn(workflowResult(unsafeHumanized));
+        when(workflow.execute(rewritten, "humanize-shared")).thenReturn(workflowResult(unsafeHumanized));
 
         try (XWPFDocument document = documentWithBody(original)) {
             GuardResult result = runMode(workflow, document, original.length(), "double");

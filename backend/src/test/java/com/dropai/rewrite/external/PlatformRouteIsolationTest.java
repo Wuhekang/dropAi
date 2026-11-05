@@ -14,9 +14,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 class PlatformRouteIsolationTest {
     private static final String DEFAULT_SKILL_RESOURCE = "skills/humanize-zh-academic/SKILL.md";
     private static final String DEFAULT_SKILL_SHA256 =
-            "440a5e76f540cf5dfaaf9c89f5b1585d339b7772b14ba12307cc71d22a974d39";
+            "5f8c0fc2918eceef809eeadf997c2925f7ecaee0201ac6e5d77ef5cac9bac9c4";
     private static final String DAYA_SKILL_SHA256 =
-            "c51fc3653c43b2a77de721c75bd419f7a1d22f7528a9dfb4d5562485a4a49d56";
+            "a65a8142be971f7849ac75f40bb38356175d2527488aeabf3ab60427dbb783db";
 
     @Test
     void nativeSkillCanChangeWhileTheDayaSkillRemainsGoldenAndIsolated() throws Exception {

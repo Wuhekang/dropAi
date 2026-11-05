@@ -10,6 +10,7 @@ import com.dropai.rewrite.service.AiRewriteService;
 import com.dropai.rewrite.service.PointService;
 import com.dropai.rewrite.service.TextStructureProtector;
 import com.dropai.rewrite.service.WorkflowRewriteService;
+import com.dropai.rewrite.utils.DocxNativeStructureGuard;
 import com.dropai.rewrite.utils.DocxRewriteBoundary;
 import com.dropai.rewrite.utils.DocxImageTextPreserver;
 import com.dropai.rewrite.vo.DocumentParagraphJobVO;
@@ -77,6 +78,7 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
     private final Path jobLogDir = Path.of("storage", "jobs");
     private final ExecutorService documentExecutor = Executors.newFixedThreadPool(2);
     private final Map<String, Path> generatedOutputFiles = new ConcurrentHashMap<>();
+    private final Map<String, String> humanizeBaseTypes = new ConcurrentHashMap<>();
 
     public DocumentRewriteServiceImpl(
             WorkflowRewriteService workflowRewriteService,
@@ -145,7 +147,9 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
         }
         String originalName = file.getOriginalFilename() == null ? "document.docx" : file.getOriginalFilename();
         String normalizedMode = normalizeMode(mode);
-        String normalizedPlatform = normalizePlatform(platform);
+        String normalizedPlatform = "humanize".equals(normalizedMode)
+                ? NativeHumanizeProfiles.normalize(platform)
+                : normalizePlatform(platform);
         if (!originalName.toLowerCase().endsWith(".docx")) {
             throw new IllegalArgumentException("当前仅支持上传 .docx 文件");
         }
@@ -170,7 +174,9 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             job.setMode(normalizedMode);
             job.setModeName(modeName(normalizedMode));
             job.setPlatform(normalizedPlatform);
-            job.setPlatformName(platformName(normalizedPlatform));
+            job.setPlatformName("humanize".equals(normalizedMode)
+                    ? NativeHumanizeProfiles.displayName(normalizedPlatform)
+                    : platformName(normalizedPlatform));
             job.setCharCount(charCount);
             job.setCostPoints(costPoints);
             job.setPointsCharged(costPoints > 0);
@@ -183,6 +189,9 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             persistJob(job, userId, null);
             if (idempotencyKey != null) {
                 requestJobs.put(idempotencyKey, jobId);
+            }
+            if ("humanize".equals(normalizedMode)) {
+                bindHumanizeBase(jobId, mode);
             }
 
             scheduleProcessingAfterCommit(jobId, inputPath, outputDir.resolve(jobId + "-ai-optimized.docx"));
@@ -300,6 +309,10 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             DocumentRewriteJobVO job = jobs.get(jobId);
             update(job, "FAILED", "处理线程异常：" + readableMessage(exception) + "；详情见 storage/jobs/" + jobId + ".log");
             persistJobSafely(job, null, null);
+        } finally {
+            if (jobId != null) {
+                humanizeBaseTypes.remove(jobId);
+            }
         }
     }
 
@@ -345,7 +358,8 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
                     .sorted(Comparator.comparingInt(RewriteResult::index))
                     .forEach(result -> {
                         if (result.success() && !result.rewrittenText().equals(originalTextByIndex.get(result.index()))) {
-                            if (replaceParagraphText(result.paragraph(), result.rewrittenText())) {
+                            if (replaceParagraphText(result.paragraph(), result.rewrittenText(),
+                                    "humanize".equals(job.getMode()))) {
                                 job.setRewrittenParagraphs(job.getRewrittenParagraphs() + 1);
                             } else {
                                 // Output-stage structural fallback, not another model/quality-gate pass.
@@ -417,7 +431,7 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
                 || isTechnicalFragment(trimmed)) {
             return false;
         }
-        return true;
+        return !"humanize".equals(mode) || !DocxNativeStructureGuard.containsLockedStructure(paragraph);
     }
 
     private boolean isTechnicalFragment(String text) {
@@ -818,7 +832,7 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
                     log.info("ParagraphProcessingStart jobId={} paragraphIndex={} stage={} originalLength={}",
                             job.getJobId(), target.index(), stageMode, target.text().length());
                     try {
-                        String rewritten = rewriteByMode(target.text(), stageMode, job.getPlatform());
+                        String rewritten = rewriteByMode(target.text(), stageMode, job);
                         if (rewritten == null || rewritten.isBlank()) {
                             throw new IllegalStateException("模型未返回有效段落内容");
                         }
@@ -895,12 +909,12 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
                     try {
                         updateParagraphStatus(job, target.index(), "RUNNING", null,
                                 "双降处理中：正在执行智能降重");
-                        String rewritten = rewriteByMode(target.text(), "rewrite", job.getPlatform());
+                        String rewritten = rewriteByMode(target.text(), "rewrite", job);
                         requireParagraphOutput(rewritten, "智能降重未返回有效段落内容");
 
                         updateParagraphStatus(job, target.index(), "RUNNING", rewritten,
                                 "双降处理中：智能降重已完成，正在执行智能降AI");
-                        String humanized = rewriteByMode(rewritten, "humanize", job.getPlatform());
+                        String humanized = rewriteByMode(rewritten, "humanize", job);
                         requireParagraphOutput(humanized, "智能降AI未返回有效段落内容");
 
                         RewriteQualityGate.Assessment finalAssessment = RewriteQualityGate.assess(
@@ -1026,16 +1040,37 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
         return "文档降AI";
     }
 
-    private String rewriteByMode(String text, String mode, String platform) {
-        String suffix = platform == null || "GENERAL".equals(platform) ? "" : "@" + platform;
-        if ("rewrite".equals(mode)) {
-            return workflowRewriteService.execute(text, "rewrite" + suffix).getRewrittenText();
-        }
-        if ("double".equals(mode)) {
+    private String rewriteByMode(String text, String stageMode, DocumentRewriteJobVO job) {
+        if ("double".equals(stageMode)) {
+            String suffix = legacyRewriteSuffix(job == null || job.getPlatform() == null ? "GENERAL" : job.getPlatform());
             String rewritten = workflowRewriteService.execute(text, "rewrite" + suffix).getRewrittenText();
-            return workflowRewriteService.execute(rewritten, "humanize" + suffix).getRewrittenText();
+            return workflowRewriteService.execute(rewritten, NativeHumanizeProfiles.SHARED_HUMANIZE + suffix).getRewrittenText();
         }
-        return workflowRewriteService.execute(text, "humanize" + suffix).getRewrittenText();
+        return workflowRewriteService.execute(text, workflowRequestType(job, stageMode)).getRewrittenText();
+    }
+
+    /**
+     * Native 降AI jobs carry the platform profile. Rewrite and double keep the previous platform suffix.
+     */
+    String workflowRequestType(DocumentRewriteJobVO job, String stageMode) {
+        String platform = job == null || job.getPlatform() == null ? "GENERAL" : job.getPlatform();
+        if (job == null || !"humanize".equals(job.getMode())) {
+            String suffix = legacyRewriteSuffix(platform);
+            String workflowMode = "rewrite".equals(stageMode) ? "rewrite" : NativeHumanizeProfiles.SHARED_HUMANIZE;
+            return workflowMode + suffix;
+        }
+        String jobId = job.getJobId();
+        String base = jobId == null ? "humanize" : humanizeBaseTypes.getOrDefault(jobId, "humanize");
+        return NativeHumanizeProfiles.workflowType(base, NativeHumanizeProfiles.normalize(platform));
+    }
+
+    void bindHumanizeBase(String jobId, String rawMode) {
+        humanizeBaseTypes.put(jobId, NativeHumanizeProfiles.humanizeBase(rawMode));
+    }
+
+    private String legacyRewriteSuffix(String platform) {
+        String code = normalizePlatform(platform);
+        return "GENERAL".equals(code) ? "" : "@" + code;
     }
 
     private String normalizeMode(String mode) {
@@ -1081,13 +1116,7 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
     }
 
     private String normalizePlatform(String platform) {
-        if (platform == null || platform.isBlank()) {
-            return "GENERAL";
-        }
-        return switch (platform.trim().toUpperCase()) {
-            case "CNKI", "WEIPU", "WANFANG", "GEZIDA" -> platform.trim().toUpperCase();
-            default -> "GENERAL";
-        };
+        return NativeHumanizeProfiles.legacyRewriteCode(platform);
     }
 
     private String platformName(String platform) {
@@ -1194,9 +1223,12 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
                 || text.contains("TOC \\o");
     }
 
-    private boolean replaceParagraphText(XWPFParagraph paragraph, String text) {
+    private boolean replaceParagraphText(XWPFParagraph paragraph, String text, boolean nativeHumanize) {
         if (DocxImageTextPreserver.containsGraphics(paragraph)) {
             return DocxImageTextPreserver.replaceText(paragraph, text);
+        }
+        if (nativeHumanize) {
+            return DocxNativeStructureGuard.replacePreservingRuns(paragraph, text);
         }
         XWPFRun templateRun = paragraph.getRuns().isEmpty() ? null : paragraph.getRuns().get(0);
         CTRPr runProperties = null;
