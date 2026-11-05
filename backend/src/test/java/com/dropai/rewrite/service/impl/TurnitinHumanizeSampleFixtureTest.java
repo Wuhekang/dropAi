@@ -84,7 +84,7 @@ class TurnitinHumanizeSampleFixtureTest {
         String translated = "近年来，信息技术的快速发展使数字化转型成为行业提升核心竞争力的重要路径。";
         assertThat(turnitinStyleIssues(INPUT, translated)).contains("not english", "too short");
         String padded = ACCEPTABLE_OUTPUT + " This extra sentence invents a regional growth effect for the study.";
-        assertThat(turnitinStyleIssues(INPUT, padded)).contains("expanded", "sentence count");
+        assertThat(turnitinStyleIssues(INPUT, padded)).contains("expanded");
     }
 
     @Test
@@ -93,8 +93,9 @@ class TurnitinHumanizeSampleFixtureTest {
                 .getContentAsString(StandardCharsets.UTF_8);
         assertThat(skill)
                 .contains(ORDER_ID, "100", "101", "不要译成中文", "operational efficiency",
-                        "economic vitality of a region", "digitalisation", "optimisation")
-                .doesNotContain("允许整段大幅重构表达", "不要求原句结构可还原");
+                        "economic vitality of a region", "digitalisation", "optimisation",
+                        "重组句组", "90%—108%")
+                .doesNotContain("允许整段大幅重构表达", "不要求原句结构可还原", "句子数量与原文一致", "仅作软参考");
 
         SkillPromptService skills = mock(SkillPromptService.class);
         when(skills.loadSkill(anyString())).thenAnswer(invocation -> new ClassPathResource(
@@ -135,9 +136,6 @@ class TurnitinHumanizeSampleFixtureTest {
         }
         if (outputWords < inputWords - 8) {
             issues.add("too short");
-        }
-        if (sentences(output) != sentences(input)) {
-            issues.add("sentence count");
         }
         String lowered = output.toLowerCase();
         if (lowered.contains("economic vitality") || lowered.contains("of a region")) {

@@ -146,12 +146,14 @@ public class DoubaoAiRewriteService implements AiRewriteService {
             if (isSharedHumanize(baseRewriteType)) {
                 if (usesNativeAcademicSkill(rewriteType)) {
                     return nativeHumanizeProtectionPrompt() + "\n"
+                            + nativeRebuildGuard() + "\n"
                             + skillPromptService.loadSkill(NATIVE_HUMANIZE_SKILL);
                 }
                 return nativeHumanizeProtectionPrompt() + "\n" + humanizeSystemPrompt();
             }
             if (NativeHumanizeProfiles.usesNativeSkill(platform)) {
                 String prompt = nativeHumanizeProtectionPrompt() + "\n"
+                        + nativeRebuildGuard() + "\n"
                         + skillPromptService.loadSkill(NativeHumanizeProfiles.skillName(platform));
                 String overlay = NativeHumanizeProfiles.profileInstruction(baseRewriteType, platform);
                 return overlay.isBlank() ? prompt : prompt + "\n" + overlay;
@@ -161,6 +163,7 @@ public class DoubaoAiRewriteService implements AiRewriteService {
         if (isDoubleMode(baseRewriteType)) {
             if (usesNativeAcademicSkill(rewriteType)) {
                 return nativeHumanizeProtectionPrompt() + "\n"
+                        + nativeRebuildGuard() + "\n"
                         + skillPromptService.loadSkill(NATIVE_HUMANIZE_SKILL);
             }
             return nativeHumanizeProtectionPrompt() + "\n" + doubleSystemPrompt();
@@ -212,6 +215,19 @@ public class DoubaoAiRewriteService implements AiRewriteService {
 
                 对每个送入的段落都必须完整阅读并按照 Skill 处理，不得跳过正常正文。
                 处理后的有效正文可以与原文相同；不要仅为制造文字差异改动准确、自然或受保护的内容。
+                """;
+    }
+
+    /**
+     * Native 降AI only. 大雅仍走 {@link #humanizeSystemPrompt()}，不附加这段。
+     */
+    private String nativeRebuildGuard() {
+        return """
+                【原生降AI重组与篇幅】
+                高风险模板段必须重写信息入口和句组，不得以“已经自然、已经通顺”整段保留。模板包括：近年来随着、本文旨在、研究表明、通过……实现……、背景-问题-措施-意义，以及英文 In recent years、This paper aims to、Research shows that。
+                没有模板骨架、且改动会碰到锁定事实或受保护内容的句子可以保留。
+                允许在段内拆句、并句并重组句组。不要跨段调序，不要新增事实，不要丢掉独立判断，不要只做近义词替换。
+                篇幅贴近原文，优先略短，控制在90%—108%，优先不超过105%，不要扩写。超过108%不算完成。
                 """;
     }
 
@@ -392,29 +408,46 @@ public class DoubaoAiRewriteService implements AiRewriteService {
                     当前为双降增强模式，第一阶段按智能降重规则处理，第二阶段再按智能降AI规则优化。
                     """;
         }
+        if (!isHumanizeMode(rewriteType) || !NativeHumanizeProfiles.usesNativeSkill(platform)) {
+            return "当前模式只执行智能降AI目标，不以降低查重率作为主要目标。"
+                    + "对报告标记或明显模板化的段落，先提取原有事实再整段重构，允许改变信息入口、句组和论述顺序；"
+                    + "不限定微量改写，不靠逐句换词或增加修饰完成任务。"
+                    + "长度参考原文85%—130%，仅作软参考，可为完整重组超出；数据、单位、引用、条件和保护片段原值及顺序不变。";
+        }
+        String rebuild = "为压低AIGC痕迹，允许在段内改信息入口、拆句、并句并重组句组；不要跨段调序，不要新增事实，不要丢掉独立判断。"
+                + "不要只做近义词替换。模板段（近年来随着、本文旨在、研究表明、通过……实现……、In recent years、This paper aims to）即使读起来已经自然，也要重写入口和句组。";
+        String length = "篇幅贴近原文，优先略短，控制在90%—108%，优先不超过105%，不要扩写。";
+        String locks = "数据、单位、年份、因果强度、专名、引用、条件和保护片段原值及顺序不变。";
         if (usesSampleRhythmInstruction(rewriteType, platform)) {
             if (NativeHumanizeProfiles.kind(platform) == NativeHumanizeProfiles.Kind.DEDICATED) {
                 return "当前模式只执行智能降AI目标，不以降低查重率作为主要目标。"
-                        + "幅度、句式和篇幅以本段平台档及专用 Skill 为准。"
-                        + "不得新增原文没有的事实、主体、地域或结论。"
-                        + "若别处要求整段重构或按85%—130%扩写，与平台档冲突时以平台档为准。"
-                        + "数据、单位、引用、条件和保护片段原值及顺序不变。";
+                        + rebuild
+                        + length
+                        + "事实锁以本段平台档及专用 Skill 为准。若别处仍写85%—130%或允许超出，以不扩写为准。"
+                        + locks;
             }
             return "当前模式只执行智能降AI目标，不以降低查重率作为主要目标。"
-                    + "这是普通模式：按本段平台档做近义节奏改写，软化研究腔起笔，篇幅与原文接近，可以略有增减，不要增句。"
-                    + "不要整段换序，不要新增原文没有的事实或结论。"
-                    + "若与平台档冲突，以平台档为准；平台档优先于整段重构和85%—130%扩写。"
-                    + "数据、单位、引用、条件和保护片段原值及顺序不变。";
+                    + "这是普通模式。"
+                    + rebuild
+                    + length
+                    + "深度改写仍更强。若与平台档冲突，以平台档为准。"
+                    + locks;
         }
+        String depthNote = NativeHumanizeProfiles.isDeep(rewriteType)
+                ? "这是深度改写：在重组之上还要更明显地打散骨架，同样不要扩写。"
+                : "";
         return "当前模式只执行智能降AI目标，不以降低查重率作为主要目标。"
-                + "对报告标记或明显模板化的段落，先提取原有事实再整段重构，允许改变信息入口、句组和论述顺序；"
+                + "对报告标记或明显模板化的段落，必须先提取原有事实再重写入口和句组。"
+                + rebuild
+                + depthNote
                 + "不限定微量改写，不靠逐句换词或增加修饰完成任务。"
-                + "长度参考原文85%—130%，仅作软参考，可为完整重组超出；数据、单位、引用、条件和保护片段原值及顺序不变。";
+                + length
+                + locks;
     }
 
     /**
-     * Ordinary depth-pair prompts and dedicated 降AI prompts follow the sample rhythm.
-     * Deep overlays and the shared 双降 humanize pass keep the existing reconstruction instruction.
+     * Ordinary depth-pair and dedicated 降AI prompts share the rebuild instruction.
+     * Deep overlays and the shared humanize pass add the stronger note in the caller.
      */
     private boolean usesSampleRhythmInstruction(String rewriteType, String platform) {
         if (isSharedHumanize(rewriteType) || !isHumanizeMode(rewriteType)) {

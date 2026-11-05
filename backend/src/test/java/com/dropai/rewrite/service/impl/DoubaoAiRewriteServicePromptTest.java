@@ -27,17 +27,18 @@ class DoubaoAiRewriteServicePromptTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"GENERAL", "CNKI", "WEIPU", "PAPERYY", "ZHUQUE"})
-    void depthPairPlatformsKeepTheSharedSkillAndSoftLengthRules(String platform) throws Exception {
+    void depthPairPlatformsKeepTheSharedSkillAndNearLengthRules(String platform) throws Exception {
         var skills = classpathSkills();
         var service = service(skills);
         for (String mode : new String[]{"humanize", "深度降低AI写作痕迹"}) {
             String prompt = systemPrompt(service, mode + "@" + platform);
-            assertThat(prompt).contains("name: humanize-zh-academic", "85%—130%", "软参考",
-                            "允许整段大幅重构表达", "不要求原句结构可还原")
-                    .doesNotContain("85% 到 115%", "再做轻微语序调整", "原文本身较短时，只做轻改。", "通常不超过原文 105%");
+            assertThat(prompt).contains("name: humanize-zh-academic", "90%—108%", "优先不超过105%", "不要扩写",
+                            "允许整段大幅重构表达", "不要求原句结构可还原", "重组句组")
+                    .doesNotContain("85% 到 115%", "再做轻微语序调整", "原文本身较短时，只做轻改。",
+                            "仅作软参考", "不整段换序", "不要增删句子");
             assertThat(userPrompt(service, mode + "@" + platform))
-                    .contains("不是第三方实测分数")
-                    .doesNotContain("85% 到 115%", "采用轻量改写");
+                    .contains("不是第三方实测分数", "90%—108%", "不要扩写", "重组句组")
+                    .doesNotContain("85% 到 115%", "采用轻量改写", "85%—130%", "近义节奏", "不要整段换序");
         }
         verify(skills, never()).loadSkill("humanize-platform-gezida");
     }
@@ -55,11 +56,12 @@ class DoubaoAiRewriteServicePromptTest {
                 .doesNotContain("name: humanize-zh-academic");
         if ("PAPERPASS".equals(platform)) {
             assertThat(ordinary)
-                    .contains("85%—130%", "软参考", "允许整段大幅重构表达", "不要求原句结构可还原", "148903");
+                    .contains("90%—108%", "不要扩写", "重组句组", "不要求原句结构可还原", "148903")
+                    .doesNotContain("仅作软参考", "不整段换序");
         } else {
             assertThat(ordinary)
-                    .contains("148902", "可以略短", "不要扩写", "防止该技术方案失效")
-                    .doesNotContain("允许整段大幅重构表达", "不要求原句结构可还原");
+                    .contains("148902", "可以略短", "不要扩写", "重组句组", "防止该技术方案失效")
+                    .doesNotContain("允许整段大幅重构表达", "不要求原句结构可还原", "仅作软参考");
         }
         assertThat(userPrompt(service, "humanize@" + platform))
                 .isEqualTo(userPrompt(service, "深度降低AI写作痕迹@" + platform))
@@ -155,7 +157,8 @@ class DoubaoAiRewriteServicePromptTest {
 
         String prompt = systemPrompt(service, "humanize@DAYA");
 
-        assertThat(prompt).contains("DropAI V6").doesNotContain(SKILL_MARKER);
+        assertThat(prompt).contains("DropAI V6", "85%—130%", "仅作软参考")
+                .doesNotContain(SKILL_MARKER, "90%—108%", "【原生降AI重组与篇幅】");
         verifyNoInteractions(skillPromptService);
     }
 

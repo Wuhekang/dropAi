@@ -81,6 +81,28 @@ class NativeHumanizeProfilesTest {
     }
 
     @Test
+    void everyNativeProfileAllowsRebuildAndRefusesExpansion() {
+        for (String platform : new String[]{"CNKI", "WEIPU", "PAPERYY", "ZHUQUE"}) {
+            String ordinary = NativeHumanizeProfiles.profileInstruction("humanize", platform);
+            String deep = NativeHumanizeProfiles.profileInstruction("深度降低AI写作痕迹", platform);
+            assertThat(ordinary)
+                    .contains("重组句组", "90%—108%", "优先不超过105%", "不要扩写")
+                    .doesNotContain("不整段换序", "不要增删句子", "已经自然的句子可以保留", "85%—130%");
+            assertThat(deep)
+                    .contains("深度改写", "90%—108%", "不要扩写", "深度不得靠加长完成")
+                    .doesNotContain("85%—130%");
+        }
+        for (String platform : new String[]{"GEZIDA", "PAPERPASS", "WANFANG", "TURNITIN"}) {
+            String dedicated = NativeHumanizeProfiles.profileInstruction("humanize", platform);
+            assertThat(dedicated)
+                    .contains("重组句组", "90%—108%", "不要扩写")
+                    .doesNotContain("不整段换序", "不要增删句子", "句子数量不变");
+            assertThat(NativeHumanizeProfiles.profileInstruction("深度降低AI写作痕迹", platform))
+                    .isEqualTo(dedicated);
+        }
+    }
+
+    @Test
     void displayNamesCoverTheNativeSetAndDoNotLabelDaya() {
         assertThat(NativeHumanizeProfiles.displayName("CNKI")).isEqualTo("知网");
         assertThat(NativeHumanizeProfiles.displayName("WEIPU")).isEqualTo("维普");
