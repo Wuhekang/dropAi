@@ -63,23 +63,23 @@ public class RewriteRecordServiceImpl extends ServiceImpl<RewriteRecordMapper, R
     }
 
     private String rewriteTypeWithPlatform(String rewriteType, String platform) {
-        String normalizedPlatform = normalizePlatform(platform);
+        String normalizedPlatform = normalizePlatform(rewriteType, platform);
         return "GENERAL".equals(normalizedPlatform) ? rewriteType : rewriteType + "@" + normalizedPlatform;
     }
 
     private String displayRewriteType(String rewriteType, String platform) {
-        String platformName = platformName(normalizePlatform(platform));
+        String normalizedPlatform = normalizePlatform(rewriteType, platform);
+        String platformName = NativeHumanizeProfiles.isHumanizeType(rewriteType)
+                ? NativeHumanizeProfiles.displayName(normalizedPlatform)
+                : platformName(normalizedPlatform);
         return "通用".equals(platformName) ? rewriteType : rewriteType + " / " + platformName;
     }
 
-    private String normalizePlatform(String platform) {
-        if (platform == null || platform.isBlank()) {
-            return "GENERAL";
+    private String normalizePlatform(String rewriteType, String platform) {
+        if (NativeHumanizeProfiles.isHumanizeType(rewriteType)) {
+            return NativeHumanizeProfiles.normalize(platform);
         }
-        return switch (platform.trim().toUpperCase()) {
-            case "CNKI", "WEIPU", "WANFANG", "GEZIDA" -> platform.trim().toUpperCase();
-            default -> "GENERAL";
-        };
+        return NativeHumanizeProfiles.legacyRewriteCode(platform);
     }
 
     private String platformName(String platform) {
