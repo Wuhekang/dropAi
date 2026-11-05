@@ -27,17 +27,17 @@ class DoubaoAiRewriteServicePromptTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"GENERAL", "CNKI", "WEIPU", "PAPERYY", "ZHUQUE"})
-    void depthPairPlatformsKeepTheSharedSkillAndSoftLengthRules(String platform) throws Exception {
+    void depthPairPlatformsKeepTheSharedSkillAndNearOriginalLength(String platform) throws Exception {
         var skills = classpathSkills();
         var service = service(skills);
         for (String mode : new String[]{"humanize", "深度降低AI写作痕迹"}) {
             String prompt = systemPrompt(service, mode + "@" + platform);
-            assertThat(prompt).contains("name: humanize-zh-academic", "85%—130%", "软参考",
+            assertThat(prompt).contains("name: humanize-zh-academic", "90%–108%", "105%",
                             "允许整段大幅重构表达", "不要求原句结构可还原")
-                    .doesNotContain("85% 到 115%", "再做轻微语序调整", "原文本身较短时，只做轻改。", "通常不超过原文 105%");
+                    .doesNotContain("85%—130%", "软参考", "85% 到 115%", "再做轻微语序调整", "原文本身较短时，只做轻改。");
             assertThat(userPrompt(service, mode + "@" + platform))
-                    .contains("不是第三方实测分数")
-                    .doesNotContain("85% 到 115%", "采用轻量改写");
+                    .contains("不是第三方实测分数", "90%–108%")
+                    .doesNotContain("85%—130%", "85% 到 115%", "采用轻量改写", "不整段换序");
         }
         verify(skills, never()).loadSkill("humanize-platform-gezida");
     }
@@ -55,7 +55,8 @@ class DoubaoAiRewriteServicePromptTest {
                 .doesNotContain("name: humanize-zh-academic");
         if ("PAPERPASS".equals(platform)) {
             assertThat(ordinary)
-                    .contains("85%—130%", "软参考", "允许整段大幅重构表达", "不要求原句结构可还原", "148903");
+                    .contains("90%–108%", "允许整段大幅重构表达", "不要求原句结构可还原", "148903")
+                    .doesNotContain("85%—130%", "软参考");
         } else {
             assertThat(ordinary)
                     .contains("148902", "可以略短", "不要扩写", "防止该技术方案失效")
@@ -80,8 +81,9 @@ class DoubaoAiRewriteServicePromptTest {
                 .contains(SKILL_MARKER)
                 .contains("profile:weipu-ordinary-v1")
                 .contains("中文摘要正文、英文摘要正文")
-                .contains("每个送入的段落都必须完整阅读", "处理后的有效正文可以与原文相同")
-                .doesNotContain("必须产生真实文字变化", "不得直接返回原文", "profile:weipu-deep-v1");
+                .contains("每个送入的段落都必须完整阅读", "只有已经不规则且事实密集的句子可以保留")
+                .doesNotContain("必须产生真实文字变化", "不得直接返回原文", "处理后的有效正文可以与原文相同",
+                        "profile:weipu-deep-v1", "不整段换序");
         verify(skillPromptService).loadSkill("humanize-zh-academic");
     }
 
@@ -143,8 +145,9 @@ class DoubaoAiRewriteServicePromptTest {
         String prompt = systemPrompt(service, "double@GENERAL");
 
         assertThat(prompt)
-                .contains(SKILL_MARKER, "处理后的有效正文可以与原文相同")
-                .doesNotContain("DropAI V6", "必须产生真实文字变化", "不得直接返回原文");
+                .contains(SKILL_MARKER, "只有已经不规则且事实密集的句子可以保留")
+                .doesNotContain("DropAI V6", "必须产生真实文字变化", "不得直接返回原文",
+                        "处理后的有效正文可以与原文相同");
         verify(skillPromptService).loadSkill("humanize-zh-academic");
     }
 
@@ -155,7 +158,10 @@ class DoubaoAiRewriteServicePromptTest {
 
         String prompt = systemPrompt(service, "humanize@DAYA");
 
-        assertThat(prompt).contains("DropAI V6").doesNotContain(SKILL_MARKER);
+        assertThat(prompt).contains("DropAI V6", "85%—130%").doesNotContain(SKILL_MARKER, "90%–108%");
+        assertThat(userPrompt(service, "humanize@DAYA"))
+                .contains("85%—130%", "仅作软参考")
+                .doesNotContain("profile:", "90%–108%");
         verifyNoInteractions(skillPromptService);
     }
 

@@ -46,6 +46,11 @@ class OrdinaryPlatformSampleFixtureTest {
             + "从已有研究可知，在合理安排资源、改善协同机制之后，可以提高整体运行效率，并且也能够在一定程度上降低运营成本。"
             + "另外还要注意数据安全和隐私保护的问题，保证技术方案有持久的应用价值。";
 
+    static final String PAPERYY_ACCEPTABLE = "近几年来，由于信息技术发展迅速，数字化转型成了各个行业提高核心竞争力的一种方式。"
+            + "本文主要从建立一个系统的分析框架入手，对有关技术在具体应用中的效果进行分析，给之后的改进提供借鉴。"
+            + "经过研究发现，合理分配资源并建立协同机制，可以提高运行效率，在某种程度上也能降低运营成本。"
+            + "另外还要继续重视数据安全和隐私保护问题，保证技术方案有持续的可行性。";
+
     static final String PAPERYY_COMPETITOR = "近几年来，由于信息技术的发展迅速，数字化转型已经成为了各个行业提高自身核心竞争力的一种方式。"
             + "本文主要从建立一个系统的分析框架入手，对有关技术在具体的应用中所产生的效果进行详细的分析，进而给之后的改进工作提供一定的借鉴意义。"
             + "经过研究发现，对资源进行合理的分配和建立完善的协同机制，可以使整个系统的运行效率得到提高，在某种程度上也能降低企业的运营成本。"
@@ -107,11 +112,12 @@ class OrdinaryPlatformSampleFixtureTest {
 
     @Test
     void paperYyAcceptsFeasibilityParaphraseAndRejectsANewGap() {
-        assertThat(ordinaryIssues(INPUT, PAPERYY_COMPETITOR, "paperyy")).isEmpty();
-        assertThat(PAPERYY_COMPETITOR)
+        assertThat(ordinaryIssues(INPUT, PAPERYY_ACCEPTABLE, "paperyy")).isEmpty();
+        assertThat(PAPERYY_ACCEPTABLE)
                 .contains("本文主要从", "经过研究发现", "持续的可行性", "运行效率", "运营成本")
                 .doesNotContain("本文旨在", "研究表明");
-        String drifted = PAPERYY_COMPETITOR.replace("保证技术方案有持续的可行性", "仍有不足之处，有待探究");
+        assertThat(ordinaryIssues(INPUT, PAPERYY_COMPETITOR, "paperyy")).contains("expanded");
+        String drifted = PAPERYY_ACCEPTABLE.replace("保证技术方案有持续的可行性", "仍有不足之处，有待探究");
         assertThat(ordinaryIssues(INPUT, drifted, "paperyy")).contains("meaning drift", "lost practical value");
     }
 
@@ -148,8 +154,8 @@ class OrdinaryPlatformSampleFixtureTest {
                 .contains("profile:weipu-deep-v1", "维普深度改写")
                 .doesNotContain("148908", "profile:weipu-ordinary-v1");
         assertThat(userPrompt(service, "humanize@WEIPU"))
-                .contains("近义节奏", "148908", "持续使用的必要性")
-                .doesNotContain("不限定微量改写");
+                .contains("信息入口", "90%–108%", "148908", "持续使用的必要性")
+                .doesNotContain("不限定微量改写", "近义节奏", "不整段换序", "不要增删句子");
         assertThat(userPrompt(service, "深度降低AI写作痕迹@WEIPU"))
                 .contains("不限定微量改写", "维普深度改写")
                 .doesNotContain("148908", "这是普通模式");
@@ -173,7 +179,7 @@ class OrdinaryPlatformSampleFixtureTest {
                 .doesNotContain("148908", "profile:");
         assertThat(userPrompt(service, "rewrite@WEIPU"))
                 .contains("维普")
-                .doesNotContain("148908", "近义节奏", "profile:");
+                .doesNotContain("148908", "近义节奏", "这是普通模式", "profile:");
     }
 
     @Test
@@ -186,8 +192,8 @@ class OrdinaryPlatformSampleFixtureTest {
         String paperPass = skill("humanize-platform-paperpass");
         assertThat(paperPass)
                 .contains("148903", "186", "195", "允许整段大幅重构表达", "不要求原句结构可还原",
-                        "85%—130%", "软参考", "不足之处", "有待于探究", "可持续的实践价值")
-                .doesNotContain("name: humanize-zh-academic");
+                        "90%–108%", "不足之处", "有待于探究", "可持续的实践价值")
+                .doesNotContain("name: humanize-zh-academic", "85%—130%", "软参考");
 
         DoubaoAiRewriteService service = service();
         assertThat(systemPrompt(service, "humanize@WANFANG"))
@@ -213,14 +219,11 @@ class OrdinaryPlatformSampleFixtureTest {
 
     static List<String> ordinaryIssues(String input, String output, String platform) {
         List<String> issues = new ArrayList<>();
-        if (output.length() > Math.ceil(input.length() * 1.15d)) {
+        if (output.length() > Math.ceil(input.length() * 1.08d)) {
             issues.add("expanded");
         }
         if (output.length() < Math.floor(input.length() * 0.90d)) {
             issues.add("too short");
-        }
-        if (sentences(output) != sentences(input)) {
-            issues.add("sentence count");
         }
         if (output.contains("本文旨在") || output.contains("研究表明")) {
             issues.add("formal opening");
@@ -275,10 +278,6 @@ class OrdinaryPlatformSampleFixtureTest {
             default -> throw new IllegalArgumentException(platform);
         }
         return issues;
-    }
-
-    private static int sentences(String text) {
-        return text.split("。", -1).length - 1;
     }
 
     private static String skill(String name) throws Exception {

@@ -19,7 +19,7 @@ import static org.mockito.Mockito.when;
 
 /**
  * Golden style check for 降重狗 order 148898, 格子达降AI专用.
- * The competitor rewrote 186 characters to 175: same four sentences, colloquial paraphrase, no padding.
+ * The competitor rewrote 186 characters to 175: colloquial rhythm, no padding. Sentence regroup is allowed.
  */
 class GezidaHumanizeSampleFixtureTest {
 
@@ -85,17 +85,10 @@ class GezidaHumanizeSampleFixtureTest {
         if (output.length() < Math.floor(input.length() * 0.90)) {
             issues.add("too short");
         }
-        if (sentences(output) != sentences(input)) {
-            issues.add("sentence count");
-        }
         if (output.contains("本文旨在") || output.contains("研究表明")) {
             issues.add("formal opening");
         }
         return issues;
-    }
-
-    private static int sentences(String text) {
-        return text.split("。", -1).length - 1;
     }
 
     private static String systemPrompt(DoubaoAiRewriteService service, String rewriteType) throws Exception {

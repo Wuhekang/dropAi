@@ -13,6 +13,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
@@ -38,17 +39,97 @@ class DocumentRewriteFinalGuardTest {
     }
 
     @Test
-    void softLengthReferenceDoesNotDeleteSentencesOrReturnToOriginal() throws Exception {
-        String original = "记录用于核对，不能用它证明验收完成。";
-        String expanded = "这些记录是供核对时使用的材料。即使查到了这些记录，也不能据此认定验收已经完成；核对时必须保留这一区别。";
-        WorkflowRewriteService workflow = workflowReturning(expanded);
+    void humanizeKeepsARewriteInsideTheLengthBand() throws Exception {
+        String original = "口岸冷链按批次核对榴莲箱数，夜间换装时登记温度。";
+        String rewritten = "夜间换装时，口岸冷链按批次登记榴莲温度和箱数。";
+        WorkflowRewriteService workflow = workflowReturning(rewritten);
+
+        try (XWPFDocument document = documentWithBody(original)) {
+            GuardResult result = runMode(workflow, document, original.length(), "humanize");
+
+            assertThat(rewritten.length()).isLessThanOrEqualTo(DocumentRewriteServiceImpl.humanizeHardCeiling(original.length()));
+            assertThat(result.success()).isTrue();
+            assertThat(result.rewrittenText()).isEqualTo(rewritten);
+            verify(workflow).execute(original, "humanize");
+            verifyNoMoreInteractions(workflow);
+        }
+    }
+
+    @Test
+    void humanizeCompressesOutputAboveTheLengthBand() throws Exception {
+        String original = "口岸冷链按批次核对榴莲箱数，夜间换装时登记温度。".repeat(4);
+        String expanded = original + original;
+        String compressed = original;
+        WorkflowRewriteService workflow = mock(WorkflowRewriteService.class);
+        when(workflow.execute(original, "humanize")).thenReturn(workflowResult(expanded));
+        when(workflow.execute(eq(expanded), startsWith("字数控制压缩@"))).thenReturn(workflowResult(compressed));
+
+        try (XWPFDocument document = documentWithBody(original)) {
+            GuardResult result = runMode(workflow, document, original.length(), "humanize");
+
+            assertThat(expanded.length()).isGreaterThan(DocumentRewriteServiceImpl.humanizeHardCeiling(original.length()));
+            assertThat(result.success()).isTrue();
+            assertThat(result.rewrittenText()).isEqualTo(compressed);
+            verify(workflow).execute(original, "humanize");
+            verify(workflow).execute(eq(expanded), startsWith("字数控制压缩@"));
+            verifyNoMoreInteractions(workflow);
+        }
+    }
+
+    @Test
+    void humanizeRejectsOverlongOutputWhenCompressStaysLong() throws Exception {
+        String original = "口岸冷链按批次核对榴莲箱数，夜间换装时登记温度。".repeat(4);
+        String expanded = original + "补充背景、案例和实施过程，并把每个步骤再解释一遍。".repeat(3);
+        WorkflowRewriteService workflow = mock(WorkflowRewriteService.class);
+        when(workflow.execute(anyString(), anyString())).thenReturn(workflowResult(expanded));
 
         try (XWPFDocument document = documentWithBody(original)) {
             GuardResult result = runMode(workflow, document, original.length(), "humanize");
 
             assertThat(result.success()).isTrue();
-            assertThat(result.rewrittenText()).isEqualTo(expanded);
+            assertThat(result.rewrittenText()).isEqualTo(original);
             verify(workflow).execute(original, "humanize");
+            verify(workflow, org.mockito.Mockito.times(2)).execute(eq(expanded), startsWith("字数控制压缩@"));
+        }
+    }
+
+    @Test
+    void humanizeRevertsOneParagraphWhenTheAggregateExceedsTheBand() throws Exception {
+        String first = "榴莲冷链按批次核对甲乙丙丁";
+        String second = "榴莲冷链按批次核对戊己庚辛";
+        String firstOut = first + "补充";
+        String secondOut = second + "补充";
+        int combined = first.length() + second.length();
+        assertThat(firstOut.length()).isEqualTo(DocumentRewriteServiceImpl.humanizeHardCeiling(first.length()));
+        assertThat(firstOut.length() + secondOut.length())
+                .isGreaterThan(DocumentRewriteServiceImpl.humanizeHardCeiling(combined));
+        WorkflowRewriteService workflow = mock(WorkflowRewriteService.class);
+        when(workflow.execute(first, "humanize")).thenReturn(workflowResult(firstOut));
+        when(workflow.execute(second, "humanize")).thenReturn(workflowResult(secondOut));
+        when(workflow.execute(anyString(), startsWith("字数控制压缩@"))).thenReturn(workflowResult(firstOut));
+
+        try (XWPFDocument document = documentWithBodies(first, second)) {
+            List<GuardResult> results = runModeResults(workflow, document, combined, "humanize");
+            int total = results.stream().mapToInt(result -> result.rewrittenText().length()).sum();
+            assertThat(total).isLessThanOrEqualTo(DocumentRewriteServiceImpl.humanizeHardCeiling(combined));
+            assertThat(results).extracting(GuardResult::success).containsOnly(true);
+            assertThat(results).extracting(GuardResult::rewrittenText).containsExactly(first, secondOut);
+            verify(workflow).execute(eq(firstOut), startsWith("字数控制压缩@"));
+        }
+    }
+
+    @Test
+    void rewriteModeDoesNotCompressAnOverlongDraft() throws Exception {
+        String original = "口岸冷链按批次核对榴莲箱数，夜间换装时登记温度。".repeat(4);
+        String expanded = original + original;
+        WorkflowRewriteService workflow = workflowReturning(expanded);
+
+        try (XWPFDocument document = documentWithBody(original)) {
+            GuardResult result = runMode(workflow, document, original.length(), "rewrite");
+
+            assertThat(result.success()).isTrue();
+            assertThat(result.rewrittenText()).isEqualTo(expanded);
+            verify(workflow).execute(original, "rewrite");
             verifyNoMoreInteractions(workflow);
         }
     }

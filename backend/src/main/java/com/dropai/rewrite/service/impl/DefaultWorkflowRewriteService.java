@@ -68,7 +68,9 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
                 || "降低AI写作痕迹".equals(baseRewriteType)
                 || "深度降低AI写作痕迹".equals(baseRewriteType)
                 || "双降".equals(baseRewriteType);
-        boolean useModelHumanize = !aiReductionType && !rewriteOnlyType && originalRisk.getScore() >= 45;
+        boolean lengthControlType = "字数控制压缩".equals(baseRewriteType);
+        boolean useModelHumanize = !aiReductionType && !rewriteOnlyType && !lengthControlType
+                && originalRisk.getScore() >= 45;
         String finalText;
         if (rewriteOnlyType) {
             finalText = rewriteWithHardGate(preparedText, protectedText, rewriteType,
@@ -168,21 +170,25 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
             rules.add("段落重构优先于词语替换");
             rules.add("调整语序与句式结构");
         }
-        if ("humanize".equals(rewriteType)
+        boolean lengthControlType = "字数控制压缩".equals(rewriteType);
+        if (!lengthControlType && ("humanize".equals(rewriteType)
                 || NativeHumanizeProfiles.SHARED_HUMANIZE.equals(rewriteType)
                 || "double".equals(rewriteType)
                 || "降低AI写作痕迹".equals(rewriteType)
                 || "深度降低AI写作痕迹".equals(rewriteType)
                 || "双降".equals(rewriteType)
-                || (!rewriteOnlyType && risk.getScore() >= 45)) {
+                || (!rewriteOnlyType && risk.getScore() >= 45))) {
             rules.add("每个送入段落都由模型按 Skill 完整处理");
             rules.add("允许基于原有事实整段重构，不限定微量改写，不新增证据或遗漏独立信息");
-            rules.add("长度85%—130%仅作软参考，不为比例删句或扩写");
+            rules.add("篇幅贴近原文，目标约为90%–108%，优先略短，不要为降AI扩写");
             rules.add("处理摘要正文和各章节正文自然语言段落");
             rules.add("保护摘要标题、关键词、章节标题、代码、表格、公式和引用");
-            rules.add("完成处理的有效输出可以与原文相同，不以文字差异代替处理凭据");
+            rules.add("研究腔起笔、通过……实现……、四字套话堆叠或句长过齐的段落要重建；只有已经不规则且事实密集的句子可以保留");
             rules.add("减少模板化连接词");
             rules.add("避免句式完全对齐");
+        }
+        if (lengthControlType) {
+            rules.add("只压缩超长扩写，不超过指定字数，不新增事实");
         }
         if ("扩写".equals(rewriteType)) {
             rules.add("只补充解释性表达，不添加未经提供的案例和数据");
