@@ -580,11 +580,19 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
         List<RewriteTarget> targets = new ArrayList<>();
         boolean inBody = false;
         boolean abstractReached = false;
+        DocxNativeStructureGuard.TocFieldScan tocFields = new DocxNativeStructureGuard.TocFieldScan();
+        boolean protectTocFields = "humanize".equals(job.getMode());
         for (int index = 0; index < paragraphs.size(); index++) {
             XWPFParagraph paragraph = paragraphs.get(index);
             String text = paragraph.getText().trim();
+            // Observe every paragraph. A list-of-figures TOC after the leading catalog is
+            // outside that catalog range, but its field span still must not be rewritten.
+            boolean insideTocField = tocFields.observe(paragraph);
             if (scope.inCatalog(paragraph)) {
                 inBody = false;
+                continue;
+            }
+            if (protectTocFields && insideTocField) {
                 continue;
             }
             boolean afterCatalog = scope.afterCatalog(paragraph);
@@ -1225,7 +1233,9 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
 
     private boolean replaceParagraphText(XWPFParagraph paragraph, String text, boolean nativeHumanize) {
         if (DocxImageTextPreserver.containsGraphics(paragraph)) {
-            return DocxImageTextPreserver.replaceText(paragraph, text);
+            return nativeHumanize
+                    ? DocxImageTextPreserver.replaceTextPreservingStructure(paragraph, text)
+                    : DocxImageTextPreserver.replaceText(paragraph, text);
         }
         if (nativeHumanize) {
             return DocxNativeStructureGuard.replacePreservingRuns(paragraph, text);
