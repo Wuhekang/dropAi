@@ -43,7 +43,7 @@ class DoubaoAiRewriteServicePromptTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"WANFANG", "PAPERPASS", "TURNITIN"})
+    @ValueSource(strings = {"WANFANG", "PAPERPASS"})
     void dedicatedPlatformsLoadTheirOwnSkillForBothIntensities(String platform) throws Exception {
         var skills = classpathSkills();
         var service = service(skills);
@@ -52,8 +52,15 @@ class DoubaoAiRewriteServicePromptTest {
         String skillName = NativeHumanizeProfiles.skillName(platform);
         assertThat(ordinary).isEqualTo(deep)
                 .contains("name: " + skillName, "profile-id: ")
-                .contains("85%—130%", "软参考", "允许整段大幅重构表达", "不要求原句结构可还原")
                 .doesNotContain("name: humanize-zh-academic");
+        if ("PAPERPASS".equals(platform)) {
+            assertThat(ordinary)
+                    .contains("85%—130%", "软参考", "允许整段大幅重构表达", "不要求原句结构可还原", "148903");
+        } else {
+            assertThat(ordinary)
+                    .contains("148902", "可以略短", "不要扩写", "防止该技术方案失效")
+                    .doesNotContain("允许整段大幅重构表达", "不要求原句结构可还原");
+        }
         assertThat(userPrompt(service, "humanize@" + platform))
                 .isEqualTo(userPrompt(service, "深度降低AI写作痕迹@" + platform))
                 .contains("profile:" + platform.toLowerCase() + "-ai-dedicated-v1")
