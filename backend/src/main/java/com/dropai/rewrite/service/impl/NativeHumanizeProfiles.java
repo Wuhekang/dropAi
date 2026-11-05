@@ -168,7 +168,8 @@ public final class NativeHumanizeProfiles {
             case "GEZIDA" -> """
                     【原生降AI平台档】profile:gezida-ai-dedicated-v1
                     格子达使用降AI专用档。不要改用通用档、普通模式或深度改写。
-                    篇幅与原文接近，可以略短，不要扩写。用口语化近义改写，软化“本文旨在、研究表明”，保留事实和原有句子数量。
+                    上面的“整段重构、改变信息入口和句组、不靠逐句换词、85%—130%可超出”不适用于格子达。
+                    格子达只做逐句口语近义改写：篇幅不长于原文，可以略短，不要扩写；软化“本文旨在、研究表明”；句子数量和事实顺序保持不变。
                     """;
             case "PAPERPASS" -> """
                     【原生降AI平台档】profile:paperpass-ai-dedicated-v1
