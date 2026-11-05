@@ -10,6 +10,7 @@ import com.dropai.rewrite.service.AiRewriteService;
 import com.dropai.rewrite.service.PointService;
 import com.dropai.rewrite.service.TextStructureProtector;
 import com.dropai.rewrite.service.WorkflowRewriteService;
+import com.dropai.rewrite.utils.DocxNativeStructureGuard;
 import com.dropai.rewrite.utils.DocxRewriteBoundary;
 import com.dropai.rewrite.utils.DocxImageTextPreserver;
 import com.dropai.rewrite.vo.DocumentParagraphJobVO;
@@ -357,7 +358,8 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
                     .sorted(Comparator.comparingInt(RewriteResult::index))
                     .forEach(result -> {
                         if (result.success() && !result.rewrittenText().equals(originalTextByIndex.get(result.index()))) {
-                            if (replaceParagraphText(result.paragraph(), result.rewrittenText())) {
+                            if (replaceParagraphText(result.paragraph(), result.rewrittenText(),
+                                    "humanize".equals(job.getMode()))) {
                                 job.setRewrittenParagraphs(job.getRewrittenParagraphs() + 1);
                             } else {
                                 // Output-stage structural fallback, not another model/quality-gate pass.
@@ -429,7 +431,7 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
                 || isTechnicalFragment(trimmed)) {
             return false;
         }
-        return true;
+        return !"humanize".equals(mode) || !DocxNativeStructureGuard.containsLockedStructure(paragraph);
     }
 
     private boolean isTechnicalFragment(String text) {
@@ -1221,9 +1223,12 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
                 || text.contains("TOC \\o");
     }
 
-    private boolean replaceParagraphText(XWPFParagraph paragraph, String text) {
+    private boolean replaceParagraphText(XWPFParagraph paragraph, String text, boolean nativeHumanize) {
         if (DocxImageTextPreserver.containsGraphics(paragraph)) {
             return DocxImageTextPreserver.replaceText(paragraph, text);
+        }
+        if (nativeHumanize) {
+            return DocxNativeStructureGuard.replacePreservingRuns(paragraph, text);
         }
         XWPFRun templateRun = paragraph.getRuns().isEmpty() ? null : paragraph.getRuns().get(0);
         CTRPr runProperties = null;
