@@ -239,7 +239,7 @@ public class DoubaoAiRewriteService implements AiRewriteService {
             String shownPlatform = nativeHumanize
                     ? NativeHumanizeProfiles.displayName(platform)
                     : platformName(platform);
-            String modeInstruction = focusedModeInstruction(baseRewriteType);
+            String modeInstruction = focusedModeInstruction(baseRewriteType, platform);
             if (nativeHumanize) {
                 String overlay = NativeHumanizeProfiles.profileInstruction(baseRewriteType, platform);
                 if (!overlay.isBlank()) {
@@ -378,7 +378,7 @@ public class DoubaoAiRewriteService implements AiRewriteService {
         return "智能降AI";
     }
 
-    private String focusedModeInstruction(String rewriteType) {
+    private String focusedModeInstruction(String rewriteType, String platform) {
         if (isRewriteMode(rewriteType)) {
             return """
                     当前模式只执行查重降重目标，不要主动追加降AI、人味化或场景化扩写。
@@ -392,10 +392,39 @@ public class DoubaoAiRewriteService implements AiRewriteService {
                     当前为双降增强模式，第一阶段按智能降重规则处理，第二阶段再按智能降AI规则优化。
                     """;
         }
+        if (usesSampleRhythmInstruction(rewriteType, platform)) {
+            if (NativeHumanizeProfiles.kind(platform) == NativeHumanizeProfiles.Kind.DEDICATED) {
+                return "当前模式只执行智能降AI目标，不以降低查重率作为主要目标。"
+                        + "幅度、句式和篇幅以本段平台档及专用 Skill 为准。"
+                        + "不得新增原文没有的事实、主体、地域或结论。"
+                        + "若别处要求整段重构或按85%—130%扩写，与平台档冲突时以平台档为准。"
+                        + "数据、单位、引用、条件和保护片段原值及顺序不变。";
+            }
+            return "当前模式只执行智能降AI目标，不以降低查重率作为主要目标。"
+                    + "这是普通模式：按本段平台档做近义节奏改写，软化研究腔起笔，篇幅与原文接近，可以略有增减，不要增句。"
+                    + "不要整段换序，不要新增原文没有的事实或结论。"
+                    + "若与平台档冲突，以平台档为准；平台档优先于整段重构和85%—130%扩写。"
+                    + "数据、单位、引用、条件和保护片段原值及顺序不变。";
+        }
         return "当前模式只执行智能降AI目标，不以降低查重率作为主要目标。"
                 + "对报告标记或明显模板化的段落，先提取原有事实再整段重构，允许改变信息入口、句组和论述顺序；"
                 + "不限定微量改写，不靠逐句换词或增加修饰完成任务。"
                 + "长度参考原文85%—130%，仅作软参考，可为完整重组超出；数据、单位、引用、条件和保护片段原值及顺序不变。";
+    }
+
+    /**
+     * Ordinary depth-pair prompts and dedicated 降AI prompts follow the sample rhythm.
+     * Deep overlays and the shared 双降 humanize pass keep the existing reconstruction instruction.
+     */
+    private boolean usesSampleRhythmInstruction(String rewriteType, String platform) {
+        if (isSharedHumanize(rewriteType) || !isHumanizeMode(rewriteType)) {
+            return false;
+        }
+        NativeHumanizeProfiles.Kind kind = NativeHumanizeProfiles.kind(platform);
+        if (kind == NativeHumanizeProfiles.Kind.DEDICATED) {
+            return true;
+        }
+        return kind == NativeHumanizeProfiles.Kind.DEPTH_PAIR && !NativeHumanizeProfiles.isDeep(rewriteType);
     }
 
     private String rewriteSystemPrompt() {
