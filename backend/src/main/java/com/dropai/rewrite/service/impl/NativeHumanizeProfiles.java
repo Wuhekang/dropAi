@@ -172,7 +172,9 @@ public final class NativeHumanizeProfiles {
                     """;
             case "PAPERPASS" -> """
                     【原生降AI平台档】profile:paperpass-ai-dedicated-v1
-                    PaperPass 使用降AI专用档。不要改用通用档、普通模式或深度改写。幅度以 PaperPass 专用 Skill 为准。
+                    PaperPass 使用降AI专用档。不要改用通用档、普通模式或深度改写。
+                    校准样本是降重狗订单 148903：打散连续同形句，改起笔和句子边界，不要沿原句逐句换词。
+                    末句必须保住“技术方案具备可持续的实践价值”。禁止写成“不足之处有待探究”，禁止新增“本项目”“安全防护”。
                     """;
             case "WANFANG" -> """
                     【原生降AI平台档】profile:wanfang-ai-dedicated-v1
