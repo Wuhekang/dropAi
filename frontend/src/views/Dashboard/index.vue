@@ -2,7 +2,7 @@
   <main class="workspace-shell">
     <aside class="workspace-sidebar">
       <button class="brand" type="button" @click="router.push('/')">
-        <span>D</span><b>Dokiai Academic</b><small>Research Workspace</small>
+        <span>D</span><b>Dokiai Academic</b><small>学术工作台</small>
       </button>
 
       <nav class="workspace-nav">
@@ -63,7 +63,7 @@
     <section class="workspace-main">
       <header class="topbar">
         <div>
-          <span>MY RESEARCH WORKSPACE</span>
+          <span>当前空间</span>
           <h1>欢迎回来，{{ username }}</h1>
           <strong v-if="schoolName" class="school-name">{{ schoolName }}</strong>
           <p>继续正在进行的研究，或从一个新想法开始。</p>
@@ -79,7 +79,7 @@
 
       <section class="quick-start">
         <header>
-          <span>START HERE</span>
+          <span>选择一个方向</span>
           <h2>快速开始</h2>
           <p>选择一个方向，直接进入对应创作模块。</p>
         </header>
@@ -103,7 +103,7 @@
 
       <section class="continue-panel">
         <header>
-          <span>CONTINUE</span>
+          <span>进行中的工作</span>
           <h2>继续工作</h2>
         </header>
 
@@ -145,7 +145,7 @@
       <section id="my-projects" class="recent-panel">
         <header>
           <div>
-            <span>RECENT PROJECTS</span>
+            <span>近期记录</span>
             <h2>最近项目</h2>
           </div>
           <div>
@@ -383,10 +383,9 @@ button { font: inherit; }
 .workspace-sidebar nav > small {
   padding: 0 10px 8px;
   color: #a1a8b7;
-  font-size: 9px;
-  font-weight: 800;
-  letter-spacing: .14em;
-  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
 }
 
 .workspace-sidebar nav button {
@@ -565,9 +564,9 @@ button { font: inherit; }
 .continue-panel header span,
 .recent-panel header span {
   color: #6a59df;
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: .15em;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
 }
 
 .topbar h1 {
@@ -643,7 +642,7 @@ button { font: inherit; }
   border: 0;
   border-radius: 11px;
   color: #fff;
-  background: linear-gradient(115deg, #6259eb, #a15ddb);
+  background: linear-gradient(135deg, #6c63ff 0%, #ff7eb3 100%);
   box-shadow: 0 13px 28px #604ed62b;
 }
 
