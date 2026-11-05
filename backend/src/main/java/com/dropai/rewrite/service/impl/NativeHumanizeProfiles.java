@@ -176,7 +176,8 @@ public final class NativeHumanizeProfiles {
                     """;
             case "WANFANG" -> """
                     【原生降AI平台档】profile:wanfang-ai-dedicated-v1
-                    万方使用降AI专用档。不要改用通用档、普通模式或深度改写。幅度以万方专用 Skill 为准。
+                    万方使用降AI专用档。不要改用通用档、普通模式或深度改写。
+                    篇幅与原文接近，可以略短，不要扩写。用因为、并且、另外这类因果口语连接改写，软化“本文旨在、研究表明”，保留事实、句子数量和可持续的实践价值，不要改成“防止失效”。
                     """;
             case "TURNITIN" -> """
                     【原生降AI平台档】profile:turnitin-ai-dedicated-v1
