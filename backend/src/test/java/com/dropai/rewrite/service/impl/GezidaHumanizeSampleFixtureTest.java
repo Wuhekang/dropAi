@@ -45,10 +45,24 @@ class GezidaHumanizeSampleFixtureTest {
     }
 
     @Test
-    void expandedOrFormalRewritesFailTheSampleStyleCheck() {
+    void colloquialParaphrasePassesWhenItStaysShorterAndSoftensOpenings() {
+        String colloquial = "近些年来，伴随着信息技术的迅猛发展，数字化转型成了各个领域提高自身核心竞争力的主要途径。"
+                + "本文主要通过建立一个分析框架，对相关技术的实际情况做系统分析，进而给后续优化提供有益的借鉴。"
+                + "经过合理分配资源并且健全协同机制，可以提高整个运行效率，在一定范围内也可以缩减运营费用。"
+                + "与此同时，还要继续关注数据安全与隐私保护问题，保证该种技术方案有较好的实践意义。";
+        assertThat(colloquial.length()).isLessThanOrEqualTo(INPUT.length());
+        assertThat(gezidaStyleIssues(INPUT, colloquial)).isEmpty();
+    }
+
+    @Test
+    void expandedFormalOrResplitRewritesFailTheSampleStyleCheck() {
         String padded = INPUT + "综上所述，这一路径具有重要意义。";
-        assertThat(gezidaStyleIssues(INPUT, padded)).isNotEmpty();
+        assertThat(gezidaStyleIssues(INPUT, padded)).contains("expanded", "formal opening");
         assertThat(gezidaStyleIssues(INPUT, INPUT)).contains("formal opening");
+        String split = INPUT.replace("。", "。另起一句。");
+        assertThat(gezidaStyleIssues(INPUT, split)).contains("sentence count", "expanded");
+        String chopped = COMPETITOR_OUTPUT.substring(0, 40);
+        assertThat(gezidaStyleIssues(INPUT, chopped)).contains("too short", "sentence count");
     }
 
     @Test
@@ -57,6 +71,7 @@ class GezidaHumanizeSampleFixtureTest {
                 .getContentAsString(StandardCharsets.UTF_8);
         assertThat(skill)
                 .contains("148898", "186", "175", "可以略短", "不要扩写", "本文旨在", "研究表明", "口语")
+                .contains("不适用于格子达", "逐句", "四句都保留")
                 .doesNotContain("允许整段大幅重构表达", "不要求原句结构可还原");
 
         SkillPromptService skills = mock(SkillPromptService.class);
@@ -71,10 +86,12 @@ class GezidaHumanizeSampleFixtureTest {
         String deep = systemPrompt(service, "深度降低AI写作痕迹@GEZIDA");
         assertThat(ordinary).isEqualTo(deep)
                 .contains("name: humanize-platform-gezida", "148898", "可以略短", "不要扩写")
-                .contains("profile:gezida-ai-dedicated-v1")
+                .contains("profile:gezida-ai-dedicated-v1", "不适用于格子达")
                 .doesNotContain("name: humanize-zh-academic", "允许整段大幅重构表达");
-        assertThat(userPrompt(service, "humanize@GEZIDA"))
-                .contains("profile:gezida-ai-dedicated-v1", "不要扩写", "本文旨在", "研究表明");
+        String user = userPrompt(service, "humanize@GEZIDA");
+        assertThat(user).contains("profile:gezida-ai-dedicated-v1", "不要扩写", "本文旨在", "研究表明", "不适用于格子达");
+        assertThat(user.indexOf("不适用于格子达")).isGreaterThan(user.indexOf("整段重构"));
+        assertThat(userPrompt(service, "深度降低AI写作痕迹@GEZIDA")).isEqualTo(user);
     }
 
     static List<String> gezidaStyleIssues(String input, String output) {
