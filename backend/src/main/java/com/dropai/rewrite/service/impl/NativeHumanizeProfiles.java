@@ -180,7 +180,9 @@ public final class NativeHumanizeProfiles {
                     """;
             case "TURNITIN" -> """
                     【原生降AI平台档】profile:turnitin-ai-dedicated-v1
-                    Turnitin 使用英文降AI专用档。不要改用通用档、普通模式或深度改写。幅度以 Turnitin 专用 Skill 为准。
+                    Turnitin 使用英文降AI专用档。不要改用通用档、普通模式或深度改写。
+                    英文节奏近义改写：句子数量不变，词数接近原文，保持英文，不要译成中文。
+                    禁止事实漂移：operational efficiency 不得写成 economic vitality of a region。
                     """;
             default -> "";
         };
