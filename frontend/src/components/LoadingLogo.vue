@@ -6,8 +6,8 @@
       <span>D</span>
       <i></i>
     </div>
-    <strong>DokiAI 正在加载</strong>
-    <small>正在进入智能创作工作流</small>
+    <strong>DokiAI 正在打开</strong>
+    <small>正在进入学术工作台</small>
   </div>
 </template>
 
@@ -37,7 +37,7 @@
   height: 88px;
   border: 1px solid rgba(255, 255, 255, .85);
   border-radius: 26px;
-  background: linear-gradient(145deg, #4a90ff 0%, #6d5dfb 56%, #df66b7 100%);
+  background: linear-gradient(145deg, #4a90ff 0%, #6d5dfb 55%, #df66b7 100%);
   box-shadow: 0 22px 70px rgba(109, 93, 251, .34), inset 0 1px 0 rgba(255, 255, 255, .46);
   animation: logo-breathe 1.55s ease-in-out infinite;
 }

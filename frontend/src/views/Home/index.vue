@@ -14,7 +14,7 @@
           <button
             v-for="item in navItems"
             :key="item.id"
-            :class="{ active: item.id === 'top' }"
+            :class="{ active: item.id === activeSection }"
             type="button"
             @click="scrollToSection(item.id)"
           >
@@ -46,8 +46,7 @@
           </h1>
 
           <p class="hero-description">
-            DokiAI 帮助用户完成论文写作、<br />
-            设计方案、图纸生成与工程创作。
+            DokiAI 帮助完成论文写作、设计方案、图纸生成与工程文档。
           </p>
 
           <div class="hero-actions">
@@ -61,23 +60,20 @@
             </button>
           </div>
 
-          <div class="value-tags" aria-label="核心能力标签">
-            <article v-for="item in valueTags" :key="item.title">
+          <ul class="value-tags" aria-label="核心能力">
+            <li v-for="item in valueTags" :key="item.title">
               <span class="mini-icon">
                 <component :is="item.icon" />
               </span>
-              <div>
-                <strong>{{ item.title }}</strong>
-                <small>{{ item.copy }}</small>
-              </div>
-            </article>
-          </div>
+              <span>{{ item.title }}</span>
+            </li>
+          </ul>
         </div>
 
-        <aside class="workflow-preview" aria-label="DokiAI AI Workflow">
+        <aside class="workflow-preview" aria-label="学术工作流">
           <div class="preview-title">
-            <strong>DokiAI AI Workflow</strong>
-            <span>从需求到成果，一站式智能创作流程</span>
+            <strong>学术工作流</strong>
+            <span>从题目到成稿，按四步完成</span>
           </div>
 
           <div class="preview-body">
@@ -126,8 +122,8 @@
 
     <section id="features" class="section creation-section">
       <div class="section-heading">
-        <h2>选择你的创作方向 <i>✦</i></h2>
-        <p>从想法到成果，DokiAI支持多种学术与工程创作场景</p>
+        <h2>选择创作方向</h2>
+        <p>论文、文献、图纸与答辩材料，进入对应的工作模块。</p>
       </div>
 
       <div class="creation-grid">
@@ -159,10 +155,6 @@
           </article>
         </div>
 
-        <button class="text-link" type="button" @click="scrollToSection('workflow')">
-          了解完整流程
-          <ArrowRight />
-        </button>
       </article>
 
       <article id="deliverables" class="deliverable-panel glass-panel">
@@ -181,10 +173,6 @@
           </article>
         </div>
 
-        <button class="text-link" type="button" @click="scrollToSection('deliverables')">
-          查看成果示例
-          <ArrowRight />
-        </button>
       </article>
     </section>
 
@@ -194,8 +182,8 @@
 
     <section id="pricing" class="section cta-section">
       <div class="cta-copy">
-        <h2>准备好开始你的项目了吗？</h2>
-        <p>加入 DokiAI，体验更高效、更智能的学术与工程创作方式。</p>
+        <h2>开始一项写作或设计</h2>
+        <p>登录后进入工作台。项目、文稿与积分按账号保存，各模块的积分在使用前标明。</p>
       </div>
 
       <div class="cta-actions">
@@ -204,8 +192,7 @@
           <ArrowRight class="button-icon" />
         </button>
         <button class="cta-secondary" type="button" @click="navigate('/login')">
-          <Calendar class="button-icon" />
-          预约演示
+          已有账号，去登录
         </button>
       </div>
 
@@ -230,7 +217,6 @@ import { useRouter } from 'vue-router'
 import BrandLogo from '../../components/BrandLogo.vue'
 import {
   ArrowRight,
-  Calendar,
   Check,
   Cpu,
   DataAnalysis,
@@ -248,6 +234,7 @@ import {
 
 const router = useRouter()
 const navScrolled = ref(false)
+const activeSection = ref('top')
 
 const navItems = [
   { id: 'top', label: '首页' },
@@ -260,9 +247,9 @@ const navItems = [
 ]
 
 const valueTags = [
-  { title: '多学科覆盖', copy: '理工 / 经管 / 艺术', icon: Share },
-  { title: '智能驱动', copy: 'AI理解 · 生成 · 优化', icon: Cpu },
-  { title: '成果完整', copy: '从思路到交付', icon: Check }
+  { title: '覆盖理工、经管与艺术', icon: Share },
+  { title: '理解、生成与修订', icon: Cpu },
+  { title: '从提纲写到文档交付', icon: Check }
 ]
 
 const analysisTags = ['研究趋势', '核心观点', '方法对比', '数据结论']
@@ -287,10 +274,10 @@ const creationCards = [
 ]
 
 const processSteps = [
-  { no: '01', title: '需求输入', copy: '上传题目 / 任务书，AI 理解任务目标' },
-  { no: '02', title: '资料分析', copy: '检索与分析文献，提炼关键信息' },
-  { no: '03', title: '智能生成', copy: 'AI 生成内容 / 图纸 / 方案等成果' },
-  { no: '04', title: '成果输出', copy: '导出论文、图纸、PPT 等多格式成果' }
+  { no: '01', title: '需求输入', copy: '上传题目或任务书' },
+  { no: '02', title: '资料分析', copy: '检索并提炼要点' },
+  { no: '03', title: '智能生成', copy: '生成正文与图纸' },
+  { no: '04', title: '成果输出', copy: '导出论文与 PPT' }
 ]
 
 const deliverables = [
@@ -305,10 +292,10 @@ const deliverables = [
 const scenarios = ['毕业论文', '课程设计', '工程说明书', '机械制图', '系统流程图', '答辩汇报', '文献综述', '方案展示']
 
 const footerStats = [
-  { value: '10,000+', label: '用户信赖选择', icon: Share },
-  { value: '500,000+', label: '任务已完成', icon: Document },
-  { value: '98.5%', label: '用户满意度', icon: Check },
-  { value: '7×24h', label: '智能服务支持', icon: Calendar }
+  { value: '论文与综述', label: '提纲、正文与 DOCX', icon: Document },
+  { value: '文献与格式', label: '检索、规范与修订', icon: Reading },
+  { value: '图纸与答辩', label: '流程图、说明稿与 PPT', icon: Picture },
+  { value: '账号内保存', label: '项目与积分分别存放', icon: Check }
 ]
 
 function scrollToSection(id) {
@@ -321,6 +308,19 @@ function navigate(path) {
 
 function updateNavState() {
   navScrolled.value = window.scrollY > 16
+  const marker = 140
+  let current = 'top'
+  let best = -Infinity
+  for (const item of navItems) {
+    const el = document.getElementById(item.id)
+    if (!el) continue
+    const top = el.getBoundingClientRect().top
+    if (top <= marker && top > best) {
+      best = top
+      current = item.id
+    }
+  }
+  activeSection.value = current
 }
 
 onMounted(() => {
@@ -356,17 +356,19 @@ onBeforeUnmount(() => {
   background:
     radial-gradient(circle at 78% 8%, rgba(109, 93, 251, 0.22), transparent 28%),
     radial-gradient(circle at 16% 34%, rgba(74, 144, 255, 0.15), transparent 34%),
-    radial-gradient(circle at 86% 86%, rgba(56, 217, 197, 0.13), transparent 30%),
+    radial-gradient(circle at 8% 88%, rgba(255, 126, 179, 0.16), transparent 28%),
+    radial-gradient(circle at 86% 86%, rgba(223, 102, 183, 0.12), transparent 30%),
     linear-gradient(rgba(109, 93, 251, 0.045) 1px, transparent 1px),
     linear-gradient(90deg, rgba(74, 144, 255, 0.04) 1px, transparent 1px),
     linear-gradient(180deg, #ffffff 0%, #f8f7ff 52%, #eef2ff 100%);
-  background-size: auto, auto, auto, 52px 52px, 52px 52px, auto;
+  background-size: auto, auto, auto, auto, 52px 52px, 52px 52px, auto;
   font-family:
-    Inter,
     "PingFang SC",
+    "Hiragino Sans GB",
+    "Noto Sans SC",
     "Microsoft YaHei",
-    "Helvetica Neue",
-    Arial,
+    "WenQuanYi Micro Hei",
+    Inter,
     sans-serif;
 }
 
@@ -489,8 +491,8 @@ button {
   width: 4px;
   height: 4px;
   border-radius: 50%;
-  background: rgba(109, 93, 251, 0.35);
-  box-shadow: 0 0 16px rgba(109, 93, 251, 0.6);
+  background: rgba(109, 93, 251, 0.28);
+  box-shadow: 0 0 10px rgba(223, 102, 183, 0.28);
   animation: particleFloat 8s ease-in-out infinite;
 }
 
@@ -552,18 +554,26 @@ button {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 2px;
   flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.nav-links::-webkit-scrollbar {
+  display: none;
 }
 
 .nav-links button {
-  min-height: 42px;
-  padding: 0 16px;
-  border-radius: 12px;
-  color: #151e3f;
+  flex: 0 0 auto;
+  min-height: 38px;
+  padding: 0 12px;
+  border-radius: 10px;
+  color: #2a3354;
   background: transparent;
-  font-size: 14px;
-  font-weight: 700;
+  font-size: 13.5px;
+  font-weight: 600;
   transition: 0.22s ease;
 }
 
@@ -585,8 +595,8 @@ button {
   overflow: hidden;
   border-radius: 12px;
   color: #fff;
-  background: linear-gradient(135deg, #6d5dfb, #4a90ff);
-  box-shadow: 0 14px 32px rgba(91, 76, 240, 0.32);
+  background: linear-gradient(135deg, #6c63ff 0%, #ff7eb3 100%);
+  box-shadow: 0 14px 32px rgba(108, 99, 255, 0.28);
   font-weight: 800;
   transition: transform 0.22s ease, box-shadow 0.22s ease;
 }
@@ -612,7 +622,7 @@ button {
 .secondary-button:hover,
 .cta-primary:hover,
 .cta-secondary:hover {
-  transform: translateY(-3px);
+  transform: translateY(-1px);
 }
 
 .nav-cta:hover,
@@ -637,10 +647,16 @@ button {
   height: 18px;
 }
 
+.hero-section,
+.section,
+.site-footer {
+  scroll-margin-top: 88px;
+}
+
 .hero-section {
   position: relative;
   z-index: 1;
-  padding: 36px 0 38px;
+  padding: 28px 0 28px;
 }
 
 .orbit-line {
@@ -694,24 +710,26 @@ button {
 
 .hero-copy h1 {
   margin: 0;
-  color: #101733;
-  max-width: 620px;
-  font-size: clamp(46px, 3.8vw, 60px);
-  line-height: 1.08;
-  letter-spacing: -.035em;
+  max-width: 640px;
+  color: #161b33;
+  font-size: clamp(42px, 3.5vw, 56px);
+  font-weight: 700;
+  line-height: 1.16;
+  letter-spacing: -0.03em;
 }
 
 .hero-copy h1 span {
-  background: linear-gradient(110deg, #6d5dfb 12%, #8b5cf6 46%, #21c6f3 88%);
+  background: linear-gradient(105deg, #4338ca 0%, #3d74d4 48%, #b83d84 100%);
   -webkit-background-clip: text;
   background-clip: text;
-  color: transparent;
+  color: #4338ca;
+  -webkit-text-fill-color: transparent;
 }
 
 .hero-description {
   width: min(650px, 100%);
   margin: 22px 0 0;
-  color: #4e5a78;
+  color: #3e4a64;
   font-size: 17px;
   line-height: 1.85;
 }
@@ -751,57 +769,45 @@ button {
 }
 
 .value-tags {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-  margin-top: 26px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 22px 0 0;
+  padding: 0;
+  list-style: none;
 }
 
-.value-tags article {
-  display: grid;
-  grid-template-columns: 42px minmax(0, 1fr);
+.value-tags li {
+  display: inline-flex;
   align-items: center;
-  gap: 11px;
-  min-height: 66px;
-  padding: 11px 14px;
-  border: 1px solid rgba(109, 93, 251, 0.12);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.64);
-  box-shadow: 0 12px 28px rgba(42, 34, 93, 0.08);
-  backdrop-filter: blur(12px);
+  gap: 8px;
+  max-width: 100%;
+  min-height: 40px;
+  padding: 6px 12px 6px 7px;
+  border: 1px solid rgba(109, 93, 251, 0.14);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: 0 8px 20px rgba(42, 34, 93, 0.06);
+  color: #2c3654;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
 }
 
 .mini-icon {
   display: grid;
-  width: 38px;
-  height: 38px;
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
   place-items: center;
-  border-radius: 12px;
+  border-radius: 50%;
   color: #5b4cf0;
   background: #f0edff;
 }
 
 .mini-icon svg {
-  width: 21px;
-  height: 21px;
-}
-
-.value-tags strong,
-.value-tags small {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.value-tags strong {
-  font-size: 13px;
-}
-
-.value-tags small {
-  margin-top: 3px;
-  color: #6c7895;
-  font-size: 11px;
+  width: 14px;
+  height: 14px;
 }
 
 .workflow-preview {
@@ -816,7 +822,6 @@ button {
     radial-gradient(circle at 86% 4%, rgba(109, 93, 251, 0.18), transparent 32%);
   box-shadow: 0 26px 70px rgba(58, 47, 124, 0.14);
   backdrop-filter: blur(18px);
-  animation: previewFloat 6s ease-in-out infinite;
 }
 
 .workflow-preview::before,
@@ -1179,10 +1184,11 @@ button {
 
 .creation-card {
   position: relative;
-  display: grid;
-  justify-items: center;
-  min-height: 188px;
-  padding: 19px 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 228px;
+  padding: 20px 18px 16px;
   overflow: hidden;
   border: 1px solid rgba(109, 93, 251, 0.13);
   border-radius: 18px;
@@ -1210,8 +1216,8 @@ button {
 .creation-card:hover,
 .glass-panel:hover {
   border-color: rgba(109, 93, 251, 0.26);
-  transform: translateY(-5px);
-  box-shadow: 0 24px 60px rgba(63, 53, 124, 0.15), 0 0 24px rgba(109, 93, 251, 0.08);
+  transform: translateY(-2px);
+  box-shadow: 0 20px 48px rgba(63, 53, 124, 0.14);
 }
 
 .creation-icon {
@@ -1224,11 +1230,6 @@ button {
   margin-bottom: 12px;
   border-radius: 21px;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 16px 30px rgba(74, 144, 255, 0.16);
-  animation: iconFloat 4.8s ease-in-out infinite;
-}
-
-.creation-card:nth-child(2n) .creation-icon {
-  animation-delay: -2s;
 }
 
 .creation-icon svg {
@@ -1239,16 +1240,20 @@ button {
 .creation-card h3 {
   position: relative;
   z-index: 1;
+  display: flex;
+  align-items: center;
+  min-height: 48px;
   margin: 0;
-  font-size: 18px;
+  font-size: 17px;
+  line-height: 1.35;
+  text-align: center;
 }
 
 .creation-card p {
   position: relative;
   z-index: 1;
-  min-height: 34px;
-  margin: 8px 0 12px;
-  color: #56617c;
+  margin: 6px 0 14px;
+  color: #4c5870;
   font-size: 13px;
   line-height: 1.55;
 }
@@ -1256,6 +1261,7 @@ button {
 .creation-card button {
   position: relative;
   z-index: 1;
+  margin-top: auto;
   display: grid;
   width: 34px;
   height: 34px;
@@ -1324,7 +1330,7 @@ button {
   right: 20px;
   height: 3px;
   border-radius: 999px;
-  background: linear-gradient(90deg, #c9c3ff, #5b4cf0, #38d9c5, #d7d3ff);
+  background: linear-gradient(90deg, #d9d4ff, #6c63ff, #4a90ff, #df66b7);
   content: "";
 }
 
@@ -1371,9 +1377,9 @@ button {
 
 .process-node p {
   margin: 0;
-  color: #66718b;
+  color: #4c5870;
   font-size: 12px;
-  line-height: 1.55;
+  line-height: 1.45;
 }
 
 .text-link {
@@ -1494,10 +1500,10 @@ button {
   border-radius: 18px;
   color: #fff;
   background:
-    radial-gradient(circle at 86% 50%, rgba(109, 93, 251, 0.78), transparent 29%),
-    radial-gradient(circle at 18% 18%, rgba(56, 217, 197, 0.32), transparent 28%),
-    radial-gradient(circle at 42% 112%, rgba(74, 144, 255, 0.34), transparent 34%),
-    linear-gradient(135deg, #0a31b6 0%, #151a84 42%, #651bdf 100%);
+    radial-gradient(circle at 86% 50%, rgba(223, 102, 183, 0.42), transparent 32%),
+    radial-gradient(circle at 18% 18%, rgba(74, 144, 255, 0.36), transparent 30%),
+    radial-gradient(circle at 42% 112%, rgba(108, 99, 255, 0.4), transparent 34%),
+    linear-gradient(135deg, #3d42c4 0%, #6c63ff 42%, #a045c0 76%, #df66b7 100%);
   box-shadow: 0 22px 54px rgba(24, 25, 108, 0.22);
 }
 
@@ -1558,9 +1564,9 @@ button {
 }
 
 .cta-secondary {
-  border-color: rgba(255, 255, 255, 0.3);
+  border-color: rgba(255, 255, 255, 0.62);
   color: #fff;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.16);
   box-shadow: none;
 }
 
@@ -1598,7 +1604,7 @@ button {
   place-items: center;
   border-radius: 19px;
   color: #fff;
-  background: linear-gradient(145deg, #4a90ff, #6d5dfb 60%, #9d5cff);
+  background: linear-gradient(145deg, #4a90ff 0%, #6d5dfb 55%, #df66b7 100%);
   box-shadow: 0 0 42px rgba(255, 255, 255, 0.44);
   font-size: 28px;
   font-weight: 900;
@@ -1652,7 +1658,8 @@ button {
 }
 
 .site-footer strong {
-  font-size: 20px;
+  font-size: 16px;
+  line-height: 1.35;
 }
 
 .site-footer span {
@@ -1908,10 +1915,15 @@ button {
 
   .nav-links {
     order: 3;
+    flex: 1 0 100%;
     justify-content: flex-start;
     width: 100%;
     overflow-x: auto;
     padding-bottom: 4px;
+  }
+
+  .nav-cta {
+    margin-left: auto;
   }
 
   .nav-links button {

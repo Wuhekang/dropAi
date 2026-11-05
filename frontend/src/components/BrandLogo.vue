@@ -115,7 +115,7 @@ defineProps({
   color: #fff;
   background:
     radial-gradient(circle at 28% 20%, rgba(255, 255, 255, 0.7), transparent 23%),
-    linear-gradient(145deg, #4a90ff 0%, #6d5dfb 52%, #8d4dff 100%);
+    linear-gradient(145deg, #4a90ff 0%, #6d5dfb 55%, #df66b7 100%);
   box-shadow:
     0 14px 30px rgba(109, 93, 251, 0.34),
     0 0 24px rgba(109, 93, 251, 0.2),
