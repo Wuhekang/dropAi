@@ -10,6 +10,7 @@ import {
   isTerminalDocumentStatus,
   rewriteJobProgress
 } from '../src/utils/documentJobStatus.js'
+import * as nativeHumanizePlatforms from '../src/utils/nativeHumanizePlatforms.js'
 
 test('partial results are terminal and complete processing, not ongoing retries', () => {
   assert.equal(isCompletedDocumentStatus('PARTIAL_SUCCESS'), true)
@@ -71,7 +72,8 @@ function rewritePage(job) {
     uploadExternalDocument: async () => { counts.uploads += 1; return job },
     window: { setInterval: () => { counts.polls += 1; return 1 }, clearInterval: noop, setTimeout: noop },
     URL: { createObjectURL: () => 'blob:document', revokeObjectURL: noop },
-    document: { createElement: () => ({ click() { counts.clicks += 1; filenames.push(this.download) } }) }
+    document: { createElement: () => ({ click() { counts.clicks += 1; filenames.push(this.download) } }) },
+    ...nativeHumanizePlatforms
   })
   vm.runInContext(`${source}\nglobalThis.page = { startDocumentPolling, handleDocumentAction, downloadDocumentJob, setDocumentJob, documentJob, docProgress, docActionDisabled, docActionText, taskStateLabel, downloadStateText, partialCompletionNotice };`, context)
   return { page: context.page, counts, notifications, filenames }

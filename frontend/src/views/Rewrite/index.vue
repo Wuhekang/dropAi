@@ -82,20 +82,43 @@
           </div>
         </dl>
 
-        <div v-if="docMode !== 'rewrite'" class="platform-selector">
+        <div v-if="documentPlatformOptions.length" class="platform-selector">
           <div class="platform-selector-copy">
-            <span>平台</span>
-            <strong>{{ activePlatformOption.label }}</strong>
-            <small>{{ activePlatformOption.description }}</small>
+            <span>{{ docMode === 'humanize' ? '降AI平台' : '平台' }}</span>
+            <strong>{{ activeDocumentPlatform.label }}</strong>
+            <small>{{ activeDocumentPlatform.description }}</small>
           </div>
-          <label>
-            <span class="sr-only">选择平台</span>
-            <select v-model="docPlatform" :disabled="docBusy">
-              <option v-for="item in platformOptions" :key="item.value" :value="item.value">
-                {{ item.label }}
-              </option>
-            </select>
-          </label>
+          <div class="platform-selector-controls">
+            <label>
+              <span class="sr-only">选择平台</span>
+              <select v-model="docPlatform" :disabled="docBusy">
+                <template v-if="docMode === 'humanize'">
+                  <optgroup label="原生降AI">
+                    <option v-for="item in nativeDocumentPlatforms" :key="item.value" :value="item.value">
+                      {{ item.optionLabel || item.label }}
+                    </option>
+                  </optgroup>
+                  <optgroup label="大雅降AI">
+                    <option v-for="item in externalDocumentPlatforms" :key="item.value" :value="item.value">
+                      {{ item.label }}
+                    </option>
+                  </optgroup>
+                </template>
+                <template v-else>
+                  <option v-for="item in documentPlatformOptions" :key="item.value" :value="item.value">
+                    {{ item.label }}
+                  </option>
+                </template>
+              </select>
+            </label>
+            <div v-if="showDocumentDepth" class="intensity-control">
+              <span>强度</span>
+              <div class="intensity-tabs" role="group" aria-label="降AI强度">
+                <button type="button" :class="{ active: docIntensity === 'ordinary' }" :disabled="docBusy" @click="docIntensity = 'ordinary'">普通</button>
+                <button type="button" :class="{ active: docIntensity === 'deep' }" :disabled="docBusy" @click="docIntensity = 'deep'">深度</button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -169,6 +192,33 @@
           <button class="primary-button text-submit" type="button" :disabled="!canSubmitText" @click="submitText">
             {{ textSubmitting ? '正在优化...' : `开始文本优化（${textCostText}）` }}
           </button>
+        </div>
+      </div>
+
+      <div v-if="textPlatformOptions.length" class="platform-selector text-platform-selector">
+        <div class="platform-selector-copy">
+          <span>降AI平台</span>
+          <strong>{{ activeTextPlatform.label }}</strong>
+          <small>{{ activeTextPlatform.description }}</small>
+        </div>
+        <div class="platform-selector-controls">
+          <label>
+            <span class="sr-only">选择平台</span>
+            <select v-model="textPlatform" :disabled="textSubmitting">
+              <optgroup label="原生降AI">
+                <option v-for="item in textPlatformOptions" :key="item.value" :value="item.value">
+                  {{ item.optionLabel || item.label }}
+                </option>
+              </optgroup>
+            </select>
+          </label>
+          <div v-if="showTextDepth" class="intensity-control">
+            <span>强度</span>
+            <div class="intensity-tabs" role="group" aria-label="片段降AI强度">
+              <button type="button" :class="{ active: textIntensity === 'ordinary' }" :disabled="textSubmitting" @click="textIntensity = 'ordinary'">普通</button>
+              <button type="button" :class="{ active: textIntensity === 'deep' }" :disabled="textSubmitting" @click="textIntensity = 'deep'">深度</button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -247,6 +297,15 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRouter } from 'vue-router'
 import { canDownloadRewriteDocument, isCompletedDocumentStatus, isTerminalDocumentStatus, rewriteJobProgress as jobProgress } from '../../utils/documentJobStatus'
 import {
+  NATIVE_HUMANIZE_PLATFORMS,
+  coercePlatform,
+  documentPlatformChoices,
+  resolveDocumentSubmission,
+  resolveTextSubmission,
+  supportsNativeDepth,
+  textPlatformChoices
+} from '../../utils/nativeHumanizePlatforms'
+import {
   downloadDocument,
   getAiStatus,
   getDocumentJob,
@@ -267,21 +326,9 @@ const modes = [
   { value: 'double', label: '双降 · 推荐', apiMode: 'double', featureCode: 'DOCUMENT_DOUBLE' }
 ]
 
-const platformOptions = [
-  {
-    value: 'GENERAL',
-    label: 'dropai原生降ai（可处理维普知网）',
-    description: '默认沿用现有降 AI 原则、积分规则与文档处理链。'
-  },
-  {
-    value: 'DAYA',
-    label: '大雅',
-    description: 'Doki按大雅报告片段口径重组正文，并专项打碎第一、第二、第三等列举结构。'
-  }
-]
-
 const docMode = ref('double')
 const docPlatform = ref('GENERAL')
+const docIntensity = ref('ordinary')
 const selectedDocument = ref(null)
 const fileInput = ref(null)
 const dragging = ref(false)
@@ -298,6 +345,8 @@ const documentPrecheck = reactive({ ready: false, requestId: '', charCount: 0, c
 const documentJob = reactive({ jobId: '', fileName: '', status: '', message: '', downloadUrl: '', modeName: '', platform: '', platformName: '', charCount: 0, totalParagraphs: 0, processedParagraphs: 0 })
 
 const textMode = ref('double')
+const textPlatform = ref('GENERAL')
+const textIntensity = ref('ordinary')
 const originalText = ref('')
 const originalSnapshot = ref('')
 const rewrittenText = ref('')
@@ -314,9 +363,25 @@ const pageSize = 10
 
 const activeDocMode = computed(() => modes.find(item => item.value === docMode.value) || modes[0])
 const activeTextMode = computed(() => modes.find(item => item.value === textMode.value) || modes[0])
-const activePlatformOption = computed(() => platformOptions.find(item => item.value === docPlatform.value) || platformOptions[0])
-const externalDocumentPlatform = computed(() => docMode.value !== 'rewrite' && docPlatform.value !== 'GENERAL')
-const documentProviderBadge = computed(() => externalDocumentPlatform.value ? `${activePlatformOption.value.label}适配` : '模型已连接')
+const documentPlatformOptions = computed(() => documentPlatformChoices(docMode.value))
+const nativeDocumentPlatforms = computed(() => documentPlatformOptions.value.filter(item => item.route !== 'external'))
+const externalDocumentPlatforms = computed(() => documentPlatformOptions.value.filter(item => item.route === 'external'))
+const activeDocumentPlatform = computed(() => documentPlatformOptions.value.find(item => item.value === docPlatform.value) || documentPlatformOptions.value[0] || NATIVE_HUMANIZE_PLATFORMS[0])
+const showDocumentDepth = computed(() => docMode.value === 'humanize' && supportsNativeDepth(docPlatform.value))
+const documentSubmission = computed(() => resolveDocumentSubmission({
+  mode: activeDocMode.value.apiMode,
+  platform: docPlatform.value,
+  intensity: docIntensity.value
+}))
+const textPlatformOptions = computed(() => textPlatformChoices(textMode.value))
+const activeTextPlatform = computed(() => textPlatformOptions.value.find(item => item.value === textPlatform.value) || NATIVE_HUMANIZE_PLATFORMS[0])
+const showTextDepth = computed(() => textMode.value === 'humanize' && supportsNativeDepth(textPlatform.value))
+const textSubmission = computed(() => resolveTextSubmission({
+  mode: activeTextMode.value.apiMode,
+  platform: textPlatform.value,
+  intensity: textIntensity.value
+}))
+const documentProviderBadge = computed(() => documentSubmission.value.route === 'external' ? `${activeDocumentPlatform.value.label}适配` : '模型已连接')
 const documentProcessing = computed(() => ['PENDING', 'RUNNING'].includes(documentJob.status))
 const docBusy = computed(() => documentPrechecking.value || documentUploading.value || documentProcessing.value)
 const documentCostText = computed(() => documentPrecheck.costPoints > 0 ? `${documentPrecheck.costPoints} 积分` : '免费')
@@ -387,7 +452,12 @@ const pagedDocuments = computed(() => {
 })
 
 watch(docMode, async () => {
+  docPlatform.value = coercePlatform(docPlatform.value, documentPlatformOptions.value)
   if (selectedDocument.value && !isCompletedDocumentStatus(documentJob.status)) await runDocumentPrecheck(false)
+})
+
+watch(textMode, () => {
+  textPlatform.value = coercePlatform(textPlatform.value, textPlatformOptions.value)
 })
 
 function clearTextResult() {
@@ -407,10 +477,11 @@ async function submitText() {
   originalSnapshot.value = ''
   diffMode.value = false
   try {
+    const submission = textSubmission.value
     const result = await submitRewrite({
       originalText: originalText.value,
-      rewriteType: activeTextMode.value.apiMode,
-      platform: 'GENERAL'
+      rewriteType: submission.rewriteType,
+      platform: submission.platform
     })
     originalSnapshot.value = originalText.value
     rewrittenText.value = result.rewrittenText || ''
@@ -460,13 +531,14 @@ async function submitDocument() {
   resetDocumentJob()
   setDocProgress(10, '正在拆分文本段落...')
   try {
-    const job = externalDocumentPlatform.value
-      ? await uploadExternalDocument(selectedDocument.value, activeDocMode.value.apiMode, docPlatform.value, documentPrecheck.requestId)
-      : await uploadDocument(selectedDocument.value, activeDocMode.value.apiMode, 'GENERAL', documentPrecheck.requestId)
+    const submission = documentSubmission.value
+    const job = submission.route === 'external'
+      ? await uploadExternalDocument(selectedDocument.value, submission.mode, submission.platform, documentPrecheck.requestId)
+      : await uploadDocument(selectedDocument.value, submission.mode, submission.platform, documentPrecheck.requestId)
     setDocumentJob(job)
     upsertDocumentJob(job)
     setDocProgress(jobProgress(job), documentStepText.value)
-    if (externalDocumentPlatform.value) {
+    if (submission.route === 'external') {
       try {
         await startDocumentPolling(job.jobId)
       } catch (error) {
@@ -1021,9 +1093,64 @@ onBeforeUnmount(stopDocumentPolling)
   line-height: 1.55;
 }
 
+.platform-selector-controls {
+  display: grid;
+  gap: 10px;
+}
+
 .platform-selector label,
 .platform-selector select {
   width: 100%;
+}
+
+.text-platform-selector {
+  margin-top: 0;
+  margin-bottom: 16px;
+}
+
+.intensity-control {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+
+.intensity-control > span {
+  color: var(--label-clear);
+  font-size: 12px;
+  font-weight: 760;
+  letter-spacing: 0.06em;
+}
+
+.intensity-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid rgba(108, 99, 255, 0.12);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.intensity-tabs button {
+  min-height: 40px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  color: var(--muted);
+  font-weight: 700;
+  background: transparent;
+  cursor: pointer;
+}
+
+.intensity-tabs button.active {
+  color: #fff;
+  background: var(--primary-gradient);
+  box-shadow: 0 8px 20px rgba(108, 99, 255, 0.18);
+}
+
+.intensity-tabs button:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
 }
 
 .platform-selector select {
@@ -1414,6 +1541,10 @@ onBeforeUnmount(stopDocumentPolling)
   }
 
   .file-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .intensity-control {
     grid-template-columns: 1fr;
   }
 
