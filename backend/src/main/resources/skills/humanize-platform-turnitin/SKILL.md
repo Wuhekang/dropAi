@@ -8,7 +8,7 @@ profile-id: turnitin-ai-dedicated-v1
 
 本档只服务 Turnitin 英文降AI。它不是通用档，也没有普通模式和深度改写两档。不承诺检测百分比。
 
-校准样本是降重狗订单 c4a1eb7802ab4afdab69ce380445f171（Turnitin降AI专用）：同一段英文 100 词改成 101 词。句子数量不变，只调整英文节奏。不得译成中文。竞品把 operational efficiency 写成了 economic vitality of a region，这是事实漂移，本档禁止，不要照抄。
+校准样本是降重狗订单 c4a1eb7802ab4afdab69ce380445f171（Turnitin降AI专用）：同一段英文 100 词改成 101 词。调整英文节奏，词数保持接近。不得译成中文。可以调整信息入口。竞品把 operational efficiency 写成了 economic vitality of a region，这是事实漂移，本档禁止，不要照抄。
 
 第二轮样本是降重狗订单 148946。竞品把出口卡的三项评分改成了 small-print 和 a sense of anticipation。这是原文没有的发明，禁止照抄。三项必须留下：speed、clarity of signs、whether the wait felt reasonable。Holds that required items from closed storage were excluded 必须保留，闭架提取的排除范围不能删、不能改成别的样本。
 
@@ -20,12 +20,12 @@ profile-id: turnitin-ai-dedicated-v1
 4. `[[DROP_AI_PROTECTED_数字]]` 必须逐字保留，顺序不变。
 5. 引用编号、专名、数字和单位保持原样。
 6. 英文段落保持英文，不要译成中文。中文句子不要翻译成英文，也不要改成英文论文腔。本档的句式规则只用在英文句子上。
-7. 词数与原文接近。样本是 100 个英文词到 101 个英文词。不要扩写，也不要靠删掉程度、条件来缩短。若别处出现 85%—130% 的软参考，或要求拆句、并句、整段换序，Turnitin 以本档为准。
-8. 每个送入段落都要处理。句子数量与原文一致。不要为了制造结构差异拆句、并句或打乱事实顺序。
+7. 词数贴近原文，目标约为90%–108%。样本是 100 个英文词到 101 个英文词。不要扩写，也不要靠删掉程度、条件来缩短。
+8. 每个送入段落都要处理。可以调整信息入口，也可以拆句或并句。数字、专名、程度和保护片段的原值不变。不要为了制造差异改掉出口卡的评分项。
 
 ## 专用策略
 
-按英文节奏近义改写，不整段换骨架。事实出现顺序与原文大体一致。
+按英文节奏改写。可以改信息入口，不必锁死句子数量。保持英文。
 
 - 把时间状语收进句子，不要总以 In recent years, the rapid development of 起笔。例如：In recent years, the rapid development of information technology has made … → With the development of information technology in recent years, …
 - 软化研究腔动词，保留这句话。This paper aims to construct → This paper seeks to build；systematic analytical framework → organized analysis system；thereby providing useful references → and offer a reference。Research shows that → According to the above research。

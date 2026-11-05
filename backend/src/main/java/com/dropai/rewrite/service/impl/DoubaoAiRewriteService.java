@@ -211,7 +211,8 @@ public class DoubaoAiRewriteService implements AiRewriteService {
                 封面、目录、摘要标题、英文摘要标题、关键词、英文关键词、参考文献、致谢、声明页、代码块、表格、图片说明、图标题、图注、表标题、公式、图表编号、引用编号、章节标题、小节标题、编号体系、页眉页脚、页码和格式。
 
                 对每个送入的段落都必须完整阅读并按照 Skill 处理，不得跳过正常正文。
-                处理后的有效正文可以与原文相同；不要仅为制造文字差异改动准确、自然或受保护的内容。
+                研究腔起笔、通过……实现……、四字套话堆叠或句长过齐的段落必须重建，不能整段原样返回。
+                只有已经不规则且事实密集的句子可以保留。受保护内容仍必须原样保留。
                 """;
     }
 
@@ -221,6 +222,11 @@ public class DoubaoAiRewriteService implements AiRewriteService {
             return originalText;
         }
         if (isLengthControlMode(baseRewriteType)) {
+            String cap = platformCode(rewriteType);
+            String defaultRequirement = cap.chars().allMatch(Character::isDigit)
+                    ? "压到不超过 " + cap + " 个字，优先略短于这一上限。只删扩写、重复解释和套话，不要把段落写得更长。"
+                    + "数字、单位、年份、因果强度、专名、引用和 [[DROP_AI_PROTECTED_数字]] 必须原样保留。"
+                    : "压缩到不超过原文的108%，优先略短，避免新增内容";
             return """
                     优化类型：字数控制压缩
                     压缩要求：%s
@@ -231,7 +237,7 @@ public class DoubaoAiRewriteService implements AiRewriteService {
 
                     原文：
                     %s
-                    """.formatted(isBlank(feedback) ? "压缩到不超过指定长度，避免新增内容" : feedback, originalText);
+                    """.formatted(isBlank(feedback) ? defaultRequirement : feedback, originalText);
         }
         String platform = platformCode(rewriteType);
         if (isRewriteMode(baseRewriteType) || isHumanizeMode(baseRewriteType) || isDoubleMode(baseRewriteType)) {
@@ -392,24 +398,34 @@ public class DoubaoAiRewriteService implements AiRewriteService {
                     当前为双降增强模式，第一阶段按智能降重规则处理，第二阶段再按智能降AI规则优化。
                     """;
         }
+        if ("DAYA".equals(platform) || "大雅".equals(platform)) {
+            return "当前模式只执行智能降AI目标，不以降低查重率作为主要目标。"
+                    + "对报告标记或明显模板化的段落，先提取原有事实再整段重构，允许改变信息入口、句组和论述顺序；"
+                    + "不限定微量改写，不靠逐句换词或增加修饰完成任务。"
+                    + "长度参考原文85%—130%，仅作软参考，可为完整重组超出；数据、单位、引用、条件和保护片段原值及顺序不变。";
+        }
         if (usesSampleRhythmInstruction(rewriteType, platform)) {
             if (NativeHumanizeProfiles.kind(platform) == NativeHumanizeProfiles.Kind.DEDICATED) {
                 return "当前模式只执行智能降AI目标，不以降低查重率作为主要目标。"
-                        + "幅度、句式和篇幅以本段平台档及专用 Skill 为准。"
+                        + "句式节奏以本段平台档及专用 Skill 为准。"
+                        + "段内可以调整信息入口、拆合句子，不要用禁止换序挡住重建。"
+                        + "篇幅贴近原文，优先略短，目标约为90%–108%，不要为了改写扩写。"
                         + "不得新增原文没有的事实、主体、地域或结论。"
-                        + "若别处要求整段重构或按85%—130%扩写，与平台档冲突时以平台档为准。"
-                        + "数据、单位、引用、条件和保护片段原值及顺序不变。";
+                        + "数据、单位、年份、因果强度、引用和保护片段原值及顺序不变。";
             }
             return "当前模式只执行智能降AI目标，不以降低查重率作为主要目标。"
-                    + "这是普通模式：按本段平台档做近义节奏改写，软化研究腔起笔，篇幅与原文接近，可以略有增减，不要增句。"
-                    + "不要整段换序，不要新增原文没有的事实或结论。"
-                    + "若与平台档冲突，以平台档为准；平台档优先于整段重构和85%—130%扩写。"
-                    + "数据、单位、引用、条件和保护片段原值及顺序不变。";
+                    + "这是普通模式：为打散模板痕迹，必须改变信息入口、拆合句子并重组句组，不能停在近义替换。"
+                    + "不得新增事实，不得丢掉独立判断、数据或条件。"
+                    + "篇幅贴近原文，优先略短，目标约为原文的90%–108%，硬偏好不超过105%，不要为了改写扩写。"
+                    + "研究腔起笔、通过……实现……、四字套话堆叠、句长过齐的段落要重建；只有已经不规则且事实密集的句子才可保留。"
+                    + "若与平台档冲突，以平台档的事实锁为准。平台档允许段内重建，不允许把篇幅写成明显长于原文。"
+                    + "数据、单位、年份、因果强度、专名、引用和保护片段原值及顺序不变。";
         }
         return "当前模式只执行智能降AI目标，不以降低查重率作为主要目标。"
                 + "对报告标记或明显模板化的段落，先提取原有事实再整段重构，允许改变信息入口、句组和论述顺序；"
                 + "不限定微量改写，不靠逐句换词或增加修饰完成任务。"
-                + "长度参考原文85%—130%，仅作软参考，可为完整重组超出；数据、单位、引用、条件和保护片段原值及顺序不变。";
+                + "篇幅贴近原文，优先略短，目标约为90%–108%，不要为了重组而扩写；"
+                + "数据、单位、年份、因果强度、引用和保护片段原值及顺序不变。";
     }
 
     /**
@@ -642,6 +658,7 @@ public class DoubaoAiRewriteService implements AiRewriteService {
                 你是 DropAI Length Control Layer（字数控制层）。
 
                 你的任务不是重新降重，也不是重新降AI，而是在不破坏当前优化效果的前提下，把明显超长的正文段落压缩到指定长度以内。
+                不得超过压缩要求里的字数。不要把段落写得更长。
 
                 必须遵守：
                 1. 只删除无意义扩写、重复解释、模板化补充和空泛总结。

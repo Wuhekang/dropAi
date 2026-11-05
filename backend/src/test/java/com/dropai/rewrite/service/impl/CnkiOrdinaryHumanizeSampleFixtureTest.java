@@ -19,7 +19,7 @@ import static org.mockito.Mockito.when;
 
 /**
  * Golden style check for 降重狗 order 148900, 知网普通模式.
- * 186 characters became 185: four sentences, softened openings, academic-lite paraphrase.
+ * 186 characters became 185. Length stays near the source; sentence regroup is allowed.
  */
 class CnkiOrdinaryHumanizeSampleFixtureTest {
 
@@ -64,8 +64,9 @@ class CnkiOrdinaryHumanizeSampleFixtureTest {
         String deep = systemPrompt(service, "深度降低AI写作痕迹@CNKI");
         assertThat(ordinary)
                 .contains("name: humanize-zh-academic", "profile:cnki-ordinary-v1", "148900", "186", "185")
-                .contains("本文用", "从研究可知")
-                .doesNotContain("profile:cnki-deep-v1", "profile:gezida-ai-dedicated-v1");
+                .contains("本文用", "从研究可知", "90%–108%")
+                .doesNotContain("profile:cnki-deep-v1", "profile:gezida-ai-dedicated-v1",
+                        "不整段换序", "不要增删句子", "四句都保留");
         assertThat(deep)
                 .contains("profile:cnki-deep-v1", "知网深度改写")
                 .doesNotContain("148900", "profile:cnki-ordinary-v1");
@@ -82,17 +83,10 @@ class CnkiOrdinaryHumanizeSampleFixtureTest {
         if (output.length() < Math.floor(input.length() * 0.90)) {
             issues.add("too short");
         }
-        if (sentences(output) != sentences(input)) {
-            issues.add("sentence count");
-        }
         if (output.contains("本文旨在") || output.contains("研究表明")) {
             issues.add("formal opening");
         }
         return issues;
-    }
-
-    private static int sentences(String text) {
-        return text.split("。", -1).length - 1;
     }
 
     private static String systemPrompt(DoubaoAiRewriteService service, String rewriteType) throws Exception {
