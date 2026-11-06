@@ -46,12 +46,21 @@ final class OrdinaryRewriteAmplitude {
         if (comparable(original).equals(comparable(rewritten))) {
             return true;
         }
+        if (hasTemplateSkeleton(rewritten)) {
+            return true;
+        }
         int sourceSentences = sentences(original);
         return sourceSentences >= 3 && sourceSentences == sentences(rewritten);
     }
 
+    static boolean hasTemplateSkeleton(String text) {
+        if (text == null) return false;
+        return java.util.regex.Pattern.compile("研究发现|据此|以期|综合运用|持续提高|尚未完全转化为|本文从[^。！？]{0,160}等方面提出改进建议")
+                .matcher(text).find();
+    }
+
     static String retryFeedback() {
-        return RETRY_FEEDBACK;
+        return RETRY_FEEDBACK + "摘要和方法枚举段还须消除研究发现、据此、以期、综合运用等模板骨架；保留可、约、超过等事实限定。";
     }
 
     static boolean sameLetters(String left, String right) {

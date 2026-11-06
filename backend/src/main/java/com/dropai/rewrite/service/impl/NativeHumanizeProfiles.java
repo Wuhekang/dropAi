@@ -146,9 +146,23 @@ public final class NativeHumanizeProfiles {
             return "";
         }
         if (kind == Kind.DEDICATED) {
-            return dedicatedInstruction(platform);
+            return dedicatedInstruction(platform) + ("PAPERPASS".equals(platform) ? competitorOrdinaryInstruction() : "");
         }
-        return isDeep(rewriteType) ? deepInstruction(platform) : ordinaryInstruction(platform);
+        return isDeep(rewriteType) ? deepInstruction(platform) : ordinaryInstruction(platform)
+                + ("WEIPU".equals(platform) ? competitorOrdinaryInstruction() : "");
+    }
+
+    private static String competitorOrdinaryInstruction() {
+        return """
+                【竞品样本A普通表达约束】
+                摘要、研究方法和枚举段落必须重建句组关系，不能只把研究发现换成经过研究得知。
+                避免保留这些模板骨架：研究发现、据此、以期、综合运用、持续提高、尚未完全转化为、本文从……等方面提出改进建议。
+                可参照样本A使用平实表达，如经过研究得知、因此本文提出改善措施、从而给……借鉴；不得每段套用同一个开头或结尾。
+                同比增长可在同比基期明确为上一年时表达为比上一年增长；等待时间可表达为等候时间。周转效率与周转率并非当然等价，指标定义不明时保留原术语。
+                方法段用研究对象与已有资料组织方法之间的关系，枚举段按原有类别重新拆合说明，不增加方法、类别或步骤。
+                事实锁优先：年份、吨位、百分比、专名、引用、图表结构和结论不得增删改；保留可、约、超过等限定及比较基期，不把可能效果写成已经实现。
+                不得模仿竞品失真：不能新增出口加工基地系统，不能将上市周期互补改成上市时间相近。
+                """;
     }
 
     private static String chineseAlias(String trimmed) {

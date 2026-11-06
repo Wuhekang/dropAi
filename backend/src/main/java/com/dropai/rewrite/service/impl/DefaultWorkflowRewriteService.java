@@ -226,7 +226,10 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
             boolean retryUnchanged = OrdinaryRewriteAmplitude.sameLetters(original, candidate);
             boolean sentenceBoundaryMoved = OrdinaryRewriteAmplitude.sentences(candidate)
                     != OrdinaryRewriteAmplitude.sentences(original);
-            boolean adopt = !retryUnchanged && (sentenceBoundaryMoved || firstUnchanged);
+            boolean templateRemoved = OrdinaryRewriteAmplitude.hasTemplateSkeleton(current)
+                    && !OrdinaryRewriteAmplitude.hasTemplateSkeleton(candidate);
+            boolean adopt = !retryUnchanged && !OrdinaryRewriteAmplitude.hasTemplateSkeleton(candidate)
+                    && (sentenceBoundaryMoved || firstUnchanged || templateRemoved);
             log.info("OrdinaryStructureRetry originalSentences={} firstSentences={} retrySentences={} "
                             + "originalLength={} firstLength={} retryLength={} keptRetry={}",
                     OrdinaryRewriteAmplitude.sentences(original),
