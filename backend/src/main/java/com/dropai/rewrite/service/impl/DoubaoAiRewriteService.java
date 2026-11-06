@@ -25,6 +25,8 @@ import java.util.Map;
 @Service
 public class DoubaoAiRewriteService implements AiRewriteService {
 
+    private static final String NATIVE_HUMANIZE_SKILL = "humanize-zh-academic";
+
     private final ThreadLocal<String> lastCallProvider = new ThreadLocal<>();
     private final DoubaoProperties properties;
     private final ObjectMapper objectMapper;
@@ -140,10 +142,28 @@ public class DoubaoAiRewriteService implements AiRewriteService {
             return bodyOnlyProtectionPrompt() + "\n" + rewriteSystemPrompt();
         }
         if (isHumanizeMode(baseRewriteType)) {
-            return bodyOnlyProtectionPrompt() + "\n" + humanizeSystemPrompt();
+            String platform = platformCode(rewriteType);
+            if (isSharedHumanize(baseRewriteType)) {
+                if (usesNativeAcademicSkill(rewriteType)) {
+                    return nativeHumanizeProtectionPrompt() + "\n"
+                            + skillPromptService.loadSkill(NATIVE_HUMANIZE_SKILL);
+                }
+                return nativeHumanizeProtectionPrompt() + "\n" + humanizeSystemPrompt();
+            }
+            if (NativeHumanizeProfiles.usesNativeSkill(platform)) {
+                String prompt = nativeHumanizeProtectionPrompt() + "\n"
+                        + skillPromptService.loadSkill(NativeHumanizeProfiles.skillName(platform));
+                String overlay = NativeHumanizeProfiles.profileInstruction(baseRewriteType, platform);
+                return overlay.isBlank() ? prompt : prompt + "\n" + overlay;
+            }
+            return nativeHumanizeProtectionPrompt() + "\n" + humanizeSystemPrompt();
         }
         if (isDoubleMode(baseRewriteType)) {
-            return bodyOnlyProtectionPrompt() + "\n" + doubleSystemPrompt();
+            if (usesNativeAcademicSkill(rewriteType)) {
+                return nativeHumanizeProtectionPrompt() + "\n"
+                        + skillPromptService.loadSkill(NATIVE_HUMANIZE_SKILL);
+            }
+            return nativeHumanizeProtectionPrompt() + "\n" + doubleSystemPrompt();
         }
         return bodyOnlyProtectionPrompt() + "\n" + """
                 你是学术写作优化助手。你的任务是帮助用户改进论文段落表达质量，而不是承诺规避任何检测。
@@ -179,6 +199,23 @@ public class DoubaoAiRewriteService implements AiRewriteService {
                 """;
     }
 
+    private String nativeHumanizeProtectionPrompt() {
+        return """
+                【DropAI 原生降AI内容保护：最高优先级规则】
+                当前输入若属于自然语言段落，必须按以下规则改写；结构性内容保持原样。
+
+                允许改写：
+                中文摘要正文、英文摘要正文以及各章节正文自然语言段落。
+
+                必须原样保留：
+                封面、目录、摘要标题、英文摘要标题、关键词、英文关键词、参考文献、致谢、声明页、代码块、表格、图片说明、图标题、图注、表标题、公式、图表编号、引用编号、章节标题、小节标题、编号体系、页眉页脚、页码和格式。
+
+                对每个送入的段落都必须完整阅读并按照 Skill 处理，不得跳过正常正文。
+                处理后的有效正文可以与原文相同；不要仅为制造文字差异改动准确、自然或受保护的内容。
+                两句以上的论述段必须改写信息入口或句组，不能只做同义词替换。单句、锁定事实片段和结构性内容可以保持原样。
+                """;
+    }
+
     private String userPrompt(String originalText, String rewriteType, int beforeScore, String feedback) {
         String baseRewriteType = baseRewriteType(rewriteType);
         if ("设计参数提取".equals(baseRewriteType)) {
@@ -199,10 +236,21 @@ public class DoubaoAiRewriteService implements AiRewriteService {
         }
         String platform = platformCode(rewriteType);
         if (isRewriteMode(baseRewriteType) || isHumanizeMode(baseRewriteType) || isDoubleMode(baseRewriteType)) {
+            boolean nativeHumanize = isHumanizeMode(baseRewriteType) && !isSharedHumanize(baseRewriteType);
+            String shownPlatform = nativeHumanize
+                    ? NativeHumanizeProfiles.displayName(platform)
+                    : platformName(platform);
+            String modeInstruction = focusedModeInstruction(baseRewriteType, platform);
+            if (nativeHumanize) {
+                String overlay = NativeHumanizeProfiles.profileInstruction(baseRewriteType, platform);
+                if (!overlay.isBlank()) {
+                    modeInstruction = modeInstruction + "\n" + overlay;
+                }
+            }
             return """
                     优化类型：%s
                     目标检测口径：%s
-                    改写前风险分：%d
+                    改写前风险分：%d（内部启发式参考，不是第三方实测分数）
                     上一次失败原因：%s
 
                     请严格按照系统 Prompt 的任务目标和禁止事项处理。
@@ -212,8 +260,8 @@ public class DoubaoAiRewriteService implements AiRewriteService {
 
                     原文：
                     %s
-                    """.formatted(displayModeName(baseRewriteType), platformName(platform), beforeScore, isBlank(feedback) ? "无" : feedback,
-                    focusedModeInstruction(baseRewriteType), originalText);
+                    """.formatted(displayModeName(baseRewriteType), shownPlatform, beforeScore, isBlank(feedback) ? "无" : feedback,
+                    modeInstruction, originalText);
         }
         String extraRule = "";
         if ("深度降低AI写作痕迹".equals(baseRewriteType)) {
@@ -294,9 +342,14 @@ public class DoubaoAiRewriteService implements AiRewriteService {
 
     private boolean isHumanizeMode(String rewriteType) {
         return "humanize".equals(rewriteType)
+                || NativeHumanizeProfiles.SHARED_HUMANIZE.equals(rewriteType)
                 || "智能降AI".equals(rewriteType)
                 || "降低AI写作痕迹".equals(rewriteType)
                 || "深度降低AI写作痕迹".equals(rewriteType);
+    }
+
+    private boolean isSharedHumanize(String rewriteType) {
+        return NativeHumanizeProfiles.SHARED_HUMANIZE.equals(rewriteType);
     }
 
     private boolean isDoubleMode(String rewriteType) {
@@ -309,6 +362,13 @@ public class DoubaoAiRewriteService implements AiRewriteService {
         return "字数控制压缩".equals(rewriteType);
     }
 
+    private boolean usesNativeAcademicSkill(String rewriteType) {
+        return switch (platformCode(rewriteType)) {
+            case "GENERAL", "CNKI", "WEIPU", "WANFANG", "GEZIDA" -> true;
+            default -> false;
+        };
+    }
+
     private String displayModeName(String rewriteType) {
         if (isRewriteMode(rewriteType)) {
             return "智能降重";
@@ -319,11 +379,13 @@ public class DoubaoAiRewriteService implements AiRewriteService {
         return "智能降AI";
     }
 
-    private String focusedModeInstruction(String rewriteType) {
+    private String focusedModeInstruction(String rewriteType, String platform) {
         if (isRewriteMode(rewriteType)) {
             return """
                     当前模式只执行查重降重目标，不要主动追加降AI、人味化或场景化扩写。
                     降重优先级为：段落重构 > 逻辑重排 > 句式改写 > 词语替换。
+                    输出将接受硬性重合检查：长段落不得只改标点或近义词，不得保留大段连续相同文字，
+                    必须改变信息入口、句子分组或叙述顺序中的至少两项。
                     """;
         }
         if (isDoubleMode(rewriteType)) {
@@ -331,7 +393,25 @@ public class DoubaoAiRewriteService implements AiRewriteService {
                     当前为双降增强模式，第一阶段按智能降重规则处理，第二阶段再按智能降AI规则优化。
                     """;
         }
-        return "当前模式只执行智能降AI目标，不以降低查重率作为主要目标。";
+        if (NativeHumanizeProfiles.kind(platform) == NativeHumanizeProfiles.Kind.DEDICATED) {
+            return "当前是普通降AI。正常论述段必须重排信息入口，并至少拆句、并句或重组一处句组，禁止停在逐句换词。"
+                    + "幅度和事实锁以本段平台档及专用 Skill 为准。平台档不再禁止结构改写。"
+                    + "年份、吨位、百分比、专名、引用、图表编号和原文结论保持原值，锁定项彼此的相对顺序不变。"
+                    + "不得新增原文没有的主体、地域或结论。"
+                    + "篇幅约70%–150%，只作软参考。不得因为超出130%就退回原文或近义换词版。";
+        }
+        if (isSharedHumanize(rewriteType) || NativeHumanizeProfiles.isDeep(rewriteType) || "DAYA".equals(platform)) {
+            return "当前模式只执行智能降AI目标，不以降低查重率作为主要目标。"
+                    + "对报告标记或明显模板化的段落，先提取原有事实再整段重构，允许改变信息入口、句组和论述顺序；"
+                    + "不限定微量改写，不靠逐句换词或增加修饰完成任务。"
+                    + "长度参考原文85%—130%，仅作软参考，可为完整重组超出；数据、单位、引用、条件和保护片段原值及顺序不变。";
+        }
+        return "当前是普通降AI。正常论述段必须重排信息入口，并至少拆句、并句或重组一处句组，禁止停在逐句换词。"
+                + "不要保留这些骨架，近义词替换也不算完成：近年来随着；本文旨在；本文以……为研究对象；采用……等方法；研究表明；研究发现；据此，本文从……提出；以期为……提供参考。"
+                + "从原文已有的对象、数据或条件起笔。年份、吨位、百分比、专名、引用编号、图表结构和原文结论保持原值，锁定项彼此的相对顺序不变。"
+                + "不要把“具备持续的应用价值”写进原文没有这层意思的段落。"
+                + "篇幅约原文的70%–150%，只作软参考。不得因为超出130%就退回原文或近义换词版，也不要为了压长度删掉独立事实。"
+                + "单句和只剩锁定事实的片段可以少动。两句以上的论述段不能原样交回。";
     }
 
     private String rewriteSystemPrompt() {
@@ -362,15 +442,25 @@ public class DoubaoAiRewriteService implements AiRewriteService {
                 核心原则：
                 禁止仅进行同义词替换。
 
+                【硬性降重约束】
+                1. 数字、单位、型号、公式、变量、引用编号、图表编号和标准名称必须原样保留。
+                2. 普通正文不得沿着原句逐句翻写；长段落必须改变信息入口、句子分组和叙述顺序中的至少两项。
+                3. 除受保护内容和固定专业术语外，不得保留大段连续相同文字。
+                4. 不得照搬原文的“首先—其次—然后—最后”、逐项定义或一项对应一句的列举框架。
+                5. 背景与定义内容应压缩通用常识，转为说明本设计的具体对象、条件、选择理由或结果。
+                6. 公式本身保持不变，但公式前后的计算目的、参数来源和结果判断必须重新组织。
+                7. 仿真与测试内容必须围绕原文已有数据解释，不得只把“满足要求、运行正常”等结论换词。
+                8. 不得使用生僻词堆砌、病句、虚假经历或新造事实来制造差异。
+
                 优先级：
                 段落重构 > 逻辑重排 > 句式改写 > 词语替换
 
                 【规则1：定义类内容降重】
                 检测“XX是……”“XX主要用于……”“XX具有……”“XX能够……”等教材定义句时，禁止仅替换词语。
-                改写为“本研究采用XX完成……”“在系统设计中使用XX实现……”“项目开发过程中选用XX负责……”等表达，强调使用场景和实现方式。
+                删除与本设计无关的百科解释，改为交代原文已有的应用条件、选择理由及其对方案的影响，禁止套用统一的“本项目采用”句式。
 
                 【规则2：背景类内容降重】
-                检测“随着……”“近年来……”“因此……”“具有重要意义……”等模板背景段时，改写为“结合当前应用场景……”“从实际需求来看……”“在具体业务处理中……”等表达，避免固定论文背景模板。
+                检测“随着……”“近年来……”“因此……”“具有重要意义……”等模板背景段时，压缩行业常识，直接写原文已经给出的研究对象、约束条件和待解决问题，避免换成另一套固定背景模板。
 
                 【规则3：文献综述降重】
                 禁止“作者A……作者B……作者C……”连续排列。
@@ -427,7 +517,7 @@ public class DoubaoAiRewriteService implements AiRewriteService {
                 以下内容必须100%原样保留，不得改动任何字符：
                 - 封面
                 - 目录
-                - 摘要（中英文）
+                - 摘要标题（中英文）
                 - 关键词（中英文）
                 - 参考文献
                 - 致谢
@@ -449,13 +539,12 @@ public class DoubaoAiRewriteService implements AiRewriteService {
                 【二、字数控制规则】
 
                 1. 总体控制
-                输出字数应与输入字数相当。
-                例如：原稿约8000字时，新稿控制在10000字以内；原稿约14000字时，新稿控制在18000字以内。
-                禁止无意义扩写，禁止为了优化表达而膨胀篇幅。
+                输出长度参考原文85%—130%，仅作软参考，必要时可超出。
+                不为了比例扩写或删句，事实完整性优先于长度；用户明确字数要求优先。
 
                 2. 段落级控制
-                每个被修改段落以每300字为一个处理单位，最大新增内容不超过30字。
-                优先替换表达，而不是新增解释。
+                高风险段落先提取原有事实、条件、因果与引用，再整段重构。
+                允许改变信息入口、主从关系、句组和论述顺序，不限定微量改写，不要求原句结构可还原。
 
                 3. 禁止行为
                 - 不允许为了凑字数增加新逻辑
@@ -476,7 +565,7 @@ public class DoubaoAiRewriteService implements AiRewriteService {
                 - 综上所述
                 - 因此可以得出
 
-                如果原文已经包含这些表达，可以轻微替换或删除，但不得因此扩写。
+                如果原文反复使用这些表达，应检查整段骨架并重新组织，不仅轻微替换或删除。
 
                 2. 句式要求
                 允许自然不对称表达。
@@ -495,7 +584,7 @@ public class DoubaoAiRewriteService implements AiRewriteService {
 
                 4. 降AI核心策略
                 优先级：
-                1）改写句式
+                1）从已有事实重构整段信息组织
                 2）调整语序
                 3）替换词汇
                 4）删除冗余连接
@@ -510,7 +599,7 @@ public class DoubaoAiRewriteService implements AiRewriteService {
 
                 【四、低扰动控制】
 
-                1. 原句结构应基本可还原。
+                1. 原句结构不必可还原，但事实、条件、否定、因果及结论必须保持一致。
                 2. 不改变段落数量。
                 3. 不改变原有章节顺序。
                 4. 不改变目录逻辑。
@@ -520,8 +609,8 @@ public class DoubaoAiRewriteService implements AiRewriteService {
 
                 【五、质量目标】
 
-                最终文本应尽量降低AI检测风险，目标是稳定控制在20%以内，理想控制在10%到15%。
-                但不得为了追求检测率破坏语义、结构、事实、数据、代码、表格、图表、公式、引用或字数控制。
+                减少机械重复和模板化表达，不承诺检测百分比；效果需要同平台实测。
+                不得破坏语义、结构、事实、数据、代码、表格、图表、公式或引用。
 
                 【六、输出要求】
                 输出完整论文正文。
@@ -578,7 +667,7 @@ public class DoubaoAiRewriteService implements AiRewriteService {
                 3. 保留标题、编号、引用、公式、表格、图片编号。
                 4. 不虚构数据。
                 5. 不加入无关内容。
-                6. 第二阶段必须遵守 DropAI V6 降AI规则：只处理正文自然语言段落，控制字数增长，每300字最多新增约30字，不做解释型扩写。
+                6. 第二阶段允许基于原有事实整段重构；长度参考原文85%—130%，仅作软参考，可超出但不增添事实，不靠堆修饰扩写。
                 7. 最终只输出优化后的完整正文。
                 """;
     }

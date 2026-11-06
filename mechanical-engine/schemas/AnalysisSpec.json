@@ -1,1 +1,0 @@
-{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"AnalysisSpec","type":"object","required":["method","maximumStressMpa","displacementMm","safetyFactor","conclusion"],"properties":{"maximumStressMpa":{"type":"number","minimum":0},"safetyFactor":{"type":"number","exclusiveMinimum":0}}}

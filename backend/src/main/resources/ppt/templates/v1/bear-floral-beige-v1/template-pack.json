@@ -1,0 +1,39 @@
+{
+  "schemaVersion": "template-pack.v1",
+  "templatePackId": "bear-floral-beige-v1",
+  "templatePackVersion": "1.0.0",
+  "displayName": "小熊熊·百合雅米",
+  "description": "米金底色与百合花卉学术模板",
+  "sourceTemplate": {
+    "fileName": "小熊熊 (89).pptx",
+    "sha256": "sha256:9e5451e14711122dd74b05d97820ae28ae696723b3aec405bbfc50d770fdcb44",
+    "slideCount": 16,
+    "sanitization": "VISUAL_REGION_ALLOWLIST_V1"
+  },
+  "theme": {
+    "themeId": "bear-floral-beige-v1",
+    "themeVersion": "1.0.0",
+    "fontProfileId": "cjk-academic-v1"
+  },
+  "assets": [
+    {
+      "assetId": "tpl-bear-floral-beige-v1-background",
+      "classpathResource": "ppt/templates/v1/bear-floral-beige-v1/template-background.png",
+      "bundlePath": "assets/templates/bear-floral-beige-v1/template-background.png",
+      "sha256": "sha256:9b4a1dd137d7306021be7d16e21121aa34a990c2dd75d19099819083e09787ca",
+      "mimeType": "image/png",
+      "widthPx": 1600,
+      "heightPx": 900
+    }
+  ],
+  "surfaces": {
+    "COVER": "tpl-bear-floral-beige-v1-background",
+    "AGENDA": "tpl-bear-floral-beige-v1-background",
+    "SECTION": "tpl-bear-floral-beige-v1-background",
+    "CONTENT": "tpl-bear-floral-beige-v1-background",
+    "IMAGE": "tpl-bear-floral-beige-v1-background",
+    "TABLE": "tpl-bear-floral-beige-v1-background",
+    "SUMMARY": "tpl-bear-floral-beige-v1-background",
+    "THANKS": "tpl-bear-floral-beige-v1-background"
+  }
+}

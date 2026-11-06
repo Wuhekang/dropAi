@@ -1,0 +1,24 @@
+{
+  "majorType": "nursing",
+  "metadataLabels": ["题目", "课题名称", "论文（设计）题目", "学生", "学生姓名", "学号", "专业", "学院", "教师", "指导教师", "日期", "课题来源"],
+  "formMarkers": ["本科毕业论文（设计）开题报告", "指导教师的意见", "主任意见", "工作领导小组意见", "签名", "签字栏"],
+  "forbiddenStandalone": ["关键词", "主要参考文献"],
+  "technologyTerms": [],
+  "purposeRules": [
+    {"purpose":"BACKGROUND","chapterNumbers":[1],"keywords":["研究背景","护理需求","临床","风险","问题"],"title":"研究背景与护理问题","answerQuestion":"为什么需要关注这一护理问题？"},
+    {"purpose":"BACKGROUND","chapterNumbers":[1],"keywords":["研究现状","国内研究","外文文献","现有文献","证据"],"title":"国内外研究现状","answerQuestion":"当前研究已经关注了哪些方向？"},
+    {"purpose":"PROBLEM","chapterNumbers":[1,2],"keywords":["研究目的","研究意义","研究内容","研究对象"],"title":"研究目标与核心内容","answerQuestion":"本课题准备解决哪些研究问题？"},
+    {"purpose":"METHOD","chapterNumbers":[2],"keywords":["研究方法","文献综述法","数据库检索","筛选","整理与归纳"],"title":"文献研究方法","answerQuestion":"课题将如何检索和整理证据？"},
+    {"purpose":"DESIGN","chapterNumbers":[2],"keywords":["研究思路","查阅","分类","比较","归纳"],"title":"研究思路与证据路线","answerQuestion":"研究工作将按什么路径展开？"},
+    {"purpose":"METHOD","chapterNumbers":[3],"keywords":["可行性","资料较为丰富","风险较低","能够支持"],"title":"课题可行性分析","answerQuestion":"现有条件能否支持课题完成？"},
+    {"purpose":"TEST","chapterNumbers":[4],"keywords":["进度","第1","第3周","第4","第8","第12周"],"title":"研究进度安排","answerQuestion":"课题将在什么时间完成各阶段任务？"},
+    {"purpose":"SUMMARY","chapterNumbers":[1,2],"keywords":["提供文献参考","提出后续","完成综述","预期","形成"],"title":"预期成果与应用价值","answerQuestion":"课题预计形成什么成果并产生何种价值？"}
+  ],
+  "chapterConstraints": [
+    {"chapterNumber":1,"allowedPurposes":["BACKGROUND","PROBLEM","SUMMARY"]},
+    {"chapterNumber":2,"allowedPurposes":["PROBLEM","METHOD","DESIGN","SUMMARY"]},
+    {"chapterNumber":3,"allowedPurposes":["METHOD"]},
+    {"chapterNumber":4,"allowedPurposes":["TEST"]},
+    {"chapterNumber":5,"allowedPurposes":[]}
+  ]
+}

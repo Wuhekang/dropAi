@@ -1,0 +1,105 @@
+package com.dropai.rewrite.service.ppt.rendering.theme.v1;
+
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.junit.jupiter.api.Test;
+
+import java.util.Set;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+class AcademicThemeResourcesTest {
+    private final ThemeCanonicalizer canonicalizer = new ThemeCanonicalizer();
+    private final ThemeHasher hasher = new ThemeHasher(canonicalizer);
+    private final ThemeLoader loader = new ThemeLoader(hasher);
+    private final ThemeValidator validator = new ThemeValidator();
+    private final ThemeRegistry registry = ThemeRegistry.academicV1();
+
+    @Test
+    void baseAndPurpleConformToFrozenThemeContract() {
+        registry.registrations().values().forEach(registration -> {
+            LoadedTheme loaded = loader.load(registration);
+            ObjectNode source = loaded.sourceDocument();
+            validator.validate(source);
+            assertEquals("theme.v1", source.path("schemaVersion").asText());
+            assertTrue(loaded.sourceHash().matches("sha256:[a-f0-9]{64}"));
+        });
+    }
+
+    @Test
+    void productionThemesAreOfficialAndBaseRemainsInternal() {
+        assertEquals(Set.of(
+                ThemeRegistry.ACADEMIC_PURPLE,
+                ThemeRegistry.SMALL_BEAR_WATERCOLOR_BLUE_V1,
+                ThemeRegistry.SMALL_BEAR_WATERCOLOR_BLUE_FULL_V1,
+                ThemeRegistry.ELECTRICAL_COLLEGE_DEFENSE_V1,
+                ThemeRegistry.BEAR_MORANDI_CORAL_V1,
+                ThemeRegistry.BEAR_MORANDI_OLIVE_V1,
+                ThemeRegistry.BEAR_MINIMAL_TAN_V1,
+                ThemeRegistry.BEAR_EDITORIAL_OLIVE_V1,
+                ThemeRegistry.BEAR_FLORAL_BEIGE_V1), registry.officialThemeIds());
+        ThemeRegistry.Registration base = registry.require(
+                new ThemeCoordinate(ThemeRegistry.ACADEMIC_BASE, ThemeRegistry.VERSION_1_0_0));
+        ThemeRegistry.Registration purple = registry.require(
+                new ThemeCoordinate(ThemeRegistry.ACADEMIC_PURPLE, ThemeRegistry.VERSION_1_0_0));
+        ThemeRegistry.Registration smallBear = registry.require(
+                new ThemeCoordinate(
+                        ThemeRegistry.SMALL_BEAR_WATERCOLOR_BLUE_V1,
+                        ThemeRegistry.VERSION_1_0_0));
+        ThemeRegistry.Registration electricalCollege = registry.require(
+                new ThemeCoordinate(
+                        ThemeRegistry.ELECTRICAL_COLLEGE_DEFENSE_V1,
+                        ThemeRegistry.VERSION_1_0_0));
+        assertFalse(base.official());
+        assertTrue(purple.official());
+        assertTrue(smallBear.official());
+        assertTrue(electricalCollege.official());
+    }
+
+    @Test
+    void purpleInheritsOnlyTheExactAcademicBaseVersion() {
+        ObjectNode purple = loader.load(registry.require(
+                new ThemeCoordinate(ThemeRegistry.ACADEMIC_PURPLE, ThemeRegistry.VERSION_1_0_0)))
+                .sourceDocument();
+        assertEquals(1, purple.path("inherits").size());
+        assertEquals("academic-base@1.0.0", purple.path("inherits").get(0).asText());
+    }
+
+    @Test
+    void smallBearInheritsOnlyTheExactAcademicBaseVersion() {
+        ObjectNode smallBear = loader.load(registry.require(
+                new ThemeCoordinate(
+                        ThemeRegistry.SMALL_BEAR_WATERCOLOR_BLUE_V1,
+                        ThemeRegistry.VERSION_1_0_0)))
+                .sourceDocument();
+        assertEquals(1, smallBear.path("inherits").size());
+        assertEquals("academic-base@1.0.0", smallBear.path("inherits").get(0).asText());
+    }
+
+    @Test
+    void defaultTitlesAreBlackAndSmallBearUsesItsAuditedTemplateTitleColor() {
+        ObjectNode base = loader.load(registry.require(
+                new ThemeCoordinate(ThemeRegistry.ACADEMIC_BASE, ThemeRegistry.VERSION_1_0_0)))
+                .sourceDocument();
+        assertEquals("#000000", base.path("colors").path("text").path("primary").asText());
+        assertTitleTokensUsePrimaryText(base);
+
+        ObjectNode smallBear = loader.load(registry.require(
+                new ThemeCoordinate(
+                        ThemeRegistry.SMALL_BEAR_WATERCOLOR_BLUE_V1,
+                        ThemeRegistry.VERSION_1_0_0)))
+                .sourceDocument();
+        assertEquals("#4A5A69", smallBear.path("colors").path("text").path("primary").asText());
+        assertTitleTokensUsePrimaryText(smallBear);
+    }
+
+    private void assertTitleTokensUsePrimaryText(ObjectNode theme) {
+        for (String component : Set.of("coverTitle", "sectionTitle", "slideTitle")) {
+            assertEquals(
+                    "colors.text.primary",
+                    theme.path("components").path(component).path("textToken").asText(),
+                    component);
+        }
+    }
+}

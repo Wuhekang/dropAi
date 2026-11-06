@@ -5,18 +5,22 @@ import com.dropai.rewrite.auth.AuthContext;
 import com.dropai.rewrite.entity.DocumentJobRecord;
 import com.dropai.rewrite.mapper.DocumentJobMapper;
 import com.dropai.rewrite.service.DocumentRewriteService;
+import com.dropai.rewrite.service.DocumentCharacterCountService;
 import com.dropai.rewrite.service.AiRewriteService;
 import com.dropai.rewrite.service.PointService;
+import com.dropai.rewrite.service.TextStructureProtector;
 import com.dropai.rewrite.service.WorkflowRewriteService;
+import com.dropai.rewrite.utils.DocxNativeStructureGuard;
+import com.dropai.rewrite.utils.DocxRewriteBoundary;
+import com.dropai.rewrite.utils.DocxImageTextPreserver;
 import com.dropai.rewrite.vo.DocumentParagraphJobVO;
 import com.dropai.rewrite.vo.DocumentPrecheckVO;
 import com.dropai.rewrite.vo.DocumentRewriteJobVO;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.apache.poi.xwpf.usermodel.XWPFParagraph;
 import org.apache.poi.xwpf.usermodel.XWPFRun;
-import org.apache.poi.xwpf.usermodel.XWPFTable;
-import org.apache.poi.xwpf.usermodel.XWPFTableCell;
-import org.apache.poi.xwpf.usermodel.XWPFTableRow;
+import org.apache.poi.xwpf.usermodel.XWPFSDT;
+import org.apache.poi.xwpf.usermodel.XWPFStyle;
 import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTRPr;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
@@ -40,6 +44,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.ArrayList;
@@ -59,13 +64,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 public class DocumentRewriteServiceImpl implements DocumentRewriteService {
 
     private static final Logger log = LoggerFactory.getLogger(DocumentRewriteServiceImpl.class);
-
     private final WorkflowRewriteService workflowRewriteService;
     private final AiRewriteService aiRewriteService;
     private final DoubaoProperties doubaoProperties;
     private final DocumentJobMapper documentJobMapper;
     private final ObjectMapper objectMapper;
     private final PointService pointService;
+    private final DocumentCharacterCountService documentCharacterCountService;
     private final Map<String, DocumentRewriteJobVO> jobs = new ConcurrentHashMap<>();
     private final Map<String, String> requestJobs = new ConcurrentHashMap<>();
     private final Path uploadDir = Path.of("storage", "uploads");
@@ -73,6 +78,7 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
     private final Path jobLogDir = Path.of("storage", "jobs");
     private final ExecutorService documentExecutor = Executors.newFixedThreadPool(2);
     private final Map<String, Path> generatedOutputFiles = new ConcurrentHashMap<>();
+    private final Map<String, String> humanizeBaseTypes = new ConcurrentHashMap<>();
 
     public DocumentRewriteServiceImpl(
             WorkflowRewriteService workflowRewriteService,
@@ -80,7 +86,8 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             DoubaoProperties doubaoProperties,
             DocumentJobMapper documentJobMapper,
             ObjectMapper objectMapper,
-            PointService pointService
+            PointService pointService,
+            DocumentCharacterCountService documentCharacterCountService
     ) {
         this.workflowRewriteService = workflowRewriteService;
         this.aiRewriteService = aiRewriteService;
@@ -88,6 +95,7 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
         this.documentJobMapper = documentJobMapper;
         this.objectMapper = objectMapper;
         this.pointService = pointService;
+        this.documentCharacterCountService = documentCharacterCountService;
     }
 
     @PostConstruct
@@ -139,7 +147,9 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
         }
         String originalName = file.getOriginalFilename() == null ? "document.docx" : file.getOriginalFilename();
         String normalizedMode = normalizeMode(mode);
-        String normalizedPlatform = normalizePlatform(platform);
+        String normalizedPlatform = "humanize".equals(normalizedMode)
+                ? NativeHumanizeProfiles.normalize(platform)
+                : normalizePlatform(platform);
         if (!originalName.toLowerCase().endsWith(".docx")) {
             throw new IllegalArgumentException("当前仅支持上传 .docx 文件");
         }
@@ -149,7 +159,7 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             Files.createDirectories(outputDir);
             Files.createDirectories(jobLogDir);
             String jobId = UUID.randomUUID().toString().replace("-", "");
-            int charCount = countDocumentChars(file);
+            int charCount = documentCharacterCountService.countFromAbstractOrCatalog(file);
             int costPoints = calculateCostPoints(charCount, normalizedMode);
             String featureCode = documentFeatureCode(normalizedMode);
             pointService.deductCustom(userId, jobId, featureCode, documentFeatureName(normalizedMode), costPoints,
@@ -164,7 +174,9 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             job.setMode(normalizedMode);
             job.setModeName(modeName(normalizedMode));
             job.setPlatform(normalizedPlatform);
-            job.setPlatformName(platformName(normalizedPlatform));
+            job.setPlatformName("humanize".equals(normalizedMode)
+                    ? NativeHumanizeProfiles.displayName(normalizedPlatform)
+                    : platformName(normalizedPlatform));
             job.setCharCount(charCount);
             job.setCostPoints(costPoints);
             job.setPointsCharged(costPoints > 0);
@@ -177,6 +189,9 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             persistJob(job, userId, null);
             if (idempotencyKey != null) {
                 requestJobs.put(idempotencyKey, jobId);
+            }
+            if ("humanize".equals(normalizedMode)) {
+                bindHumanizeBase(jobId, mode);
             }
 
             scheduleProcessingAfterCommit(jobId, inputPath, outputDir.resolve(jobId + "-ai-optimized.docx"));
@@ -201,7 +216,7 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
         if (!originalName.toLowerCase().endsWith(".docx")) {
             throw new IllegalArgumentException("当前仅支持上传 .docx 文件");
         }
-        int charCount = countDocumentChars(file);
+        int charCount = documentCharacterCountService.countFromAbstractOrCatalog(file);
         int costPoints = calculateCostPoints(charCount, normalizeMode(mode));
         int currentPoints = pointService.currentPoints(userId);
         return new DocumentPrecheckVO(charCount, costPoints, currentPoints, currentPoints >= costPoints);
@@ -294,6 +309,10 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             DocumentRewriteJobVO job = jobs.get(jobId);
             update(job, "FAILED", "处理线程异常：" + readableMessage(exception) + "；详情见 storage/jobs/" + jobId + ".log");
             persistJobSafely(job, null, null);
+        } finally {
+            if (jobId != null) {
+                humanizeBaseTypes.remove(jobId);
+            }
         }
     }
 
@@ -312,9 +331,10 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             }
             update(job, "RUNNING", "已读取 " + paragraphs.size() + " 个文档段落，正在筛选正文段落");
 
-            List<RewriteTarget> targets = collectRewriteTargets(job, paragraphs);
+            List<RewriteTarget> targets = collectRewriteTargets(job, document);
             job.setParagraphs(targets.stream().map(this::toParagraphJob).collect(Collectors.toList()));
             job.setProcessedParagraphs(0);
+            job.setRewrittenParagraphs(0);
             job.setTotalParagraphs(targets.size());
             if (targets.isEmpty()) {
                 update(job, "FAILED", "未识别到可优化正文段落，未生成优化结果。请检查文档是否包含目录后的正文内容。");
@@ -325,6 +345,9 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
 
             List<RewriteResult> results = rewriteTargetsWithLengthControl(job, targets, originalTextLength);
             long failedParagraphs = results.stream().filter(result -> !result.success()).count();
+            long successfulParagraphs = results.size() - failedParagraphs;
+            Map<Integer, String> originalTextByIndex = targets.stream()
+                    .collect(Collectors.toMap(RewriteTarget::index, RewriteTarget::text));
             String firstFailure = results.stream()
                     .filter(result -> !result.success())
                     .map(RewriteResult::errorMessage)
@@ -334,15 +357,28 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             results.stream()
                     .sorted(Comparator.comparingInt(RewriteResult::index))
                     .forEach(result -> {
-                        if (result.success() && result.rewrittenText() != null && !result.rewrittenText().isBlank()) {
-                            replaceParagraphText(result.paragraph(), result.rewrittenText());
-                            job.setRewrittenParagraphs(job.getRewrittenParagraphs() + 1);
+                        if (result.success() && !result.rewrittenText().equals(originalTextByIndex.get(result.index()))) {
+                            if (replaceParagraphText(result.paragraph(), result.rewrittenText(),
+                                    "humanize".equals(job.getMode()))) {
+                                job.setRewrittenParagraphs(job.getRewrittenParagraphs() + 1);
+                            } else {
+                                // Output-stage structural fallback, not another model/quality-gate pass.
+                                log.warn("ImagePreservationFallback jobId={} paragraphIndex={} stage=docx_refill "
+                                                + "action=KEEP_ORIGINAL reason=UNSAFE_GRAPHIC_TEXT_STRUCTURE",
+                                        jobId, result.index());
+                                updateParagraphStatus(job, result.index(), "SUCCESS",
+                                        originalTextByIndex.get(result.index()), "处理完成");
+                            }
                         }
                     });
+            long unchangedParagraphs = successfulParagraphs - job.getRewrittenParagraphs();
+            log.info("DocumentProcessingSummary jobId={} total={} successful={} changed={} unchanged={} failed={}",
+                    jobId, targets.size(), successfulParagraphs, job.getRewrittenParagraphs(), unchangedParagraphs, failedParagraphs);
             long docxStartedAt = System.currentTimeMillis();
             log.info("docx生成开始 jobId={} outputPath={} startTime={}",
                     jobId, outputPath.toAbsolutePath(), LocalDateTime.now());
             Files.createDirectories(outputPath.getParent());
+            assertNoUnresolvedPlaceholders(document);
             try (OutputStream outputStream = Files.newOutputStream(outputPath)) {
                 document.write(outputStream);
             }
@@ -355,7 +391,7 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             log.info("docx生成结束 jobId={} outputPath={} fileSize={} elapsedMs={}",
                     jobId, outputPath.toAbsolutePath(), fileSize, System.currentTimeMillis() - docxStartedAt);
             if (failedParagraphs > 0) {
-                update(job, "FAILED", job.getModeName() + "未完成：已处理 " + job.getRewrittenParagraphs()
+                update(job, "FAILED", job.getModeName() + "未完成：已成功处理 " + successfulParagraphs
                         + " 个段落，失败 " + failedParagraphs + " 个段落；首个失败原因：" + firstFailure
                         + "；模型状态：" + aiRewriteService.lastCallProvider());
             } else {
@@ -363,8 +399,9 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
                 job.setUpdatedAt(LocalDateTime.now());
                 persistJobSafely(job, null, null);
 
-                String successMessage = completedMessage(job.getMode()) + "；已处理 " + job.getRewrittenParagraphs()
-                        + " 个段落；模型状态：" + aiRewriteService.lastCallProvider();
+                String successMessage = completedMessage(job.getMode()) + "；已成功处理 " + successfulParagraphs
+                        + " 个段落，其中修改 " + job.getRewrittenParagraphs() + " 段、处理后内容相同 " + unchangedParagraphs
+                        + " 段；模型状态：" + aiRewriteService.lastCallProvider();
                 job.setStatus("SUCCESS");
                 job.setMessage(successMessage);
                 job.setUpdatedAt(LocalDateTime.now());
@@ -394,7 +431,7 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
                 || isTechnicalFragment(trimmed)) {
             return false;
         }
-        return true;
+        return !"humanize".equals(mode) || !DocxNativeStructureGuard.containsLockedStructure(paragraph);
     }
 
     private boolean isTechnicalFragment(String text) {
@@ -459,25 +496,62 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
         return count;
     }
 
-    private List<RewriteTarget> collectRewriteTargets(DocumentRewriteJobVO job, List<XWPFParagraph> paragraphs) {
+    private List<RewriteTarget> collectRewriteTargets(DocumentRewriteJobVO job, XWPFDocument document) {
+        if (shouldRewriteAbstractBody(job)) {
+            return collectHumanizeTargets(job, document);
+        }
+        List<XWPFParagraph> paragraphs = collectParagraphs(document);
         List<RewriteTarget> targets = new ArrayList<>();
-        boolean hasCatalog = hasCatalog(paragraphs);
-        boolean hasBodyStart = hasBodyStart(paragraphs);
-        boolean afterCatalog = !hasCatalog;
-        boolean inBody = !hasBodyStart && !hasCatalog;
+        boolean rewriteAbstractBody = shouldRewriteAbstractBody(job);
+        boolean useAbstractBoundary = paragraphs.stream()
+                .map(XWPFParagraph::getText)
+                .map(text -> text == null ? "" : text.trim())
+                .anyMatch(text -> isAbstractSectionTitle(text)
+                        || (rewriteAbstractBody && isInlineAbstractParagraph(text)));
+        XWPFParagraph catalogBodyStart = useAbstractBoundary ? null : findFirstBodyHeadingAfterCatalog(document);
+        if (!useAbstractBoundary && !hasCatalogBoundary(document)) {
+            throw new IllegalArgumentException("未识别到摘要或目录，无法确定正文处理起点");
+        }
+        boolean boundaryReached = false;
+        boolean inBody = false;
         for (int index = 0; index < paragraphs.size(); index++) {
             XWPFParagraph paragraph = paragraphs.get(index);
             String text = paragraph.getText();
             String trimmed = text == null ? "" : text.trim();
-            if (!afterCatalog) {
-                afterCatalog = isCatalogEnd(trimmed);
+            if (!boundaryReached) {
+                if (useAbstractBoundary && isAbstractSectionTitle(trimmed)) {
+                    boundaryReached = true;
+                    inBody = rewriteAbstractBody;
+                } else if (useAbstractBoundary && rewriteAbstractBody && isInlineAbstractParagraph(trimmed)) {
+                    boundaryReached = true;
+                    inBody = true;
+                    if (shouldRewriteBodyParagraph(paragraph, trimmed, job.getMode())) {
+                        targets.add(new RewriteTarget(index, paragraph, trimmed));
+                    }
+                } else if (!useAbstractBoundary && isSameParagraph(paragraph, catalogBodyStart)) {
+                    boundaryReached = true;
+                    inBody = true;
+                }
                 continue;
             }
             if (isTrailingProtectedSectionTitle(trimmed)) {
                 break;
             }
-            if (isAbstractSectionTitle(trimmed) || isBodyStartTitle(trimmed)) {
+            if (isAbstractSectionTitle(trimmed)) {
+                inBody = rewriteAbstractBody;
+                continue;
+            }
+            if (isBodyStartTitle(trimmed)) {
                 inBody = true;
+                continue;
+            }
+            if (isInlineAbstractParagraph(trimmed)) {
+                inBody = rewriteAbstractBody;
+                if (rewriteAbstractBody) {
+                    if (shouldRewriteBodyParagraph(paragraph, trimmed, job.getMode())) {
+                        targets.add(new RewriteTarget(index, paragraph, trimmed));
+                    }
+                }
                 continue;
             }
             if (isFrontMatterSectionTitle(trimmed) || isKeywordLine(trimmed)) {
@@ -494,6 +568,105 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
         return targets;
     }
 
+    private List<RewriteTarget> collectHumanizeTargets(DocumentRewriteJobVO job, XWPFDocument document) {
+        List<XWPFParagraph> paragraphs = collectParagraphs(document);
+        DocxRewriteBoundary.Scope scope = DocxRewriteBoundary.inspect(document);
+        boolean hasAbstract = paragraphs.stream().map(XWPFParagraph::getText)
+                .anyMatch(text -> DocxRewriteBoundary.isAbstractTitle(text)
+                        || DocxRewriteBoundary.isInlineAbstract(text));
+        if (!scope.hasCatalog() && !hasAbstract) {
+            throw new IllegalArgumentException("未识别到摘要或目录，无法确定正文处理起点");
+        }
+        List<RewriteTarget> targets = new ArrayList<>();
+        boolean inBody = false;
+        boolean abstractReached = false;
+        for (int index = 0; index < paragraphs.size(); index++) {
+            XWPFParagraph paragraph = paragraphs.get(index);
+            String text = paragraph.getText().trim();
+            if (scope.inCatalog(paragraph)) {
+                inBody = false;
+                continue;
+            }
+            boolean afterCatalog = scope.afterCatalog(paragraph);
+            if (afterCatalog) inBody = true;
+            if (DocxRewriteBoundary.isAbstractTitle(text)) {
+                abstractReached = true;
+                inBody = true;
+                continue;
+            }
+            if (DocxRewriteBoundary.isInlineAbstract(text)) {
+                abstractReached = true;
+                inBody = true;
+            }
+            if (!inBody) {
+                // Preserve the no-TOC fallback after a recognized abstract and keywords.
+                if (abstractReached && isBodyStartTitle(text)) inBody = true;
+                continue;
+            }
+            if (isTrailingProtectedSectionTitle(text)) {
+                if (scope.hasCatalog() && !afterCatalog) {
+                    inBody = false;
+                    continue;
+                }
+                break;
+            }
+            if (DocxRewriteBoundary.isKeywordLine(text)) {
+                if (!afterCatalog) inBody = false;
+                continue;
+            }
+            if (shouldRewriteBodyParagraph(paragraph, text, job.getMode())) {
+                targets.add(new RewriteTarget(index, paragraph, text));
+            }
+        }
+        return targets;
+    }
+
+    private boolean hasCatalogBoundary(XWPFDocument document) {
+        return document.getBodyElements().stream()
+                .map(this::bodyElementText)
+                .anyMatch(this::isCatalogBoundaryText);
+    }
+
+    private XWPFParagraph findFirstBodyHeadingAfterCatalog(XWPFDocument document) {
+        boolean catalogReached = false;
+        for (var element : document.getBodyElements()) {
+            String text = bodyElementText(element);
+            if (!catalogReached) {
+                catalogReached = isCatalogBoundaryText(text);
+                continue;
+            }
+            if (!(element instanceof XWPFParagraph paragraph)) {
+                continue;
+            }
+            String trimmed = text == null ? "" : text.trim();
+            if (trimmed.isEmpty() || isCatalogLine(trimmed)) {
+                continue;
+            }
+            if (isBodyStartTitle(trimmed) || isHeadingParagraph(paragraph, trimmed)) {
+                return paragraph;
+            }
+        }
+        return null;
+    }
+
+    private String bodyElementText(Object element) {
+        if (element instanceof XWPFParagraph paragraph) {
+            return paragraph.getText();
+        }
+        if (element instanceof XWPFSDT contentControl) {
+            return contentControl.getContent().getText();
+        }
+        return "";
+    }
+
+    private boolean isCatalogBoundaryText(String text) {
+        return normalizeChargeText(text).matches("(?s)^目\\s*录(?:\\s.*)?$");
+    }
+
+    private boolean isSameParagraph(XWPFParagraph left, XWPFParagraph right) {
+        return left != null && right != null && (left == right || left.getCTP() == right.getCTP());
+    }
+
     private List<RewriteResult> rewriteTargetsWithLengthControl(
             DocumentRewriteJobVO job,
             List<RewriteTarget> targets,
@@ -501,241 +674,81 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
     ) throws Exception {
         LengthRule rule = lengthRule(originalTextLength);
         if ("double".equals(job.getMode())) {
-            update(job, "RUNNING", "双降增强：第一阶段正在执行智能降重");
-            List<RewriteResult> rewriteResults = rewriteTargetsConcurrently(job, targets, "rewrite", "智能降重");
-            logLengthMetrics(job, "double_rewrite_no_retry", lengthMetrics(rule.originalLength(), rewriteResults), 0);
-
-            List<RewriteResult> failedRewriteResults = rewriteResults.stream()
-                    .filter(result -> !result.success())
-                    .toList();
-            List<RewriteTarget> humanizeTargets = rewriteResults.stream()
-                    .filter(RewriteResult::success)
-                    .map(result -> new RewriteTarget(result.index(), result.paragraph(), result.rewrittenText()))
-                    .toList();
-
-            update(job, "RUNNING", "双降增强：第二阶段正在执行智能降AI");
-            List<RewriteResult> humanizeResults = rewriteTargetsConcurrently(job, humanizeTargets, "humanize", "智能降AI");
-            List<RewriteResult> mergedResults = new ArrayList<>();
-            mergedResults.addAll(failedRewriteResults);
-            mergedResults.addAll(humanizeResults);
-            return applyLengthControl(job, humanizeTargets, mergedResults, rule, "double_final", 1);
+            update(job, "RUNNING", "双降增强：逐段执行智能降重，完成后立即执行智能降AI");
+            List<RewriteResult> results = rewriteDoubleTargetsConcurrently(job, targets);
+            logLengthMetrics(job, "double_paragraph_chain", humanizeLengthMetrics(rule.originalLength(), results), 0);
+            return validateCompletedResults(targets, results);
         }
 
         List<RewriteResult> results = rewriteTargetsConcurrently(job, targets, job.getMode(), job.getModeName());
         if ("rewrite".equals(job.getMode())) {
             logLengthMetrics(job, "rewrite_no_retry", lengthMetrics(rule.originalLength(), results), 0);
-            return results;
+            return validateCompletedResults(targets, validateRewriteQuality(job, targets, results));
         }
-        return applyLengthControl(job, targets, results, rule, job.getMode(), 1);
+        // Length is observational for ordinary and deep humanize. There is no
+        // REJECT_OVERLONG path: a stronger rewrite is kept when it passes the soft
+        // reference, and also when it exceeds it. Do not compress it back.
+        LengthMetrics humanizeLength = humanizeLengthMetrics(rule.originalLength(), results);
+        if ("ABOVE_SOFT_REFERENCE".equals(humanizeLength.status())) {
+            log.info("HumanizeLength KEEP_OVER_REFERENCE jobId={} originalLength={} finalLength={} "
+                            + "increaseRate={} lengthStatus={} action=KEEP reason=LENGTH_IS_SOFT",
+                    job.getJobId(), humanizeLength.originalLength(), humanizeLength.finalLength(),
+                    String.format(java.util.Locale.ROOT, "%.4f", humanizeLength.increaseRate()),
+                    humanizeLength.status());
+        }
+        logLengthMetrics(job, "humanize_soft_reference", humanizeLength, 0);
+        return validateCompletedResults(targets, results);
     }
 
-    private List<RewriteResult> applyLengthControl(
-            DocumentRewriteJobVO job,
-            List<RewriteTarget> originalTargets,
-            List<RewriteResult> results,
-            LengthRule rule,
-            String stage,
-            int maxRetryCount
-    ) {
-        LengthMetrics metrics = lengthMetrics(rule.originalLength(), results);
-        logLengthMetrics(job, stage, metrics, 0);
-        if (!metrics.exceeded()) {
-            return results;
-        }
-
-        List<RewriteResult> adjustedResults = new ArrayList<>(results);
-        for (int attempt = 1; attempt <= maxRetryCount && metrics.exceeded(); attempt++) {
-            update(job, "RUNNING", "字数增长超过限制，正在执行轻量长度压缩");
-            adjustedResults = compressExpandedResults(job, originalTargets, adjustedResults, rule, stage, attempt);
-            metrics = lengthMetrics(rule.originalLength(), adjustedResults);
-            logLengthMetrics(job, stage + "_retry_" + attempt, metrics, attempt);
-        }
-        if (metrics.exceeded()) {
-            log.warn("LengthControl still exceeded after retries jobId={} mode={} stage={} original_length={} final_length={} allowed_max_length={} retry_count={} length_status=OVER_LIMIT_AFTER_RETRY",
-                    job.getJobId(), lengthLogMode(job.getMode()), stage, metrics.originalLength(), metrics.finalLength(), metrics.allowedMaxLength(), maxRetryCount);
-        }
-        return adjustedResults;
-    }
-
-    private List<RewriteResult> compressExpandedResults(
-            DocumentRewriteJobVO job,
-            List<RewriteTarget> originalTargets,
-            List<RewriteResult> results,
-            LengthRule rule,
-            String stage,
-            int attempt
-    ) {
-        Map<Integer, String> originalTextByIndex = originalTargets.stream()
-                .collect(Collectors.toMap(RewriteTarget::index, RewriteTarget::text, (left, right) -> left));
-        List<RewriteResult> adjusted = new ArrayList<>(results);
-        int currentLength = totalResultTextLength(adjusted);
-        int excessLength = currentLength - rule.allowedMaxLength();
-        if (excessLength <= 0) {
-            return adjusted;
-        }
-
-        List<RewriteResult> candidates = adjusted.stream()
-                .filter(RewriteResult::success)
-                .filter(result -> textLength(result.rewrittenText()) > textLength(originalTextByIndex.get(result.index())))
-                .sorted((left, right) -> Integer.compare(
-                        textLength(right.rewrittenText()) - textLength(originalTextByIndex.get(right.index())),
-                        textLength(left.rewrittenText()) - textLength(originalTextByIndex.get(left.index()))
-                ))
-                .toList();
-
-        for (RewriteResult candidate : candidates) {
-            if (totalResultTextLength(adjusted) <= rule.allowedMaxLength()) {
-                break;
-            }
-            String originalText = originalTextByIndex.getOrDefault(candidate.index(), "");
-            int targetLength = allowedParagraphLength(rule, originalText);
-            String compressed = compressForLength(candidate.rewrittenText(), originalText, targetLength);
-            int beforeLength = textLength(candidate.rewrittenText());
-            int compressedLength = textLength(compressed);
-            int originalLength = textLength(originalText);
-            if (!compressed.isBlank()
-                    && compressedLength < beforeLength
-                    && compressedLength >= Math.max(1, (int) Math.floor(originalLength * 0.55))) {
-                int resultIndex = adjusted.indexOf(candidate);
-                adjusted.set(resultIndex, new RewriteResult(
-                        candidate.index(),
-                        candidate.paragraph(),
-                        compressed,
-                        true,
-                        candidate.errorMessage()
-                ));
-                updateParagraphStatus(job, candidate.index(), "SUCCESS", compressed, "已完成长度控制压缩");
-                log.info("LengthControl paragraph compressed jobId={} stage={} attempt={} paragraphIndex={} original_length={} before_length={} after_length={} target_length={}",
-                        job.getJobId(), stage, attempt, candidate.index(), originalLength, beforeLength, compressedLength, targetLength);
-            }
-        }
-        return adjusted;
-    }
-
-    private String compressForLength(String text, String originalText, int targetLength) {
-        String current = normalizeChargeText(text);
-        if (textLength(current) <= targetLength) {
-            return current;
-        }
-
-        List<String> sentences = splitSentences(current);
-        List<String> kept = new ArrayList<>(sentences);
-        removeExpandedSentences(kept, originalText, targetLength);
-        current = cleanupLengthControlPhrases(String.join("", kept));
-        if (textLength(current) <= targetLength) {
-            return current;
-        }
-
-        kept = new ArrayList<>(splitSentences(current));
-        while (kept.size() > 1 && textLength(String.join("", kept)) > targetLength) {
-            int removableIndex = leastRelevantSentenceIndex(kept, originalText);
-            if (removableIndex < 0) {
-                break;
-            }
-            kept.remove(removableIndex);
-        }
-        return cleanupLengthControlPhrases(String.join("", kept));
-    }
-
-    private void removeExpandedSentences(List<String> sentences, String originalText, int targetLength) {
-        for (int index = sentences.size() - 1; index >= 0 && textLength(String.join("", sentences)) > targetLength; index--) {
-            String sentence = sentences.get(index);
-            if (isLikelyExpandedSentence(sentence, originalText)) {
-                sentences.remove(index);
-            }
-        }
-    }
-
-    private boolean isLikelyExpandedSentence(String sentence, String originalText) {
-        String compact = normalizeChargeText(sentence);
-        if (compact.length() < 12) {
-            return false;
-        }
-        if (hasAny(compact,
-                "具有重要意义", "通过分析可以看出", "综上所述", "由此可见", "值得注意的是",
-                "提供参考", "具有较高价值", "验证了可行性", "取得了良好效果")) {
-            return true;
-        }
-        return sharedCharRatio(compact, originalText) < 0.32 && compact.length() >= 24;
-    }
-
-    private int leastRelevantSentenceIndex(List<String> sentences, String originalText) {
-        double lowestScore = Double.MAX_VALUE;
-        int lowestIndex = -1;
-        for (int index = 0; index < sentences.size(); index++) {
-            String sentence = normalizeChargeText(sentences.get(index));
-            if (sentence.length() < 12) {
+    private List<RewriteResult> validateRewriteQuality(DocumentRewriteJobVO job,
+                                                       List<RewriteTarget> originals,
+                                                       List<RewriteResult> results) {
+        Map<Integer, RewriteTarget> originalByIndex = originals.stream()
+                .collect(Collectors.toMap(RewriteTarget::index, target -> target));
+        List<RewriteResult> checked = new ArrayList<>();
+        for (RewriteResult result : results) {
+            RewriteTarget original = originalByIndex.get(result.index());
+            if (original == null || !result.success()) {
+                checked.add(result);
                 continue;
             }
-            double score = sharedCharRatio(sentence, originalText);
-            if (hasAny(sentence, "因此", "同时", "此外", "进一步", "意义", "价值", "效果")) {
-                score -= 0.12;
-            }
-            if (score < lowestScore) {
-                lowestScore = score;
-                lowestIndex = index;
-            }
-        }
-        return lowestIndex;
-    }
-
-    private List<String> splitSentences(String text) {
-        List<String> sentences = new ArrayList<>();
-        java.util.regex.Matcher matcher = java.util.regex.Pattern
-                .compile("[^。！？!?；;]+[。！？!?；;]?")
-                .matcher(text == null ? "" : text);
-        while (matcher.find()) {
-            String sentence = matcher.group().trim();
-            if (!sentence.isBlank()) {
-                sentences.add(sentence);
+            RewriteQualityGate.Assessment assessment = RewriteQualityGate.assess(
+                    original.text(), result.rewrittenText());
+            if (assessment.accepted()) {
+                checked.add(result);
+            } else {
+                String reason = String.join("；", assessment.issues());
+                log.warn("QualityGateFallback jobId={} paragraphIndex={} stage=final_validation "
+                                + "action=KEEP_ORIGINAL reason={}",
+                        job.getJobId(), result.index(), reason);
+                updateParagraphStatus(job, result.index(), "SUCCESS", original.text(), "处理完成");
+                checked.add(new RewriteResult(result.index(), result.paragraph(), original.text(), true, ""));
             }
         }
-        if (sentences.isEmpty() && text != null && !text.isBlank()) {
-            sentences.add(text.trim());
-        }
-        return sentences;
+        return checked;
     }
 
-    private String cleanupLengthControlPhrases(String text) {
-        return normalizeChargeText(text)
-                .replace("通过分析可以看出，", "")
-                .replace("通过分析可以看出", "")
-                .replace("具有重要意义", "")
-                .replace("具有较高价值", "")
-                .replace("提供参考", "")
-                .replace("综上所述，", "")
-                .replace("综上所述", "")
-                .replace("由此可见，", "")
-                .replace("由此可见", "")
-                .replaceAll("，{2,}", "，")
-                .replaceAll("。{2,}", "。")
-                .trim();
-    }
-
-    private double sharedCharRatio(String sentence, String originalText) {
-        String compactSentence = normalizeChargeText(sentence);
-        String compactOriginal = normalizeChargeText(originalText);
-        if (compactSentence.isBlank() || compactOriginal.isBlank()) {
-            return 0;
-        }
-        int shared = 0;
-        for (int index = 0; index < compactSentence.length(); index++) {
-            char ch = compactSentence.charAt(index);
-            if (!Character.isWhitespace(ch) && compactOriginal.indexOf(ch) >= 0) {
-                shared++;
+    private List<RewriteResult> validateCompletedResults(
+            List<RewriteTarget> originalTargets,
+            List<RewriteResult> results
+    ) {
+        // Completion comes from the workflow result, not a text-difference heuristic.
+        // Verify coverage without turning failed calls into source-text successes.
+        java.util.Set<Integer> expected = originalTargets.stream()
+                .map(RewriteTarget::index).collect(Collectors.toSet());
+        java.util.Set<Integer> completed = new java.util.HashSet<>();
+        for (RewriteResult result : results) {
+            if (!expected.contains(result.index()) || !completed.add(result.index())) {
+                throw new IllegalStateException("段落处理记录重复或与待处理段落不匹配");
+            }
+            if (result.success() && (result.rewrittenText() == null || result.rewrittenText().isBlank())) {
+                throw new IllegalStateException("已完成段落缺少有效模型结果");
             }
         }
-        return shared * 1.0 / compactSentence.length();
-    }
-
-    private int allowedParagraphLength(LengthRule rule, String originalText) {
-        int originalLength = textLength(originalText);
-        if (originalLength <= 0 || rule.originalLength() <= 0) {
-            return originalLength;
+        if (!completed.equals(expected)) {
+            throw new IllegalStateException("部分段落缺少处理记录，不能标记为全部完成");
         }
-        int allowedIncrease = rule.allowedMaxLength() - rule.originalLength();
-        int paragraphIncrease = (int) Math.floor(allowedIncrease * (originalLength * 1.0 / rule.originalLength()));
-        return Math.max(originalLength, originalLength + paragraphIncrease);
+        return results;
     }
 
     private LengthMetrics lengthMetrics(int originalLength, List<RewriteResult> results) {
@@ -745,6 +758,23 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
         double increaseRate = originalLength <= 0 ? 0 : increaseLength * 1.0 / originalLength;
         String status = finalLength > rule.allowedMaxLength() ? "EXCEEDED" : "PASS";
         return new LengthMetrics(originalLength, finalLength, increaseLength, increaseRate, rule.allowedMaxLength(), status);
+    }
+
+    /**
+     * Soft ceiling for ordinary humanize logs. Results above it are kept.
+     * 150% covers a split/merge rewrite without treating it as a failure.
+     */
+    static int humanizeSoftReferenceMax(int originalLength) {
+        return (int) Math.floor(originalLength * 1.50d);
+    }
+
+    private LengthMetrics humanizeLengthMetrics(int originalLength, List<RewriteResult> results) {
+        int finalLength = totalResultTextLength(results);
+        int referenceMax = humanizeSoftReferenceMax(originalLength);
+        int increase = finalLength - originalLength;
+        return new LengthMetrics(originalLength, finalLength, increase,
+                originalLength <= 0 ? 0 : increase * 1.0 / originalLength,
+                referenceMax, finalLength > referenceMax ? "ABOVE_SOFT_REFERENCE" : "WITHIN_SOFT_REFERENCE");
     }
 
     private void logLengthMetrics(DocumentRewriteJobVO job, String stage, LengthMetrics metrics, int retryCount) {
@@ -815,9 +845,19 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             for (RewriteTarget target : targets) {
                 completionService.submit(() -> {
                     updateParagraphStatus(job, target.index(), "RUNNING", null, stageName + "处理中");
+                    long startedAt = System.currentTimeMillis();
+                    log.info("ParagraphProcessingStart jobId={} paragraphIndex={} stage={} originalLength={}",
+                            job.getJobId(), target.index(), stageMode, target.text().length());
                     try {
-                        String rewritten = rewriteByMode(target.text(), stageMode, job.getPlatform());
-                        updateParagraphStatus(job, target.index(), "SUCCESS", rewritten, stageName + "已完成");
+                        String rewritten = rewriteByMode(target.text(), stageMode, job);
+                        if (rewritten == null || rewritten.isBlank()) {
+                            throw new IllegalStateException("模型未返回有效段落内容");
+                        }
+                        boolean changed = !target.text().equals(rewritten);
+                        updateParagraphStatus(job, target.index(), "SUCCESS", rewritten, stageName
+                                + (changed ? "已完成，内容已修改" : "已完成，模型处理后内容相同"));
+                        log.info("ParagraphProcessingResult jobId={} paragraphIndex={} stage={} status=SUCCESS changed={} resultLength={} elapsedMs={}",
+                                job.getJobId(), target.index(), stageMode, changed, rewritten.length(), System.currentTimeMillis() - startedAt);
                         return new RewriteResult(
                                 target.index(),
                                 target.paragraph(),
@@ -825,10 +865,22 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
                                 true,
                                 ""
                         );
+                    } catch (RewriteQualityGateException exception) {
+                        log.warn("QualityGateFallback jobId={} paragraphIndex={} stage={} "
+                                        + "action=KEEP_ORIGINAL reason={}",
+                                job.getJobId(), target.index(), stageMode, readableMessage(exception));
+                        updateParagraphStatus(job, target.index(), "SUCCESS", target.text(), "处理完成");
+                        return new RewriteResult(
+                                target.index(), target.paragraph(), target.text(), true, ""
+                        );
                     } catch (Exception exception) {
-                        updateParagraphStatus(job, target.index(), "FAILED", target.text(), "处理失败，保留原文：" + readableMessage(exception));
                         String message = readableMessage(exception);
-                        return new RewriteResult(target.index(), target.paragraph(), target.text(), false, message);
+                        log.warn("ParagraphFallback jobId={} paragraphIndex={} stage={} action=KEEP_ORIGINAL "
+                                        + "errorType={} reason={} elapsedMs={}",
+                                job.getJobId(), target.index(), stageMode, exception.getClass().getSimpleName(),
+                                message, System.currentTimeMillis() - startedAt);
+                        updateParagraphStatus(job, target.index(), "SUCCESS", target.text(), "处理完成");
+                        return new RewriteResult(target.index(), target.paragraph(), target.text(), true, "");
                     }
                 });
             }
@@ -848,39 +900,120 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
         return results;
     }
 
+    /**
+     * Runs double reduction as one fixed chain per paragraph. Paragraphs may run concurrently,
+     * but a paragraph always finishes plagiarism rewriting before its AI-style rewrite starts.
+     */
+    private List<RewriteResult> rewriteDoubleTargetsConcurrently(
+            DocumentRewriteJobVO job,
+            List<RewriteTarget> targets
+    ) throws Exception {
+        List<RewriteResult> results = new ArrayList<>();
+        if (targets.isEmpty()) {
+            return results;
+        }
+
+        int concurrency = Math.max(1, Math.min(doubaoProperties.getDocumentConcurrency(), 64));
+        concurrency = Math.min(concurrency, targets.size());
+        ExecutorService paragraphExecutor = Executors.newFixedThreadPool(concurrency);
+        CompletionService<RewriteResult> completionService = new ExecutorCompletionService<>(paragraphExecutor);
+        try {
+            for (RewriteTarget target : targets) {
+                completionService.submit(() -> {
+                    long startedAt = System.currentTimeMillis();
+                    log.info("DoubleParagraphChainStart jobId={} paragraphIndex={} originalLength={}",
+                            job.getJobId(), target.index(), target.text().length());
+                    try {
+                        updateParagraphStatus(job, target.index(), "RUNNING", null,
+                                "双降处理中：正在执行智能降重");
+                        String rewritten = rewriteByMode(target.text(), "rewrite", job);
+                        requireParagraphOutput(rewritten, "智能降重未返回有效段落内容");
+
+                        updateParagraphStatus(job, target.index(), "RUNNING", rewritten,
+                                "双降处理中：智能降重已完成，正在执行智能降AI");
+                        String humanized = rewriteByMode(rewritten, "humanize", job);
+                        requireParagraphOutput(humanized, "智能降AI未返回有效段落内容");
+
+                        RewriteQualityGate.Assessment finalAssessment = RewriteQualityGate.assess(
+                                target.text(), humanized);
+                        if (!finalAssessment.accepted()) {
+                            String reason = String.join("；", finalAssessment.issues());
+                            log.warn("QualityGateFallback jobId={} paragraphIndex={} stage=double_final "
+                                            + "action=KEEP_ORIGINAL reason={}",
+                                    job.getJobId(), target.index(), reason);
+                            updateParagraphStatus(job, target.index(), "SUCCESS", target.text(), "处理完成");
+                            return new RewriteResult(
+                                    target.index(), target.paragraph(), target.text(), true, ""
+                            );
+                        }
+
+                        updateParagraphStatus(job, target.index(), "SUCCESS", humanized,
+                                "双降已完成：本段已依次完成智能降重和智能降AI");
+                        log.info("DoubleParagraphChainResult jobId={} paragraphIndex={} status=SUCCESS "
+                                        + "rewriteLength={} finalLength={} elapsedMs={}",
+                                job.getJobId(), target.index(), rewritten.length(), humanized.length(),
+                                System.currentTimeMillis() - startedAt);
+                        return new RewriteResult(
+                                target.index(), target.paragraph(), humanized, true, ""
+                        );
+                    } catch (RewriteQualityGateException exception) {
+                        log.warn("QualityGateFallback jobId={} paragraphIndex={} stage=double_rewrite "
+                                        + "action=KEEP_ORIGINAL reason={}",
+                                job.getJobId(), target.index(), readableMessage(exception));
+                        updateParagraphStatus(job, target.index(), "SUCCESS", target.text(), "处理完成");
+                        return new RewriteResult(
+                                target.index(), target.paragraph(), target.text(), true, ""
+                        );
+                    } catch (Exception exception) {
+                        String message = readableMessage(exception);
+                        log.warn("ParagraphFallback jobId={} paragraphIndex={} stage=double "
+                                        + "action=KEEP_ORIGINAL errorType={} reason={} elapsedMs={}",
+                                job.getJobId(), target.index(), exception.getClass().getSimpleName(), message,
+                                System.currentTimeMillis() - startedAt);
+                        updateParagraphStatus(job, target.index(), "SUCCESS", target.text(), "处理完成");
+                        return new RewriteResult(
+                                target.index(), target.paragraph(), target.text(), true, ""
+                        );
+                    }
+                });
+            }
+
+            for (int completed = 0; completed < targets.size(); completed++) {
+                RewriteResult result = completionService.take().get();
+                results.add(result);
+                job.setProcessedParagraphs(completed + 1);
+                job.setMessage("双降逐段处理中：" + job.getProcessedParagraphs() + "/" + targets.size()
+                        + " 个段落已完成降重→降AI，线程数 " + concurrency);
+                job.setUpdatedAt(LocalDateTime.now());
+            }
+        } finally {
+            paragraphExecutor.shutdown();
+        }
+        return results;
+    }
+
+    private void requireParagraphOutput(String text, String message) {
+        if (text == null || text.isBlank()) {
+            throw new IllegalStateException(message);
+        }
+    }
+
     private List<XWPFParagraph> collectParagraphs(XWPFDocument document) {
         return new java.util.ArrayList<>(document.getParagraphs());
     }
 
-    private int countDocumentChars(MultipartFile file) {
-        try (InputStream inputStream = file.getInputStream();
-             XWPFDocument document = new XWPFDocument(inputStream)) {
-            DocumentRewriteJobVO countingJob = new DocumentRewriteJobVO();
-            countingJob.setMode("humanize");
-            List<String> chunks = new ArrayList<>();
-            for (RewriteTarget target : collectRewriteTargets(countingJob, collectParagraphs(document))) {
-                chunks.add(target.text());
-            }
-            chunks.addAll(collectTableTexts(document));
-            return normalizeChargeText(String.join("\n", chunks)).length();
-        } catch (IOException exception) {
-            throw new IllegalStateException("文档字符数解析失败：" + exception.getMessage(), exception);
+    private void assertNoUnresolvedPlaceholders(XWPFDocument document) {
+        if (document == null) return;
+        if (TextStructureProtector.containsUnresolvedPlaceholder(document.getDocument().xmlText())) {
+            throw new IllegalStateException("结果文档仍包含未还原的保护占位符，已停止导出");
         }
-    }
-
-    private List<String> collectTableTexts(XWPFDocument document) {
-        List<String> texts = new ArrayList<>();
-        for (XWPFTable table : document.getTables()) {
-            for (XWPFTableRow row : table.getRows()) {
-                for (XWPFTableCell cell : row.getTableCells()) {
-                    String text = normalizeChargeText(cell.getText());
-                    if (!text.isBlank() && !isCatalogLine(text) && !isTrailingProtectedSectionTitle(text)) {
-                        texts.add(text);
-                    }
-                }
-            }
+        boolean headerLeak = document.getHeaderList().stream()
+                .anyMatch(header -> TextStructureProtector.containsUnresolvedPlaceholder(header.getText()));
+        boolean footerLeak = document.getFooterList().stream()
+                .anyMatch(footer -> TextStructureProtector.containsUnresolvedPlaceholder(footer.getText()));
+        if (headerLeak || footerLeak) {
+            throw new IllegalStateException("结果文档页眉页脚仍包含未还原的保护占位符，已停止导出");
         }
-        return texts;
     }
 
     private String normalizeChargeText(String text) {
@@ -924,16 +1057,37 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
         return "文档降AI";
     }
 
-    private String rewriteByMode(String text, String mode, String platform) {
-        String suffix = platform == null || "GENERAL".equals(platform) ? "" : "@" + platform;
-        if ("rewrite".equals(mode)) {
-            return workflowRewriteService.execute(text, "rewrite" + suffix).getRewrittenText();
-        }
-        if ("double".equals(mode)) {
+    private String rewriteByMode(String text, String stageMode, DocumentRewriteJobVO job) {
+        if ("double".equals(stageMode)) {
+            String suffix = legacyRewriteSuffix(job == null || job.getPlatform() == null ? "GENERAL" : job.getPlatform());
             String rewritten = workflowRewriteService.execute(text, "rewrite" + suffix).getRewrittenText();
-            return workflowRewriteService.execute(rewritten, "humanize" + suffix).getRewrittenText();
+            return workflowRewriteService.execute(rewritten, NativeHumanizeProfiles.SHARED_HUMANIZE + suffix).getRewrittenText();
         }
-        return workflowRewriteService.execute(text, "humanize" + suffix).getRewrittenText();
+        return workflowRewriteService.execute(text, workflowRequestType(job, stageMode)).getRewrittenText();
+    }
+
+    /**
+     * Native 降AI jobs carry the platform profile. Rewrite and double keep the previous platform suffix.
+     */
+    String workflowRequestType(DocumentRewriteJobVO job, String stageMode) {
+        String platform = job == null || job.getPlatform() == null ? "GENERAL" : job.getPlatform();
+        if (job == null || !"humanize".equals(job.getMode())) {
+            String suffix = legacyRewriteSuffix(platform);
+            String workflowMode = "rewrite".equals(stageMode) ? "rewrite" : NativeHumanizeProfiles.SHARED_HUMANIZE;
+            return workflowMode + suffix;
+        }
+        String jobId = job.getJobId();
+        String base = jobId == null ? "humanize" : humanizeBaseTypes.getOrDefault(jobId, "humanize");
+        return NativeHumanizeProfiles.workflowType(base, NativeHumanizeProfiles.normalize(platform));
+    }
+
+    void bindHumanizeBase(String jobId, String rawMode) {
+        humanizeBaseTypes.put(jobId, NativeHumanizeProfiles.humanizeBase(rawMode));
+    }
+
+    private String legacyRewriteSuffix(String platform) {
+        String code = normalizePlatform(platform);
+        return "GENERAL".equals(code) ? "" : "@" + code;
     }
 
     private String normalizeMode(String mode) {
@@ -979,13 +1133,7 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
     }
 
     private String normalizePlatform(String platform) {
-        if (platform == null || platform.isBlank()) {
-            return "GENERAL";
-        }
-        return switch (platform.trim().toUpperCase()) {
-            case "CNKI", "WEIPU", "WANFANG", "GEZIDA" -> platform.trim().toUpperCase();
-            default -> "GENERAL";
-        };
+        return NativeHumanizeProfiles.legacyRewriteCode(platform);
     }
 
     private String platformName(String platform) {
@@ -1010,61 +1158,63 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
         return text.matches("^(摘要|摘\\s*要|Abstract|ABSTRACT)$");
     }
 
+    private boolean isInlineAbstractParagraph(String text) {
+        return text.matches("^(摘\\s*要|Abstract|ABSTRACT)\\s*[:：]\\s*\\S.*$");
+    }
+
+    private boolean shouldRewriteAbstractBody(DocumentRewriteJobVO job) {
+        String mode = job == null || job.getMode() == null ? "" : job.getMode().trim();
+        String platform = job == null || job.getPlatform() == null ? "GENERAL" : job.getPlatform().trim();
+        return ("humanize".equals(mode) || "double".equals(mode))
+                && !"DAYA".equalsIgnoreCase(platform);
+    }
+
     private boolean isTrailingProtectedSectionTitle(String text) {
         return text.matches("^(参考文献|致谢|附录|作者简介|声明|原创性声明|学位论文原创性声明|评阅意见|学术评价)$");
     }
 
     private boolean isFrontMatterLine(String text) {
         return isKeywordLine(text)
-                || text.matches("^摘\\s*要[:：].*$")
-                || text.matches("^Abstract[:：].*$")
                 || text.matches("^.{0,12}(学院|专业|班级|学生|姓名|学号|指导教师|导师|日期)[:：].*$")
                 || text.matches("^第\\s*\\d+\\s*页\\s*(共\\s*\\d+\\s*页)?$");
     }
 
     private boolean isKeywordLine(String text) {
-        return text.matches("^(关键词|关键字|Key\\s*words|Keywords)\\s*[:：]?.*$");
+        return DocxRewriteBoundary.isKeywordLine(text)
+                || text.matches("^(关键词|关键字|Key\\s*words|Keywords)\\s*[:：]?.*$");
     }
 
     private boolean isCaptionOrFormulaLine(String text) {
-        return text.matches("^(图|表)\\s*\\d+(\\.\\d+)*\\s+.*$")
-                || text.matches("^公式\\s*\\d+(\\.\\d+)*\\s+.*$")
-                || text.matches("^\\(?\\d+(\\.\\d+)*\\)?\\s*.*[=＋+\\-*/×÷].*$");
-    }
-
-    private boolean hasBodyStart(List<XWPFParagraph> paragraphs) {
-        return paragraphs.stream()
-                .map(XWPFParagraph::getText)
-                .filter(text -> text != null)
-                .map(String::trim)
-                .anyMatch(this::isBodyStartTitle);
-    }
-
-    private boolean hasCatalog(List<XWPFParagraph> paragraphs) {
-        return paragraphs.stream()
-                .map(XWPFParagraph::getText)
-                .filter(text -> text != null)
-                .map(String::trim)
-                .anyMatch(text -> "目录".equals(text) || "目 录".equals(text) || isCatalogLine(text));
-    }
-
-    private boolean isCatalogEnd(String text) {
-        String trimmed = text == null ? "" : text.trim();
-        if (trimmed.isEmpty()) {
-            return false;
-        }
-        if ("目录".equals(trimmed) || "目 录".equals(trimmed)) {
-            return false;
-        }
-        return isAbstractSectionTitle(trimmed) || isBodyStartTitle(trimmed);
+        return text.matches("^(图|表)\\s*\\d+([.．\\-—]\\d+)*\\s+.*$")
+                || text.matches("^(图|表)\\s*\\d+([.．\\-—]\\d+)+\\s*[^。！？!?；;\\r\\n]{1,80}$")
+                || text.matches("^公式\\s*\\d+([.．\\-—]\\d+)*\\s+.*$")
+                || text.matches("^公式\\s*\\d+([.．\\-—]\\d+)+\\s*[^。！？!?；;\\r\\n]{1,80}$")
+                || text.matches("^\\(\\d+([.．]\\d+)*\\)\\s*[^。！？!?；;\\r\\n]{1,160}[=＋+\\-*/×÷][^。！？!?；;\\r\\n]{0,160}$")
+                || text.matches("^\\d+([.．]\\d+)*\\s+[^。！？!?；;\\r\\n]{1,160}[=＋+\\-*/×÷][^。！？!?；;\\r\\n]{0,160}$");
     }
 
     private boolean isHeadingParagraph(XWPFParagraph paragraph, String text) {
-        String style = paragraph.getStyle();
-        if (style != null && style.toLowerCase().contains("heading")) {
+        var properties = paragraph.getCTP().getPPr();
+        String styleId = properties != null && properties.isSetPStyle()
+                ? properties.getPStyle().getVal() : null;
+        if (isHeadingStyleName(styleId)) {
             return true;
         }
+        if (styleId != null && paragraph.getDocument() != null && paragraph.getDocument().getStyles() != null) {
+            XWPFStyle style = paragraph.getDocument().getStyles().getStyle(styleId);
+            if (style != null && isHeadingStyleName(style.getName())) {
+                return true;
+            }
+        }
         return isHeadingLikeNumberedTitle(text);
+    }
+
+    private boolean isHeadingStyleName(String styleName) {
+        if (styleName == null) {
+            return false;
+        }
+        String normalized = styleName.replaceAll("\\s+", "").toLowerCase(Locale.ROOT);
+        return normalized.matches("heading[1-9]") || normalized.matches("标题[1-9]");
     }
 
     private boolean isCommonBodyStartTitle(String text) {
@@ -1079,7 +1229,9 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
     private boolean isHeadingLikeNumberedTitle(String text) {
         return text.matches("^(第[一二三四五六七八九十百]+[章节篇].*)$")
                 || text.matches("^([一二三四五六七八九十]+、).{1,40}$")
-                || text.matches("^(\\d+(\\.\\d+){0,3}\\s+).{1,60}$");
+                || text.matches("^(\\d+([.．]\\d+){0,3}\\s+).{1,60}$")
+                || text.matches("^\\d{1,2}[.．、]\\s*[\\p{IsHan}A-Za-z][^。！？!?；;\\r\\n]{0,59}$")
+                || text.matches("^\\d{1,2}([.．]\\d{1,2}){1,3}\\s*[\\p{IsHan}A-Za-z][^。！？!?；;\\r\\n]{0,59}$");
     }
 
     private boolean isCatalogLine(String text) {
@@ -1088,7 +1240,13 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
                 || text.contains("TOC \\o");
     }
 
-    private void replaceParagraphText(XWPFParagraph paragraph, String text) {
+    private boolean replaceParagraphText(XWPFParagraph paragraph, String text, boolean nativeHumanize) {
+        if (DocxImageTextPreserver.containsGraphics(paragraph)) {
+            return DocxImageTextPreserver.replaceText(paragraph, text);
+        }
+        if (nativeHumanize) {
+            return DocxNativeStructureGuard.replacePreservingRuns(paragraph, text);
+        }
         XWPFRun templateRun = paragraph.getRuns().isEmpty() ? null : paragraph.getRuns().get(0);
         CTRPr runProperties = null;
         if (templateRun != null && templateRun.getCTR().isSetRPr()) {
@@ -1103,6 +1261,7 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             run.getCTR().setRPr(runProperties);
         }
         run.setText(text == null ? "" : text);
+        return true;
     }
 
     private String readableMessage(Exception exception) {
@@ -1227,7 +1386,9 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
         job.setCreatedAt(record.getCreatedAt());
         job.setUpdatedAt(record.getUpdatedAt());
         if ("SUCCESS".equals(record.getStatus()) || record.getOutputFile() != null || isUsableFile(resolvedOutputPath(record.getJobId()))) {
-            job.setDownloadUrl("/api/document/rewrite/download/" + record.getJobId());
+            job.setDownloadUrl("MECHANICAL_PAPER".equals(record.getSourceFeature())
+                    ? "/api/mechanical-papers/" + record.getJobId() + "/download"
+                    : "/api/document/rewrite/download/" + record.getJobId());
         }
         try {
             job.setParagraphs(objectMapper.readValue(record.getParagraphsJson(), new TypeReference<List<DocumentParagraphJobVO>>() {}));

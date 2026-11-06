@@ -1,0 +1,14 @@
+{
+  "name": "ThesisDiagram DSL",
+  "version": "1.6",
+  "source": "ThesisDiagram_DSL.md",
+  "headers": {
+    "@FunctionModule": "function_module.md",
+    "@Flowchart": "flowchart.md",
+    "@ERDiagram": "er_diagram.md",
+    "@ArchitectureDiagram": "architecture.md",
+    "@UseCaseDiagram": "use_case.md",
+    "@BlockDiagram": "block_diagram.md",
+    "@SequenceDiagram": "sequence.md"
+  }
+}

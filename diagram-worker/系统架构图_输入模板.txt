@@ -1,0 +1,19 @@
+标题：个人健康管理系统架构图
+
+层：用户层
+组件：Web浏览器（Chrome / Edge / Firefox）
+
+层：前端层
+组件：Vue 3 + Element Plus，Vue Router路由管理，ECharts数据可视化
+
+层：网络通信层
+组件：HTTP / RESTful API + JSON + JWT Token
+
+层：后端层
+组件：Controller控制器，Service业务层，Mapper持久层
+
+层：中间件层
+组件：JWT拦截器 / 权限控制，全局异常处理
+
+层：数据层
+组件：MySQL数据库，外部模型API

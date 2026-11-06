@@ -1,0 +1,44 @@
+{
+  "schemaVersion": "theme.v1",
+  "themeId": "cycle-a",
+  "themeVersion": "1.0.0",
+  "inherits": ["cycle-b@1.0.0"],
+  "slide": {
+    "ratio": "16:9",
+    "widthIn": 13.333,
+    "heightIn": 7.5,
+    "safeArea": {"leftIn": 0.58, "rightIn": 0.58, "topIn": 0.4, "bottomIn": 0.34},
+    "grid": {"columns": 12, "gutterIn": 0.18}
+  },
+  "colors": {
+    "surface": {"canvas": "#F7F8FC", "card": "#FFFFFF", "elevated": "#FBFAFF", "dark": "#1D2340"},
+    "text": {"primary": "#1D2340", "secondary": "#677089", "inverse": "#FFFFFF"},
+    "accent": {"primary": "#7257FF", "secondary": "#E85BB5", "soft": "#EEEAFE"},
+    "state": {"success": "#237A52", "warning": "#9A6200", "danger": "#B63A3A", "info": "#2D61B3"},
+    "border": {"default": "#E1E5EF", "strong": "#B9C0D1"}
+  },
+  "typography": {
+    "fontPolicy": "ALLOW_DECLARED_FALLBACK",
+    "fontFamilies": {
+      "display": ["Microsoft YaHei", "Noto Sans CJK SC"],
+      "body": ["Microsoft YaHei", "Noto Sans CJK SC"]
+    },
+    "styles": {
+      "body": {"sizePt": 18, "minSizePt": 16, "weight": 400, "lineSpacing": 1.3}
+    }
+  },
+  "spacing": {"xsPt": 6, "smPt": 10, "mdPt": 16, "lgPt": 24, "xlPt": 34},
+  "shape": {
+    "radiusPt": {"small": 6, "medium": 12, "large": 18},
+    "borderWidthPt": {"thin": 0.75, "normal": 1.25}
+  },
+  "shadow": {
+    "card": {"blurPt": 10, "distancePt": 2, "angleDeg": 90, "opacity": 0.14}
+  },
+  "components": {
+    "bodyText": {
+      "textToken": "colors.text.primary",
+      "typographyToken": "typography.styles.body"
+    }
+  }
+}

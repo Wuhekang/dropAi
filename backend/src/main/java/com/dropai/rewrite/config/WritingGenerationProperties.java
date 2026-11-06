@@ -5,6 +5,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashSet;
 import java.util.List;
 
 @Component
@@ -40,10 +41,12 @@ public class WritingGenerationProperties {
 
     public static class ReferenceSearch {
         private boolean enabled = true;
-        private String provider = "doubao,openalex,crossref";
+        private String provider = "doubao_web,openalex,crossref";
         private int maxResults = 30;
-        private int timeoutSeconds = 30;
-        private int retryCount = 3;
+        private int timeoutSeconds = 20;
+        private int retryCount = 1;
+        private boolean publicFallbackEnabled = true;
+        private int parallelism = 8;
 
         public boolean isEnabled() {
             return enabled;
@@ -85,15 +88,36 @@ public class WritingGenerationProperties {
             this.retryCount = retryCount;
         }
 
+        public boolean isPublicFallbackEnabled() {
+            return publicFallbackEnabled;
+        }
+
+        public void setPublicFallbackEnabled(boolean publicFallbackEnabled) {
+            this.publicFallbackEnabled = publicFallbackEnabled;
+        }
+
+        public int getParallelism() {
+            return parallelism;
+        }
+
+        public void setParallelism(int parallelism) {
+            this.parallelism = parallelism;
+        }
+
         public List<String> providerOrder() {
-            if (provider == null || provider.isBlank()) return List.of("openalex", "crossref");
-            List<String> result = new ArrayList<>();
-            Arrays.stream(provider.split(","))
-                    .map(String::trim)
-                    .filter(value -> !value.isBlank())
-                    .map(String::toLowerCase)
-                    .forEach(result::add);
-            return result.isEmpty() ? List.of("openalex", "crossref") : result;
+            LinkedHashSet<String> result = new LinkedHashSet<>();
+            if (provider != null && !provider.isBlank()) {
+                Arrays.stream(provider.split(","))
+                        .map(String::trim)
+                        .filter(value -> !value.isBlank())
+                        .map(String::toLowerCase)
+                        .forEach(result::add);
+            }
+            if (publicFallbackEnabled) {
+                result.add("openalex");
+                result.add("crossref");
+            }
+            return new ArrayList<>(result);
         }
     }
 }

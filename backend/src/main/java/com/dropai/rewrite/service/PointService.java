@@ -28,10 +28,15 @@ public class PointService {
     public static final String CAD_GENERATE = "CAD_GENERATE";
     public static final String MODEL_GENERATE = "MODEL_GENERATE";
     public static final String DOCX_GENERATE = "DOCX_GENERATE";
+    public static final String MECHANICAL_PAPER = "MECHANICAL_PAPER";
+    public static final String WRITING_DOCX = "WRITING_DOCX";
+    public static final String PPT_GENERATE = "PPT_GENERATE";
     public static final String ZIP_EXPORT = "ZIP_EXPORT";
     public static final String DOCUMENT_REWRITE = "DOCUMENT_REWRITE";
     public static final String DOCUMENT_HUMANIZE = "DOCUMENT_HUMANIZE";
     public static final String DOCUMENT_DOUBLE = "DOCUMENT_DOUBLE";
+    public static final String DIAGRAM_PREVIEW = "DIAGRAM_PREVIEW";
+    public static final String LITERATURE_SEARCH = "LITERATURE_SEARCH";
 
     private final UserAccountMapper userMapper;
     private final FeaturePricingMapper pricingMapper;
@@ -62,6 +67,21 @@ public class PointService {
         ensureEnough(userId, pricing);
         T result = action.get();
         deduct(userId, pricing, remark);
+        return result;
+    }
+
+    /**
+     * Charges only after artifact creation succeeds and binds the accounting entry
+     * to the immutable job that produced it.
+     */
+    @Transactional
+    public <T> T chargeAfterSuccess(String featureCode, String jobId, String remark, Supplier<T> action) {
+        Long userId = AuthContext.requireUserId();
+        FeaturePricing pricing = requirePricing(featureCode);
+        ensureEnough(userId, pricing);
+        int costPoints = value(pricing.getCostPoints());
+        T result = action.get();
+        deductCustom(userId, jobId, pricing.getFeatureCode(), pricing.getFeatureName(), costPoints, remark);
         return result;
     }
 
@@ -146,6 +166,32 @@ public class PointService {
         transaction.setRemark(remark == null ? "" : remark);
         transaction.setCreatedAt(LocalDateTime.now());
         transactionMapper.insert(transaction);
+    }
+
+    @Transactional
+    public Long deductDiagramPreview(Long userId, String jobId, String remark) {
+        deductCustom(userId, jobId, DIAGRAM_PREVIEW, "智能画图预览生成", 10, remark);
+        PointTransaction transaction = transactionMapper.selectOne(new LambdaQueryWrapper<PointTransaction>()
+                .eq(PointTransaction::getUserId, userId)
+                .eq(PointTransaction::getJobId, jobId)
+                .eq(PointTransaction::getFeatureCode, DIAGRAM_PREVIEW)
+                .orderByDesc(PointTransaction::getId).last("LIMIT 1"));
+        return transaction == null ? null : transaction.getId();
+    }
+
+    @Transactional
+    public Long refundDiagramPreview(Long userId, String jobId, String remark) {
+        int before = currentPoints(userId);
+        if (userMapper.refundPoints(userId, 10) <= 0) throw new IllegalStateException("积分退回失败");
+        int after = currentPoints(userId);
+        recordPointsLog(userId, 10, before, after, DIAGRAM_PREVIEW + "_REFUND");
+        PointTransaction transaction = new PointTransaction();
+        transaction.setUserId(userId); transaction.setJobId(jobId);
+        transaction.setFeatureCode(DIAGRAM_PREVIEW + "_REFUND");
+        transaction.setFeatureName("智能画图预览退款"); transaction.setPointsChange(10);
+        transaction.setBalanceAfter(after); transaction.setRemark(remark == null ? "" : remark);
+        transaction.setCreatedAt(LocalDateTime.now()); transactionMapper.insert(transaction);
+        return transaction.getId();
     }
 
     public PointAccountVO myAccount() {

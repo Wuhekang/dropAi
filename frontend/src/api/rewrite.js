@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
+import { clearAuthSession, getAuthToken } from '../utils/authStorage'
 
 const request = axios.create({
   baseURL: '/api',
@@ -11,6 +12,19 @@ const request = axios.create({
 })
 
 const recentMessages = new Map()
+
+export function createWordFormatJob({ template, source, instructions = '', useDoubao = true }, onUploadProgress) {
+  const form = new FormData()
+  form.append('template', template?.raw || template)
+  form.append('source', source?.raw || source)
+  if (String(instructions).trim()) form.append('instructions', String(instructions).trim())
+  form.append('useDoubao', String(Boolean(useDoubao)))
+  return request.post('/word-format/jobs', form, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 600000, onUploadProgress })
+}
+
+export function getWordFormatJob(id) { return request.get(`/word-format/jobs/${id}`) }
+export function confirmWordFormatJob(id, rules) { return request.post(`/word-format/jobs/${id}/confirm`, rules, { timeout: 600000 }) }
+export function downloadWordFormatResult(id) { return request.get(`/word-format/jobs/${id}/download`, { responseType: 'blob', timeout: 300000 }) }
 
 function parsePointShortage(message = '') {
   const numbers = String(message).match(/\d+/g)?.map(Number) || []
@@ -58,7 +72,7 @@ function showApiError(message) {
 
 function logApiError(error) {
   const config = error.config || {}
-  console.error('[DropAI API Error]', {
+  console.error('[Dokiai Academic API Error]', {
     url: `${config.baseURL || ''}${config.url || ''}`,
     method: config.method,
     status: error.response?.status,
@@ -74,7 +88,7 @@ function rejectApiError(message, code, responseData) {
 }
 
 request.interceptors.request.use((config) => {
-  const token = sessionStorage.getItem('dropai_token')
+  const token = getAuthToken()
   if (token) config.headers.Authorization = `Bearer ${token}`
   return config
 })
@@ -96,15 +110,20 @@ request.interceptors.response.use(
     }
     return result.data
   },
-  (error) => {
+  async (error) => {
     logApiError(error)
-    if (error.response?.status === 401) {
-      sessionStorage.removeItem('dropai_token')
-      sessionStorage.removeItem('dropai_username')
-      sessionStorage.removeItem('dropai_role')
-      if (window.location.pathname !== '/login') window.location.href = '/login'
+    if (error.response?.status === 401 && !error.config?.skipAuthRedirect) {
+      clearAuthSession()
+      if (window.location.pathname !== '/login') {
+        const returnTo = `${window.location.pathname}${window.location.search}${window.location.hash}`
+        window.location.href = `/login?redirect=${encodeURIComponent(returnTo)}`
+      }
     }
-    const serverMessage = error.response?.data?.message
+    const responseData = error.response?.data
+    const blobMessage = responseData instanceof Blob && responseData.type?.includes('json')
+      ? await responseData.text().then(text => { try { return JSON.parse(text)?.message } catch { return '' } })
+      : ''
+    const serverMessage = blobMessage || responseData?.message
     let message = serverMessage || error.message || '网络请求异常'
     if (error.response?.status === 429 || String(message).includes('429')) {
       message = '大模型接口请求频率受限，请稍后重试或更换可用 API Key。'
@@ -126,8 +145,16 @@ export function register(data) {
   return request.post('/auth/register', data)
 }
 
-export function logout() {
-  return request.post('/auth/logout')
+export async function logout() {
+  try {
+    return await request.post('/auth/logout')
+  } finally {
+    clearAuthSession()
+  }
+}
+
+export function changeMyPassword(data) {
+  return request.put('/account/password', data)
 }
 
 export function getPointAccount() {
@@ -150,6 +177,10 @@ export function getRechargePlans() {
   return request.get('/recharge/plans')
 }
 
+export function getRechargePricing() {
+  return request.get('/recharge/pricing')
+}
+
 export function createRechargeOrder(data) {
   return request.post('/recharge/create', data)
 }
@@ -158,17 +189,45 @@ export function getRechargeOrders() {
   return request.get('/recharge/orders')
 }
 
-export function confirmRechargePayment(data) {
-  return request.post('/recharge/confirm', data)
+export function getRechargeOrder(orderNo) {
+  return request.get(`/recharge/orders/${encodeURIComponent(orderNo)}`)
 }
 
-export function getRechargeReviewOrders() {
-  return request.get('/recharge/admin/orders')
+export function reconcileRechargeOrder(orderNo, reason) {
+  return request.post(`/recharge/admin/orders/${encodeURIComponent(orderNo)}/reconcile`, { reason })
 }
 
-export function auditRechargeOrder(data) {
-  return request.post('/recharge/audit', data)
+export function getAdminUsers(params) {
+  return request.get('/admin/users', { params })
 }
+
+export function getAdminUserDetail(userId) {
+  return request.get(`/admin/users/${userId}`)
+}
+
+export function getAdminRechargeOrders() {
+  return request.get('/admin/users/orders')
+}
+
+export function adjustAdminUserPoints(userId, data) {
+  return request.post(`/admin/users/${userId}/points-adjust`, data)
+}
+export function resetAdminUserPassword(userId, password){return request.put(`/admin/users/${userId}/password`,{password})}
+export function updateAdminUserSchool(userId,schoolId){return request.put(`/admin/users/${userId}/school`,{schoolId})}
+export function getAdminFinancialSummary(month){return request.get('/admin/users/financial-summary',{params:{month}})}
+export function getSchools(keyword=''){return request.get('/admin/schools',{params:keyword?{keyword}:{}})}
+export function createSchool(data){return request.post('/admin/schools',data)}
+export function updateSchool(id,data){return request.put(`/admin/schools/${id}`,data)}
+export function deleteSchool(id){return request.delete(`/admin/schools/${id}`)}
+export function setSchoolEnabled(id,enabled){return request.put(`/admin/schools/${id}/enabled`,{enabled})}
+export function setSchoolHidden(id,hidden){return request.put(`/admin/schools/${id}/hidden`,{hidden})}
+export function createSchoolViewer(id,data){return request.post(`/admin/schools/${id}/viewers`,data)}
+export function updateSchoolViewer(id,data){return request.put(`/admin/school-viewers/${id}`,data)}
+export function getSchoolViewerStatistics(range='30d'){return request.get('/school-viewer/statistics',{params:{range}})}
+export function getSchoolStudents(){return request.get('/school-viewer/students')}
+export function giftSchoolStudentPoints(id,points){return request.post(`/school-viewer/students/${id}/gift`,{points})}
+export function deleteSchoolStudent(id,currentPassword){return request.delete(`/school-viewer/students/${id}`,{data:{currentPassword}})}
+export function updateSchoolStudentRechargePrice(studentRechargePricePer10){return request.put('/school-viewer/recharge-price',{studentRechargePricePer10})}
 
 export function mockPayRechargeOrder(orderNo) {
   return request.post(`/recharge/orders/${orderNo}/mock-pay`)
@@ -246,6 +305,18 @@ export function uploadDocument(file, mode, platform = 'GENERAL', requestId = '')
   })
 }
 
+export function uploadExternalDocument(file, mode, platform, requestId = '') {
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('mode', mode)
+  formData.append('platform', platform)
+  if (requestId) formData.append('requestId', requestId)
+  return request.post('/document/rewrite/external/upload', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 120000
+  })
+}
+
 export function getDocumentJob(jobId, includeParagraphs = false) {
   return request.get(`/document/rewrite/job/${jobId}`, {
     params: { includeParagraphs }
@@ -311,46 +382,16 @@ export function getEngineeringAiStatus() {
   return request.get('/engineering-writing/ai/status', { timeout: 240000 })
 }
 
-export function designMechanicalProject(payload) {
-  return request.post('/mechanical/projects/design', payload, { timeout: 120000 })
-}
-
-export function designMechanicalSpec(payload) {
-  return request.post('/mechanical/projects/design-spec', payload, { timeout: 120000 })
-}
-
-export function executeMechanicalProject(payload) {
-  return request.post('/mechanical/projects/execute', payload, { timeout: 1800000 })
-}
-
-export function startMechanicalGeneration(projectId, payload) {
-  return request.post(`/mechanical/projects/${projectId}/generate`, payload, { timeout: 30000 })
-}
-
-export function getMechanicalJob(jobId) {
-  return request.get(`/mechanical/jobs/${jobId}`, { timeout: 30000 })
-}
-
-export function continueMechanicalJob(jobId) {
-  return request.post(`/mechanical/jobs/${jobId}/continue`, {}, { timeout: 30000 })
-}
-
-export function startMechanicalDocument(payload) {
-  return request.post('/documents/generate', payload, { timeout: 30000 })
-}
-
-export function getMechanicalDocumentJob(jobId) {
-  return request.get(`/documents/jobs/${jobId}`, { timeout: 30000 })
-}
-
-export function getMechanicalTools() {
-  return request.get('/mechanical/projects/tools', { timeout: 30000 })
-}
-
-export function extractMechanicalRequirement(file) {
+export function analyzeMechanicalAssistant({ projectName, description, files }) {
   const form = new FormData()
-  form.append('file', file)
-  return request.post('/mechanical/projects/requirement/extract', form, { headers: { 'Content-Type': 'multipart/form-data' } })
+  form.append('projectName', projectName || '')
+  form.append('description', description || '')
+  ;(files || []).forEach(file => form.append('files', file))
+  return request.post('/mechanical-assistant/analyze', form, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 300000 })
+}
+
+export function downloadMechanicalAssistantReport(projectId) {
+  return request.get(`/mechanical-assistant/projects/${projectId}/report.docx`, { responseType: 'blob', timeout: 120000 })
 }
 
 export function downloadArtifact(downloadUrl) {
@@ -416,8 +457,61 @@ export function getWritingReferenceSearchStatus() {
   return request.get('/writing/reference-search/status')
 }
 
+export function searchLiterature(data) {
+  return request.post('/literature/search', data, { timeout: 30000 })
+}
+
 export function getWritingReferenceProviders() {
-  return request.get('/writing/reference-search/providers')
+  return request.get('/writing/reference-search/providers', { skipAuthRedirect: true })
+}
+
+export function getWritingV2Templates() {
+  return request.get('/writing-v2/templates')
+}
+
+export function createWritingV2Project(data) {
+  return request.post('/writing-v2/projects', data, { timeout: 120000 })
+}
+
+export function getWritingV2Project(id) {
+  return request.get(`/writing-v2/projects/${id}`)
+}
+
+export function saveWritingV2Settings(id, data) {
+  return request.post(`/writing-v2/projects/${id}/settings`, data)
+}
+
+export function saveWritingV2CaseMaterials(id, content) {
+  return request.post(`/writing-v2/projects/${id}/case-materials`, { content })
+}
+
+export function uploadWritingV2Images(id, files = []) {
+  const formData = new FormData()
+  files.forEach(file => formData.append('files', file.raw || file))
+  return request.post(`/writing-v2/projects/${id}/image-materials`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 180000
+  })
+}
+
+export function designWritingV2Outline(id, data) {
+  return request.post(`/writing-v2/projects/${id}/outline`, data, { timeout: 180000 })
+}
+
+export function saveWritingV2ChapterResources(id, chapterId, data) {
+  return request.post(`/writing-v2/projects/${id}/chapters/${chapterId}/resources`, data)
+}
+
+export function saveWritingV2References(id, references) {
+  return request.post(`/writing-v2/projects/${id}/references`, { references })
+}
+
+export function generateWritingV2Content(id) {
+  return request.post(`/writing-v2/projects/${id}/content`, {}, { timeout: 600000 })
+}
+
+export function exportWritingV2Docx(id) {
+  return request.post(`/writing-v2/projects/${id}/document/docx`, {}, { timeout: 300000 })
 }
 
 export function createWritingProject(data) {
@@ -434,6 +528,10 @@ export function updateWritingProject(id, data) {
 
 export function generateWritingOutline(id) {
   return request.post(`/writing/projects/${id}/outline/generate`, {}, { timeout: 120000 })
+}
+
+export function confirmWritingOutline(id) {
+  return request.post(`/writing/projects/${id}/outline/confirm`)
 }
 
 export function addWritingChapter(id, data) {
@@ -462,6 +560,10 @@ export function updateWritingSection(id, sectionId, data) {
 
 export function deleteWritingSection(id, sectionId) {
   return request.delete(`/writing/projects/${id}/sections/${sectionId}`)
+}
+
+export function reorderWritingSections(id, sectionIds) {
+  return request.put(`/writing/projects/${id}/sections/reorder`, sectionIds)
 }
 
 export function addWritingChart(id, chapterId, data) {
@@ -504,6 +606,67 @@ export function searchWritingReferences(id) {
   return request.post(`/writing/projects/${id}/references/search`, {}, { timeout: 180000 })
 }
 
+export function startAiReferenceSearch(id, data = {}) {
+  return request.post(`/writing/projects/${id}/references/ai-search`, data, { timeout: 900000 })
+}
+
+export function saveWritingReferenceLibrary(id) {
+  return request.post(`/writing/projects/${id}/references/library/save`)
+}
+
+export function addWritingManualReference(id, data) {
+  return request.post(`/writing/projects/${id}/references/manual`, data, { timeout: 120000 })
+}
+
+export function getWritingV2Flow(id) {
+  return request.get(`/writing/projects/${id}/flow`)
+}
+
+export function uploadWritingMaterials(id, files = []) {
+  const formData = new FormData()
+  files.forEach(file => formData.append('files', file.raw || file))
+  return request.post(`/writing/projects/${id}/materials`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 180000
+  })
+}
+
+export function updateWritingMaterial(id, materialId, data) {
+  return request.put(`/writing/projects/${id}/materials/${materialId}`, data)
+}
+
+export function deleteWritingMaterial(id, materialId) {
+  return request.delete(`/writing/projects/${id}/materials/${materialId}`)
+}
+
+export function getWritingMaterialContent(id, materialId) {
+  return request.get(`/writing/projects/${id}/materials/${materialId}/content`, { responseType: 'blob' })
+}
+
+export function generateWritingV2Outline(id, data) {
+  return request.post(`/writing/projects/${id}/v2-outline/generate`, data, { timeout: 180000 })
+}
+
+export function replaceWritingV2Outline(id, file) {
+  const formData = new FormData()
+  formData.append('file', file?.raw || file)
+  return request.post(`/writing/projects/${id}/v2-outline/replace`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }, timeout: 180000
+  })
+}
+
+export function analyzeWritingMaterials(id) {
+  return request.post(`/writing/projects/${id}/materials/analyze`, {}, { timeout: 180000 })
+}
+
+export function searchWritingWebImages(id) {
+  return request.post(`/writing/projects/${id}/materials/web-search`, {}, { timeout: 180000 })
+}
+
+export function updateWritingSectionMediaConfig(id, sectionId, data) {
+  return request.put(`/writing/projects/${id}/sections/${sectionId}/media-config`, data)
+}
+
 export function searchWritingChineseReferences(id, data = {}) {
   return request.post(`/writing/projects/${id}/references/search/chinese`, data, { timeout: 180000 })
 }
@@ -516,10 +679,9 @@ export function searchWritingEnglishReferences(id, data = {}) {
   return request.post(`/writing/projects/${id}/references/search/english`, data, { timeout: 180000 })
 }
 
-export function importWritingReferences(id, file, sourcePlatform = 'IMPORTED_OTHER') {
+export function importWritingReferences(id, files = []) {
   const formData = new FormData()
-  formData.append('file', file.raw || file)
-  formData.append('sourcePlatform', sourcePlatform)
+  files.forEach(file => formData.append('files', file.raw || file))
   return request.post(`/writing/projects/${id}/references/import`, formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
     timeout: 180000
@@ -557,3 +719,72 @@ export function getWritingPreview(id) {
 export function getWritingFiles(id) {
   return request.get(`/writing/projects/${id}/files`)
 }
+
+export function createPptProject(data) { return request.post('/ppt/projects', data) }
+export function listPptProjects() { return request.get('/ppt/projects') }
+export function getPptProject(id) { return request.get(`/ppt/projects/${id}`) }
+export function uploadPptSource(id, file) { const form = new FormData(); form.append('file', file?.raw || file); return request.post(`/ppt/projects/${id}/upload`, form, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 180000 }) }
+export function analyzePptProject(id) { return request.post(`/ppt/projects/${id}/analyze`, {}, { timeout: 300000 }) }
+export function generatePptOutline(id) { return request.post(`/ppt/projects/${id}/outline`, {}, { timeout: 300000 }) }
+export function savePptOutline(id, items) { return request.put(`/ppt/projects/${id}/outline`, items) }
+export function planPptSlides(id) { return request.post(`/ppt/projects/${id}/plan`, {}, { timeout: 300000 }) }
+export function savePptPlan(id, pages) { return request.put(`/ppt/projects/${id}/plan`, pages) }
+export function updatePptSlide(id, slideId, data) { return request.put(`/ppt/projects/${id}/slides/${slideId}`, data) }
+export function regeneratePptSlide(id, slideId) { return request.post(`/ppt/projects/${id}/slides/${slideId}/regenerate`, {}, { timeout: 180000 }) }
+export function generatePptFile(id) { return request.post(`/ppt/projects/${id}/generate`, {}, { timeout: 600000 }) }
+export function getPptProgress(id) { return request.get(`/ppt/projects/${id}/progress`) }
+export function downloadPptFile(id) { return request.get(`/ppt/projects/${id}/download`, { responseType: 'blob', timeout: 300000 }) }
+export function getPptEnhancementQuote(id) { return request.get(`/ppt/projects/${id}/enhancements/quote`) }
+export function startPptEnhancement(id, data) { return request.post(`/ppt/projects/${id}/enhancements`, data) }
+export function getPptEnhancementTask(id, taskId) { return request.get(`/ppt/projects/${id}/enhancements/${taskId}`) }
+export function downloadPptEnhancement(id, taskId) { return request.get(`/ppt/projects/${id}/enhancements/${taskId}/download`, { responseType: 'blob', timeout: 300000 }) }
+export function listPptTemplates() { return request.get('/ppt/templates') }
+export function validateDiagram(dsl) { return request.post('/diagram/validate', { dsl }) }
+export function renderDiagram(projectId, dsl, signal) { return request.post('/diagram/render', { projectId, dsl }, { timeout: 30000, signal }) }
+export function getDiagramHealth() { return request.get('/diagram/health') }
+export async function streamDiagramAssistant(data, { signal, onEvent } = {}) {
+  const token = getAuthToken()
+  const response = await fetch('/api/diagram/assistant/stream', {
+    method: 'POST', signal,
+    headers: { 'Content-Type': 'application/json;charset=UTF-8', Accept: 'text/event-stream', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify(data)
+  })
+  if (response.status === 401) {
+    clearAuthSession()
+    if (window.location.pathname !== '/login') window.location.href = '/login'
+    throw Object.assign(new Error('请先登录'), { code: 'UNAUTHORIZED' })
+  }
+  if (!response.ok || !response.body) throw Object.assign(new Error(`绘图助手连接失败（HTTP ${response.status}）`), { code: 'STREAM_CONNECT_FAILED' })
+  const reader = response.body.getReader(), decoder = new TextDecoder('utf-8'); let buffer = '', doneResult = null
+  const dispatch = (block) => {
+    let event = 'message', dataText = ''
+    for (const line of block.split('\n')) { if (line.startsWith('event:')) event = line.slice(6).trim(); else if (line.startsWith('data:')) dataText += line.slice(5).trim() }
+    if (!dataText) return
+    const payload = JSON.parse(dataText); onEvent?.(event, payload)
+    if (event === 'done') doneResult = payload.data || payload
+    if (event === 'error') { const detail = payload.data || payload; throw Object.assign(new Error(detail.message || payload.message || '生成失败，原图已恢复。'), { code: detail.code || 'GENERATION_FAILED', retryable: Boolean(detail.retryable) }) }
+  }
+  while (true) {
+    const part = await reader.read(); buffer += decoder.decode(part.value || new Uint8Array(), { stream: !part.done }).replace(/\r\n/g, '\n')
+    let cut; while ((cut = buffer.indexOf('\n\n')) >= 0) { const block = buffer.slice(0, cut); buffer = buffer.slice(cut + 2); if (block.trim()) dispatch(block) }
+    if (part.done) break
+  }
+  if (buffer.trim()) dispatch(buffer)
+  if (!doneResult) throw Object.assign(new Error('生成流结束但没有最终结果，原图已恢复。'), { code: 'STREAM_INCOMPLETE' })
+  return doneResult
+}
+export function saveDiagramProject(data) { return request.post('/diagram/projects', data) }
+export function listDiagramProjects() { return request.get('/diagram/projects') }
+export function exportDiagram(previewId, format) { return request.get(`/diagram/previews/${previewId}/download/${format}`, { responseType: 'blob', timeout: 120000 }) }
+export function createDiagramDownloadTicket(previewId, format, fileName) { return request.post(`/diagram/previews/${previewId}/download/${format}/ticket`, { fileName }) }
+export function getDiagramPreview(previewId) { return request.get(`/diagram/previews/${previewId}`) }
+export function uploadPptTemplateZip(file) { const form = new FormData(); form.append('file', file?.raw || file); return request.post('/ppt/templates/upload', form, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 600000 }) }
+export function recommendPptTemplate(id) { return request.get(`/ppt/projects/${id}/template/recommend`) }
+export function selectPptTemplate(id, data) { return request.put(`/ppt/projects/${id}/template`, data) }
+export function mechanicalPaperReadiness() { return request.get('/mechanical-papers/readiness') }
+export function createMechanicalPaper(title) { return request.post('/mechanical-papers', { title }) }
+export function listMechanicalPapers() { return request.get('/mechanical-papers') }
+export function getMechanicalPaper(id) { return request.get(`/mechanical-papers/${id}`) }
+export function retryMechanicalPaper(id) { return request.post(`/mechanical-papers/${id}/retry`) }
+export function downloadMechanicalPaper(id) { return request.get(`/mechanical-papers/${id}/download`, { responseType: 'blob' }) }
+export function getMechanicalPaperImage(id, figureId) { return request.get(`/mechanical-papers/${id}/images/${figureId}`, { responseType: 'blob' }) }

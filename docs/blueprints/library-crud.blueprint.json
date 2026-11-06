@@ -1,0 +1,18 @@
+{
+  "schemaVersion":"1.0",
+  "project":{"name":"library-system","title":"图书管理系统","description":"图书信息维护与查询","basePackage":"com.dokiai.library","databaseName":"library_system"},
+  "template":{"id":"springboot-vue-template","version":"1.0.0"},
+  "entities":[{"name":"Book","tableName":"book","title":"图书","description":"图书档案","displayField":"name","displayConfig":{"primaryField":"name","template":"{isbn}-{name}"},"fields":[
+    {"name":"name","columnName":"name","type":"STRING","title":"书名","required":true,"unique":false,"length":200,"precision":null,"scale":null,"defaultValue":null,"enumValues":[],"searchable":true,"listVisible":true,"formVisible":true},
+    {"name":"isbn","columnName":"isbn","type":"STRING","title":"ISBN","required":true,"unique":true,"length":32,"precision":null,"scale":null,"defaultValue":null,"enumValues":[],"searchable":true,"listVisible":true,"formVisible":true},
+    {"name":"author","columnName":"author","type":"STRING","title":"作者","required":true,"unique":false,"length":100,"precision":null,"scale":null,"defaultValue":null,"enumValues":[],"searchable":true,"listVisible":true,"formVisible":true},
+    {"name":"status","columnName":"status","type":"ENUM","title":"状态","required":true,"unique":false,"length":32,"precision":null,"scale":null,"defaultValue":"AVAILABLE","enumValues":["AVAILABLE","BORROWED","OFF_SHELF"],"searchable":true,"listVisible":true,"formVisible":true}
+  ],"indexes":[]}],
+  "relations":[],
+  "modules":[{"code":"book","name":"图书管理","entity":"Book","routePath":"/book","apiPath":"book","order":10,"actions":["QUERY","PAGE","CREATE","DETAIL","UPDATE","DELETE"]}],
+  "roles":[{"code":"ADMIN","name":"超级管理员","builtIn":true,"moduleCodes":["book"],"permissionCodes":["book:view","book:create","book:update","book:delete"]},{"code":"LIBRARIAN","name":"图书管理员","builtIn":false,"moduleCodes":["book"],"permissionCodes":["book:view","book:create","book:update","book:delete"]}],
+  "permissions":[{"moduleCode":"book","action":"VIEW","description":"查看图书"},{"moduleCode":"book","action":"CREATE","description":"新增图书"},{"moduleCode":"book","action":"UPDATE","description":"修改图书"},{"moduleCode":"book","action":"DELETE","description":"删除图书"}],
+  "businessFlows":[{"code":"book_maintenance","name":"图书维护流程","moduleCodes":["book"],"steps":[{"order":1,"name":"录入图书","actorRoleCode":"LIBRARIAN","moduleCode":"book","action":"CREATE"},{"order":2,"name":"维护图书","actorRoleCode":"LIBRARIAN","moduleCode":"book","action":"UPDATE"}]}],
+  "capabilities":{"fileUpload":false,"imageUpload":false,"importEnabled":false,"exportEnabled":false,"approvalEnabled":false},
+  "generation":{"backend":true,"frontend":true,"sql":true,"runBackendCompile":true,"runFrontendBuild":true,"validateSql":true,"packageZip":true,"namingStrategy":"STANDARD"}
+}

@@ -1,0 +1,217 @@
+{
+  "schemaVersion": "theme.v1",
+  "themeId": "academic-purple",
+  "themeVersion": "1.0.0",
+  "inherits": [
+    "academic-base@1.0.0"
+  ],
+  "slide": {
+    "ratio": "16:9",
+    "widthIn": 13.333,
+    "heightIn": 7.5,
+    "safeArea": {
+      "leftIn": 0.58,
+      "rightIn": 0.58,
+      "topIn": 0.4,
+      "bottomIn": 0.34
+    },
+    "grid": {
+      "columns": 12,
+      "gutterIn": 0.18
+    }
+  },
+  "colors": {
+    "surface": {
+      "canvas": "#F7F8FC",
+      "card": "#FFFFFF",
+      "elevated": "#FBFAFF",
+      "dark": "#1D2340"
+    },
+    "text": {
+      "primary": "#1D2340",
+      "secondary": "#677089",
+      "inverse": "#FFFFFF"
+    },
+    "accent": {
+      "primary": "#7257FF",
+      "secondary": "#E85BB5",
+      "soft": "#EEEAFE"
+    },
+    "state": {
+      "success": "#237A52",
+      "warning": "#9A6200",
+      "danger": "#B63A3A",
+      "info": "#2D61B3"
+    },
+    "border": {
+      "default": "#E1E5EF",
+      "strong": "#B9C0D1"
+    }
+  },
+  "typography": {
+    "fontPolicy": "ALLOW_DECLARED_FALLBACK",
+    "fontFamilies": {
+      "display": [
+        "Microsoft YaHei",
+        "Noto Sans CJK SC"
+      ],
+      "body": [
+        "Microsoft YaHei",
+        "Noto Sans CJK SC"
+      ]
+    },
+    "styles": {
+      "deckTitle": {
+        "sizePt": 50,
+        "minSizePt": 50,
+        "weight": 700,
+        "maxLines": 2,
+        "lineSpacing": 1.08
+      },
+      "sectionTitle": {
+        "sizePt": 40,
+        "minSizePt": 40,
+        "weight": 700,
+        "maxLines": 1,
+        "lineSpacing": 1.08
+      },
+      "slideTitle": {
+        "sizePt": 35,
+        "minSizePt": 35,
+        "weight": 700,
+        "maxLines": 1,
+        "lineSpacing": 1.1
+      },
+      "subtitle": {
+        "sizePt": 24,
+        "minSizePt": 24,
+        "weight": 500,
+        "maxLines": 2,
+        "lineSpacing": 1.18
+      },
+      "body": {
+        "sizePt": 18,
+        "minSizePt": 16,
+        "weight": 400,
+        "lineSpacing": 1.3
+      },
+      "bodyStrong": {
+        "sizePt": 18,
+        "minSizePt": 16,
+        "weight": 600,
+        "lineSpacing": 1.3
+      },
+      "caption": {
+        "sizePt": 16,
+        "minSizePt": 16,
+        "weight": 400,
+        "maxLines": 3,
+        "lineSpacing": 1.24
+      },
+      "footnote": {
+        "sizePt": 12,
+        "minSizePt": 12,
+        "weight": 400,
+        "maxLines": 2,
+        "lineSpacing": 1.2
+      },
+      "metric": {
+        "sizePt": 30,
+        "minSizePt": 26,
+        "weight": 700,
+        "maxLines": 1,
+        "lineSpacing": 1.05
+      }
+    }
+  },
+  "spacing": {
+    "xsPt": 6,
+    "smPt": 10,
+    "mdPt": 16,
+    "lgPt": 24,
+    "xlPt": 34
+  },
+  "shape": {
+    "radiusPt": {
+      "small": 6,
+      "medium": 12,
+      "large": 18
+    },
+    "borderWidthPt": {
+      "thin": 0.75,
+      "normal": 1.25
+    }
+  },
+  "shadow": {
+    "card": {
+      "blurPt": 10,
+      "distancePt": 2,
+      "angleDeg": 90,
+      "opacity": 0.14
+    }
+  },
+  "components": {
+    "coverTitle": {
+      "textToken": "colors.text.primary",
+      "accentToken": "colors.accent.primary",
+      "typographyToken": "typography.styles.deckTitle"
+    },
+    "sectionTitle": {
+      "textToken": "colors.text.primary",
+      "accentToken": "colors.accent.primary",
+      "typographyToken": "typography.styles.sectionTitle"
+    },
+    "slideTitle": {
+      "textToken": "colors.text.primary",
+      "accentToken": "colors.accent.primary",
+      "typographyToken": "typography.styles.slideTitle"
+    },
+    "bodyText": {
+      "textToken": "colors.text.primary",
+      "typographyToken": "typography.styles.body"
+    },
+    "keyPointCard": {
+      "fillToken": "colors.surface.card",
+      "textToken": "colors.text.primary",
+      "accentToken": "colors.accent.primary",
+      "borderToken": "colors.border.default",
+      "radiusToken": "shape.radiusPt.medium",
+      "shadowToken": "shadow.card",
+      "typographyToken": "typography.styles.body"
+    },
+    "summaryCard": {
+      "fillToken": "colors.accent.soft",
+      "textToken": "colors.text.primary",
+      "accentToken": "colors.accent.primary",
+      "borderToken": "colors.border.default",
+      "radiusToken": "shape.radiusPt.large",
+      "typographyToken": "typography.styles.bodyStrong"
+    },
+    "imageFrame": {
+      "fillToken": "colors.surface.card",
+      "borderToken": "colors.border.default",
+      "radiusToken": "shape.radiusPt.small",
+      "shadowToken": "shadow.card"
+    },
+    "tableHeader": {
+      "fillToken": "colors.accent.primary",
+      "textToken": "colors.text.inverse",
+      "borderToken": "colors.accent.primary",
+      "typographyToken": "typography.styles.bodyStrong"
+    },
+    "tableBody": {
+      "fillToken": "colors.surface.card",
+      "textToken": "colors.text.primary",
+      "borderToken": "colors.border.default",
+      "typographyToken": "typography.styles.body"
+    },
+    "caption": {
+      "textToken": "colors.text.secondary",
+      "typographyToken": "typography.styles.caption"
+    },
+    "pageNumber": {
+      "textToken": "colors.text.secondary",
+      "typographyToken": "typography.styles.footnote"
+    }
+  }
+}

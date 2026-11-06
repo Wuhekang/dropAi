@@ -12,11 +12,16 @@ public class UserAccount {
     private String phone;
     private String passwordHash;
     private String role;
+    private Long schoolId;
+    private Boolean accountEnabled;
     private Integer points;
     private Integer totalPoints;
     private Integer usedPoints;
     private LocalDateTime lastNoticeTime;
     private Long noticeReadId;
+    private LocalDateTime deletedAt;
+    private Long deletedBy;
+    private String deleteReason;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
@@ -28,6 +33,10 @@ public class UserAccount {
     public void setPasswordHash(String passwordHash) { this.passwordHash = passwordHash; }
     public String getRole() { return role; }
     public void setRole(String role) { this.role = role; }
+    public Long getSchoolId() { return schoolId; }
+    public void setSchoolId(Long schoolId) { this.schoolId = schoolId; }
+    public Boolean getAccountEnabled() { return accountEnabled; }
+    public void setAccountEnabled(Boolean accountEnabled) { this.accountEnabled = accountEnabled; }
     public Integer getPoints() { return points; }
     public void setPoints(Integer points) { this.points = points; }
     public Integer getTotalPoints() { return totalPoints; }
@@ -38,6 +47,12 @@ public class UserAccount {
     public void setLastNoticeTime(LocalDateTime lastNoticeTime) { this.lastNoticeTime = lastNoticeTime; }
     public Long getNoticeReadId() { return noticeReadId; }
     public void setNoticeReadId(Long noticeReadId) { this.noticeReadId = noticeReadId; }
+    public LocalDateTime getDeletedAt() { return deletedAt; }
+    public void setDeletedAt(LocalDateTime deletedAt) { this.deletedAt = deletedAt; }
+    public Long getDeletedBy() { return deletedBy; }
+    public void setDeletedBy(Long deletedBy) { this.deletedBy = deletedBy; }
+    public String getDeleteReason() { return deleteReason; }
+    public void setDeleteReason(String deleteReason) { this.deleteReason = deleteReason; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }

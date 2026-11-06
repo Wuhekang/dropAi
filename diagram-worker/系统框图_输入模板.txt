@@ -1,0 +1,16 @@
+标题：STM32智能小车系统框图
+
+[节点]
+I1|left|红外循迹
+I2|left|红外避障
+C1|center|STM32F103C8T6\n主控制器
+O1|right|L298N电机驱动
+O2|right|蜂鸣器
+D1|right|左右直流电机
+
+[连接]
+I1->C1
+I2->C1
+C1->O1
+C1->O2
+O1->D1

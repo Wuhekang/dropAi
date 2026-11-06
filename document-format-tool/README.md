@@ -1,0 +1,192 @@
+# Dokiai Word 格式处理引擎
+
+这里是从已完成真实论文验证的桌面工具中抽出的无界面核心。Java 后端以
+短生命周期子进程调用 `format_cli.py`，无需启动 PySide 界面，也不会调用
+或嵌入桌面 EXE。
+
+## 支持范围
+
+- 论文原稿：仅 `.docx`。
+- 格式模板：`.docx`、文字型 `.pdf`；Windows 且安装 Microsoft Word 时额外支持 `.doc`、
+  `.dotx`。
+- 自动提取模板的纸张、页边距、正文、1-4 级标题、图名、表名、参考文献、
+  表格边框/字体/行距、重复表头和页码规则。
+- Web 分析先读取模板中的正文、规范表、文本框、红字和批注文字，再由豆包
+  判断文档用途并并行提取各项规则。明确的书面要求优先于说明文字自身的样式。
+- 纯撰写规范只用于提取规则；“封面见附件”等描述不会当成封面复制。
+  只有确认存在独立封面/声明页并确定范围后才复制，不复制模板的摘要样例。
+- 确认界面显示文字依据以及未确认项目；AI 超时的项目保留程序提取值供核对。
+  原文无依据的默认值不会标成 AI 已识别。
+- 未识别的正文、标题、目录、图表题注、表格文字和参考文献格式统一填充可编辑默认值，
+  不会因为未识别而禁用格式套用。确认提交包含完整默认值、已识别值及客户修改值。
+- AI 只用于前面的模板分析/附加要求识别。正式格式处理绝不调用 AI（包括旧任务和
+  误传 `--use-doubao` 的启动方式）；旧任务缺失快照时用默认规则补齐，按确认表单执行。
+- Word 内容控件/目录容器、公式及普通 XML 部件统一使用显式命名空间扫描，
+  不依赖节点是否由 python-docx 注册，避免换模板时出现 `Undefined namespace prefix`。
+- 推断阶段不把样例局部左右缩进、正文加粗和字间距推广到全文；文字明确要求优先，
+  最终客户确认的字体、字号等仍可编辑，左右缩进仅允许 0～2 厘米。正文固定首行缩进 2 字符。
+- 全文异常缩进保护是不可覆盖的交付规则：模板、AI、旧任务和原稿中的超大缩进自动归零，
+  字符缩进最多 4 字符且折算不超过 2 厘米；正常正文首行、目录层级和参考文献悬挂缩进保留。
+  最终检查覆盖封面/声明、正文、目录、表格、文本框、页眉页脚、样式继承和编号定义，
+  Word 更新目录前及最终保存后均执行，保护不因段落未识别或规则禁用而跳过。
+- 正文数据表使用不可覆盖的固定规范：黑色三线表（1.5/0.75 磅）、
+  表格与单元格内容居中、零缩进、全表不加粗；字体字号按模板或确认值执行，不强制小四。封面布局表和
+  含公式的排版表继续保留原样。
+- 原稿始终只读，输出必须使用一个尚不存在的新路径。
+- Web/CLI 默认采用“格式优先”交付：处理完成且输出 DOCX 可读取、原稿与模板
+  未被改动时即可下载。正文文字哈希、图表/分节、域、书签和关系部件等细致
+  比较仅作为风险提醒，不再把这些差异直接变成任务失败。
+- 正式排版按模块及段落/表格分别处理；某一项异常时回退该项的修改，保留已完成项并继续。
+  封面合并、目录生成/刷新、结构统计、详细核对和日志异常不会直接撤销可读的输出。
+  Word 刷新仅操作临时副本，异常时保留刷新前的可读文档并提示核对目录页码。
+- `formatReport` 按实际执行记录列出已处理项和 `status: "skipped"` 的未处理项。
+  部分完成返回 `success: true`、`partialSuccess: true`，后端保持 `SUCCESS` 以便下载，
+  页面明确显示部分完成；原稿缺少某类内容标记 `not_found`，不算处理异常。
+  如果没有完成任何格式调整，明确标为“核对副本”，不会声称格式修改成功。
+  这些记录不代表人工验收；原文件损坏、输出不可读取、磁盘无法写入、覆盖冲突或
+  输入文件在处理中被其他程序修改等基础问题仍拒绝交付，原稿不会被覆盖。
+
+Linux/macOS 不提供 Microsoft Word COM。上传 `.doc` 或 `.dotx` 模板时 CLI
+会明确返回 `LEGACY_TEMPLATE_UNSUPPORTED`，不会尝试低保真转换。生产容器
+应要求用户先把这两种模板另存为 `.docx`。
+
+## 安装
+
+```powershell
+python -m pip install -r document-format-tool/requirements-web.txt
+```
+
+Web 运行不需要 `PySide6` 或 `PyInstaller`。`openai` 用于模板文字分析与豆包规则解析；
+`pywin32` 只会在 Windows 安装。新增的 PDF 读取依赖 `pypdf`，升级服务器代码时
+需要重新执行上述依赖安装命令。PDF 不转换成 Word、不复制其封面或批注图形；
+扫描件和加密 PDF 明确提示换用可读模板。读取超过 120 页或 24 万字符时提示未分析范围。
+
+启动前可检查 Python 依赖；Windows 需要直接处理 `.doc/.dotx` 时再加
+`--legacy`，它会实际验证 Microsoft Word COM：
+
+```powershell
+python document-format-tool/runtime_check.py --legacy
+```
+
+## CLI
+
+```powershell
+python -X utf8 document-format-tool/format_cli.py `
+  --source "storage/job/source.docx" `
+  --template "storage/job/template.docx" `
+  --output "storage/job/result.docx" `
+  --result-json "storage/job/result.json" `
+  --instructions-file "storage/job/instructions.txt"
+```
+
+省略 `--instructions-file` 时完全采用模板识别规则。提供指令文件时默认使用
+确定性的本地解析器；仅在 `--analyze-only --use-doubao` 时使用豆包解析。豆包只接收格式
+指令、学校模板文字及规则 JSON，不读取待修改论文正文，并从进程环境读取：
+
+- `ARK_API_KEY` 或 `DOUBAO_API_KEY`
+- `DOUBAO_MODEL`
+- 可选 `DOUBAO_BASE_URL`；未设置时也会兼容项目已有的 `DOUBAO_ENDPOINT`，并自动去掉 `/chat/completions`
+
+模板 AI 使用“段落并行提取 → 总体整合”，不再先串行等待整份文档用途判断。
+相邻短段按最多 4 段、合计最多 160 字的小批派发，每段仍保留独立证据编号，
+封面候选与正文、批注分别分组；长段分片。超过 64 个批次时按相邻文字量分组，每份模板最多
+64 个分段请求及 1 个整合请求，同时在途最多 32 个。单次读取前 48000 字符，
+超出部分明确提示人工核对。总体整合只能选择已经校验过的字段值与证据；
+某段或整合超时时保留其余有效结果，不将空 JSON 计为成功识别的格式。
+一次任务共用一个线程安全的 HTTP 客户端与连接池，所有分段及整合结束后才关闭。
+无字段冲突时由本地索引直接完成总体整合（`local_complete`），不重复请求 AI 确认
+相同结果；只有冲突字段才进入一次 AI 裁决。裁决返回紧凑的事实编号列表，由本地
+索引恢复字段，不会改动已有确定结果。
+
+- `DOUBAO_FORMAT_AI_CONCURRENCY`：单个模板的并发上限，默认 32，范围 1–32。
+  这是每个模板内部的并发，与服务端同时处理的任务数不同；多任务时应按 API 配额调低。
+- `DOUBAO_FORMAT_AI_TIMEOUT_SECONDS`：每个请求的超时，默认 45 秒，范围 8–60。
+  不自动重试超时请求；32 路并发不代表不会限流或超时。
+- `DOUBAO_FORMAT_AI_FAST_MODE`：默认 true，请求关闭深度思考、使用 JSON 对象输出；
+  不支持这些参数的兼容模型可设为 false。输出上限为 4096 tokens。
+- 分段进度实时写入 `analyzing_template` 事件，分析结果的
+  `templateAnalysis.parallelAnalysis` 保存请求数、成功返回数、整合状态、耗时与脱敏异常类型。
+
+若部分 AI 用途分析未完成，已经由程序验证边界及真实文字证据的封面/声明范围
+仍可供客户确认；无可靠候选范围的规范说明不会复制。模板识别结束后英文与数字
+默认使用 Times New Roman，再应用客户明确修改的字体值。
+
+字号名称与磅值按同一字段合并证据和优先级（例如“小二”与 18 磅），避免全文
+通用字号覆盖某一级标题的专门要求。替换封面时需保护原稿最早正文起点，后续
+章节中出现“引言”等标题不能成为删除前文的依据。
+
+Web 首次调用加 `--analyze-only`，结果包含 `editableRules`、`analyzedRules`、
+`templateAnalysis` 和 `templateSha256`。后端保存完整规则与用途判断，确认时将
+服务器保存的这三个分析字段和客户修改的 `editableRules` 写入 `--rules-file`。
+处理阶段先校验模板哈希，再载入分析快照并应用客户修改，不重新提取覆盖已确认值。
+前端不能替换服务器保存的分析快照或封面复制范围。
+
+## 进程契约
+
+stdout 只写逐行 UTF-8 JSON，并在每行后立即 flush：
+
+```json
+{"type":"progress","progress":56,"stage":"processing","message":"正在按默认值与确认规则自动修改格式（不调用 AI）"}
+```
+
+进度事件的稳定字段为：
+
+- `type`: 固定为 `progress`
+- `progress`: `0..100` 整数
+- `stage`: `validating`、`reading_template_text`、`extracting_template`、
+  `ai_analyzing`、`awaiting_confirmation`、`restoring_rules`、`applying_rules`、
+  `analyzing_source`、`processing`、`integrity_check`、`completed` 或 `failed`
+- `message`: 中文进度说明
+
+每次进程开始还会输出一条 `type: "runtime"` 事件，包含 `engineVersion`（当前 `0.5.0`）、
+`pythonVersion`、`executionMode` 和实际 CLI/处理器/命名空间工具文件的 SHA-256，
+不包含密钥或本机路径。后端记录经过白名单过滤的运行标识，方便核对实际加载的版本。
+服务器升级后，在项目根目录用启动脚本相同的 Python 执行：
+
+```bat
+git rev-parse HEAD
+C:\Python310\python.exe document-format-tool\format_cli.py --version-info
+```
+
+如果仍看到旧的“正在把模板规则安全应用到论文副本”且没有 runtime 事件，
+请检查服务使用的 `WORD_FORMAT_WORKER` 路径、已签出的提交及后台进程是否重启。
+这些只读检查不需要加载或输出 `.env`。
+
+成功退出码为 `0`；运行期失败为非零。参数解析成功后，无论成功或失败都会
+原子写入 `--result-json`。
+
+成功结果包含：
+
+```json
+{
+  "success": true,
+  "changedCount": 12,
+  "warnings": [],
+  "templateNotes": [],
+  "instructionNotes": [],
+  "analysis": {},
+  "ruleSummary": {},
+  "integrity": {"passed": true, "mode": "format_first", "basicChecksPassed": true, "deliveryAllowed": true, "differences": {}},
+  "formatReport": {"applied": [{"item": "普通正文", "count": 12}], "notApplied": [], "warnings": [], "changedCount": 12},
+  "output": {"fileName": "result.docx", "sizeBytes": 1234, "sha256": "..."},
+  "error": null
+}
+```
+
+`integrity.passed` 表示细致比较是否一致，不等同于是否可交付。新模式下后端必须
+同时确认 `mode=format_first`、`basicChecksPassed=true` 和 `deliveryAllowed=true`；
+旧版严格模式仍要求 `passed=true`。核心库 `validate_preservation` 的默认严格行为
+不变，只有显式 `strict=False` 才将细致差异降级为提示。
+
+失败结果仍保留相同的核心字段，并增加 `errorCode`、`errorType`，其中
+`error` 是可直接展示的简短字符串。Java 后端不得依赖服务器绝对路径；CLI
+也不会把绝对路径写入结果 JSON。
+
+## 测试
+
+```powershell
+python -B -m unittest discover -s document-format-tool/tests -v
+```
+
+测试会在临时目录生成小型 DOCX，真实执行 CLI，并验证：进度协议、输出可
+打开、可见文字不丢失、源稿/模板哈希不变以及已存在输出绝不被覆盖。

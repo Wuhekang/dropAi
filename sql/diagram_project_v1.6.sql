@@ -1,0 +1,12 @@
+CREATE TABLE IF NOT EXISTS diagram_project (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  user_id BIGINT NOT NULL,
+  title VARCHAR(120) NOT NULL,
+  diagram_type VARCHAR(32) NOT NULL,
+  dsl_version VARCHAR(16) NOT NULL DEFAULT '1.6',
+  source_dsl MEDIUMTEXT NOT NULL,
+  latest_valid_dsl MEDIUMTEXT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_diagram_project_user_updated (user_id, updated_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

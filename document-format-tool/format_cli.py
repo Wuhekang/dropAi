@@ -1,0 +1,922 @@
+from __future__ import annotations
+
+"""CLI boundary between the Dokiai Java backend and the verified formatter.
+
+The process writes only newline-delimited UTF-8 JSON progress events to stdout.
+The complete success/failure payload is always written atomically to
+``--result-json`` after argument parsing succeeds.
+"""
+
+import argparse
+import hashlib
+from dataclasses import asdict
+from collections import Counter
+import json
+import math
+import os
+from pathlib import Path
+import sys
+import time
+from typing import Any
+import uuid
+
+from docx import Document
+
+from word_formatter import __version__
+from word_formatter.core.analyzer import DocumentAnalyzer, DocumentInfo
+from word_formatter.core.doubao_parser import DoubaoRuleParser
+from word_formatter.core.integrity import (
+    IntegrityValidationError,
+    inspect_docx,
+    sha256_file,
+    validate_preservation,
+)
+from word_formatter.core.processor import DocumentProcessor
+from word_formatter.core.rule_parser import NaturalLanguageRuleParser
+from word_formatter.core.template_extractor import TemplateRuleExtractor
+from word_formatter.core.template_text import read_template_text
+from word_formatter.core.word_converter import WordConversionError, WordDocumentConverter
+from word_formatter.models.rules import (
+    normalize_inferred_layout,
+    LOCKED_DOCUMENT_POLICY_NOTES,
+    LOCKED_TABLE_POLICY_NOTE,
+    DEFAULT_LATIN_FONT,
+    DocumentRules,
+    ParagraphRule,
+    TableRule,
+    apply_default_latin_fonts,
+    enforce_locked_table_policy,
+    enforce_locked_document_policy,
+    font_size_name_for_points,
+)
+from word_formatter.models.results import ChangeRecord
+
+
+def runtime_info(*, analyze_only: bool = False) -> dict[str, Any]:
+    """Identify the code actually loaded, without paths, env values or keys."""
+    from word_formatter.core import processor, xml_utils
+
+    def fingerprint(path):
+        try:
+            return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+        except (OSError, TypeError):
+            return "unavailable"
+
+    return {
+        "type": "runtime", "engineVersion": __version__,
+        "workerSha256": fingerprint(__file__),
+        "processorSha256": fingerprint(processor.__file__),
+        "namespaceHelperSha256": fingerprint(xml_utils.__file__),
+        "pythonVersion": sys.version.split()[0],
+        "executionMode": "template_analysis" if analyze_only else "best_effort_local",
+    }
+
+
+MAX_SOURCE_BYTES = 100 * 1024 * 1024
+MAX_TEMPLATE_BYTES = 30 * 1024 * 1024
+MAX_INSTRUCTIONS_BYTES = 64 * 1024
+SUPPORTED_TEMPLATE_SUFFIXES = frozenset({".doc", ".docx", ".dotx", ".pdf"})
+
+
+class CliInputError(ValueError):
+    """The caller supplied an invalid or unsafe job input."""
+
+
+def _configure_stdout() -> None:
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="strict", line_buffering=True)
+    except (AttributeError, ValueError):
+        pass
+
+
+def emit_progress(progress: int, stage: str, message: str) -> None:
+    event = {
+        "type": "progress",
+        "progress": max(0, min(100, int(progress))),
+        "stage": stage,
+        "message": message,
+    }
+    print(json.dumps(event, ensure_ascii=False, separators=(",", ":")), flush=True)
+
+
+def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        temporary.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _required_file(path: Path, *, label: str, max_bytes: int, allow_empty: bool = False) -> None:
+    if not path.is_file():
+        raise CliInputError(f"{label}不存在或不是文件")
+    size = path.stat().st_size
+    if size <= 0 and not allow_empty:
+        raise CliInputError(f"{label}不能为空")
+    if size > max_bytes:
+        raise CliInputError(f"{label}不能超过 {max_bytes // 1024 // 1024} MB")
+
+
+def validate_runtime_support(template: Path, platform_name: str | None = None) -> None:
+    """Fail clearly instead of attempting Word COM on Linux/macOS."""
+
+    platform_name = platform_name or os.name
+    if template.suffix.lower() in {".doc", ".dotx"} and platform_name != "nt":
+        raise WordConversionError(
+            "Linux/macOS 环境不支持旧版 .doc/.dotx 模板；请先在 Microsoft Word 中另存为 .docx 后上传"
+        )
+
+
+def _validate_paths(
+    source: Path,
+    template: Path,
+    output: Path,
+    result_json: Path,
+    instructions_file: Path | None,
+) -> None:
+    role_paths = [source, template, output, result_json]
+    if instructions_file is not None:
+        role_paths.append(instructions_file)
+    if len(set(role_paths)) != len(role_paths):
+        raise CliInputError("原稿、模板、输出、结果 JSON 和指令文件路径必须互不相同")
+
+    _required_file(source, label="论文原稿", max_bytes=MAX_SOURCE_BYTES)
+    _required_file(template, label="格式模板", max_bytes=MAX_TEMPLATE_BYTES)
+    if source.suffix.lower() != ".docx":
+        raise CliInputError("论文原稿仅支持 .docx 文件")
+    if template.suffix.lower() not in SUPPORTED_TEMPLATE_SUFFIXES:
+        raise CliInputError("格式模板仅支持 .doc、.docx、.dotx 或文字型 .pdf 文件")
+    validate_runtime_support(template)
+
+    if output.suffix.lower() != ".docx":
+        raise CliInputError("输出文件必须使用 .docx 扩展名")
+    if output.exists():
+        raise FileExistsError("输出文件已存在，格式工具拒绝覆盖")
+    if instructions_file is not None:
+        _required_file(
+            instructions_file,
+            label="自然语言指令文件",
+            max_bytes=MAX_INSTRUCTIONS_BYTES,
+            allow_empty=True,
+        )
+
+    # Validate the source package before python-docx allocates document objects.
+    inspect_docx(source, basic_only=True)
+    if template.suffix.lower() in {".docx", ".dotx"}:
+        inspect_docx(template, basic_only=True)
+
+
+def _read_instructions(path: Path | None) -> str:
+    if path is None:
+        return ""
+    try:
+        return path.read_text(encoding="utf-8").strip()
+    except UnicodeDecodeError as exc:
+        raise CliInputError("自然语言指令文件必须是 UTF-8 文本") from exc
+
+
+def _paragraph_rule_summary(rule: ParagraphRule) -> dict[str, Any]:
+    return {
+        "enabled": rule.enabled,
+        "chineseFont": rule.chinese_font,
+        "latinFont": rule.latin_font,
+        "fontSizeName": rule.font_size_name,
+        "fontSizePt": rule.font_size_pt,
+        "bold": rule.bold,
+        "alignment": rule.alignment,
+        "leftIndentCm": rule.left_indent_cm,
+        "rightIndentCm": rule.right_indent_cm,
+        "lineSpacingMode": rule.line_spacing_mode,
+        "fixedLineSpacingPt": rule.fixed_line_spacing_pt,
+        "minimumLineSpacingPt": rule.minimum_line_spacing_pt,
+        "multipleLineSpacing": rule.multiple_line_spacing,
+        "firstLineIndentChars": rule.special_indent_chars
+        if rule.special_indent_mode == "first_line"
+        else 0.0,
+        "spaceBefore": {
+            "unit": rule.space_before_unit,
+            "value": rule.space_before_lines
+            if rule.space_before_unit == "line"
+            else rule.space_before_pt,
+        },
+        "spaceAfter": {
+            "unit": rule.space_after_unit,
+            "value": rule.space_after_lines
+            if rule.space_after_unit == "line"
+            else rule.space_after_pt,
+        },
+    }
+
+
+def _rule_summary(rules: DocumentRules) -> dict[str, Any]:
+    table = _paragraph_rule_summary(rules.table)
+    table.update(
+        {
+            "borderStyle": rules.table.border_style,
+            "outerBorderWidthPt": rules.table.outer_border_width_pt,
+            "innerBorderWidthPt": rules.table.inner_border_width_pt,
+            "verticalAlignment": rules.table.vertical_alignment,
+            "repeatHeaderRow": rules.table.repeat_header_row,
+            "headerRowBold": rules.table.header_row_bold,
+        }
+    )
+    return {
+        "schemaVersion": rules.schema_version,
+        "name": rules.name,
+        "pageSetup": asdict(rules.page_setup),
+        "normalText": _paragraph_rule_summary(rules.normal_text),
+        "heading1": _paragraph_rule_summary(rules.heading_1),
+        "heading2": _paragraph_rule_summary(rules.heading_2),
+        "heading3": _paragraph_rule_summary(rules.heading_3),
+        "heading4": _paragraph_rule_summary(rules.heading_4),
+        "tocTitle": _paragraph_rule_summary(rules.toc_title),
+        "toc1": _paragraph_rule_summary(rules.toc_1),
+        "toc2": _paragraph_rule_summary(rules.toc_2),
+        "toc3": _paragraph_rule_summary(rules.toc_3),
+        "figureCaption": _paragraph_rule_summary(rules.figure_caption),
+        "tableCaption": _paragraph_rule_summary(rules.table_caption),
+        "reference": _paragraph_rule_summary(rules.reference),
+        "table": table,
+        "pageNumber": {
+            "enabled": rules.page_number.enabled,
+            **rules.page_number.settings,
+        },
+    }
+
+
+def _editable_rules(rules: DocumentRules) -> dict[str, Any]:
+    summary = _rule_summary(rules)
+    return {
+        "body": {"normal": summary["normalText"]},
+        "headings": {"level1": summary["heading1"], "level2": summary["heading2"], "level3": summary["heading3"]},
+        "toc": {
+            "title": summary["tocTitle"], "level1": summary["toc1"], "level2": summary["toc2"], "level3": summary["toc3"],
+        },
+        "captions": {"figure": summary["figureCaption"], "table": summary["tableCaption"]},
+        "details": {"table": summary["table"], "reference": summary["reference"]},
+    }
+
+
+def _apply_confirmed_rules(rules: DocumentRules, path: Path | None) -> None:
+    if path is None:
+        return
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise CliInputError("确认规则必须是 JSON 对象")
+    analyzed_rules = payload.get("analyzedRules")
+    analyzed_rules = analyzed_rules if isinstance(analyzed_rules, dict) else {}
+    legacy_echo = payload.get("confirmationVersion") != 2
+    payload = payload.get("editableRules", payload)
+    if not isinstance(payload, dict):
+        raise CliInputError("确认规则必须是 JSON 对象")
+    mapping = {
+        ("body", "normal"): (rules.normal_text, "normal_text"),
+        ("headings", "level1"): (rules.heading_1, "heading_1"),
+        ("headings", "level2"): (rules.heading_2, "heading_2"),
+        ("headings", "level3"): (rules.heading_3, "heading_3"),
+        ("captions", "figure"): (rules.figure_caption, "figure_caption"),
+        ("captions", "table"): (rules.table_caption, "table_caption"),
+        ("toc", "title"): (rules.toc_title, "toc_title"),
+        ("toc", "level1"): (rules.toc_1, "toc_1"),
+        ("toc", "level2"): (rules.toc_2, "toc_2"),
+        ("toc", "level3"): (rules.toc_3, "toc_3"),
+        ("details", "table"): (rules.table, "table"),
+        ("details", "reference"): (rules.reference, "reference"),
+    }
+    allowed = {
+        "chineseFont": "chinese_font", "latinFont": "latin_font", "fontSizePt": "font_size_pt",
+        "lineSpacingMode": "line_spacing_mode", "spaceBefore": "space_before", "spaceAfter": "space_after",
+        "fixedLineSpacingPt": "fixed_line_spacing_pt",
+        "minimumLineSpacingPt": "minimum_line_spacing_pt",
+        "multipleLineSpacing": "multiple_line_spacing",
+        "bold": "bold", "alignment": "alignment",
+        "leftIndentCm": "left_indent_cm", "rightIndentCm": "right_indent_cm",
+    }
+    for keys, (rule, snapshot_key) in mapping.items():
+        value = payload
+        for key in keys:
+            value = value.get(key, {}) if isinstance(value, dict) else {}
+        if not isinstance(value, dict) or not value:
+            continue
+        for public, internal in allowed.items():
+            if public not in value:
+                continue
+            if internal in {"left_indent_cm", "right_indent_cm"}:
+                # Validate even unchanged legacy echoes before the migration
+                # branch below can skip them. Unsafe requests must be rejected.
+                indent_cm = _confirmed_indent_cm(value[public], public)
+            original_rule = analyzed_rules.get(snapshot_key, {})
+            if (legacy_echo and internal in {"bold", "alignment", "left_indent_cm", "right_indent_cm"}
+                    and isinstance(original_rule, dict)
+                    and value[public] == original_rule.get(internal)
+                    and getattr(rule, internal) != original_rule.get(internal)):
+                # Full legacy forms echo inferred values even without edits.
+                continue
+            if internal in {"space_before", "space_after"}:
+                spacing = value[public]
+                if isinstance(spacing, dict) and spacing.get("unit") in {"line", "pt"}:
+                    unit = spacing["unit"]
+                    number = _confirmed_number(spacing.get("value", 0), 0.0, 20.0 if unit == "line" else 200.0)
+                    setattr(rule, f"{internal}_unit", unit)
+                    setattr(rule, f"{internal}_{'lines' if unit == 'line' else 'pt'}", number)
+            elif internal == "font_size_pt":
+                rule.font_size_pt = _confirmed_number(value[public], 5.0, 72.0)
+                rule.font_size_name = font_size_name_for_points(rule.font_size_pt)
+            elif internal in {"fixed_line_spacing_pt", "minimum_line_spacing_pt"}:
+                setattr(rule, internal, _confirmed_number(value[public], 1.0, 200.0))
+            elif internal == "multiple_line_spacing":
+                rule.multiple_line_spacing = _confirmed_number(value[public], 0.5, 10.0)
+            elif internal in {"left_indent_cm", "right_indent_cm"}:
+                setattr(rule, internal, indent_cm)
+            elif internal == "bold":
+                if isinstance(value[public], bool):
+                    rule.bold = value[public]
+            elif internal == "alignment":
+                if value[public] in {"left", "center", "right", "justify"}:
+                    rule.alignment = value[public]
+            elif internal == "line_spacing_mode" and value[public] in {"single", "1.5", "double", "at_least", "fixed", "multiple"}:
+                rule.line_spacing_mode = value[public]
+            elif isinstance(value[public], str) and value[public].strip():
+                requested = value[public].strip()[:80]
+                if internal == "latin_font":
+                    original_rule = analyzed_rules.get(snapshot_key, {})
+                    original = original_rule.get("latin_font") if isinstance(original_rule, dict) else None
+                    # Older forms submit every field even when untouched. The
+                    # unchanged inferred font migrates to the new default;
+                    # a different value is a customer edit and remains intact.
+                    if legacy_echo and isinstance(original, str) and requested == original.strip():
+                        requested = DEFAULT_LATIN_FONT
+                setattr(rule, internal, requested)
+                if internal == "latin_font":
+                    # The formatter writes English and digits through the same
+                    # run font; keep the fallback consistent with a manual edit.
+                    rule.number_font = rule.latin_font
+        rule.enabled = True
+
+
+def _forward_template_progress(event: dict[str, Any]) -> None:
+    """Show completed requests independently from successful rule recognition."""
+    total = max(0, int(event.get("total", 0)))
+    completed = max(0, min(total, int(event.get("completed", 0))))
+    if event.get("stage") == "map":
+        progress = 24 + (4 * completed // total if total else 0)
+        message = f"已完成 {completed}/{total} 个模板段落分析请求，正在核对返回结果"
+    else:
+        progress = 29
+        message = f"已完成 {completed}/{total} 个模板段落分析请求，正在整合格式要求"
+    emit_progress(progress, "analyzing_template", message)
+
+
+def _confirmed_number(value: Any, minimum: float, maximum: float) -> float:
+    if isinstance(value, bool):
+        raise CliInputError("格式数值不能是布尔值")
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise CliInputError("格式数值必须是有效数字") from exc
+    if not math.isfinite(number) or not minimum <= number <= maximum:
+        raise CliInputError(f"格式数值必须在 {minimum:g}–{maximum:g} 之间")
+    return number
+
+
+def _confirmed_indent_cm(value: Any, field: str) -> float:
+    label = "左缩进" if field == "leftIndentCm" else "右缩进"
+    message = f"{label}必须是 0–2 厘米之间的有限数值"
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise CliInputError(message)
+    try:
+        return _confirmed_number(value, 0.0, 2.0)
+    except CliInputError as exc:
+        raise CliInputError(message) from exc
+
+
+def _restore_analyzed_rules(path: Path | None, template_hash: str) -> tuple[DocumentRules, dict] | None:
+    """Restore the server-owned analysis snapshot, never re-infer confirmed values."""
+    if path is None:
+        return None
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise CliInputError("确认规则必须是 JSON 对象")
+    if payload.get("templateSha256") and payload["templateSha256"] != template_hash:
+        raise CliInputError("模板已变化，请重新分析并确认格式")
+    # Older jobs may only have the editable form. Never rerun AI at execution
+    # time: fill omitted roles/fields from the same deterministic defaults.
+    snapshot = payload.get("analyzedRules")
+    complete = DocumentRules().to_dict()
+    if isinstance(snapshot, dict):
+        for key, default in complete.items():
+            value = snapshot.get(key)
+            if isinstance(default, dict) and isinstance(value, dict):
+                complete[key] = {**default, **value}
+            elif not isinstance(default, dict) and value is not None:
+                complete[key] = value
+    analysis = payload.get("templateAnalysis")
+    if not isinstance(analysis, dict):
+        analysis = {
+            "documentKind": "unknown", "copyFrontMatter": False, "frontMatterRange": None,
+            "reason": "旧任务未保存封面方案，保留原稿前置页；按默认值及确认表单执行。",
+            "warnings": ["缺失的分析项已使用可编辑默认值，正式处理不会再次调用 AI。"],
+        }
+    if not isinstance(snapshot, dict):
+        analysis["confirmedDefaultsOnly"] = True
+    return DocumentRules.from_dict(complete), analysis
+
+
+def _enable_editable_defaults(rules: DocumentRules, analysis: dict) -> None:
+    """An unrecognized role is an editable default, not a disabled operation."""
+    if not isinstance(analysis.get("ruleEvidence"), dict):
+        analysis["ruleEvidence"] = {}
+    evidence = analysis["ruleEvidence"]
+    for name in ("normal_text", "heading_1", "heading_2", "heading_3", "toc_title",
+                 "toc_1", "toc_2", "toc_3", "figure_caption", "table_caption", "table", "reference"):
+        rule = getattr(rules, name)
+        if not rule.enabled:
+            evidence.setdefault(name, {"status": "unconfirmed", "reason": "未识别到明确要求，采用默认值，可在确认页修改。"})
+        rule.enabled = True
+
+
+def _analysis_summary(info: DocumentInfo) -> dict[str, Any]:
+    levels: dict[str, int] = {}
+    for _, level, _ in info.headings:
+        key = str(level or "special")
+        levels[key] = levels.get(key, 0) + 1
+    return {
+        "paragraphCount": info.paragraph_count,
+        "nonEmptyParagraphCount": info.non_empty_paragraph_count,
+        "tableCount": info.table_count,
+        "imageCount": info.image_count,
+        "sectionCount": info.section_count,
+        "headingCount": len(info.headings),
+        "headingLevels": levels,
+        "uncertainHeadingCount": len(info.uncertain_headings),
+        "figureCaptionCount": len(info.figure_captions),
+        "tableCaptionCount": len(info.table_captions),
+    }
+
+
+def _delivery_warnings(differences: dict[str, Any]) -> list[str]:
+    """Keep detailed comparisons visible without turning them into job failures."""
+    warnings = []
+    if "body_text_sha256" in differences:
+        warnings.append(
+            "文字对比存在差异，可能涉及封面替换、目录或交叉引用更新。"
+            "已按格式优先模式生成可下载文档，请核对摘要、正文和参考文献内容。"
+        )
+    object_keys = {"preserved_parts", "drawing_count", "pict_count", "blip_count", "table_count"}
+    if object_keys.intersection(differences):
+        warnings.append("图片、表格或嵌入对象的对比存在差异，请下载后核对相应内容；本项仅作提醒，不阻止下载。")
+    remaining = differences.keys() - object_keys - {"body_text_sha256"}
+    if remaining:
+        warnings.append("段落、分节、域或关系部件发生变化，已作为排版差异记录，不再阻止下载。")
+    return warnings
+
+
+def _format_report(result, rules: DocumentRules, warnings: list[str]) -> dict[str, Any]:
+    """Report executed operations, never imply that every issue was verified fixed."""
+    counts: Counter[str] = Counter()
+    seen = set()
+    not_applied = []
+    for record in result.records:
+        if record.status != "success":
+            not_applied.append({"item": record.item, "reason": record.reason or "未自动处理，请人工核对。",
+                                "status": record.status, "paragraphIndex": record.paragraph_index, "count": 1})
+            continue
+        # Word may cause the same TOC paragraph to be formatted twice.
+        identity = (record.item, record.paragraph_index)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        counts[record.item] += 1
+    expected = [
+        ("普通正文", rules.normal_text),
+        *[(f"{level} 级标题", getattr(rules, f"heading_{level}")) for level in range(1, 4)],
+        ("目录标题", rules.toc_title),
+        *[(f"目录 {level} 级", getattr(rules, f"toc_{level}")) for level in range(1, 4)],
+        ("图名", rules.figure_caption), ("表名", rules.table_caption),
+        ("参考文献条目", rules.reference),
+    ]
+    for item, rule in expected:
+        if counts[item]:
+            continue
+        reason = (
+            "未确认或启用此类格式，未自动套用，请按需核对。" if not rule.enabled
+            else "未定位到可处理的此类内容；原稿没有此项时可忽略，否则请人工核对。"
+        )
+        not_applied.append({"item": item, "reason": reason, "status": "not_found"})
+    return {
+        "applied": [{"item": item, "count": count} for item, count in counts.items()],
+        "notApplied": not_applied,
+        "warnings": list(dict.fromkeys(warnings)),
+        "changedCount": result.changed_count,
+        "skippedCount": result.skipped_count,
+        "partialSuccess": result.partial_success,
+    }
+
+
+def _skipped_optional_step(item: str, exc: Exception) -> ChangeRecord:
+    # Keep diagnostic details out of a publicly downloadable report. A failed
+    # auxiliary inspection must not discard a readable formatted document.
+    return ChangeRecord(None, item, "未完成", "保留已完成修改",
+                        f"{item}未完成（{type(exc).__name__}），不影响其他格式修改，请人工核对。", status="skipped")
+
+
+def _error_code(exc: BaseException, template: Path | None = None) -> str:
+    pdf_code = getattr(exc, "code", None)
+    if pdf_code in {"PDF_DEPENDENCY_MISSING", "PDF_TEXT_UNAVAILABLE", "PDF_ENCRYPTED", "PDF_INVALID"}:
+        return pdf_code
+    if isinstance(exc, IntegrityValidationError):
+        return "INTEGRITY_CHECK_FAILED"
+    if isinstance(exc, FileExistsError):
+        return "OUTPUT_EXISTS"
+    if isinstance(exc, WordConversionError):
+        if template is not None and template.suffix.lower() in {".doc", ".dotx"} and os.name != "nt":
+            return "LEGACY_TEMPLATE_UNSUPPORTED"
+        return "TEMPLATE_CONVERSION_FAILED"
+    if isinstance(exc, (CliInputError, FileNotFoundError, ValueError)):
+        return "INVALID_INPUT"
+    return "FORMAT_PROCESS_FAILED"
+
+
+def _safe_error_message(exc: BaseException) -> str:
+    text = " ".join(str(exc).split()) or exc.__class__.__name__
+    return text[:1000]
+
+
+def _publish_without_overwrite(staging: Path, output: Path) -> None:
+    """Atomically create the final name without replacing an existing file."""
+
+    try:
+        os.link(staging, output)
+    except FileExistsError:
+        raise FileExistsError("输出文件已存在，格式工具拒绝覆盖") from None
+    except OSError as exc:
+        # Some Windows filesystems, policies and network-backed directories do
+        # not permit hard links even when both names are on the same volume.
+        # Windows rename is atomic and refuses to overwrite an existing target,
+        # so it is a safe fallback for the server environment.
+        if os.name == "nt":
+            try:
+                os.rename(staging, output)
+                return
+            except FileExistsError:
+                raise FileExistsError("输出文件已存在，格式工具拒绝覆盖") from None
+            except OSError as rename_exc:
+                raise RuntimeError(
+                    "无法发布输出文件，请检查任务目录权限、磁盘空间或文件占用"
+                ) from rename_exc
+        raise RuntimeError(
+            "无法发布输出文件，请检查任务目录权限、磁盘空间或文件占用"
+        ) from exc
+
+    # The final hard-link name now exists and publication has succeeded. The
+    # staging name is only cleanup; Word or antivirus scanners may briefly keep
+    # it open on Windows, which must not invalidate the completed result.
+    _safe_unlink(staging)
+
+
+def _safe_unlink(path: Path | None) -> None:
+    if path is None:
+        return
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def run_job(args: argparse.Namespace) -> dict[str, Any]:
+    started = time.perf_counter()
+    source = Path(args.source).expanduser().resolve()
+    template = Path(args.template).expanduser().resolve()
+    output = Path(args.output).expanduser().resolve()
+    result_json = Path(args.result_json).expanduser().resolve()
+    instructions_file = (
+        Path(args.instructions_file).expanduser().resolve()
+        if args.instructions_file
+        else None
+    )
+    rules_file_arg = getattr(args, "rules_file", None)
+    confirmed_rules_file = Path(rules_file_arg).expanduser().resolve() if rules_file_arg else None
+    staging: Path | None = None
+    staging_log: Path | None = None
+    published_output = False
+    published_log: Path | None = None
+    delivery_committed = False
+    template_notes: list[str] = []
+    instruction_notes: list[str] = []
+    warnings: list[str] = []
+    analysis: dict[str, Any] = {}
+    rule_summary: dict[str, Any] = {}
+    template_analysis: dict[str, Any] = {}
+    current_progress = 0
+    optional_skips: list[ChangeRecord] = []
+    runtime = runtime_info(analyze_only=bool(getattr(args, "analyze_only", False)))
+
+    try:
+        print(json.dumps(runtime, ensure_ascii=False), flush=True)
+        current_progress = 3
+        emit_progress(current_progress, "validating", "正在检查论文原稿、模板和输出路径")
+        _validate_paths(source, template, output, result_json, instructions_file)
+        source_hash_before = sha256_file(source)
+        template_hash_before = sha256_file(template)
+        instructions = _read_instructions(instructions_file)
+
+        analyze_only = bool(getattr(args, "analyze_only", False))
+        # The formatting phase is entirely local, even if an old launcher still
+        # passes --use-doubao. Credentials are only read by the analysis phase.
+        api_key = (os.getenv("ARK_API_KEY", "").strip() or os.getenv("DOUBAO_API_KEY", "").strip()) if analyze_only else ""
+        model = (os.getenv("DOUBAO_MODEL", "").strip() or os.getenv("DOUBAO_WEB_SEARCH_MODEL", "").strip() or None) if analyze_only else None
+        restored = _restore_analyzed_rules(confirmed_rules_file, template_hash_before)
+        if restored is not None:
+            rules, template_analysis = restored
+            current_progress = 24
+            emit_progress(current_progress, "restoring_rules", "正在载入已分析并确认的模板规则与封面方案")
+            template_notes.append("已载入默认值、已识别规则和确认表单；正式格式处理仅在本地执行，不调用 AI。")
+        else:
+            current_progress = 10
+            emit_progress(current_progress, "reading_template_text", "正在读取模板正文、规范表、红字和批注中的文字要求")
+            # Legacy templates need only one Word conversion for both readers.
+            from contextlib import nullcontext
+            readable = nullcontext(template) if template.suffix.lower() == ".pdf" else WordDocumentConverter().as_docx(template)
+            with readable as readable_template:
+                context = read_template_text(readable_template)
+                current_progress = 15
+                emit_progress(current_progress, "extracting_template", "文字读取完成，正在提取样式作为格式补充证据")
+                extracted = TemplateRuleExtractor().extract(readable_template)
+            rules = extracted.rules
+            rules.name = f"从模板识别：{template.stem}"
+            template_notes = list(context.get("notes", [])) + list(extracted.notes)
+            if analyze_only:
+                current_progress = 24
+                emit_progress(current_progress, "analyzing_template", "AI 正在按段落并发提取模板要求，随后统一整合（最多 32 路）")
+                parser = DoubaoRuleParser(api_key=api_key or None, model=model)
+                parser.template_progress_callback = _forward_template_progress
+                try:
+                    rules, ai_notes = parser.analyze_template(rules, template_notes, context)
+                finally:
+                    template_analysis = parser.last_template_analysis
+                instruction_notes.extend(ai_notes)
+            else:
+                # Offline library/CLI use remains available, but it must not
+                # misrepresent defaults as AI-confirmed or copy spec prose.
+                candidate = context.get("copyCandidate")
+                can_copy = bool(candidate) and context.get("documentKindHint") != "specification"
+                template_analysis = {
+                    "documentKind": context.get("documentKindHint", "unknown"),
+                    "copyFrontMatter": can_copy,
+                    "frontMatterRange": candidate if can_copy else None,
+                    "reason": "本地识别到独立封面/声明页。" if can_copy else "未发现独立封面/声明页，保留原稿前置内容。",
+                    "ruleEvidence": {}, "warnings": ["本次为本地规则提取，未执行模板 AI 文字分析。"],
+                }
+            template_analysis["explicitRuleFields"] = context.get("explicitRuleFields", {})
+        warnings.extend(template_analysis.get("warnings", []))
+        if restored is None:
+            warnings.extend(normalize_inferred_layout(rules, template_analysis.get("explicitRuleFields")))
+
+        current_progress = 30
+        if instructions and (restored is None or template_analysis.get("confirmedDefaultsOnly")):
+            if analyze_only and args.use_doubao:
+                emit_progress(current_progress, "applying_rules", "正在使用豆包解析附加格式要求")
+                rules, additional_notes = DoubaoRuleParser(
+                    api_key=api_key or None, model=model
+                ).parse(instructions, rules)
+                instruction_notes.extend(additional_notes)
+            else:
+                emit_progress(current_progress, "applying_rules", "正在本地解析附加格式要求")
+                instruction_notes.extend(NaturalLanguageRuleParser().apply(instructions, rules))
+        else:
+            emit_progress(current_progress, "applying_rules", "正在应用已识别规则与客户确认值")
+        # Normalize template/AI/local-parser defaults (including old snapshots)
+        # before the final customer edit, so explicit latinFont stays editable.
+        apply_default_latin_fonts(rules)
+        _apply_confirmed_rules(rules, confirmed_rules_file)
+        _enable_editable_defaults(rules, template_analysis)
+        enforce_locked_document_policy(rules)
+        instruction_notes.append(LOCKED_TABLE_POLICY_NOTE)
+        instruction_notes.extend(LOCKED_DOCUMENT_POLICY_NOTES)
+        rule_summary = _rule_summary(rules)
+
+        current_progress = 42
+        emit_progress(current_progress, "analyzing_source", "正在识别论文正文、标题、图表题注和参考文献")
+        try:
+            source_info = DocumentAnalyzer().analyze(source)
+            analysis = _analysis_summary(source_info)
+        except Exception as exc:
+            skipped = _skipped_optional_step("论文结构统计", exc)
+            optional_skips.append(skipped)
+            warnings.append(skipped.reason)
+            analysis = {"available": False, "message": "结构统计未完成，将逐项尝试格式处理。"}
+
+        if getattr(args, "analyze_only", False):
+            payload = {
+                "success": True, "analysisReady": True, "engineVersion": __version__,
+                "runtimeInfo": runtime,
+                "changedCount": 0, "warnings": warnings, "templateNotes": template_notes,
+                "instructionNotes": instruction_notes, "analysis": analysis,
+                "ruleSummary": rule_summary, "editableRules": _editable_rules(rules),
+                "analyzedRules": rules.to_dict(), "templateSha256": template_hash_before,
+                "templateAnalysis": template_analysis,
+                "lockedRules": list(LOCKED_DOCUMENT_POLICY_NOTES),
+                "integrity": {"passed": True, "differences": {}},
+                "durationMs": round((time.perf_counter() - started) * 1000), "error": None,
+            }
+            _write_json_atomic(result_json, payload)
+            emit_progress(100, "awaiting_confirmation", "AI 分析完成，请确认可编辑格式")
+            return payload
+
+        current_progress = 56
+        emit_progress(current_progress, "processing", "正在按默认值与确认规则自动修改格式（不调用 AI）")
+        try:
+            source_body_start = DocumentProcessor._main_content_start(Document(source))
+        except Exception as exc:
+            skipped = _skipped_optional_step("正文对比范围识别", exc)
+            optional_skips.append(skipped)
+            warnings.append(skipped.reason)
+            # This value only affects optional before/after comparison. The
+            # processor independently chooses a conservative formatting range.
+            source_body_start = 1
+        output.parent.mkdir(parents=True, exist_ok=True)
+        staging = output.with_name(
+            f".{output.stem}.{uuid.uuid4().hex}.working.docx"
+        )
+        processor_result = DocumentProcessor().process(source, rules, staging, template, template_analysis=template_analysis)
+        processor_result.records.extend(optional_skips)
+        staging_log = staging.with_suffix(".log.json")
+        warnings.extend(processor_result.warnings)
+
+        current_progress = 88
+        emit_progress(current_progress, "integrity_check", "正在检查输出文件可读取性并整理格式处理记录")
+        # Basic readability and immutable inputs remain mandatory. Rich OOXML
+        # comparisons are optional diagnostics, not an output publication gate.
+        inspect_docx(staging, basic_only=True)
+        Document(staging)
+        if sha256_file(source) != source_hash_before:
+            raise IntegrityValidationError("处理期间源文件发生变化，已拒绝交付输出")
+        try:
+            integrity = validate_preservation(
+                source, staging, expected_source_sha256=source_hash_before,
+                allow_front_matter=True, source_body_start=source_body_start, strict=False,
+            )
+            integrity_summary = integrity.summary()
+            warnings.extend(_delivery_warnings(integrity.differences))
+        except Exception as exc:
+            skipped = _skipped_optional_step("详细格式对比核对", exc)
+            processor_result.records.append(skipped)
+            warnings.append(skipped.reason)
+            integrity_summary = {
+                "passed": False, "mode": "format_first", "basicChecksPassed": True,
+                "deliveryAllowed": True, "verificationSkipped": True, "differences": {},
+                "checks": ["DOCX package and main document readable", "source file unchanged"],
+            }
+        if not processor_result.changed_count:
+            warnings.append("格式流程已执行，但未记录新的格式调整；请核对原稿是否已符合确认规则。")
+        warnings = list(dict.fromkeys(warnings))
+        if sha256_file(template) != template_hash_before:
+            raise IntegrityValidationError("处理期间格式模板发生变化，已拒绝交付输出")
+        if sha256_file(source) != source_hash_before:
+            raise IntegrityValidationError("处理期间源文件发生变化，已拒绝交付输出")
+        try:
+            processor_result.save_log(staging_log)
+        except OSError as exc:
+            skipped = _skipped_optional_step("处理日志写入", exc)
+            processor_result.records.append(skipped)
+            warnings.append(skipped.reason)
+
+        _publish_without_overwrite(staging, output)
+        published_output = True
+        staging = None
+        if staging_log is not None and staging_log.exists():
+            final_log = output.with_suffix(".log.json")
+            if final_log.exists():
+                warnings.append("处理日志已存在，未覆盖旧日志。")
+                _safe_unlink(staging_log)
+            else:
+                try:
+                    _publish_without_overwrite(staging_log, final_log)
+                    published_log = final_log
+                except (OSError, RuntimeError) as exc:
+                    skipped = _skipped_optional_step("处理日志发布", exc)
+                    processor_result.records.append(skipped)
+                    warnings.append(skipped.reason)
+                    _safe_unlink(staging_log)
+            staging_log = None
+
+        partial_success = processor_result.partial_success
+        delivery_message = (
+            "可处理的格式已完成，未处理项已列出，文档可下载。" if partial_success and processor_result.changed_count
+            else "未能自动完成格式调整，已保留内容生成可下载核对副本，请查看未处理项。" if partial_success
+            else "格式处理完成，文档已可下载。"
+        )
+        payload = {
+            "success": True,
+            "partialSuccess": partial_success,
+            "message": delivery_message,
+            "engineVersion": __version__,
+            "runtimeInfo": runtime,
+            "changedCount": processor_result.changed_count,
+            "warnings": warnings,
+            "templateNotes": template_notes,
+            "instructionNotes": instruction_notes,
+            "analysis": analysis,
+            "ruleSummary": rule_summary,
+            "templateAnalysis": template_analysis,
+            "integrity": integrity_summary,
+            "formatReport": _format_report(processor_result, rules, warnings),
+            "output": {
+                "fileName": output.name,
+                "sizeBytes": output.stat().st_size,
+                "sha256": sha256_file(output),
+            },
+            "durationMs": round((time.perf_counter() - started) * 1000),
+            "error": None,
+        }
+        _write_json_atomic(result_json, payload)
+        delivery_committed = True
+        try:
+            emit_progress(100, "completed", delivery_message)
+        except BrokenPipeError:
+            pass
+        return payload
+    except Exception as exc:
+        _safe_unlink(staging)
+        _safe_unlink(staging_log)
+        if not delivery_committed:
+            if published_log is not None:
+                _safe_unlink(published_log)
+            if published_output:
+                _safe_unlink(output)
+        message = _safe_error_message(exc)
+        payload = {
+            "success": False,
+            "engineVersion": __version__,
+            "runtimeInfo": runtime,
+            "changedCount": 0,
+            "warnings": warnings,
+            "templateNotes": template_notes,
+            "instructionNotes": instruction_notes,
+            "analysis": analysis,
+            "ruleSummary": rule_summary,
+            "templateAnalysis": template_analysis,
+            "integrity": {"passed": False, "differences": {}},
+            "durationMs": round((time.perf_counter() - started) * 1000),
+            "error": message,
+            "errorCode": _error_code(exc, template),
+            "errorType": exc.__class__.__name__,
+        }
+        # An invalid --result-json may deliberately alias an input/output.
+        # Never write a failure report when doing so could overwrite user data.
+        unsafe_result_targets = {source, template, output}
+        if instructions_file is not None:
+            unsafe_result_targets.add(instructions_file)
+        if result_json not in unsafe_result_targets:
+            try:
+                _write_json_atomic(result_json, payload)
+            except Exception:
+                # Preserve the formatting error as the process failure even when
+                # the filesystem also refuses the diagnostic report.
+                pass
+        try:
+            emit_progress(current_progress, "failed", message)
+        except BrokenPipeError:
+            pass
+        raise
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Dokiai Word 模板格式处理 CLI",
+    )
+    parser.add_argument("--source", required=True, help="论文原稿 .docx")
+    parser.add_argument("--template", required=True, help="格式模板 .doc/.docx/.dotx 或文字型 .pdf")
+    parser.add_argument("--output", required=True, help="新建的输出 .docx（禁止覆盖）")
+    parser.add_argument("--result-json", required=True, help="完整任务结果 JSON")
+    parser.add_argument("--instructions-file", help="可选 UTF-8 自然语言格式要求")
+    parser.add_argument(
+        "--use-doubao",
+        action="store_true",
+        help="仅在 --analyze-only 阶段使用豆包解析要求；正式格式处理始终不调用 AI",
+    )
+    parser.add_argument("--analyze-only", action="store_true", help="只分析模板并等待用户确认")
+    parser.add_argument("--rules-file", help="客户确认的可编辑规则 JSON")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    _configure_stdout()
+    if (sys.argv[1:] if argv is None else argv) == ["--version-info"]:
+        print(json.dumps(runtime_info(), ensure_ascii=False), flush=True)
+        return 0
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    try:
+        run_job(args)
+        return 0
+    except Exception:
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

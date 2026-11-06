@@ -1,0 +1,145 @@
+{
+  "schemaVersion": "render-plan.v1",
+  "presentationId": "ppt_health_001",
+  "sourceTreeHash": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "engine": {
+    "engineVersion": "1.0.0",
+    "themeId": "contract-example",
+    "themeVersion": "1.0.0",
+    "themeHash": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+    "layoutCatalogVersion": "1.0.0",
+    "layoutCatalogHash": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+    "fontProfileHash": "sha256:0a1c3803a066ea65ba6bcadb3ecac121feafad8a59cec6b966bb3e00974123ae",
+    "resolvedFontProfile": {
+      "profileId": "cjk-academic-v1",
+      "measurementEngineVersion": "text-metrics-v1.1",
+      "faces": [
+        {
+          "fontFaceId": "body-400",
+          "role": "body",
+          "weight": 400,
+          "selectedFamily": "Microsoft YaHei",
+          "postScriptName": "MicrosoftYaHei-400",
+          "fontSource": "PROVIDED",
+          "fontFingerprint": "sha256:a777ee7323796aa3dbdf3afa2c767af4e8f32050eb50f2732e0e6c2deb2787e0",
+          "fallbackApplied": false
+        },
+        {
+          "fontFaceId": "body-500",
+          "role": "body",
+          "weight": 500,
+          "selectedFamily": "Microsoft YaHei",
+          "postScriptName": "MicrosoftYaHei-500",
+          "fontSource": "PROVIDED",
+          "fontFingerprint": "sha256:6635618fee9c3afb84b15f2d0ae759f12f4c99862326db2bfc9cc5448c4e27d4",
+          "fallbackApplied": false
+        },
+        {
+          "fontFaceId": "body-600",
+          "role": "body",
+          "weight": 600,
+          "selectedFamily": "Microsoft YaHei",
+          "postScriptName": "MicrosoftYaHei-600",
+          "fontSource": "PROVIDED",
+          "fontFingerprint": "sha256:382db2becf1b480de9fdf42bcb2c203bbe84a30bfa8b48bf62cfbc895fd3fdd3",
+          "fallbackApplied": false
+        },
+        {
+          "fontFaceId": "body-700",
+          "role": "body",
+          "weight": 700,
+          "selectedFamily": "Microsoft YaHei",
+          "postScriptName": "MicrosoftYaHei-700",
+          "fontSource": "PROVIDED",
+          "fontFingerprint": "sha256:9f1949970b582249144b2e02d86889f6999cfb26d97bebd436a1d2f0d934c855",
+          "fallbackApplied": false
+        },
+        {
+          "fontFaceId": "display-700",
+          "role": "display",
+          "weight": 700,
+          "selectedFamily": "Microsoft YaHei",
+          "postScriptName": "MicrosoftYaHei-700",
+          "fontSource": "PROVIDED",
+          "fontFingerprint": "sha256:9f1949970b582249144b2e02d86889f6999cfb26d97bebd436a1d2f0d934c855",
+          "fallbackApplied": false
+        }
+      ]
+    }
+  },
+  "slideSize": { "widthEmu": 12191695, "heightEmu": 6858000 },
+  "assets": [
+    {
+      "assetId": "figure_4_10",
+      "bundlePath": "assets/figure_4_10.png",
+      "sha256": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+      "mimeType": "image/png",
+      "widthPx": 1920,
+      "heightPx": 1080,
+      "assetKind": "SCREENSHOT",
+      "imageRole": "PROOF",
+      "mandatory": true
+    }
+  ],
+  "slides": [
+    {
+      "slideId": "slide_06",
+      "sourcePageId": "page_06",
+      "index": 1,
+      "pageType": "IMAGE",
+      "layoutId": "image-proof-screenshot-wide.v1",
+      "elements": [
+        {
+          "elementId": "title",
+          "elementType": "TEXT",
+          "xEmu": 566928,
+          "yEmu": 365760,
+          "widthEmu": 10332720,
+          "heightEmu": 566928,
+          "zIndex": 220,
+          "resolvedStyle": {
+            "fontFaceId": "display-700",
+            "fontFamily": "Microsoft YaHei",
+            "fontSizeHundredthPt": 2900,
+            "fontWeight": 700,
+            "textColor": "#1D2340",
+            "horizontalAlign": "LEFT",
+            "verticalAlign": "MIDDLE",
+            "lineSpacingPermille": 1150,
+            "lineHeightEmu": 423545,
+            "paragraphSpaceBeforeEmu": 0,
+            "paragraphSpaceAfterEmu": 0,
+            "marginLeftEmu": 0,
+            "marginRightEmu": 0,
+            "marginTopEmu": 0,
+            "marginBottomEmu": 0
+          },
+          "styleSource": { "component": "slideTitle", "themeToken": "typography.styles.slideTitle" },
+          "text": "AI健康评估结果展示",
+          "lineCount": 1,
+          "requiredWidthEmu": 3351530,
+          "requiredHeightEmu": 393700
+        },
+        {
+          "elementId": "image",
+          "elementType": "IMAGE",
+          "xEmu": 566928,
+          "yEmu": 1207008,
+          "widthEmu": 7452360,
+          "heightEmu": 4191953,
+          "zIndex": 240,
+          "resolvedStyle": {
+            "opacityPermille": 1000,
+            "borderColor": "#E1E5EF",
+            "borderWidthEmu": 9525,
+            "cornerRadiusEmu": 76200
+          },
+          "styleSource": { "component": "imageFrame", "themeToken": "components.imageFrame" },
+          "assetId": "figure_4_10",
+          "fitMode": "CONTAIN",
+          "cropAllowed": false
+        }
+      ]
+    }
+  ]
+}

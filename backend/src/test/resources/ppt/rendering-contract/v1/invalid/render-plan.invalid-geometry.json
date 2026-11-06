@@ -1,0 +1,42 @@
+{
+  "schemaVersion": "render-plan.v1",
+  "presentationId": "invalid_geometry",
+  "sourceTreeHash": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "engine": {
+    "engineVersion": "1.0.0",
+    "themeId": "contract-example",
+    "themeVersion": "1.0.0",
+    "themeHash": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+    "layoutCatalogVersion": "1.0.0",
+    "layoutCatalogHash": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+    "fontProfileHash": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+  },
+  "slideSize": { "widthEmu": 12191695, "heightEmu": 6858000 },
+  "assets": [],
+  "slides": [{
+    "slideId": "slide_01",
+    "sourcePageId": "page_01",
+    "index": 1,
+    "pageType": "CONTENT",
+    "layoutId": "content-single-insight.v1",
+    "elements": [{
+      "elementId": "title",
+      "elementType": "TEXT",
+      "xEmu": -1,
+      "yEmu": 0,
+      "widthEmu": 0,
+      "heightEmu": 100,
+      "zIndex": 200,
+      "resolvedStyle": {
+        "fontFamily": "Microsoft YaHei",
+        "fontSizeHundredthPt": 2900,
+        "fontWeight": 700,
+        "textColor": "#1D2340",
+        "horizontalAlign": "LEFT",
+        "verticalAlign": "MIDDLE",
+        "lineSpacingPermille": 1150
+      },
+      "text": "非法坐标"
+    }]
+  }]
+}

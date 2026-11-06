@@ -1,4 +1,5 @@
 backend/target/
+generator-engine/target/
 frontend/node_modules/
 frontend/dist/
 frontend/.npm-cache/
@@ -11,6 +12,13 @@ work/
 .env
 frontend/.idea/
 backend/.idea/
+/template-import/
+/dropai-demo/
+/diagram-worker/visual-baselines/
+/qa/
+/storage/word-format-preflight/
 
 *.log
+__pycache__/
+*.py[cod]
 .DS_Store

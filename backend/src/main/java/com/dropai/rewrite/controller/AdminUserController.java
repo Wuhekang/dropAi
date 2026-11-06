@@ -1,0 +1,272 @@
+package com.dropai.rewrite.controller;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.dropai.rewrite.auth.AuthContext;
+import com.dropai.rewrite.entity.PointTransaction;
+import com.dropai.rewrite.entity.RechargeOrder;
+import com.dropai.rewrite.entity.UserAccount;
+import com.dropai.rewrite.entity.School;
+import com.dropai.rewrite.mapper.PointTransactionMapper;
+import com.dropai.rewrite.mapper.RechargeOrderMapper;
+import com.dropai.rewrite.mapper.UserAccountMapper;
+import com.dropai.rewrite.mapper.SchoolMapper;
+import com.dropai.rewrite.service.AccountSecurityService;
+import com.dropai.rewrite.vo.Result;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.jdbc.core.JdbcTemplate;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.time.YearMonth;
+import java.time.format.DateTimeParseException;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+
+@RestController
+@RequestMapping("/api/admin/users")
+public class AdminUserController {
+    private final UserAccountMapper userMapper;
+    private final PointTransactionMapper transactionMapper;
+    private final RechargeOrderMapper orderMapper;
+    private final SchoolMapper schoolMapper;
+    private final JdbcTemplate jdbc;
+    private final AccountSecurityService accountSecurityService;
+
+    public AdminUserController(UserAccountMapper userMapper, PointTransactionMapper transactionMapper,
+                               RechargeOrderMapper orderMapper, SchoolMapper schoolMapper, JdbcTemplate jdbc,
+                               AccountSecurityService accountSecurityService) {
+        this.userMapper = userMapper;
+        this.transactionMapper = transactionMapper;
+        this.orderMapper = orderMapper;
+        this.schoolMapper = schoolMapper;
+        this.jdbc = jdbc;
+        this.accountSecurityService = accountSecurityService;
+    }
+
+    @GetMapping("/financial-summary")
+    public Result<Map<String, Object>> financialSummary(@RequestParam(required = false) String month) {
+        requireAdmin();
+        YearMonth selected;
+        try { selected = month == null || month.isBlank() ? YearMonth.now() : YearMonth.parse(month); }
+        catch (DateTimeParseException ex) { throw new IllegalArgumentException("月份格式必须为 YYYY-MM"); }
+        LocalDateTime from=selected.atDay(1).atStartOfDay(),to=selected.plusMonths(1).atDay(1).atStartOfDay();
+        BigDecimal userRecharge = money("SELECT COALESCE(SUM(COALESCE(o.pay_amount,o.amount)),0) FROM recharge_order o JOIN user_account u ON u.id=o.user_id WHERE UPPER(u.role)='USER' AND o.status IN ('paid','approved') AND o.paid_at>=? AND o.paid_at<?",from,to);
+        BigDecimal schoolRecharge = money("SELECT COALESCE(SUM(COALESCE(o.pay_amount,o.amount)),0) FROM recharge_order o JOIN user_account u ON u.id=o.user_id WHERE UPPER(u.role)='SCHOOL_VIEWER' AND o.status IN ('paid','approved') AND o.paid_at>=? AND o.paid_at<?",from,to);
+        Long rechargePoints = count("SELECT COALESCE(SUM(o.points),0) FROM recharge_order o WHERE o.status IN ('paid','approved') AND o.paid_at>=? AND o.paid_at<?",from,to);
+        Long addedPoints = count("SELECT COALESCE(SUM(CASE WHEN points_change>0 THEN points_change ELSE 0 END),0) FROM point_transactions WHERE feature_code='ADMIN_ADJUSTMENT' AND created_at>=? AND created_at<?",from,to);
+        Long deductedPoints = count("SELECT COALESCE(SUM(CASE WHEN points_change<0 THEN -points_change ELSE 0 END),0) FROM point_transactions WHERE feature_code='ADMIN_ADJUSTMENT' AND created_at>=? AND created_at<?",from,to);
+        BigDecimal addedValue = BigDecimal.valueOf(addedPoints).multiply(new BigDecimal("0.03"));
+        BigDecimal deductedValue = BigDecimal.valueOf(deductedPoints).multiply(new BigDecimal("0.10"));
+        BigDecimal actualReceipts = userRecharge.add(schoolRecharge);
+        long operationPointsTotal=rechargePoints+addedPoints-deductedPoints;
+        Map<String,Object> out=new LinkedHashMap<>();
+        out.put("month",selected.toString());
+        out.put("userRechargeAmount",userRecharge);out.put("schoolRechargeAmount",schoolRecharge);
+        out.put("rechargePoints",rechargePoints);out.put("operationPointsTotal",operationPointsTotal);
+        out.put("adminAddedPoints",addedPoints);out.put("adminAddedValue",addedValue);
+        out.put("adminDeductedPoints",deductedPoints);out.put("adminDeductedValue",deductedValue);
+        out.put("actualReceipts",actualReceipts);out.put("adjustedStatisticalValue",actualReceipts.add(addedValue).subtract(deductedValue));
+        return Result.success(out);
+    }
+
+    @GetMapping("/orders")
+    public Result<List<Map<String, Object>>> orders() {
+        requireAdmin();
+        return Result.success(orderMapper.selectList(new LambdaQueryWrapper<RechargeOrder>()
+                        .orderByDesc(RechargeOrder::getCreatedAt).last("LIMIT 200"))
+                .stream().map(order -> {
+                    Map<String, Object> view = new LinkedHashMap<>();
+                    UserAccount user = userMapper.selectById(order.getUserId());
+                    view.put("orderNo", order.getOrderNo());
+                    view.put("userId", order.getUserId());
+                    view.put("phone", user == null ? "--" : user.getPhone());
+                    view.put("amount", order.getAmount());
+                    view.put("points", order.getPoints());
+                    view.put("status", order.getStatus());
+                    view.put("createdAt", order.getCreatedAt());
+                    view.put("paidAt", order.getPaidAt());
+                    return view;
+                }).toList());
+    }
+
+    @GetMapping
+    public Result<List<Map<String, Object>>> users(@RequestParam(required = false) String school,
+                                                   @RequestParam(required = false) String keyword) {
+        requireAdmin();
+        String normalizedKeyword = normalizeKeyword(keyword);
+        return Result.success(userMapper.selectList(new LambdaQueryWrapper<UserAccount>()
+                        .isNull(UserAccount::getDeletedAt)
+                        .orderByDesc(UserAccount::getCreatedAt))
+                .stream().map(this::userView)
+                .filter(v -> school == null || school.isBlank() || "all".equalsIgnoreCase(school)
+                        || ("unbound".equalsIgnoreCase(school) && ((Number)v.get("schoolId")).longValue() == 0)
+                        || String.valueOf(v.get("schoolId")).equals(school))
+                .filter(v -> matchesAdminUserSearch(v, normalizedKeyword))
+                .toList());
+    }
+
+    @GetMapping("/{id}")
+    public Result<Map<String, Object>> detail(@PathVariable Long id) {
+        requireAdmin();
+        UserAccount user = requireUser(id);
+        List<PointTransaction> transactions = transactionMapper.selectList(new LambdaQueryWrapper<PointTransaction>()
+                .eq(PointTransaction::getUserId, id).orderByDesc(PointTransaction::getCreatedAt).last("LIMIT 100"));
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("account", userView(user));
+        result.put("transactions", transactions);
+        return Result.success(result);
+    }
+
+    @PutMapping("/{id}/password")
+    public Result<Boolean> resetPassword(@PathVariable Long id, @RequestBody PasswordReset request) {
+        requireAdmin();
+        UserAccount target = requireUser(id);
+        if (!"USER".equalsIgnoreCase(target.getRole())
+                && !"SCHOOL_VIEWER".equalsIgnoreCase(target.getRole())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "仅支持重置普通用户或学校账户密码");
+        }
+        accountSecurityService.resetPassword(target, request == null ? null : request.password());
+        return Result.success(true);
+    }
+
+    @PutMapping("/{id}/school")
+    @Transactional
+    public Result<Boolean> changeSchool(@PathVariable Long id, @RequestBody SchoolAssignment request) {
+        requireAdmin();
+        UserAccount target = requireUser(id);
+        if (!"USER".equalsIgnoreCase(target.getRole())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "仅普通用户可修改所属学校");
+        }
+        Long requestedSchoolId = request == null ? null : request.schoolId();
+        long schoolId = requestedSchoolId == null ? 0L : requestedSchoolId;
+        if (schoolId < 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "学校 ID 不正确");
+        }
+        if (schoolId > 0) {
+            School school = schoolMapper.selectOne(new LambdaQueryWrapper<School>()
+                    .eq(School::getId, schoolId)
+                    .isNull(School::getDeletedAt)
+                    .last("FOR UPDATE"));
+            if (school == null) {
+                throw new ResponseStatusException(HttpStatus.NOT_FOUND, "学校不存在");
+            }
+            if (!Boolean.TRUE.equals(school.getEnabled())) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "学校已停用，不能绑定用户");
+            }
+        }
+        if (userMapper.updateSchoolId(target.getId(), schoolId) != 1) {
+            throw new IllegalStateException("用户所属学校更新失败");
+        }
+        target.setSchoolId(schoolId);
+        accountSecurityService.invalidateSessions(target.getId());
+        return Result.success(true);
+    }
+
+    @PostMapping("/{id}/points-adjust")
+    @Transactional
+    public Result<Map<String, Object>> adjust(@PathVariable Long id, @RequestBody PointAdjustment request) {
+        requireAdmin();
+        if (request.quantity() == null || request.quantity() <= 0) throw new IllegalArgumentException("积分数量必须大于 0");
+        if (request.reason() == null || request.reason().isBlank()) throw new IllegalArgumentException("必须填写调整原因");
+        if (request.remark() == null || request.remark().isBlank()) throw new IllegalArgumentException("必须填写备注");
+        UserAccount before = requireUser(id);
+        boolean deduct = "DEDUCT".equalsIgnoreCase(request.type());
+        int signed = deduct ? -request.quantity() : request.quantity();
+        int changed = deduct ? userMapper.deductPoints(id, request.quantity()) : userMapper.addPoints(id, request.quantity());
+        if (changed != 1) throw new IllegalStateException(deduct ? "用户积分不足，无法扣除" : "积分调整失败");
+        UserAccount after = requireUser(id);
+        PointTransaction transaction = new PointTransaction();
+        transaction.setUserId(id);
+        transaction.setJobId("ADMIN-" + System.currentTimeMillis());
+        transaction.setFeatureCode("ADMIN_ADJUSTMENT");
+        transaction.setFeatureName(deduct ? "管理员扣除积分" : "管理员增加积分");
+        transaction.setPointsChange(signed);
+        transaction.setBalanceAfter(after.getPoints());
+        transaction.setRemark(request.reason().trim() + "｜" + request.remark().trim());
+        transaction.setCreatedAt(LocalDateTime.now());
+        transactionMapper.insert(transaction);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("beforePoints", before.getPoints());
+        result.put("afterPoints", after.getPoints());
+        result.put("change", signed);
+        return Result.success(result);
+    }
+
+    private void requireAdmin() {
+        UserAccount current = requireUser(AuthContext.requireUserId());
+        if (!"ADMIN".equalsIgnoreCase(current.getRole())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "无管理员权限");
+        }
+    }
+
+    private UserAccount requireUser(Long id) {
+        UserAccount user = userMapper.selectOne(new LambdaQueryWrapper<UserAccount>()
+                .eq(UserAccount::getId, id)
+                .isNull(UserAccount::getDeletedAt));
+        if (user == null) throw new IllegalArgumentException("用户不存在");
+        return user;
+    }
+
+    private BigDecimal money(String sql,Object... args) { return jdbc.queryForObject(sql, BigDecimal.class,args); }
+    private Long count(String sql,Object... args) { return jdbc.queryForObject(sql, Long.class,args); }
+
+    private Map<String, Object> userView(UserAccount user) {
+        Map<String, Object> view = new LinkedHashMap<>();
+        view.put("id", user.getId());
+        view.put("phone", user.getPhone());
+        view.put("role", user.getRole());
+        long schoolId = user.getSchoolId() == null ? 0L : user.getSchoolId();
+        School school = schoolId == 0 ? null : schoolMapper.selectOne(new LambdaQueryWrapper<School>()
+                .eq(School::getId, schoolId)
+                .isNull(School::getDeletedAt));
+        view.put("schoolId", schoolId);
+        view.put("schoolName", school == null ? null : school.getSchoolName());
+        view.put("schoolCode", school == null ? null : school.getSchoolCode());
+        view.put("schoolHidden", school != null && Boolean.TRUE.equals(school.getHidden()));
+        view.put("ownershipType", school == null ? "普通用户/未绑定学校" : "学校用户");
+        view.put("points", user.getPoints());
+        view.put("totalPoints", user.getTotalPoints());
+        view.put("usedPoints", user.getUsedPoints());
+        view.put("createdAt", user.getCreatedAt());
+        view.put("updatedAt", user.getUpdatedAt());
+        boolean enabled = !Boolean.FALSE.equals(user.getAccountEnabled());
+        view.put("accountEnabled", enabled);
+        view.put("status", enabled ? "ACTIVE" : "DISABLED");
+        return view;
+    }
+
+    private String normalizeKeyword(String keyword) {
+        if (keyword == null || keyword.isBlank()) return null;
+        return keyword.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private boolean matchesAdminUserSearch(Map<String, Object> view, String normalizedKeyword) {
+        boolean hiddenSchoolAccount = Boolean.TRUE.equals(view.get("schoolHidden"))
+                && ("USER".equalsIgnoreCase(String.valueOf(view.get("role")))
+                || "SCHOOL_VIEWER".equalsIgnoreCase(String.valueOf(view.get("role"))));
+        if (hiddenSchoolAccount) {
+            return normalizedKeyword != null && matchesSchoolIdentity(view, normalizedKeyword);
+        }
+        if (normalizedKeyword == null) return true;
+        return containsIgnoreCase(view.get("phone"), normalizedKeyword)
+                || matchesSchoolIdentity(view, normalizedKeyword);
+    }
+
+    private boolean matchesSchoolIdentity(Map<String, Object> view, String normalizedKeyword) {
+        return containsIgnoreCase(view.get("schoolName"), normalizedKeyword)
+                || containsIgnoreCase(view.get("schoolCode"), normalizedKeyword);
+    }
+
+    private boolean containsIgnoreCase(Object value, String normalizedKeyword) {
+        return value != null && value.toString().toLowerCase(Locale.ROOT).contains(normalizedKeyword);
+    }
+
+    public record PointAdjustment(String type, Integer quantity, String reason, String remark) {}
+    public record PasswordReset(String password) {}
+    public record SchoolAssignment(Long schoolId) {}
+}

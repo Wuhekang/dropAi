@@ -2,34 +2,56 @@ package com.dropai.rewrite.service.writing;
 
 import com.dropai.rewrite.config.WritingGenerationProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.annotation.PreDestroy;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.time.Year;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.CompletionService;
+import java.util.concurrent.ExecutorCompletionService;
+import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Service
 public class ReferenceSearchService {
+    private static final long ENGLISH_PLANNER_BUDGET_NANOS = TimeUnit.SECONDS.toNanos(4);
+    private static final int MAX_STANDALONE_SEARCH_ROUNDS = 6;
     private final JdbcTemplate jdbcTemplate;
     private final WritingGenerationProperties properties;
     private final Map<String, ReferenceSearchProvider> providers = new HashMap<>();
     private final ObjectMapper objectMapper;
     private final ChineseReferenceSearchPlanService searchPlanService;
     private final GbT7714Formatter formatter;
+    private final LiteratureEnglishQueryPlanner englishQueryPlanner;
+    private final LiteratureTopicMatcher topicMatcher = new LiteratureTopicMatcher();
+    private final ThreadPoolExecutor searchExecutor;
 
     public ReferenceSearchService(JdbcTemplate jdbcTemplate,
                                   WritingGenerationProperties properties,
                                   List<ReferenceSearchProvider> providers,
                                   ObjectMapper objectMapper,
                                   ChineseReferenceSearchPlanService searchPlanService,
-                                  GbT7714Formatter formatter) {
+                                  GbT7714Formatter formatter,
+                                  LiteratureEnglishQueryPlanner englishQueryPlanner) {
         this.jdbcTemplate = jdbcTemplate;
         this.properties = properties;
         providers.forEach(provider -> {
@@ -39,6 +61,28 @@ public class ReferenceSearchService {
         this.objectMapper = objectMapper;
         this.searchPlanService = searchPlanService;
         this.formatter = formatter;
+        this.englishQueryPlanner = englishQueryPlanner;
+        int parallelism = Math.max(4, Math.min(16, properties.getReferenceSearch().getParallelism()));
+        AtomicInteger threadNumber = new AtomicInteger();
+        ThreadFactory threadFactory = runnable -> {
+            Thread thread = new Thread(runnable, "literature-search-" + threadNumber.incrementAndGet());
+            thread.setDaemon(true);
+            return thread;
+        };
+        this.searchExecutor = new ThreadPoolExecutor(
+                parallelism,
+                parallelism,
+                30L,
+                TimeUnit.SECONDS,
+                new ArrayBlockingQueue<>(Math.max(32, parallelism * 8)),
+                threadFactory,
+                new ThreadPoolExecutor.AbortPolicy());
+        this.searchExecutor.allowCoreThreadTimeOut(true);
+    }
+
+    @PreDestroy
+    void shutdownSearchExecutor() {
+        searchExecutor.shutdownNow();
     }
 
     public Map<String, Object> status() {
@@ -286,29 +330,34 @@ public class ReferenceSearchService {
         for (String providerName : properties.getReferenceSearch().providerOrder()) {
             ReferenceSearchProvider provider = providers.get(providerName);
             if (provider == null || !provider.available() || !provider.supportsLanguage(language)) continue;
-            for (int attempt = 1; attempt <= Math.max(1, properties.getReferenceSearch().getRetryCount()); attempt++) {
+            int attempts = Math.max(1, Math.min(2, properties.getReferenceSearch().getRetryCount()));
+            for (int attempt = 1; attempt <= attempts; attempt++) {
                 long started = System.currentTimeMillis();
                 try {
                     List<ReferenceCandidate> found = provider.search(query);
-                    insertSearchLog(query.projectId(), provider.providerCode(), language, query.joinedKeywords(), found.size(), found.size(), System.currentTimeMillis() - started, true, "", "");
+                    insertSearchLog(query.projectId(), provider.providerCode(), language, query.providerKeywords(), found.size(), found.size(), System.currentTimeMillis() - started, true, "", "");
                     result.addAll(found);
                     if (result.size() >= query.maxResults()) return result;
                     break;
                 } catch (RuntimeException exception) {
                     lastError = exception;
-                    insertSearchLog(query.projectId(), provider.providerCode(), language, query.joinedKeywords(), 0, 0, System.currentTimeMillis() - started, false,
+                    insertSearchLog(query.projectId(), provider.providerCode(), language, query.providerKeywords(), 0, 0, System.currentTimeMillis() - started, false,
                             exception.getClass().getSimpleName(), String.valueOf(exception.getMessage()));
-                    try {
-                        Thread.sleep(800L * attempt);
-                    } catch (InterruptedException interruptedException) {
-                        Thread.currentThread().interrupt();
-                        throw new IllegalStateException("参考文献搜索被中断", interruptedException);
+                    if (attempt < attempts) {
+                        try {
+                            Thread.sleep(150L);
+                        } catch (InterruptedException interruptedException) {
+                            Thread.currentThread().interrupt();
+                            throw new IllegalStateException("参考文献搜索被中断", interruptedException);
+                        }
                     }
                 }
             }
         }
-        if (result.isEmpty() && lastError != null) throw lastError;
-        if (result.isEmpty()) throw new IllegalStateException("没有可用的联网参考文献搜索Provider，或搜索结果为空");
+        if (result.isEmpty() && lastError != null) {
+            throw new IllegalStateException("公开学术来源暂时无法访问，请稍后重试", lastError);
+        }
+        if (result.isEmpty()) throw new IllegalStateException("暂未检索到符合条件的公开文献，请尝试补充或调整题目关键词");
         return result;
     }
 
@@ -319,6 +368,599 @@ public class ReferenceSearchService {
         } catch (Exception ignored) {
             return List.of();
         }
+    }
+
+    public Map<String, Object> standaloneSearch(String chineseKeyword, String englishKeyword, int count) {
+        int target = Math.max(1, Math.min(20, count));
+        int currentYear = Year.now().getValue();
+        List<String> keywords = new ArrayList<>();
+        if (chineseKeyword != null && !chineseKeyword.isBlank()) keywords.add(chineseKeyword.trim());
+        if (englishKeyword != null && !englishKeyword.isBlank()) keywords.add(englishKeyword.trim());
+        if (keywords.isEmpty()) throw new IllegalArgumentException("请输入中文或英文关键词");
+        ReferenceSearchQuery query = new ReferenceSearchQuery(
+                "literature_" + WritingJdbc.id("search"),
+                String.join(" / ", keywords),
+                "文献中心独立检索",
+                keywords,
+                List.of(),
+                currentYear - 5,
+                currentYear,
+                target,
+                0,
+                0
+        );
+        List<ReferenceCandidate> selected = dedupe(searchOnline(query)).stream()
+                .filter(ReferenceCandidate::basicallyVerified)
+                .sorted(Comparator.comparingDouble(ReferenceCandidate::relevanceScore).reversed())
+                .limit(target)
+                .toList();
+        List<Map<String, Object>> items = new ArrayList<>();
+        int index = 1;
+        for (ReferenceCandidate candidate : selected) {
+            items.add(Map.ofEntries(
+                    Map.entry("number", index),
+                    Map.entry("title", blank(candidate.title())),
+                    Map.entry("authors", String.join("; ", candidate.authors() == null ? List.of() : candidate.authors())),
+                    Map.entry("year", candidate.year() == null ? "" : candidate.year()),
+                    Map.entry("source", blank(candidate.container())),
+                    Map.entry("abstractText", blank(candidate.abstractText())),
+                    Map.entry("url", blank(candidate.url())),
+                    Map.entry("language", languageOf(candidate)),
+                    Map.entry("gbt7714", formatter.format(index, candidate, "GBT_7714_2025"))
+            ));
+            index++;
+        }
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("keywordZh", blank(chineseKeyword));
+        response.put("keywordEn", blank(englishKeyword));
+        response.put("requestedCount", target);
+        response.put("actualCount", items.size());
+        response.put("costPoints", target);
+        response.put("citationText", citationText(items));
+        response.put("items", items);
+        return response;
+    }
+
+    public Map<String, Object> standaloneSearch(String title, int chineseCount, int englishCount) {
+        String normalizedTitle = blank(title).trim();
+        if (normalizedTitle.isBlank()) throw new IllegalArgumentException("请输入题目名称");
+        int zhTarget = Math.max(0, Math.min(20, chineseCount));
+        int enTarget = Math.max(0, Math.min(20, englishCount));
+        if (zhTarget + enTarget < 1) throw new IllegalArgumentException("中文和英文文献数量不能同时为 0");
+
+        int timeoutSeconds = Math.max(1, Math.min(20, properties.getReferenceSearch().getTimeoutSeconds()));
+        long deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(timeoutSeconds);
+        int currentYear = Year.now().getValue();
+        int configuredMax = Math.max(1, Math.min(50, properties.getReferenceSearch().getMaxResults()));
+        List<SearchBranch> branches = new ArrayList<>();
+        if (zhTarget > 0) {
+            int searchMax = Math.min(configuredMax, Math.max(zhTarget * 5, zhTarget + 20));
+            ReferenceSearchQuery zhQuery = new ReferenceSearchQuery(
+                    "literature_" + WritingJdbc.id("zh"), normalizedTitle, "",
+                    List.of(normalizedTitle), List.of(), currentYear - 50, currentYear,
+                    searchMax, zhTarget, 0);
+            zhQuery = zhQuery.withProviderKeywords(topicMatcher.providerQuery(zhQuery));
+            branches.add(new SearchBranch("ZH", zhTarget, zhQuery,
+                    topicMatcher.hasReliablePlan(zhQuery, "ZH")));
+        }
+        if (enTarget > 0) {
+            int searchMax = Math.min(configuredMax, Math.max(enTarget * 5, enTarget + 20));
+            ReferenceSearchQuery enQuery = new ReferenceSearchQuery(
+                    "literature_" + WritingJdbc.id("en"), normalizedTitle, "",
+                    List.of(normalizedTitle), List.of(), currentYear - 50, currentYear,
+                    searchMax, 0, enTarget);
+            String providerKeywords = topicMatcher.providerQuery(enQuery);
+            boolean needsPlanning = topicMatcher.needsEnglishPlanning(enQuery);
+            boolean deterministicReliable = !providerKeywords.isBlank()
+                    && topicMatcher.hasReliablePlan(enQuery.withProviderKeywords(providerKeywords), "EN");
+            if (needsPlanning || !deterministicReliable) {
+                providerKeywords = plannedEnglishProviderKeywords(normalizedTitle, deadlineNanos);
+            }
+            if (!providerKeywords.isBlank()) enQuery = enQuery.withProviderKeywords(providerKeywords);
+            boolean queryAvailable = !providerKeywords.isBlank()
+                    && topicMatcher.hasReliablePlan(enQuery, "EN")
+                    && (!needsPlanning || enQuery.hasProviderKeywordsOverride());
+            branches.add(new SearchBranch("EN", enTarget, enQuery, queryAvailable));
+        }
+
+        ParallelSearchResult searchResult = searchStandaloneBranches(branches, deadlineNanos);
+        List<ReferenceCandidate> unique = searchResult.selected();
+        List<Map<String, Object>> items = new ArrayList<>();
+        int index = 1;
+        for (ReferenceCandidate candidate : unique) {
+            items.add(Map.ofEntries(
+                    Map.entry("number", index), Map.entry("title", blank(candidate.title())),
+                    Map.entry("authors", String.join("; ", candidate.authors() == null ? List.of() : candidate.authors())),
+                    Map.entry("year", candidate.year() == null ? "" : candidate.year()),
+                    Map.entry("source", blank(candidate.container())), Map.entry("abstractText", blank(candidate.abstractText())),
+                    Map.entry("url", blank(candidate.url())), Map.entry("doi", blank(candidate.doi())),
+                    Map.entry("language", languageOf(candidate)),
+                    Map.entry("gbt7714", formatter.format(index, candidate, "GBT_7714_2025"))));
+            index++;
+        }
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("title", normalizedTitle);
+        response.put("chineseCount", zhTarget);
+        response.put("englishCount", enTarget);
+        response.put("requestedCount", zhTarget + enTarget);
+        response.put("actualCount", items.size());
+        response.put("actualChineseCount", searchResult.actualChineseCount());
+        response.put("actualEnglishCount", searchResult.actualEnglishCount());
+        response.put("status", searchResult.warnings().isEmpty() ? "SUCCESS" : "PARTIAL");
+        response.put("partial", !searchResult.warnings().isEmpty());
+        response.put("warnings", searchResult.warnings());
+        response.put("searchMode", "PARALLEL_MULTI_PROVIDER_RANKED_FILL");
+        response.put("providersTried", searchResult.providersTried());
+        response.put("searchRounds", searchResult.roundsAttempted());
+        response.put("providerOutcomes", searchResult.providerOutcomes());
+        response.put("timedOut", searchResult.timedOut());
+        response.put("citationText", citationText(items));
+        response.put("items", items);
+        return response;
+    }
+
+    private ParallelSearchResult searchStandaloneBranches(List<SearchBranch> branches, long deadlineNanos) {
+        List<ProviderTask> tasks = new ArrayList<>();
+        int providerIndex = 0;
+        for (String providerName : properties.getReferenceSearch().providerOrder()) {
+            ReferenceSearchProvider provider = providers.get(providerName);
+            if (provider == null) continue;
+            for (SearchBranch branch : branches) {
+                if (provider.available() && provider.supportsLanguage(branch.language())) {
+                    tasks.add(new ProviderTask(branch, provider, providerIndex));
+                }
+            }
+            providerIndex++;
+        }
+        tasks = distinctTasks(tasks);
+        if (tasks.isEmpty()) {
+            throw new IllegalStateException("当前未启用可用的公开文献检索来源，请检查服务器搜索配置");
+        }
+
+        CompletionService<ProviderSearchOutcome> completion = new ExecutorCompletionService<>(searchExecutor);
+        Map<Future<ProviderSearchOutcome>, ProviderTask> activeTasks = new LinkedHashMap<>();
+        List<ProviderSearchOutcome> outcomes = new ArrayList<>();
+        Map<String, String> previousBatchFingerprints = new HashMap<>();
+        Map<String, Integer> stagnantBatchCounts = new HashMap<>();
+        Map<String, Integer> failedAttemptCounts = new HashMap<>();
+        Set<String> exhaustedStreams = new LinkedHashSet<>();
+        int roundsAttempted = 0;
+        for (ProviderTask task : tasks) {
+            ProviderTask firstPage = task.forSearchRound(0, List.of());
+            Future<ProviderSearchOutcome> future = submitProviderTask(completion, firstPage, outcomes);
+            if (future != null) {
+                activeTasks.put(future, firstPage);
+                roundsAttempted = 1;
+            }
+        }
+        if (activeTasks.isEmpty()) {
+            throw new IllegalStateException("文献检索任务较多，请稍后重试");
+        }
+
+        boolean timedOut = false;
+        try {
+            while (!activeTasks.isEmpty() && !quotasSatisfied(branches, outcomes)) {
+                long remaining = deadlineNanos - System.nanoTime();
+                if (remaining <= 0) {
+                    timedOut = true;
+                    break;
+                }
+                Future<ProviderSearchOutcome> completedFuture = completion.poll(remaining, TimeUnit.NANOSECONDS);
+                if (completedFuture == null) {
+                    timedOut = true;
+                    break;
+                }
+                ProviderTask completedTask = activeTasks.remove(completedFuture);
+                if (completedTask == null) continue;
+
+                ProviderSearchOutcome outcome;
+                try {
+                    outcome = completedFuture.get();
+                } catch (Exception exception) {
+                    outcome = ProviderSearchOutcome.failed(completedTask);
+                }
+                outcomes.add(outcome);
+                updateContinuationStream(outcome, previousBatchFingerprints,
+                        stagnantBatchCounts, failedAttemptCounts, exhaustedStreams);
+
+                Set<String> missingLanguages = missingBranchLanguages(branches, outcomes);
+                cancelSatisfiedLanguageTasks(activeTasks, missingLanguages);
+                if (missingLanguages.isEmpty()) break;
+
+                String streamKey = providerStreamKey(completedTask);
+                int nextRound = nextSearchRound(outcome);
+                if (missingLanguages.contains(outcome.language())
+                        && !exhaustedStreams.contains(streamKey)
+                        && nextRound < MAX_STANDALONE_SEARCH_ROUNDS
+                        && deadlineNanos - System.nanoTime() > 0) {
+                    ProviderTask nextPage = completedTask.forSearchRound(nextRound,
+                            continuationExclusions(outcome.language(), outcomes));
+                    Future<ProviderSearchOutcome> nextFuture = submitProviderTask(completion, nextPage, outcomes);
+                    if (nextFuture != null) {
+                        activeTasks.put(nextFuture, nextPage);
+                        roundsAttempted = Math.max(roundsAttempted, nextRound + 1);
+                    } else {
+                        exhaustedStreams.add(streamKey);
+                    }
+                }
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("参考文献搜索被中断", exception);
+        } finally {
+            activeTasks.keySet().forEach(future -> {
+                if (!future.isDone()) future.cancel(true);
+            });
+        }
+
+        outcomes.sort(Comparator.comparingInt(ProviderSearchOutcome::providerIndex)
+                .thenComparing(ProviderSearchOutcome::language));
+        List<ReferenceCandidate> selected = new ArrayList<>();
+        CandidateIdentitySet selectedKeys = new CandidateIdentitySet();
+        int actualChineseCount = addBranchSelection("ZH", branches, outcomes, selected, selectedKeys);
+        int actualEnglishCount = addBranchSelection("EN", branches, outcomes, selected, selectedKeys);
+        int expectedChineseCount = branchTarget(branches, "ZH");
+        int expectedEnglishCount = branchTarget(branches, "EN");
+        if (actualChineseCount != expectedChineseCount || actualEnglishCount != expectedEnglishCount) {
+            String progress = "中文 " + actualChineseCount + "/" + expectedChineseCount
+                    + "，英文 " + actualEnglishCount + "/" + expectedEnglishCount;
+            if (timedOut) {
+                throw new IllegalStateException("检索时限内连续补搜仍未凑齐目标文献（" + progress + "），本次不返回结果且不扣费");
+            }
+            throw new IllegalStateException("连续补搜 " + roundsAttempted + " 轮仍未凑齐目标文献（"
+                    + progress + "），本次不返回结果且不扣费");
+        }
+
+        List<Map<String, Object>> publicOutcomes = outcomes.stream().map(outcome -> Map.<String, Object>of(
+                "language", outcome.language(),
+                "provider", outcome.providerCode(),
+                "searchRound", outcome.searchRound() + 1,
+                "status", outcome.status(),
+                "resultCount", outcome.candidates().size(),
+                "rawCount", outcome.rawCount(),
+                "acceptedCount", outcome.candidates().size(),
+                "rejectedCount", outcome.rejectedCount(),
+                "durationMs", outcome.durationMs()
+        )).toList();
+        int providersTried = (int) tasks.stream().map(task -> task.provider().providerCode()).distinct().count();
+        return new ParallelSearchResult(selected, actualChineseCount, actualEnglishCount,
+                List.of(), publicOutcomes, timedOut, providersTried, roundsAttempted);
+    }
+
+    private String plannerProviderKeywords(LiteratureEnglishQueryPlanner.Plan plan) {
+        List<String> terms = plan.coreTerms().stream()
+                .filter(term -> term != null && !term.isBlank())
+                .distinct()
+                .limit(3)
+                .map(term -> "\"" + term.trim() + "\"")
+                .toList();
+        if (!terms.isEmpty()) return String.join(" ", terms);
+        return plan.englishQuery();
+    }
+
+    private String plannedEnglishProviderKeywords(String title, long deadlineNanos) {
+        long waitNanos = Math.min(ENGLISH_PLANNER_BUDGET_NANOS, deadlineNanos - System.nanoTime());
+        if (waitNanos <= 0) return "";
+        Future<java.util.Optional<LiteratureEnglishQueryPlanner.Plan>> future;
+        try {
+            future = searchExecutor.submit(() -> englishQueryPlanner.plan(title));
+        } catch (RejectedExecutionException exception) {
+            return "";
+        }
+        try {
+            java.util.Optional<LiteratureEnglishQueryPlanner.Plan> plan = future.get(waitNanos, TimeUnit.NANOSECONDS);
+            return plan == null ? "" : plan.map(this::plannerProviderKeywords).orElse("");
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            return "";
+        } catch (Exception exception) {
+            return "";
+        } finally {
+            if (!future.isDone()) future.cancel(true);
+        }
+    }
+
+    private List<ProviderTask> distinctTasks(List<ProviderTask> tasks) {
+        Set<ReferenceSearchProvider> seenChinese = Collections.newSetFromMap(new IdentityHashMap<>());
+        Set<ReferenceSearchProvider> seenEnglish = Collections.newSetFromMap(new IdentityHashMap<>());
+        List<ProviderTask> distinct = new ArrayList<>();
+        for (ProviderTask task : tasks) {
+            Set<ReferenceSearchProvider> seen = "ZH".equals(task.branch().language()) ? seenChinese : seenEnglish;
+            if (seen.add(task.provider())) distinct.add(task);
+        }
+        return distinct;
+    }
+
+    private ProviderSearchOutcome callProvider(ProviderTask task) {
+        int attempts = Math.max(1, Math.min(2, properties.getReferenceSearch().getRetryCount()));
+        long started = System.currentTimeMillis();
+        if (!task.branch().queryAvailable()
+                || !topicMatcher.hasReliablePlan(task.branch().query(), task.branch().language())) {
+            return ProviderSearchOutcome.queryUnavailable(task, started);
+        }
+        for (int attempt = 1; attempt <= attempts; attempt++) {
+            if (Thread.currentThread().isInterrupted()) return ProviderSearchOutcome.interrupted(task, started);
+            long attemptStarted = System.currentTimeMillis();
+            try {
+                List<ReferenceCandidate> found = task.provider().search(task.branch().query());
+                List<ReferenceCandidate> rawFound = found == null ? List.of() : found;
+                List<ReferenceCandidate> safeFound = rawFound.stream()
+                        .filter(Objects::nonNull)
+                        .filter(ReferenceCandidate::basicallyVerified)
+                        .filter(candidate -> task.branch().language().equals(languageOf(candidate)))
+                        .filter(candidate -> withinYear(candidate, task.branch().query()))
+                        .filter(this::hasPublicSource)
+                        .sorted(candidateRanking(task.branch()))
+                        .toList();
+                insertSearchLog(task.branch().query().projectId(), task.provider().providerCode(), task.branch().language(),
+                        task.branch().query().providerKeywords(), rawFound.size(), safeFound.size(),
+                        System.currentTimeMillis() - attemptStarted, true, "", "");
+                return new ProviderSearchOutcome(task.branch().language(), task.providerIndex(), task.provider().providerCode(),
+                        task.branch().query().searchRound(), safeFound,
+                        safeFound.isEmpty() ? "EMPTY" : "SUCCESS", System.currentTimeMillis() - started,
+                        rawFound.size(), Math.max(0, rawFound.size() - safeFound.size()));
+            } catch (RuntimeException exception) {
+                insertSearchLog(task.branch().query().projectId(), task.provider().providerCode(), task.branch().language(),
+                        task.branch().query().providerKeywords(), 0, 0, System.currentTimeMillis() - attemptStarted, false,
+                        exception.getClass().getSimpleName(), String.valueOf(exception.getMessage()));
+                if (attempt < attempts) {
+                    try {
+                        Thread.sleep(150L);
+                    } catch (InterruptedException interruptedException) {
+                        Thread.currentThread().interrupt();
+                        return ProviderSearchOutcome.interrupted(task, started);
+                    }
+                }
+            }
+        }
+        return new ProviderSearchOutcome(task.branch().language(), task.providerIndex(), task.provider().providerCode(),
+                task.branch().query().searchRound(), List.of(), "FAILED", System.currentTimeMillis() - started, 0, 0);
+    }
+
+    private boolean quotasSatisfied(List<SearchBranch> branches, List<ProviderSearchOutcome> outcomes) {
+        List<ProviderSearchOutcome> orderedOutcomes = new ArrayList<>(outcomes);
+        orderedOutcomes.sort(Comparator.comparingInt(ProviderSearchOutcome::providerIndex)
+                .thenComparing(ProviderSearchOutcome::language));
+        CandidateIdentitySet selectedKeys = new CandidateIdentitySet();
+        for (SearchBranch branch : branches) {
+            List<CandidateGroup> candidates = rankedCandidateGroups(branch, orderedOutcomes.stream()
+                    .filter(outcome -> branch.language().equals(outcome.language()))
+                    .flatMap(outcome -> outcome.candidates().stream())
+                    .toList());
+            int count = 0;
+            for (CandidateGroup candidate : candidates) {
+                if (selectedKeys.add(candidate)) count++;
+                if (count >= branch.target()) break;
+            }
+            if (count < branch.target()) return false;
+        }
+        return true;
+    }
+
+    private int addBranchSelection(String language, List<SearchBranch> branches,
+                                   List<ProviderSearchOutcome> outcomes, List<ReferenceCandidate> selected,
+                                   CandidateIdentitySet selectedKeys) {
+        SearchBranch branch = branches.stream().filter(item -> language.equals(item.language())).findFirst().orElse(null);
+        if (branch == null) return 0;
+        List<CandidateGroup> candidates = rankedCandidateGroups(branch, outcomes.stream()
+                .filter(outcome -> language.equals(outcome.language()))
+                .flatMap(outcome -> outcome.candidates().stream())
+                .toList());
+        List<ReferenceCandidate> branchSelected = new ArrayList<>();
+        for (CandidateGroup candidate : candidates) {
+            if (selectedKeys.add(candidate)) branchSelected.add(candidate.candidate());
+            if (branchSelected.size() >= branch.target()) break;
+        }
+        selected.addAll(branchSelected);
+        return branchSelected.size();
+    }
+
+    private List<CandidateGroup> rankedCandidateGroups(SearchBranch branch, List<ReferenceCandidate> candidates) {
+        List<ReferenceCandidate> ranked = candidates.stream()
+                .filter(Objects::nonNull)
+                .filter(ReferenceCandidate::basicallyVerified)
+                .filter(candidate -> branch.language().equals(languageOf(candidate)))
+                .filter(candidate -> withinYear(candidate, branch.query()))
+                .filter(this::hasPublicSource)
+                .sorted(candidateRanking(branch))
+                .toList();
+        return groupCandidates(ranked);
+    }
+
+    private Comparator<ReferenceCandidate> candidateRanking(SearchBranch branch) {
+        return Comparator
+                .comparing((ReferenceCandidate candidate) ->
+                        topicMatcher.isRelevant(branch.query(), candidate, branch.language())).reversed()
+                .thenComparing(Comparator.comparingDouble((ReferenceCandidate candidate) ->
+                        topicMatcher.rankingScore(branch.query(), candidate, branch.language())).reversed())
+                .thenComparing(candidate -> blank(candidate.title()));
+    }
+
+    private boolean withinYear(ReferenceCandidate candidate, ReferenceSearchQuery query) {
+        if (candidate.year() == null) return false;
+        if (query.yearStart() > 0 && candidate.year() < query.yearStart()) return false;
+        return query.yearEnd() <= 0 || candidate.year() <= query.yearEnd();
+    }
+
+    private boolean hasPublicSource(ReferenceCandidate candidate) {
+        try {
+            java.net.URI uri = java.net.URI.create(blank(candidate.url()).trim());
+            String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
+            return ("http".equals(scheme) || "https".equals(scheme))
+                    && uri.getHost() != null && !uri.getHost().isBlank();
+        } catch (RuntimeException ignored) {
+            return false;
+        }
+    }
+
+    private int branchTarget(List<SearchBranch> branches, String language) {
+        return branches.stream().filter(branch -> language.equals(branch.language()))
+                .mapToInt(SearchBranch::target).findFirst().orElse(0);
+    }
+
+    private Future<ProviderSearchOutcome> submitProviderTask(
+            CompletionService<ProviderSearchOutcome> completion,
+            ProviderTask task,
+            List<ProviderSearchOutcome> outcomes) {
+        try {
+            return completion.submit(() -> callProvider(task));
+        } catch (RejectedExecutionException exception) {
+            outcomes.add(ProviderSearchOutcome.busy(task));
+            return null;
+        }
+    }
+
+    private void cancelSatisfiedLanguageTasks(
+            Map<Future<ProviderSearchOutcome>, ProviderTask> activeTasks,
+            Set<String> missingLanguages) {
+        var iterator = activeTasks.entrySet().iterator();
+        while (iterator.hasNext()) {
+            Map.Entry<Future<ProviderSearchOutcome>, ProviderTask> entry = iterator.next();
+            if (missingLanguages.contains(entry.getValue().branch().language())) continue;
+            entry.getKey().cancel(true);
+            iterator.remove();
+        }
+    }
+
+    private int nextSearchRound(ProviderSearchOutcome outcome) {
+        return outcome.pageCompleted() ? outcome.searchRound() + 1 : outcome.searchRound();
+    }
+
+    private void updateContinuationStream(ProviderSearchOutcome outcome,
+                                          Map<String, String> previousFingerprints,
+                                          Map<String, Integer> stagnantCounts,
+                                          Map<String, Integer> failedAttemptCounts,
+                                          Set<String> exhaustedStreams) {
+        String key = providerStreamKey(outcome.providerIndex(), outcome.language());
+        if (outcome.terminal()) {
+            exhaustedStreams.add(key);
+            return;
+        }
+        if (!outcome.pageCompleted()) {
+            int failedAttempts = failedAttemptCounts.getOrDefault(key, 0) + 1;
+            failedAttemptCounts.put(key, failedAttempts);
+            if (failedAttempts >= 2) exhaustedStreams.add(key);
+            return;
+        }
+
+        failedAttemptCounts.remove(key);
+        String fingerprint = batchFingerprint(outcome.candidates());
+        String previous = previousFingerprints.get(key);
+        int stagnant = fingerprint.isBlank() || fingerprint.equals(previous)
+                ? stagnantCounts.getOrDefault(key, 0) + 1
+                : 0;
+        if (!fingerprint.isBlank()) previousFingerprints.put(key, fingerprint);
+        stagnantCounts.put(key, stagnant);
+        if (stagnant >= 2) exhaustedStreams.add(key);
+    }
+
+    private String batchFingerprint(List<ReferenceCandidate> candidates) {
+        return candidates.stream()
+                .map(candidate -> {
+                    String doi = normalizeDoi(candidate.doi());
+                    return doi.isBlank() ? "title:" + titleYearKey(candidate) : "doi:" + doi;
+                })
+                .sorted()
+                .distinct()
+                .reduce((left, right) -> left + "|" + right)
+                .orElse("");
+    }
+
+    private String providerStreamKey(ProviderTask task) {
+        return providerStreamKey(task.providerIndex(), task.branch().language());
+    }
+
+    private String providerStreamKey(int providerIndex, String language) {
+        return providerIndex + ":" + language;
+    }
+
+    private Set<String> missingBranchLanguages(List<SearchBranch> branches,
+                                               List<ProviderSearchOutcome> outcomes) {
+        List<ReferenceCandidate> selected = new ArrayList<>();
+        CandidateIdentitySet identities = new CandidateIdentitySet();
+        int chineseCount = addBranchSelection("ZH", branches, outcomes, selected, identities);
+        int englishCount = addBranchSelection("EN", branches, outcomes, selected, identities);
+        Set<String> missing = new LinkedHashSet<>();
+        if (chineseCount < branchTarget(branches, "ZH")) missing.add("ZH");
+        if (englishCount < branchTarget(branches, "EN")) missing.add("EN");
+        return missing;
+    }
+
+    private List<String> continuationExclusions(String language, List<ProviderSearchOutcome> outcomes) {
+        Set<String> hints = new LinkedHashSet<>();
+        for (ProviderSearchOutcome outcome : outcomes) {
+            if (!language.equals(outcome.language())) continue;
+            for (ReferenceCandidate candidate : outcome.candidates()) {
+                String doi = normalizeDoi(candidate.doi());
+                if (!doi.isBlank()) hints.add("DOI " + doi);
+                String title = blank(candidate.title()).trim();
+                if (!title.isBlank()) {
+                    if (title.length() > 120) title = title.substring(0, 120);
+                    hints.add("TITLE " + title + " (" + candidate.year() + ")");
+                }
+                if (hints.size() >= 30) return List.copyOf(hints);
+            }
+        }
+        return List.copyOf(hints);
+    }
+
+    private record SearchBranch(String language, int target, ReferenceSearchQuery query, boolean queryAvailable) {
+    }
+
+    private record ProviderTask(SearchBranch branch, ReferenceSearchProvider provider, int providerIndex) {
+        private ProviderTask forSearchRound(int round, List<String> excludedIdentities) {
+            SearchBranch roundBranch = new SearchBranch(branch.language(), branch.target(),
+                    branch.query().forSearchRound(round, excludedIdentities), branch.queryAvailable());
+            return new ProviderTask(roundBranch, provider, providerIndex);
+        }
+    }
+
+    private record ProviderSearchOutcome(String language, int providerIndex, String providerCode, int searchRound,
+                                          List<ReferenceCandidate> candidates, String status, long durationMs,
+                                          int rawCount, int rejectedCount) {
+        private boolean pageCompleted() {
+            return "SUCCESS".equals(status) || "EMPTY".equals(status);
+        }
+
+        private boolean terminal() {
+            return "QUERY_UNAVAILABLE".equals(status) || "CANCELLED".equals(status) || "BUSY".equals(status);
+        }
+
+        private static ProviderSearchOutcome busy(ProviderTask task) {
+            return new ProviderSearchOutcome(task.branch().language(), task.providerIndex(), task.provider().providerCode(),
+                    task.branch().query().searchRound(), List.of(), "BUSY", 0L, 0, 0);
+        }
+
+        private static ProviderSearchOutcome failed(ProviderTask task) {
+            return new ProviderSearchOutcome(task.branch().language(), task.providerIndex(), task.provider().providerCode(),
+                    task.branch().query().searchRound(), List.of(), "FAILED", 0L, 0, 0);
+        }
+
+        private static ProviderSearchOutcome interrupted(ProviderTask task, long started) {
+            return new ProviderSearchOutcome(task.branch().language(), task.providerIndex(), task.provider().providerCode(),
+                    task.branch().query().searchRound(), List.of(), "CANCELLED",
+                    System.currentTimeMillis() - started, 0, 0);
+        }
+
+        private static ProviderSearchOutcome queryUnavailable(ProviderTask task, long started) {
+            return new ProviderSearchOutcome(task.branch().language(), task.providerIndex(), task.provider().providerCode(),
+                    task.branch().query().searchRound(), List.of(), "QUERY_UNAVAILABLE",
+                    System.currentTimeMillis() - started, 0, 0);
+        }
+    }
+
+    private record ParallelSearchResult(List<ReferenceCandidate> selected, int actualChineseCount,
+                                        int actualEnglishCount, List<String> warnings,
+                                        List<Map<String, Object>> providerOutcomes, boolean timedOut,
+                                        int providersTried, int roundsAttempted) {
+    }
+
+    private String citationText(List<Map<String, Object>> items) {
+        StringBuilder builder = new StringBuilder();
+        for (Map<String, Object> item : items) {
+            builder.append(item.get("gbt7714")).append("\n");
+        }
+        return builder.toString().trim();
     }
 
     private void insertSearchLog(String projectId, String provider, String language, String queryText, int resultCount,
@@ -337,15 +979,92 @@ public class ReferenceSearchService {
     }
 
     private List<ReferenceCandidate> dedupe(List<ReferenceCandidate> candidates) {
-        Map<String, ReferenceCandidate> map = new LinkedHashMap<>();
-        for (ReferenceCandidate candidate : candidates) {
-            String key = candidate.doi() != null && !candidate.doi().isBlank()
-                    ? "doi:" + candidate.doi().toLowerCase(Locale.ROOT)
-                    : "title:" + normalize(candidate.title()) + ":" + candidate.year();
-            ReferenceCandidate previous = map.get(key);
-            if (previous == null || candidate.relevanceScore() > previous.relevanceScore()) map.put(key, candidate);
+        List<ReferenceCandidate> ranked = candidates.stream()
+                .filter(Objects::nonNull)
+                .sorted(Comparator.comparingDouble(ReferenceCandidate::relevanceScore).reversed())
+                .toList();
+        return groupCandidates(ranked).stream().map(CandidateGroup::candidate).toList();
+    }
+
+    private List<CandidateGroup> groupCandidates(List<ReferenceCandidate> ordered) {
+        if (ordered.isEmpty()) return List.of();
+        int[] parents = new int[ordered.size()];
+        Map<String, Integer> doiOwners = new LinkedHashMap<>();
+        Map<String, Integer> titleYearOwners = new LinkedHashMap<>();
+        for (int index = 0; index < ordered.size(); index++) {
+            parents[index] = index;
+            ReferenceCandidate candidate = ordered.get(index);
+            String doi = normalizeDoi(candidate.doi());
+            String titleYear = titleYearKey(candidate);
+            if (!doi.isBlank()) linkIdentity(doiOwners, doi, index, parents);
+            linkIdentity(titleYearOwners, titleYear, index, parents);
         }
-        return new ArrayList<>(map.values());
+
+        Map<Integer, ReferenceCandidate> representatives = new LinkedHashMap<>();
+        Map<Integer, Set<String>> componentDois = new LinkedHashMap<>();
+        Map<Integer, Set<String>> componentTitleYears = new LinkedHashMap<>();
+        for (int index = 0; index < ordered.size(); index++) {
+            ReferenceCandidate candidate = ordered.get(index);
+            int root = findRoot(parents, index);
+            representatives.putIfAbsent(root, candidate);
+            String doi = normalizeDoi(candidate.doi());
+            if (!doi.isBlank()) componentDois.computeIfAbsent(root, ignored -> new LinkedHashSet<>()).add(doi);
+            componentTitleYears.computeIfAbsent(root, ignored -> new LinkedHashSet<>()).add(titleYearKey(candidate));
+        }
+        return representatives.entrySet().stream()
+                .map(entry -> new CandidateGroup(entry.getValue(),
+                        Set.copyOf(componentDois.getOrDefault(entry.getKey(), Set.of())),
+                        Set.copyOf(componentTitleYears.getOrDefault(entry.getKey(), Set.of()))))
+                .toList();
+    }
+
+    private void linkIdentity(Map<String, Integer> owners, String identity, int index, int[] parents) {
+        Integer owner = owners.putIfAbsent(identity, index);
+        if (owner != null) union(parents, owner, index);
+    }
+
+    private int findRoot(int[] parents, int index) {
+        int root = index;
+        while (parents[root] != root) root = parents[root];
+        while (parents[index] != index) {
+            int next = parents[index];
+            parents[index] = root;
+            index = next;
+        }
+        return root;
+    }
+
+    private void union(int[] parents, int left, int right) {
+        int leftRoot = findRoot(parents, left);
+        int rightRoot = findRoot(parents, right);
+        if (leftRoot != rightRoot) parents[rightRoot] = leftRoot;
+    }
+
+    private String titleYearKey(ReferenceCandidate candidate) {
+        return normalize(candidate.title()) + ":" + candidate.year();
+    }
+
+    private final class CandidateIdentitySet {
+        private final Set<String> dois = new LinkedHashSet<>();
+        private final Set<String> titleYears = new LinkedHashSet<>();
+
+        private boolean add(CandidateGroup candidate) {
+            boolean duplicate = candidate.dois().stream().anyMatch(dois::contains)
+                    || candidate.titleYears().stream().anyMatch(titleYears::contains);
+            dois.addAll(candidate.dois());
+            titleYears.addAll(candidate.titleYears());
+            return !duplicate;
+        }
+    }
+
+    private record CandidateGroup(ReferenceCandidate candidate, Set<String> dois, Set<String> titleYears) {
+    }
+
+    private String normalizeDoi(String doi) {
+        if (doi == null) return "";
+        return doi.trim().toLowerCase(Locale.ROOT)
+                .replaceFirst("^https?://(dx\\.)?doi\\.org/", "")
+                .replaceFirst("^doi\\s*:\\s*", "");
     }
 
     private String normalize(String title) {
@@ -510,6 +1229,10 @@ public class ReferenceSearchService {
     }
 
     private String languageOf(ReferenceCandidate candidate) {
+        String metadataLanguage = candidate.language() == null ? "" : candidate.language().trim().toLowerCase(Locale.ROOT);
+        if (metadataLanguage.equals("zh") || metadataLanguage.startsWith("zh-") || metadataLanguage.contains("chinese")) return "ZH";
+        if (metadataLanguage.equals("en") || metadataLanguage.startsWith("en-") || metadataLanguage.contains("english")) return "EN";
+        if (!metadataLanguage.isBlank()) return "OTHER";
         String title = candidate.title() == null ? "" : candidate.title();
         if (title.codePoints().anyMatch(code -> Character.UnicodeScript.of(code) == Character.UnicodeScript.HAN)) return "ZH";
         return "EN";

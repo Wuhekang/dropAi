@@ -152,7 +152,7 @@ http://服务器公网IP/api/rewrite/ai/status
 
 如果文档上传失败，检查 Nginx 和 Spring 上传限制。当前已配置：
 
-- Nginx：`client_max_body_size 60m`
+- Nginx：`client_max_body_size 500m`（PPT 模板 ZIP 可包含多个高质量模板）
 - Spring：`max-file-size: 50MB`，`max-request-size: 60MB`
 
 ## 域名和 HTTPS

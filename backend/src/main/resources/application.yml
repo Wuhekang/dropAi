@@ -6,6 +6,10 @@ server:
       enabled: true
       force: true
 
+dokiai:
+  tomcat:
+    nio2-enabled: ${DOKIAI_TOMCAT_NIO2_ENABLED:false}
+
 spring:
   application:
     name: academic-rewrite-backend
@@ -16,8 +20,8 @@ spring:
     password: ${SPRING_DATASOURCE_PASSWORD:123456}
   servlet:
     multipart:
-      max-file-size: 50MB
-      max-request-size: 60MB
+      max-file-size: 500MB
+      max-request-size: 500MB
 
 mybatis-plus:
   configuration:
@@ -31,13 +35,15 @@ app:
     min-inflate-ratio: ${POI_MIN_INFLATE_RATIO:0.001}
   epay:
     gateway: ${EPAY_GATEWAY:https://pay.dropai-demo.com/submit.php}
-    pid: ${EPAY_PID:1000}
-    key: ${EPAY_KEY:T451e2G86pJlG2tcePGe41jpzMprQ14b}
-    base-url: ${APP_BASE_URL:https://dro.k8818.cn}
-    notify-url: ${EPAY_NOTIFY_URL:https://dro.k8818.cn/api/recharge/notify}
-    return-url: ${EPAY_RETURN_URL:https://dro.k8818.cn/recharge}
+    pid: ${EPAY_PID:}
+    key: ${EPAY_KEY:}
+    base-url: ${APP_BASE_URL:https://dropai-demo.com}
+    notify-url: ${EPAY_NOTIFY_URL:}
+    return-url: ${EPAY_RETURN_URL:}
     site-name: ${EPAY_SITE_NAME:DropAI}
     default-type: ${EPAY_DEFAULT_TYPE:alipay}
+    query-url: ${EPAY_QUERY_URL:https://pay.dropai-demo.com/api.php}
+    mock-enabled: ${EPAY_MOCK_ENABLED:false}
 
 ai:
   doubao:
@@ -69,15 +75,25 @@ ai:
     debug: ${DOUBAO_DEBUG:false}
     document-concurrency: 64
 
+# 智能绘图复用统一豆包环境变量；这里只保存变量引用，不保存任何密钥值。
+diagram-assistant:
+  api-key: ${DOUBAO_API_KEY:}
+  endpoint: ${DOUBAO_ENDPOINT:https://ark.cn-beijing.volces.com/api/v3/chat/completions}
+  model: ${DOUBAO_MODEL:doubao-seed-2-1-turbo-260628}
+  summary-max-chars: ${DIAGRAM_SUMMARY_MAX_CHARS:100}
+  source-max-chars: ${DIAGRAM_SOURCE_MAX_CHARS:50000}
+
 writing:
   max-retry: ${WRITING_MAX_RETRY:3}
   chapter-timeout-seconds: ${WRITING_CHAPTER_TIMEOUT:180}
   reference-search:
     enabled: ${WRITING_REFERENCE_SEARCH_ENABLED:true}
-    provider: ${WRITING_REFERENCE_SEARCH_PROVIDER:doubao_web}
+    provider: ${WRITING_REFERENCE_SEARCH_PROVIDER:doubao_web,openalex,crossref}
     max-results: ${WRITING_REFERENCE_SEARCH_MAX_RESULTS:30}
-    timeout-seconds: ${WRITING_REFERENCE_SEARCH_TIMEOUT_SECONDS:30}
-    retry-count: ${WRITING_REFERENCE_SEARCH_RETRY_COUNT:3}
+    timeout-seconds: ${WRITING_REFERENCE_SEARCH_TIMEOUT_SECONDS:20}
+    retry-count: ${WRITING_REFERENCE_SEARCH_RETRY_COUNT:1}
+    public-fallback-enabled: ${WRITING_REFERENCE_SEARCH_PUBLIC_FALLBACK_ENABLED:true}
+    parallelism: ${WRITING_REFERENCE_SEARCH_PARALLELISM:8}
 
 reference:
   openalex:
@@ -87,3 +103,24 @@ reference:
     enabled: ${CROSSREF_SEARCH_ENABLED:false}
     mailto: ${CROSSREF_MAILTO:}
     api-token: ${CROSSREF_API_TOKEN:}
+
+word-format:
+  enabled: ${WORD_FORMAT_ENABLED:true}
+  python: ${WORD_FORMAT_PYTHON:python}
+  worker: ${WORD_FORMAT_WORKER:document-format-tool/format_cli.py}
+  data-dir: ${WORD_FORMAT_DATA_DIR:storage/word-format}
+  max-source-bytes: ${WORD_FORMAT_MAX_SOURCE_BYTES:104857600}
+  max-template-bytes: ${WORD_FORMAT_MAX_TEMPLATE_BYTES:31457280}
+  legacy-templates-enabled: ${WORD_FORMAT_LEGACY_TEMPLATES_ENABLED:}
+  max-expanded-bytes: ${WORD_FORMAT_MAX_EXPANDED_BYTES:1073741824}
+  max-instructions-chars: ${WORD_FORMAT_MAX_INSTRUCTIONS_CHARS:20000}
+  timeout-seconds: ${WORD_FORMAT_TIMEOUT_SECONDS:600}
+  max-concurrent: ${WORD_FORMAT_MAX_CONCURRENT:1}
+  queue-capacity: ${WORD_FORMAT_QUEUE_CAPACITY:20}
+
+# PPT增幅美化仅在基础PPT成功后启用；复用平台豆包配置且绝不输出密钥。
+ppt-enhancement:
+  enabled: ${DOKIAI_PPT_ENHANCEMENT_ENABLED:true}
+  provider: doubao_ark
+  model: ${DOKIAI_PPT_ENHANCEMENT_MODEL:${DOUBAO_MODEL:doubao-seed-2-1-turbo-260628}}
+  data-dir: ${DOKIAI_PPT_ENHANCEMENT_DATA_DIR:storage/ppt}

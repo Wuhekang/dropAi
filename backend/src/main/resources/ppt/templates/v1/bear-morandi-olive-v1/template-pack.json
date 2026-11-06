@@ -1,0 +1,39 @@
+{
+  "schemaVersion": "template-pack.v1",
+  "templatePackId": "bear-morandi-olive-v1",
+  "templatePackVersion": "1.0.0",
+  "displayName": "小熊熊·莫兰迪橄榄",
+  "description": "灰米、橄榄绿与焦糖色抽象模板",
+  "sourceTemplate": {
+    "fileName": "小熊熊 (76).pptx",
+    "sha256": "sha256:a8098b46f9ffc30cbb94caae6f9ef0b5c5292a690578091cb412926e0e6b5e9a",
+    "slideCount": 49,
+    "sanitization": "VISUAL_REGION_ALLOWLIST_V1"
+  },
+  "theme": {
+    "themeId": "bear-morandi-olive-v1",
+    "themeVersion": "1.0.0",
+    "fontProfileId": "cjk-academic-v1"
+  },
+  "assets": [
+    {
+      "assetId": "tpl-bear-morandi-olive-v1-background",
+      "classpathResource": "ppt/templates/v1/bear-morandi-olive-v1/template-background.png",
+      "bundlePath": "assets/templates/bear-morandi-olive-v1/template-background.png",
+      "sha256": "sha256:49ca0ffc4589a88d772257b968ae3330cf12f50d9a8273ebf1f85344fd0f6d50",
+      "mimeType": "image/png",
+      "widthPx": 1600,
+      "heightPx": 900
+    }
+  ],
+  "surfaces": {
+    "COVER": "tpl-bear-morandi-olive-v1-background",
+    "AGENDA": "tpl-bear-morandi-olive-v1-background",
+    "SECTION": "tpl-bear-morandi-olive-v1-background",
+    "CONTENT": "tpl-bear-morandi-olive-v1-background",
+    "IMAGE": "tpl-bear-morandi-olive-v1-background",
+    "TABLE": "tpl-bear-morandi-olive-v1-background",
+    "SUMMARY": "tpl-bear-morandi-olive-v1-background",
+    "THANKS": "tpl-bear-morandi-olive-v1-background"
+  }
+}

@@ -42,8 +42,10 @@ public class CommercialFeatureSchemaInitializer implements ApplicationRunner {
                 CREATE TABLE IF NOT EXISTS recharge_order (
                   id BIGINT AUTO_INCREMENT PRIMARY KEY,
                   user_id BIGINT NOT NULL,
+                  school_id BIGINT DEFAULT 0 NOT NULL,
                   order_no VARCHAR(64) NOT NULL UNIQUE,
                   amount DECIMAL(10,2) NOT NULL,
+                  recharge_price_per10 DECIMAL(10,2),
                   points INT NOT NULL,
                   status VARCHAR(20) NOT NULL,
                   pay_method VARCHAR(30),
@@ -53,14 +55,20 @@ public class CommercialFeatureSchemaInitializer implements ApplicationRunner {
                   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
                   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
                   paid_at TIMESTAMP,
-                  audited_at TIMESTAMP
+                  audited_at TIMESTAMP,
+                  third_party_trade_no VARCHAR(128),
+                  gateway_order_no VARCHAR(128),
+                  provider_trade_no VARCHAR(128),
+                  credited_at TIMESTAMP
                 )
                 """ : """
                 CREATE TABLE IF NOT EXISTS recharge_order (
                   id BIGINT PRIMARY KEY AUTO_INCREMENT,
                   user_id BIGINT NOT NULL,
+                  school_id BIGINT NOT NULL DEFAULT 0,
                   order_no VARCHAR(64) NOT NULL UNIQUE,
                   amount DECIMAL(10,2) NOT NULL,
+                  recharge_price_per10 DECIMAL(10,2) NULL,
                   points INT NOT NULL,
                   status VARCHAR(20) NOT NULL DEFAULT 'pending',
                   pay_method VARCHAR(30) DEFAULT 'alipay_mock',
@@ -71,6 +79,10 @@ public class CommercialFeatureSchemaInitializer implements ApplicationRunner {
                   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                   paid_at DATETIME NULL,
                   audited_at DATETIME NULL,
+                  third_party_trade_no VARCHAR(128) NULL,
+                  gateway_order_no VARCHAR(128) NULL,
+                  provider_trade_no VARCHAR(128) NULL,
+                  credited_at DATETIME NULL,
                   INDEX idx_recharge_user_created (user_id, created_at),
                   INDEX idx_recharge_status (status)
                 ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
@@ -96,6 +108,21 @@ public class CommercialFeatureSchemaInitializer implements ApplicationRunner {
                   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                   INDEX idx_user_points_log_user_created (user_id, created_at),
                   INDEX idx_user_points_log_reason (reason)
+                ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+                """);
+        jdbcTemplate.execute(h2 ? """
+                CREATE TABLE IF NOT EXISTS recharge_reconciliation (
+                  id BIGINT AUTO_INCREMENT PRIMARY KEY, order_no VARCHAR(64) NOT NULL,
+                  operator_user_id BIGINT NOT NULL, reason VARCHAR(255) NOT NULL,
+                  result VARCHAR(30) NOT NULL, detail VARCHAR(500), created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+                )
+                """ : """
+                CREATE TABLE IF NOT EXISTS recharge_reconciliation (
+                  id BIGINT PRIMARY KEY AUTO_INCREMENT, order_no VARCHAR(64) NOT NULL,
+                  operator_user_id BIGINT NOT NULL, reason VARCHAR(255) NOT NULL,
+                  result VARCHAR(30) NOT NULL, detail VARCHAR(500) NULL,
+                  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  INDEX idx_reconcile_order_created (order_no, created_at)
                 ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
                 """);
         jdbcTemplate.execute(h2 ? """
@@ -144,6 +171,13 @@ public class CommercialFeatureSchemaInitializer implements ApplicationRunner {
         ensureColumn(connection, "recharge_order", "updated_at",
                 h2 ? "TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL" : "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP");
         ensureColumn(connection, "recharge_order", "audited_at", h2 ? "TIMESTAMP" : "DATETIME NULL");
+        ensureColumn(connection, "recharge_order", "refund_amount", "DECIMAL(10,2) DEFAULT 0 NOT NULL");
+        ensureColumn(connection, "recharge_order", "school_id", "BIGINT DEFAULT 0 NOT NULL");
+        ensureColumn(connection, "recharge_order", "recharge_price_per10", "DECIMAL(10,2)");
+        ensureColumn(connection, "recharge_order", "third_party_trade_no", "VARCHAR(128)");
+        ensureColumn(connection, "recharge_order", "gateway_order_no", "VARCHAR(128)");
+        ensureColumn(connection, "recharge_order", "provider_trade_no", "VARCHAR(128)");
+        ensureColumn(connection, "recharge_order", "credited_at", h2 ? "TIMESTAMP" : "DATETIME NULL");
     }
 
     private void seedDefaultNotice() {
@@ -210,3 +244,4 @@ public class CommercialFeatureSchemaInitializer implements ApplicationRunner {
         }
     }
 }
+

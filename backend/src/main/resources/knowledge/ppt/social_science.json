@@ -1,0 +1,78 @@
+{
+  "majorType": "social_science",
+  "metadataLabels": ["题目", "课题名称", "论文题目", "学生", "学生姓名", "学号", "专业", "学院", "指导教师", "开题日期"],
+  "formMarkers": ["指导教师意见", "开题小组意见", "签字栏", "审核意见"],
+  "forbiddenStandalone": ["关键词", "研究方法", "参考文献"],
+  "technologyTerms": [],
+  "purposeRules": [
+    {
+      "purpose": "BACKGROUND",
+      "chapterNumbers": [1],
+      "keywords": ["研究背景", "选题背景", "行业背景", "政策背景", "研究意义", "选题意义", "研究目的"],
+      "title": "选题背景与研究价值",
+      "answerQuestion": "为什么选择这一课题，研究具有什么价值？"
+    },
+    {
+      "purpose": "BACKGROUND",
+      "chapterNumbers": [1],
+      "keywords": ["国内研究", "国外研究", "研究现状", "文献综述", "文献述评", "国内外"],
+      "title": "国内外研究现状",
+      "answerQuestion": "已有研究形成了哪些主要观点？"
+    },
+    {
+      "purpose": "PROBLEM",
+      "chapterNumbers": [1, 2],
+      "keywords": ["研究空白", "现有不足", "研究不足", "缺乏", "局限", "核心问题", "主要问题"],
+      "title": "研究空白与核心问题",
+      "answerQuestion": "现有研究还存在哪些不足，本课题重点解决什么问题？"
+    },
+    {
+      "purpose": "DESIGN",
+      "chapterNumbers": [2],
+      "keywords": ["研究内容", "总体框架", "内容框架", "现状分析", "影响因素", "对策建议", "研究方案"],
+      "title": "研究内容总体框架",
+      "answerQuestion": "课题将围绕哪些层次展开分析？"
+    },
+    {
+      "purpose": "METHOD",
+      "chapterNumbers": [2],
+      "keywords": ["研究方法", "文献研究法", "案例分析法", "比率分析法", "趋势分析法", "问卷调查法", "访谈法", "指标体系"],
+      "title": "研究方法与指标体系",
+      "answerQuestion": "课题采用哪些方法和指标完成论证？"
+    },
+    {
+      "purpose": "METHOD",
+      "chapterNumbers": [2],
+      "keywords": ["技术路线", "研究路线", "数据来源", "年度报告", "财务报表", "资料来源", "样本数据"],
+      "title": "数据来源与技术路线",
+      "answerQuestion": "研究数据从哪里获得，分析工作如何推进？"
+    },
+    {
+      "purpose": "DESIGN",
+      "chapterNumbers": [3],
+      "keywords": ["研究条件", "已具备", "所需条件", "可能困难", "存在困难", "解决措施", "应对措施"],
+      "title": "研究条件与困难对策",
+      "answerQuestion": "完成课题已具备哪些条件，可能遇到的困难如何解决？"
+    },
+    {
+      "purpose": "TEST",
+      "chapterNumbers": [4],
+      "keywords": ["进度安排", "研究进度", "工作计划", "阶段任务", "时间安排"],
+      "title": "研究进度安排",
+      "answerQuestion": "课题各阶段将在什么时间完成哪些任务？"
+    },
+    {
+      "purpose": "SUMMARY",
+      "chapterNumbers": [4],
+      "keywords": ["预期目标", "预期成果", "达到目标", "应用价值", "形成成果"],
+      "title": "预期成果与应用价值",
+      "answerQuestion": "课题预计形成什么成果并产生何种应用价值？"
+    }
+  ],
+  "chapterConstraints": [
+    {"chapterNumber": 1, "allowedPurposes": ["BACKGROUND", "PROBLEM"]},
+    {"chapterNumber": 2, "allowedPurposes": ["PROBLEM", "METHOD", "DESIGN"]},
+    {"chapterNumber": 3, "allowedPurposes": ["DESIGN", "METHOD"]},
+    {"chapterNumber": 4, "allowedPurposes": ["TEST", "SUMMARY"]}
+  ]
+}
