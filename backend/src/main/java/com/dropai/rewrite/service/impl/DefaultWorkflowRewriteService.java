@@ -222,6 +222,17 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
             String restored = protectedText.restore(retried);
             String candidate = humanizeExpression(academicPolish(restored, baseRewriteType), useModelHumanize);
             requireNonBlankOutput(candidate, "结构重试输出经清理后为空");
+            if ((rewriteType.endsWith("@PAPERPASS") || rewriteType.endsWith("@WEIPU"))
+                    && OrdinaryRewriteAmplitude.hasTemplateSkeleton(candidate)) {
+                String cadenceRetry = rewriteSentences(protectedText.text(), rewriteType, beforeScore,
+                        OrdinaryRewriteAmplitude.safeCadenceFeedback());
+                String cadenceCandidate = humanizeExpression(
+                        academicPolish(protectedText.restore(cadenceRetry), baseRewriteType), useModelHumanize);
+                requireNonBlankOutput(cadenceCandidate, "普通表达重试输出为空");
+                if (!OrdinaryRewriteAmplitude.hasTemplateSkeleton(cadenceCandidate)) {
+                    candidate = cadenceCandidate;
+                }
+            }
             boolean firstUnchanged = OrdinaryRewriteAmplitude.sameLetters(original, current);
             boolean retryUnchanged = OrdinaryRewriteAmplitude.sameLetters(original, candidate);
             boolean sentenceBoundaryMoved = OrdinaryRewriteAmplitude.sentences(candidate)
