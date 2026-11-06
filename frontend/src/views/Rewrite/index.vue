@@ -82,7 +82,7 @@
           </div>
         </dl>
 
-        <div v-if="docMode !== 'rewrite'" class="platform-selector">
+        <div v-if="showDocumentPlatform" class="platform-selector">
           <div class="platform-selector-copy">
             <span>平台</span>
             <strong>{{ activePlatformOption.label }}</strong>
@@ -170,6 +170,22 @@
             {{ textSubmitting ? '正在优化...' : `开始文本优化（${textCostText}）` }}
           </button>
         </div>
+      </div>
+
+      <div v-if="showTextPlatform" class="platform-selector text-platform-selector">
+        <div class="platform-selector-copy">
+          <span>平台</span>
+          <strong>{{ activePlatformOption.label }}</strong>
+          <small>{{ activePlatformOption.description }}</small>
+        </div>
+        <label>
+          <span class="sr-only">选择平台</span>
+          <select v-model="docPlatform" :disabled="textSubmitting">
+            <option v-for="item in platformOptions" :key="item.value" :value="item.value">
+              {{ item.label }}
+            </option>
+          </select>
+        </label>
       </div>
 
       <div class="compare-grid">
@@ -270,13 +286,53 @@ const modes = [
 const platformOptions = [
   {
     value: 'GENERAL',
-    label: 'dropai原生降ai（可处理维普知网）',
+    label: '通用',
     description: '默认沿用现有降 AI 原则、积分规则与文档处理链。'
+  },
+  {
+    value: 'CNKI',
+    label: '知网',
+    description: '知网口径的原生降 AI，默认普通强度。'
+  },
+  {
+    value: 'WEIPU',
+    label: '维普',
+    description: '维普口径的原生降 AI，默认普通强度。'
+  },
+  {
+    value: 'GEZIDA',
+    label: '格子达',
+    description: '格子达降 AI 专用档，走原生文档上传。'
+  },
+  {
+    value: 'PAPERPASS',
+    label: 'PaperPass',
+    description: 'PaperPass 降 AI 专用档，走原生文档上传。'
+  },
+  {
+    value: 'PAPERYY',
+    label: 'PaperYY',
+    description: 'PaperYY 口径的原生降 AI，默认普通强度。'
+  },
+  {
+    value: 'ZHUQUE',
+    label: '朱雀',
+    description: '朱雀口径的原生降 AI，默认普通强度。'
+  },
+  {
+    value: 'WANFANG',
+    label: '万方',
+    description: '万方降 AI 专用档，走原生文档上传。'
+  },
+  {
+    value: 'TURNITIN',
+    label: 'Turnitin',
+    description: 'Turnitin 降 AI 专用档，走原生文档上传。'
   },
   {
     value: 'DAYA',
     label: '大雅',
-    description: 'Doki按大雅报告片段口径重组正文，并专项打碎第一、第二、第三等列举结构。'
+    description: '仅文档走大雅外部通道。按大雅报告片段口径重组正文，并专项打碎第一、第二、第三等列举结构。'
   }
 ]
 
@@ -315,8 +371,12 @@ const pageSize = 10
 const activeDocMode = computed(() => modes.find(item => item.value === docMode.value) || modes[0])
 const activeTextMode = computed(() => modes.find(item => item.value === textMode.value) || modes[0])
 const activePlatformOption = computed(() => platformOptions.find(item => item.value === docPlatform.value) || platformOptions[0])
-const externalDocumentPlatform = computed(() => docMode.value !== 'rewrite' && docPlatform.value !== 'GENERAL')
-const documentProviderBadge = computed(() => externalDocumentPlatform.value ? `${activePlatformOption.value.label}适配` : '模型已连接')
+const showDocumentPlatform = computed(() => docMode.value !== 'rewrite')
+const showTextPlatform = computed(() => textMode.value !== 'rewrite')
+const usesExternalDocumentUpload = computed(() => showDocumentPlatform.value && docPlatform.value === 'DAYA')
+const documentUploadPlatform = computed(() => showDocumentPlatform.value ? docPlatform.value : 'GENERAL')
+const textUploadPlatform = computed(() => showTextPlatform.value ? docPlatform.value : 'GENERAL')
+const documentProviderBadge = computed(() => usesExternalDocumentUpload.value ? `${activePlatformOption.value.label}适配` : '模型已连接')
 const documentProcessing = computed(() => ['PENDING', 'RUNNING'].includes(documentJob.status))
 const docBusy = computed(() => documentPrechecking.value || documentUploading.value || documentProcessing.value)
 const documentCostText = computed(() => documentPrecheck.costPoints > 0 ? `${documentPrecheck.costPoints} 积分` : '免费')
@@ -410,7 +470,7 @@ async function submitText() {
     const result = await submitRewrite({
       originalText: originalText.value,
       rewriteType: activeTextMode.value.apiMode,
-      platform: 'GENERAL'
+      platform: textUploadPlatform.value
     })
     originalSnapshot.value = originalText.value
     rewrittenText.value = result.rewrittenText || ''
@@ -460,13 +520,13 @@ async function submitDocument() {
   resetDocumentJob()
   setDocProgress(10, '正在拆分文本段落...')
   try {
-    const job = externalDocumentPlatform.value
+    const job = usesExternalDocumentUpload.value
       ? await uploadExternalDocument(selectedDocument.value, activeDocMode.value.apiMode, docPlatform.value, documentPrecheck.requestId)
-      : await uploadDocument(selectedDocument.value, activeDocMode.value.apiMode, 'GENERAL', documentPrecheck.requestId)
+      : await uploadDocument(selectedDocument.value, activeDocMode.value.apiMode, documentUploadPlatform.value, documentPrecheck.requestId)
     setDocumentJob(job)
     upsertDocumentJob(job)
     setDocProgress(jobProgress(job), documentStepText.value)
-    if (externalDocumentPlatform.value) {
+    if (usesExternalDocumentUpload.value) {
       try {
         await startDocumentPolling(job.jobId)
       } catch (error) {
@@ -1181,6 +1241,11 @@ onBeforeUnmount(stopDocumentPolling)
 }
 
 .text-panel {
+  margin-bottom: 16px;
+}
+
+.text-platform-selector {
+  margin-top: 0;
   margin-bottom: 16px;
 }
 

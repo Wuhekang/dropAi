@@ -53,6 +53,7 @@ function rewritePage(job) {
   const counts = { polls: 0, downloads: 0, uploads: 0, clicks: 0 }
   const notifications = []
   const filenames = []
+  const uploads = []
   const source = readFileSync(new URL('../src/views/Rewrite/index.vue', import.meta.url), 'utf8')
     .match(/<script setup>([\s\S]*?)<\/script>/)[1]
     .replace(/^import[\s\S]*?from\s+['"][^'"]+['"]\r?\n/gm, '')
@@ -67,14 +68,26 @@ function rewritePage(job) {
     getDocumentJob: async () => job,
     getDocumentJobs: async () => [],
     downloadDocument: async () => { counts.downloads += 1; return new Blob(['valid-docx']) },
-    uploadDocument: async () => { counts.uploads += 1; return job },
-    uploadExternalDocument: async () => { counts.uploads += 1; return job },
+    uploadDocument: async (file, mode, platform, requestId) => {
+      counts.uploads += 1
+      uploads.push({ channel: 'native', mode, platform, requestId })
+      return job
+    },
+    uploadExternalDocument: async (file, mode, platform, requestId) => {
+      counts.uploads += 1
+      uploads.push({ channel: 'external', mode, platform, requestId })
+      return job
+    },
+    submitRewrite: async (data) => {
+      uploads.push({ channel: 'text', ...data })
+      return { rewrittenText: '已优化' }
+    },
     window: { setInterval: () => { counts.polls += 1; return 1 }, clearInterval: noop, setTimeout: noop },
     URL: { createObjectURL: () => 'blob:document', revokeObjectURL: noop },
     document: { createElement: () => ({ click() { counts.clicks += 1; filenames.push(this.download) } }) }
   })
-  vm.runInContext(`${source}\nglobalThis.page = { startDocumentPolling, handleDocumentAction, downloadDocumentJob, setDocumentJob, documentJob, docProgress, docActionDisabled, docActionText, taskStateLabel, downloadStateText, partialCompletionNotice };`, context)
-  return { page: context.page, counts, notifications, filenames }
+  vm.runInContext(`${source}\nglobalThis.page = { startDocumentPolling, handleDocumentAction, downloadDocumentJob, setDocumentJob, submitDocument, submitText, documentJob, docProgress, docActionDisabled, docActionText, taskStateLabel, downloadStateText, partialCompletionNotice, docMode, docPlatform, textMode, originalText, selectedDocument, documentPrecheck, platformOptions, showDocumentPlatform, showTextPlatform };`, context)
+  return { page: context.page, counts, notifications, filenames, uploads }
 }
 
 test('actual partial-result action downloads the existing file, with no polling or resubmission', async () => {
@@ -153,4 +166,81 @@ test('actual service partial results retain their status and generic notice with
   assert.equal(notifications.some(item => /DROP_AI_PROTECTED|表格说明/.test(item.message)), false)
   await page.handleDocumentAction()
   assert.deepEqual(filenames, ['测试稿_部分完成版.docx'])
+})
+
+const NATIVE_PLATFORMS = ['GENERAL', 'CNKI', 'WEIPU', 'GEZIDA', 'PAPERPASS', 'PAPERYY', 'ZHUQUE', 'WANFANG', 'TURNITIN', 'DAYA']
+
+test('rewrite platform list exposes every native code plus Daya', () => {
+  const { page } = rewritePage({})
+  assert.deepEqual([...page.platformOptions].map(item => String(item.value)), NATIVE_PLATFORMS)
+  assert.equal(page.platformOptions.find(item => item.value === 'CNKI').label, '知网')
+  assert.equal(page.platformOptions.find(item => item.value === 'PAPERPASS').label, 'PaperPass')
+  assert.equal(page.platformOptions.find(item => item.value === 'DAYA').label, '大雅')
+  assert.equal(page.docPlatform.value, 'GENERAL')
+})
+
+test('降AI sends the selected native platform to the native upload', async () => {
+  const job = { jobId: 'paperpass', status: 'SUCCESS', platform: 'PAPERPASS' }
+  const { page, uploads } = rewritePage(job)
+  page.selectedDocument.value = { name: 'paper.docx', size: 128 }
+  page.documentPrecheck.ready = true
+  page.documentPrecheck.requestId = 'req-paperpass'
+  page.docMode.value = 'humanize'
+  page.docPlatform.value = 'PAPERPASS'
+  assert.equal(page.showDocumentPlatform.value, true)
+  await page.submitDocument()
+  assert.deepEqual(uploads, [{ channel: 'native', mode: 'humanize', platform: 'PAPERPASS', requestId: 'req-paperpass' }])
+})
+
+test('only Daya uses the external upload; other codes stay on the native upload', async () => {
+  for (const platform of NATIVE_PLATFORMS) {
+    const job = { jobId: platform, status: 'SUCCESS', platform }
+    const { page, uploads } = rewritePage(job)
+    page.selectedDocument.value = { name: 'paper.docx', size: 128 }
+    page.documentPrecheck.ready = true
+    page.documentPrecheck.requestId = `req-${platform}`
+    page.docMode.value = 'humanize'
+    page.docPlatform.value = platform
+    await page.submitDocument()
+    assert.deepEqual(uploads, [{
+      channel: platform === 'DAYA' ? 'external' : 'native',
+      mode: 'humanize',
+      platform,
+      requestId: `req-${platform}`
+    }])
+  }
+})
+
+test('降重 hides the platform selector and still uploads as GENERAL', async () => {
+  const job = { jobId: 'rewrite-general', status: 'SUCCESS', platform: 'GENERAL' }
+  const { page, uploads } = rewritePage(job)
+  page.selectedDocument.value = { name: 'paper.docx', size: 128 }
+  page.documentPrecheck.ready = true
+  page.documentPrecheck.requestId = 'req-rewrite'
+  page.docMode.value = 'rewrite'
+  page.docPlatform.value = 'PAPERPASS'
+  assert.equal(page.showDocumentPlatform.value, false)
+  await page.submitDocument()
+  assert.deepEqual(uploads, [{ channel: 'native', mode: 'rewrite', platform: 'GENERAL', requestId: 'req-rewrite' }])
+})
+
+test('text 降AI and 双降 send the selected platform, while 降重 stays GENERAL', async () => {
+  const { page, uploads } = rewritePage({})
+  page.originalText.value = '需要优化的一段论文文字'
+  page.docPlatform.value = 'PAPERPASS'
+  page.textMode.value = 'humanize'
+  assert.equal(page.showTextPlatform.value, true)
+  await page.submitText()
+  page.textMode.value = 'double'
+  page.docPlatform.value = 'CNKI'
+  await page.submitText()
+  page.textMode.value = 'rewrite'
+  page.docPlatform.value = 'PAPERPASS'
+  assert.equal(page.showTextPlatform.value, false)
+  await page.submitText()
+  assert.deepEqual(uploads.map(item => ({ channel: item.channel, rewriteType: item.rewriteType, platform: item.platform })), [
+    { channel: 'text', rewriteType: 'humanize', platform: 'PAPERPASS' },
+    { channel: 'text', rewriteType: 'double', platform: 'CNKI' },
+    { channel: 'text', rewriteType: 'rewrite', platform: 'GENERAL' }
+  ])
 })
