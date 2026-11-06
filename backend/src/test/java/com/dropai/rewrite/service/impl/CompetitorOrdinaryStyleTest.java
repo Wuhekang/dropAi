@@ -13,6 +13,17 @@ class CompetitorOrdinaryStyleTest {
     }
 
     @Test
+    void catchesReplacementBrochureSkeletonWithoutRejectingPlainAlternates() {
+        assertThat(OrdinaryRewriteAmplitude.hasTemplateSkeleton("口岸能力得到直接提升。")).isTrue();
+        assertThat(OrdinaryRewriteAmplitude.hasTemplateSkeleton("针对这些短板，研究从预约等方向提出优化思路，供管理参考。")).isTrue();
+        assertThat(OrdinaryRewriteAmplitude.hasTemplateSkeleton("从结果看，等候时间可以减少约20%。因此本文提出相应的改善措施。")).isFalse();
+        for (String platform : new String[]{"PAPERPASS", "WEIPU"}) {
+            assertThat(NativeHumanizeProfiles.profileInstruction("humanize", platform))
+                .contains("v2", "月度同比不能改成上一年", "没有实际调研不能声称调查", "针对这些短板");
+        }
+    }
+
+    @Test
     void targetedProfilesKeepQualifiersAndMetricMeaning() {
         for (String platform : new String[]{"PAPERPASS", "WEIPU"}) {
             assertThat(NativeHumanizeProfiles.profileInstruction("humanize", platform))

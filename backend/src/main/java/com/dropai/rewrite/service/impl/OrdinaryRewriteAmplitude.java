@@ -55,12 +55,12 @@ final class OrdinaryRewriteAmplitude {
 
     static boolean hasTemplateSkeleton(String text) {
         if (text == null) return false;
-        return java.util.regex.Pattern.compile("研究发现|据此|以期|综合运用|持续提高|尚未完全转化为|本文从[^。！？]{0,160}等方面提出改进建议")
+        return java.util.regex.Pattern.compile("研究发现|据此|以期|综合运用|持续提高|尚未完全转化为|得到直接提升|针对这些短板[，,]?研究从[^。！？]{0,160}提出优化思路|提出优化思路[，,]?供[^。！？]{0,160}参考|本文从[^。！？]{0,160}等方面提出改进建议")
                 .matcher(text).find();
     }
 
     static String retryFeedback() {
-        return RETRY_FEEDBACK + "摘要和方法枚举段还须消除研究发现、据此、以期、综合运用等模板骨架；保留可、约、超过等事实限定。";
+        return RETRY_FEEDBACK + "摘要和方法枚举段还须消除研究发现、据此、以期、综合运用以及得到直接提升、针对这些短板研究从……提出优化思路供……参考的新模板骨架；用平实学术句重组，保留可、约、超过等事实限定。";
     }
 
     static boolean sameLetters(String left, String right) {
