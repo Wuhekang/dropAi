@@ -10,6 +10,27 @@ import java.math.BigInteger;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class DocxNativeStructureGuardTest {
+    @Test
+    void rewritesCommentedProseWithoutRemovingCommentNodesOrRunFormatting() throws Exception {
+        try (XWPFDocument document = new XWPFDocument()) {
+            XWPFParagraph p = document.createParagraph();
+            p.getCTP().addNewCommentRangeStart().setId(BigInteger.valueOf(4));
+            var text = p.createRun();
+            text.setBold(true);
+            text.setText("研究发现，等待时间可减少约20%。");
+            p.getCTP().addNewCommentRangeEnd().setId(BigInteger.valueOf(4));
+            var reference = p.createRun().getCTR();
+            reference.addNewCommentReference().setId(BigInteger.valueOf(4));
+            String referenceBefore = reference.xmlText();
+            assertThat(DocxNativeStructureGuard.replacePreservingRuns(p, "等候时间可以减少约20%。")).isTrue();
+            assertThat(p.getText()).isEqualTo("等候时间可以减少约20%。");
+            assertThat(text.isBold()).isTrue();
+            assertThat(reference.xmlText()).isEqualTo(referenceBefore);
+            assertThat(p.getCTP().getCommentRangeStartArray(0).getId()).isEqualTo(BigInteger.valueOf(4));
+            assertThat(p.getCTP().getCommentRangeEndArray(0).getId()).isEqualTo(BigInteger.valueOf(4));
+        }
+    }
+
 
     @Test
     void refBookmarkAndCaptionFieldParagraphsStayByteForByte() throws Exception {
