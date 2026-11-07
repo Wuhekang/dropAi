@@ -11,6 +11,16 @@ class OrdinaryFullRebuildTest {
   String s="友谊关口岸负责组织进口榴莲的查验和通行，车辆排队与冷链衔接需要协调。".repeat(4);
   assertThat(OrdinaryFullRebuild.issues(s,s)).anyMatch(x->x.contains("密度"));
  }
+ @Test void workflowPreservesOrdinalWordsAndFailsInsteadOfReturningSource() {
+  var ai=org.mockito.Mockito.mock(com.dropai.rewrite.service.AiRewriteService.class);
+  String source="首先，检查资料。其次，核对事实。最后，确认结论。";
+  org.mockito.Mockito.when(ai.rewriteWithFeedback(org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyInt(),org.mockito.ArgumentMatchers.anyString())).thenReturn(source);
+  var workflow=new DefaultWorkflowRewriteService(ai,new com.dropai.rewrite.service.TextStructureProtector());
+  assertThat(workflow.execute(source,"humanize@WEIPU").getRewrittenText()).isEqualTo(source);
+  String unchanged="研究发现，现有资料中的事实应得到保留。".repeat(8);
+  org.mockito.Mockito.when(ai.rewriteWithFeedback(org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyInt(),org.mockito.ArgumentMatchers.anyString())).thenReturn(unchanged);
+  org.assertj.core.api.Assertions.assertThatThrownBy(()->workflow.execute(unchanged,"humanize@PAPERPASS")).isInstanceOf(IllegalStateException.class);
+ }
  @Test void deepAndDoubleRemainOutsideNewRoute() {
   assertThat(OrdinaryRewriteAmplitude.applies("深度降低AI写作痕迹@WEIPU")).isFalse();
   assertThat(OrdinaryRewriteAmplitude.applies("double@WEIPU")).isFalse();

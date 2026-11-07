@@ -131,18 +131,20 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
     private String rebuildOrdinary(String original, TextStructureProtector.ProtectedText protectedText,
                                    String type, int score, List<WorkflowStepVO> steps) {
         String feedback = OrdinaryFullRebuild.INSTRUCTION;
+        List<String> lastIssues = List.of();
         for (int attempt = 0; attempt < 3; attempt++) {
             // No academicPolish/humanizeExpression: they erase ordinal words and change qualifiers.
             String candidate = protectedText.restore(normalizeAiOutput(
                     aiRewriteService.rewriteWithFeedback(protectedText.text(), type, score, feedback), type));
             List<String> issues = OrdinaryFullRebuild.issues(original, candidate);
+            lastIssues = issues;
             if (issues.isEmpty()) {
                 steps.add(new WorkflowStepVO("ORDINARY_FULL_REBUILD", "普通整段重构", "候选通过换词密度、序号与基础事实检查；不代表语义等价已被自动证明"));
                 return candidate;
             }
             feedback = OrdinaryFullRebuild.INSTRUCTION + "上一候选未通过：" + String.join("；", issues);
         }
-        throw new IllegalStateException("普通整段重构三次候选均未通过验收，不回填原稿冒充成功");
+        throw new IllegalStateException("普通整段重构三次候选均未通过验收：" + String.join("；", lastIssues));
     }
 
     private String rewriteWithHardGate(String original,
