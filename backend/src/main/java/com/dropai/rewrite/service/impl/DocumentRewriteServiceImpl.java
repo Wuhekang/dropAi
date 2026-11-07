@@ -345,6 +345,10 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
 
             List<RewriteResult> results = rewriteTargetsWithLengthControl(job, targets, originalTextLength);
             long failedParagraphs = results.stream().filter(result -> !result.success()).count();
+            if (failedParagraphs > 0 && OrdinaryRewriteAmplitude.applies(workflowRequestType(job, "humanize"))
+                    && "humanize".equals(job.getMode())) {
+                throw new IllegalStateException("普通整段重构存在 " + failedParagraphs + " 个未通过验收的段落，停止导出");
+            }
             long successfulParagraphs = results.size() - failedParagraphs;
             Map<Integer, String> originalTextByIndex = targets.stream()
                     .collect(Collectors.toMap(RewriteTarget::index, RewriteTarget::text));
@@ -875,6 +879,10 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
                         );
                     } catch (Exception exception) {
                         String message = readableMessage(exception);
+                        if (OrdinaryRewriteAmplitude.applies(workflowRequestType(job, stageMode))) {
+                            updateParagraphStatus(job, target.index(), "FAILED", "", message);
+                            return new RewriteResult(target.index(), target.paragraph(), target.text(), false, message);
+                        }
                         log.warn("ParagraphFallback jobId={} paragraphIndex={} stage={} action=KEEP_ORIGINAL "
                                         + "errorType={} reason={} elapsedMs={}",
                                 job.getJobId(), target.index(), stageMode, exception.getClass().getSimpleName(),
