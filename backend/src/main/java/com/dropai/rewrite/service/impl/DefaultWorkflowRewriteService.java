@@ -135,12 +135,23 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
         List<String> lastIssues = List.of();
         for (int attempt = 0; attempt < 3; attempt++) {
             // No academicPolish/humanizeExpression: they erase ordinal words and change qualifiers.
-            String candidate = protectedText.restore(normalizeAiOutput(
-                    aiRewriteService.rewriteWithFeedback(protectedText.text(), type, score, feedback), type));
+            String candidate;
+            String raw = normalizeAiOutput(aiRewriteService.rewriteWithFeedback(protectedText.text(), type, score, feedback), type);
+            try {
+                candidate = protectedText.restore(raw);
+            } catch (TextStructureProtector.ProtectedContentIntegrityException exception) {
+                lastIssues = List.of("序号或文档结构占位符未保留：" + exception.getMessage());
+                feedback = OrdinaryFullRebuild.INSTRUCTION + String.join("；", lastIssues);
+                continue;
+            }
             List<String> issues = OrdinaryFullRebuild.issues(original, candidate);
             lastIssues = issues;
             if (issues.isEmpty()) {
-                steps.add(new WorkflowStepVO("ORDINARY_FULL_REBUILD", "普通整段重构", "候选通过换词密度、序号与基础事实检查；不代表语义等价已被自动证明"));
+                steps.add(new WorkflowStepVO("ORDINARY_FULL_REBUILD", "普通整段重构", "候选非空且序号体系一致；其他检查仅供提示，不阻断出稿"));
+                List<String> diagnostics = OrdinaryFullRebuild.diagnostics(original, candidate);
+                if (!diagnostics.isEmpty()) {
+                    steps.add(new WorkflowStepVO("ORDINARY_DIAGNOSTICS", "改写提示", String.join("；", diagnostics)));
+                }
                 return candidate;
             }
             feedback = OrdinaryFullRebuild.INSTRUCTION + "上一候选未通过：" + String.join("；", issues);

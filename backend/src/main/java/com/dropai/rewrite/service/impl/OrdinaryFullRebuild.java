@@ -20,6 +20,11 @@ final class OrdinaryFullRebuild {
         List<String> issues = new ArrayList<>();
         if (output == null || output.isBlank()) return List.of("输出为空");
         if (!matches(ORDINAL, source).equals(matches(ORDINAL, output))) issues.add("序号体系或顺序发生变化");
+        return List.copyOf(issues);
+    }
+    static List<String> diagnostics(String source, String output) {
+        List<String> issues = new ArrayList<>();
+        if (output == null || output.isBlank()) return List.of();
         if (!numbers(source).equals(numbers(output))) issues.add("数值发生变化；允许顺序和周边措辞改变，不允许数值改变");
         for (String entity : List.of("实地考察", "海上丝绸之路", "智能仓储")) {
             if (!source.contains(entity) && output.contains(entity)) issues.add("新增未提供的事实：" + entity);
