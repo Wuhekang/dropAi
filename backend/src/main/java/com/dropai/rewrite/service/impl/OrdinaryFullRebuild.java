@@ -12,7 +12,7 @@ final class OrdinaryFullRebuild {
             序号体系硬锁：原有首先/其次/最后、一是/二是/三是、第一/第二/第三、①②③、第一章/第二章分别保持原有顺序与体系，不混用、不删号、不跳号。这里优先保留原序号文字。
             只输出正文。保留所有结构占位符。不要解释改写过程。
             """;
-    private static final Pattern ORDINAL = Pattern.compile("第[一二三四五六七八九十]+章|首先|其次|最后|[一二三四五六七八九十]是|第[一二三四五六七八九十]+(?!章)|[①②③④⑤⑥⑦⑧⑨⑩]");
+    private static final Pattern ORDINAL = Pattern.compile(com.dropai.rewrite.service.TextStructureProtector.ORDINARY_ORDINAL_REGEX);
     private static final Pattern NUMBER = Pattern.compile("[-+]?\\d+(?:\\.\\d+)?[%％]?");
     private static final Pattern BROCHURE = Pattern.compile("研究发现|据此|以期|综合运用|持续提高|尚未完全转化为|三项举措|稳步提升|针对这一现状|尚未充分传导为");
     private OrdinaryFullRebuild() { }
@@ -22,6 +22,36 @@ final class OrdinaryFullRebuild {
         if (!matches(ORDINAL, source).equals(matches(ORDINAL, output))) issues.add("序号体系或顺序发生变化");
         return List.copyOf(issues);
     }
+    /** Repair marker family only, retaining the generated prose instead of pasting the source. */
+    static String repairOrdinals(String source, String output) {
+        if (output == null || output.isBlank()) return output;
+        List<String> expected = matches(ORDINAL, source);
+        List<String> actual = matches(ORDINAL, output);
+        if (expected.equals(actual)) return output;
+        if (expected.size() == actual.size()) {
+            var matcher = ORDINAL.matcher(output);
+            StringBuffer repaired = new StringBuffer();
+            int index = 0;
+            while (matcher.find()) matcher.appendReplacement(repaired, java.util.regex.Matcher.quoteReplacement(expected.get(index++)));
+            matcher.appendTail(repaired);
+            return repaired.toString();
+        }
+        String prose = ORDINAL.matcher(output).replaceAll("");
+        if (expected.isEmpty()) return prose.replaceAll("(^|[。；;\\n])\\s*[，,、：:]", "$1").trim();
+        // Missing list markers can be attached to existing clause starts, never inside a word.
+        var clauses = Pattern.compile("(?:^|(?<=[。；;，,]))[^。；;，,]+").matcher(prose);
+        List<Integer> starts = new ArrayList<>();
+        while (clauses.find()) if (!clauses.group().isBlank()) starts.add(clauses.start());
+        if (starts.size() < expected.size()) return output;
+        StringBuilder repaired = new StringBuilder(prose);
+        for (int i = expected.size() - 1; i >= 0; i--) {
+            int slot = i * starts.size() / expected.size();
+            String marker = expected.get(i);
+            repaired.insert(starts.get(slot), marker + (marker.endsWith("是") ? "" : "，"));
+        }
+        return repaired.toString();
+    }
+
     static List<String> diagnostics(String source, String output) {
         List<String> issues = new ArrayList<>();
         if (output == null || output.isBlank()) return List.of();
