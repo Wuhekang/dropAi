@@ -52,9 +52,12 @@ public class TextStructureProtector {
         return protectWithPattern(text, pattern, strictNativeHumanizeProtection);
     }
 
+    // Match list markers at a clause boundary; 第二产业、统一是、最后一公里 are prose.
+    public static final String ORDINARY_ORDINAL_REGEX = "第[一二三四五六七八九十]+章|(?<![\\p{L}\\p{N}])(?:首先|其次|最后(?!一公里)|[一二三四五六七八九十]是|第[一二三四五六七八九十]+(?=[、，,。；;：:\\s]))|[①②③④⑤⑥⑦⑧⑨⑩]";
+
     public ProtectedText protectForOrdinary(String text) {
         Pattern pattern = Pattern.compile(PROTECTED_BLOCKS.pattern()
-                + "|第[一二三四五六七八九十]+章|首先|其次|最后|[一二三四五六七八九十]是|第[一二三四五六七八九十]+(?!章)|[①②③④⑤⑥⑦⑧⑨⑩]", Pattern.MULTILINE | Pattern.DOTALL);
+                + "|" + ORDINARY_ORDINAL_REGEX, Pattern.MULTILINE | Pattern.DOTALL);
         return protectWithPattern(text, pattern, true);
     }
 

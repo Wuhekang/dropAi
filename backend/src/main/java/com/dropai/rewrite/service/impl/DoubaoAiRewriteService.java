@@ -142,7 +142,7 @@ public class DoubaoAiRewriteService implements AiRewriteService {
             return bodyOnlyProtectionPrompt() + "\n" + rewriteSystemPrompt();
         }
         if (OrdinaryRewriteAmplitude.applies(rewriteType)) {
-            return OrdinaryFullRebuild.INSTRUCTION
+            return OrdinaryFullRebuild.INSTRUCTION + OrdinaryPlatformMethods.instruction(rewriteType)
                     + "所有结构占位符必须保留且各出现一次，顺序不变。序号已被占位保护，不要自行生成额外序号。";
         }
         if (isHumanizeMode(baseRewriteType)) {
@@ -222,7 +222,7 @@ public class DoubaoAiRewriteService implements AiRewriteService {
 
     private String userPrompt(String originalText, String rewriteType, int beforeScore, String feedback) {
         if (OrdinaryRewriteAmplitude.applies(rewriteType)) {
-            return OrdinaryFullRebuild.INSTRUCTION + "\n本次具体反馈：" + (isBlank(feedback) ? "无" : feedback)
+            return OrdinaryFullRebuild.INSTRUCTION + OrdinaryPlatformMethods.instruction(rewriteType) + "\n本次具体反馈：" + (isBlank(feedback) ? "无" : feedback)
                     + "\n结构占位符原样保留，不另造序号。原文：\n" + originalText;
         }
 

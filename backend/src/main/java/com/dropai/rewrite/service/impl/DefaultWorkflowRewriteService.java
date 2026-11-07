@@ -131,32 +131,46 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
 
     private String rebuildOrdinary(String original, TextStructureProtector.ProtectedText protectedText,
                                    String type, int score, List<WorkflowStepVO> steps) {
-        String feedback = OrdinaryFullRebuild.INSTRUCTION;
+        String feedback = OrdinaryFullRebuild.INSTRUCTION + OrdinaryPlatformMethods.instruction(type);
         List<String> lastIssues = List.of();
+        String best = null;
+        RuntimeException lastFailure = null;
         for (int attempt = 0; attempt < 3; attempt++) {
-            // No academicPolish/humanizeExpression: they erase ordinal words and change qualifiers.
-            String candidate;
-            String raw = normalizeAiOutput(aiRewriteService.rewriteWithFeedback(protectedText.text(), type, score, feedback), type);
             try {
-                candidate = protectedText.restore(raw);
-            } catch (TextStructureProtector.ProtectedContentIntegrityException exception) {
-                lastIssues = List.of("序号或文档结构占位符未保留：" + exception.getMessage());
-                feedback = OrdinaryFullRebuild.INSTRUCTION + String.join("；", lastIssues);
-                continue;
-            }
-            List<String> issues = OrdinaryFullRebuild.issues(original, candidate);
-            lastIssues = issues;
-            if (issues.isEmpty()) {
-                steps.add(new WorkflowStepVO("ORDINARY_FULL_REBUILD", "普通整段重构", "候选非空且序号体系一致；其他检查仅供提示，不阻断出稿"));
-                List<String> diagnostics = OrdinaryFullRebuild.diagnostics(original, candidate);
-                if (!diagnostics.isEmpty()) {
-                    steps.add(new WorkflowStepVO("ORDINARY_DIAGNOSTICS", "改写提示", String.join("；", diagnostics)));
+                String raw = normalizeAiOutput(aiRewriteService.rewriteWithFeedback(protectedText.text(), type, score, feedback), type);
+                // Ordinals are repairable text. Other protected blocks retain strict integrity checks.
+                var structural = new java.util.LinkedHashMap<>(protectedText.segments());
+                for (var entry : protectedText.segments().entrySet()) {
+                    if (entry.getValue().matches(TextStructureProtector.ORDINARY_ORDINAL_REGEX)) {
+                        raw = raw.replace(entry.getKey(), entry.getValue());
+                        structural.remove(entry.getKey());
+                    }
                 }
-                return candidate;
+                String candidate = new TextStructureProtector.ProtectedText(protectedText.text(), structural, true).restore(raw);
+                candidate = OrdinaryFullRebuild.repairOrdinals(original, candidate);
+                lastIssues = OrdinaryFullRebuild.issues(original, candidate);
+                if (!lastIssues.isEmpty()) {
+                    feedback = OrdinaryFullRebuild.INSTRUCTION + "上一候选需修复：" + String.join("；", lastIssues);
+                    continue;
+                }
+                // Keep a real, non-identical generated candidate across later failures.
+                if (!OrdinaryRewriteAmplitude.sameLetters(original, candidate)
+                        && (best == null || OrdinaryFullRebuild.overlap(original, candidate) < OrdinaryFullRebuild.overlap(original, best))) best = candidate;
+                if (best != null) break;
+                lastIssues = List.of("候选与原文正文相同");
+                feedback = OrdinaryFullRebuild.INSTRUCTION + "上一候选没有实际改写正文，请重新组织所有可改写句组。不要返回原稿。";
+            } catch (RuntimeException failure) {
+                lastFailure = failure;
+                log.warn("Ordinary candidate attempt {} failed: {}", attempt + 1, failure.getMessage());
+                lastIssues = List.of(failure.getMessage() == null ? failure.getClass().getSimpleName() : failure.getMessage());
+                feedback = OrdinaryFullRebuild.INSTRUCTION + "上一调用失败或结构内容缺失，请完整输出正文，保留结构占位符，不要返回原稿。";
             }
-            feedback = OrdinaryFullRebuild.INSTRUCTION + "上一候选未通过：" + String.join("；", issues);
         }
-        throw new IllegalStateException("普通整段重构三次候选均未通过验收：" + String.join("；", lastIssues));
+        if (best == null) throw new IllegalStateException("普通改写未获得非空且实际改写的候选：" + String.join("；", lastIssues), lastFailure);
+        steps.add(new WorkflowStepVO("ORDINARY_FULL_REBUILD", "普通整段重构", "返回实际改写候选，序号在正文上修复；未回填原稿"));
+        List<String> diagnostics = OrdinaryFullRebuild.diagnostics(original, best);
+        if (!diagnostics.isEmpty()) steps.add(new WorkflowStepVO("ORDINARY_DIAGNOSTICS", "改写提示", String.join("；", diagnostics)));
+        return best;
     }
 
     private String rewriteWithHardGate(String original,
