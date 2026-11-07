@@ -19,15 +19,8 @@ class CompetitorOrdinaryStyleTest {
         assertThat(OrdinaryRewriteAmplitude.hasTemplateSkeleton("从结果看，等候时间可以减少约20%。因此本文提出相应的改善措施。")).isFalse();
         for (String platform : new String[]{"PAPERPASS", "WEIPU"}) {
             assertThat(NativeHumanizeProfiles.profileInstruction("humanize", platform))
-                .contains("v3", "月度同比不能改成上一年", "没有实际调研不能声称调查", "针对这些短板");
+                .contains("v2", "月度同比不能改成上一年", "没有实际调研不能声称调查", "针对这些短板");
         }
-    }
-
-    @Test
-    void safeCadenceRetainsQuantitativeRelationshipsAndAllowsObservedConnector() {
-        assertThat(OrdinaryRewriteAmplitude.hasTemplateSkeleton("经研究发现，等候时间可以减少约20%。")).isFalse();
-        assertThat(OrdinaryRewriteAmplitude.hasTemplateSkeleton("研究发现，通行能力持续提高。")).isTrue();
-        assertThat(OrdinaryRewriteAmplitude.safeCadenceFeedback()).contains("约20%", "提高而非达到", "保留基期", "禁止新增");
     }
 
     @Test

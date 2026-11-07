@@ -55,12 +55,8 @@ final class OrdinaryRewriteAmplitude {
 
     static boolean hasTemplateSkeleton(String text) {
         if (text == null) return false;
-        return java.util.regex.Pattern.compile("(?<!经)研究发现|据此|以期|综合运用|持续提高|尚未完全转化为|得到直接提升|针对这些短板[，,]?研究从[^。！？]{0,160}提出优化思路|提出优化思路[，,]?供[^。！？]{0,160}参考|本文从[^。！？]{0,160}等方面提出改进建议")
+        return java.util.regex.Pattern.compile("研究发现|据此|以期|综合运用|持续提高|尚未完全转化为|得到直接提升|针对这些短板[，,]?研究从[^。！？]{0,160}提出优化思路|提出优化思路[，,]?供[^。！？]{0,160}参考|本文从[^。！？]{0,160}等方面提出改进建议")
                 .matcher(text).find();
-    }
-
-    static String safeCadenceFeedback() {
-        return retryFeedback() + "本轮优先去掉持续提高、尚未完全转化为等抽象表达。用具体主语讲清原有措施与结果，再说明仍有的限制；年度同比可说比上一年增长，保留基期。20%必须仍指约20%的等候或等待时间，35%必须仍指提高而非达到。可用经研究发现、因此本文、以便于自然衔接，不强制套同一开头。指标定义不明时不将周转效率换成周转率。禁止新增调研、实体、结论。";
     }
 
     static String retryFeedback() {
