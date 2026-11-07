@@ -44,10 +44,16 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
         boolean rewriteOnlyType = "rewrite".equals(baseRewriteType)
                 || "智能降重".equals(baseRewriteType)
                 || "降重复改写".equals(baseRewriteType);
-        boolean strictNativeProtection = requiresStrictNativeProtection(rewriteType);
+        boolean ordinaryFullRebuild = OrdinaryRewriteAmplitude.applies(rewriteType);
+        boolean strictNativeProtection = !ordinaryFullRebuild && requiresStrictNativeProtection(rewriteType);
         TextStructureProtector.ProtectedText protectedText = rewriteOnlyType
                 ? textStructureProtector.protectForRewrite(preparedText)
+                : ordinaryFullRebuild ? textStructureProtector.protectForOrdinary(preparedText)
                 : textStructureProtector.protect(preparedText, strictNativeProtection);
+        if (ordinaryFullRebuild) {
+            protectedText = new TextStructureProtector.ProtectedText(
+                    protectedText.text(), protectedText.segments(), true);
+        }
         String platformName = platformName(platformCode(rewriteType));
         steps.add(new WorkflowStepVO("TEXT_PREPROCESS", "文本预处理", "清理多余空白并保留原始语义边界"));
         String protectedContentName = strictNativeProtection
@@ -76,6 +82,8 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
         if (rewriteOnlyType) {
             finalText = rewriteWithHardGate(preparedText, protectedText, rewriteType,
                     originalRisk.getScore(), steps);
+        } else if (ordinaryFullRebuild) {
+            finalText = rebuildOrdinary(preparedText, protectedText, rewriteType, originalRisk.getScore(), steps);
         } else {
             String sentenceRewritten = rewriteSentences(protectedText.text(), rewriteType, originalRisk.getScore(), "");
             try {
@@ -119,6 +127,36 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
         result.setQualityCheck(qualityCheck);
         result.setWorkflowSteps(steps);
         return result;
+    }
+
+    private String rebuildOrdinary(String original, TextStructureProtector.ProtectedText protectedText,
+                                   String type, int score, List<WorkflowStepVO> steps) {
+        String feedback = OrdinaryFullRebuild.INSTRUCTION;
+        List<String> lastIssues = List.of();
+        for (int attempt = 0; attempt < 3; attempt++) {
+            // No academicPolish/humanizeExpression: they erase ordinal words and change qualifiers.
+            String candidate;
+            String raw = normalizeAiOutput(aiRewriteService.rewriteWithFeedback(protectedText.text(), type, score, feedback), type);
+            try {
+                candidate = protectedText.restore(raw);
+            } catch (TextStructureProtector.ProtectedContentIntegrityException exception) {
+                lastIssues = List.of("序号或文档结构占位符未保留：" + exception.getMessage());
+                feedback = OrdinaryFullRebuild.INSTRUCTION + String.join("；", lastIssues);
+                continue;
+            }
+            List<String> issues = OrdinaryFullRebuild.issues(original, candidate);
+            lastIssues = issues;
+            if (issues.isEmpty()) {
+                steps.add(new WorkflowStepVO("ORDINARY_FULL_REBUILD", "普通整段重构", "候选非空且序号体系一致；其他检查仅供提示，不阻断出稿"));
+                List<String> diagnostics = OrdinaryFullRebuild.diagnostics(original, candidate);
+                if (!diagnostics.isEmpty()) {
+                    steps.add(new WorkflowStepVO("ORDINARY_DIAGNOSTICS", "改写提示", String.join("；", diagnostics)));
+                }
+                return candidate;
+            }
+            feedback = OrdinaryFullRebuild.INSTRUCTION + "上一候选未通过：" + String.join("；", issues);
+        }
+        throw new IllegalStateException("普通整段重构三次候选均未通过验收：" + String.join("；", lastIssues));
     }
 
     private String rewriteWithHardGate(String original,
@@ -222,17 +260,6 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
             String restored = protectedText.restore(retried);
             String candidate = humanizeExpression(academicPolish(restored, baseRewriteType), useModelHumanize);
             requireNonBlankOutput(candidate, "结构重试输出经清理后为空");
-            if ((rewriteType.endsWith("@PAPERPASS") || rewriteType.endsWith("@WEIPU"))
-                    && OrdinaryRewriteAmplitude.hasTemplateSkeleton(candidate)) {
-                String cadenceRetry = rewriteSentences(protectedText.text(), rewriteType, beforeScore,
-                        OrdinaryRewriteAmplitude.safeCadenceFeedback());
-                String cadenceCandidate = humanizeExpression(
-                        academicPolish(protectedText.restore(cadenceRetry), baseRewriteType), useModelHumanize);
-                requireNonBlankOutput(cadenceCandidate, "普通表达重试输出为空");
-                if (!OrdinaryRewriteAmplitude.hasTemplateSkeleton(cadenceCandidate)) {
-                    candidate = cadenceCandidate;
-                }
-            }
             boolean firstUnchanged = OrdinaryRewriteAmplitude.sameLetters(original, current);
             boolean retryUnchanged = OrdinaryRewriteAmplitude.sameLetters(original, candidate);
             boolean sentenceBoundaryMoved = OrdinaryRewriteAmplitude.sentences(candidate)

@@ -390,7 +390,14 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
             job.setDownloadUrl("/api/document/rewrite/download/" + jobId);
             log.info("docx生成结束 jobId={} outputPath={} fileSize={} elapsedMs={}",
                     jobId, outputPath.toAbsolutePath(), fileSize, System.currentTimeMillis() - docxStartedAt);
-            if (failedParagraphs > 0) {
+            if (failedParagraphs > 0 && "humanize".equals(job.getMode())
+                    && OrdinaryRewriteAmplitude.applies(workflowRequestType(job, "humanize"))) {
+                String retained = results.stream().filter(result -> !result.success())
+                        .map(result -> String.valueOf(result.index() + 1)).collect(Collectors.joining("、"));
+                update(job, "PARTIAL_SUCCESS", "文档已生成，可下载；已完成 " + successfulParagraphs
+                        + " 段改写，" + failedParagraphs + " 段保留原文（正文段落位置：" + retained
+                        + "）。原因详见任务段落详情。Word正文未添加标记。");
+            } else if (failedParagraphs > 0) {
                 update(job, "FAILED", job.getModeName() + "未完成：已成功处理 " + successfulParagraphs
                         + " 个段落，失败 " + failedParagraphs + " 个段落；首个失败原因：" + firstFailure
                         + "；模型状态：" + aiRewriteService.lastCallProvider());
@@ -875,6 +882,10 @@ public class DocumentRewriteServiceImpl implements DocumentRewriteService {
                         );
                     } catch (Exception exception) {
                         String message = readableMessage(exception);
+                        if (OrdinaryRewriteAmplitude.applies(workflowRequestType(job, stageMode))) {
+                            updateParagraphStatus(job, target.index(), "FAILED", "", message);
+                            return new RewriteResult(target.index(), target.paragraph(), target.text(), false, message);
+                        }
                         log.warn("ParagraphFallback jobId={} paragraphIndex={} stage={} action=KEEP_ORIGINAL "
                                         + "errorType={} reason={} elapsedMs={}",
                                 job.getJobId(), target.index(), stageMode, exception.getClass().getSimpleName(),

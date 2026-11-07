@@ -48,9 +48,19 @@ public class TextStructureProtector {
     }
 
     public ProtectedText protect(String text, boolean strictNativeHumanizeProtection) {
+        Pattern pattern = strictNativeHumanizeProtection ? NATIVE_HUMANIZE_PROTECTED_BLOCKS : PROTECTED_BLOCKS;
+        return protectWithPattern(text, pattern, strictNativeHumanizeProtection);
+    }
+
+    public ProtectedText protectForOrdinary(String text) {
+        Pattern pattern = Pattern.compile(PROTECTED_BLOCKS.pattern()
+                + "|第[一二三四五六七八九十]+章|首先|其次|最后|[一二三四五六七八九十]是|第[一二三四五六七八九十]+(?!章)|[①②③④⑤⑥⑦⑧⑨⑩]", Pattern.MULTILINE | Pattern.DOTALL);
+        return protectWithPattern(text, pattern, true);
+    }
+
+    private ProtectedText protectWithPattern(String text, Pattern pattern, boolean strictNativeHumanizeProtection) {
         String source = text == null ? "" : text;
         rejectLeakedPlaceholder(source);
-        Pattern pattern = strictNativeHumanizeProtection ? NATIVE_HUMANIZE_PROTECTED_BLOCKS : PROTECTED_BLOCKS;
         Matcher matcher = pattern.matcher(source);
         Map<String, String> segments = new LinkedHashMap<>();
         StringBuffer protectedText = new StringBuffer();
