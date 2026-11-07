@@ -14,12 +14,22 @@ class OrdinaryFullRebuildTest {
  @Test void workflowPreservesOrdinalWordsAndFailsInsteadOfReturningSource() {
   var ai=org.mockito.Mockito.mock(com.dropai.rewrite.service.AiRewriteService.class);
   String source="首先，检查资料。其次，核对事实。最后，确认结论。";
-  org.mockito.Mockito.when(ai.rewriteWithFeedback(org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyInt(),org.mockito.ArgumentMatchers.anyString())).thenReturn(source);
+  org.mockito.Mockito.when(ai.rewriteWithFeedback(org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyInt(),org.mockito.ArgumentMatchers.anyString())).thenAnswer(call -> call.getArgument(0));
   var workflow=new DefaultWorkflowRewriteService(ai,new com.dropai.rewrite.service.TextStructureProtector());
   assertThat(workflow.execute(source,"humanize@WEIPU").getRewrittenText()).isEqualTo(source);
   String unchanged="研究发现，现有资料中的事实应得到保留。".repeat(8);
   org.mockito.Mockito.when(ai.rewriteWithFeedback(org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyInt(),org.mockito.ArgumentMatchers.anyString())).thenReturn(unchanged);
   org.assertj.core.api.Assertions.assertThatThrownBy(()->workflow.execute(unchanged,"humanize@PAPERPASS")).isInstanceOf(IllegalStateException.class);
+ }
+ @Test void ordinaryPromptDoesNotLoadLegacySkillAndOrdinalMarkersRoundTrip() throws Exception {
+  var skills=org.mockito.Mockito.mock(com.dropai.rewrite.service.SkillPromptService.class);
+  var service=new DoubaoAiRewriteService(new com.dropai.rewrite.config.DoubaoProperties(),new com.fasterxml.jackson.databind.ObjectMapper(),org.springframework.web.client.RestClient.builder(),skills,org.mockito.Mockito.mock(com.dropai.rewrite.service.ai.DoubaoModelRouter.class));
+  var prompt=DoubaoAiRewriteService.class.getDeclaredMethod("systemPrompt",String.class);prompt.setAccessible(true);
+  assertThat((String)prompt.invoke(service,"humanize@WEIPU")).contains("普通整段重构 v4");
+  org.mockito.Mockito.verifyNoInteractions(skills);
+  var protectedText=new com.dropai.rewrite.service.TextStructureProtector().protectForOrdinary("一是文献研究。二是流程分析。三是案例研究。");
+  assertThat(protectedText.text()).doesNotContain("一是","二是","三是");
+  assertThat(protectedText.restore(protectedText.text())).isEqualTo("一是文献研究。二是流程分析。三是案例研究。");
  }
  @Test void deepAndDoubleRemainOutsideNewRoute() {
   assertThat(OrdinaryRewriteAmplitude.applies("深度降低AI写作痕迹@WEIPU")).isFalse();

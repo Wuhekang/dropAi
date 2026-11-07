@@ -48,6 +48,7 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
         boolean strictNativeProtection = !ordinaryFullRebuild && requiresStrictNativeProtection(rewriteType);
         TextStructureProtector.ProtectedText protectedText = rewriteOnlyType
                 ? textStructureProtector.protectForRewrite(preparedText)
+                : ordinaryFullRebuild ? textStructureProtector.protectForOrdinary(preparedText)
                 : textStructureProtector.protect(preparedText, strictNativeProtection);
         if (ordinaryFullRebuild) {
             protectedText = new TextStructureProtector.ProtectedText(
