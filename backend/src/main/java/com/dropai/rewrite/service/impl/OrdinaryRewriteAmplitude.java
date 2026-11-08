@@ -1,18 +1,10 @@
 package com.dropai.rewrite.service.impl;
 
-/**
- * Detects ordinary 降AI drafts that still keep the source sentence skeleton.
- *
- * <p>Character n-grams miss Chinese synonym swaps, so a multi-sentence paragraph
- * that comes back with the same sentence count is treated as unfinished. Short
- * fragments stay untouched. Deep, 双降 shared humanize and 大雅 are out of scope.
- */
+/** Ordinary-only lexical-retention feedback; never a detector score or length gate. */
 final class OrdinaryRewriteAmplitude {
-
-    static final String RETRY_FEEDBACK = "上一版仍沿原句数量或原句顺序换词，检测器仍会看成同一套论文骨架。"
-            + "请保留全部年份、吨位、百分比、专名、引用编号、图表结构和原文结论的原值及相对顺序，"
-            + "从已有对象、数据或条件重排信息入口，并至少拆开或合并一处句子。"
-            + "不要新增事实，不要为了压到130%以内改回近义版或原文。不要解释，只输出正文。";
+    static final String RETRY_FEEDBACK = "上一候选仍保留过多原文词组，不能只靠换入口、挪句子或少量同义词算完成。"
+            + "请从本次原文重新生成，逐句替换可编辑的内容词和短语，专名、数字、单位、引用和原序号保留。"
+            + "优先自然简短的等义说法，不补冗长解释，不删事实，不新增实体。不要解释，只输出正文。";
 
     private OrdinaryRewriteAmplitude() {
     }
@@ -35,22 +27,14 @@ final class OrdinaryRewriteAmplitude {
         return NativeHumanizeProfiles.usesNativeSkill(NativeHumanizeProfiles.normalize(platform));
     }
 
-    /**
-     * Long ordinary prose that is unchanged, or that still has the same sentence count.
-     * One-sentence and short fragments return false so a completed short call is not retried.
-     */
+    /** A bounded retry signal based on retained source trigrams, independent of sentence count. */
+    static boolean needsLexicalRetry(String original, String rewritten) {
+        if (original == null || original.isBlank()) return false;
+        if (rewritten == null || rewritten.isBlank()) return true;
+        return sameLetters(original, rewritten) || OrdinaryFullRebuild.overlap(original, rewritten) > 0.65;
+    }
     static boolean needsStructureRetry(String original, String rewritten) {
-        if (!longEnough(original) || rewritten == null || rewritten.isBlank()) {
-            return false;
-        }
-        if (comparable(original).equals(comparable(rewritten))) {
-            return true;
-        }
-        if (hasTemplateSkeleton(rewritten)) {
-            return true;
-        }
-        int sourceSentences = sentences(original);
-        return sourceSentences >= 3 && sourceSentences == sentences(rewritten);
+        return needsLexicalRetry(original, rewritten);
     }
 
     static boolean hasTemplateSkeleton(String text) {
@@ -60,7 +44,7 @@ final class OrdinaryRewriteAmplitude {
     }
 
     static String retryFeedback() {
-        return RETRY_FEEDBACK + "摘要和方法枚举段还须消除研究发现、据此、以期、综合运用以及得到直接提升、针对这些短板研究从……提出优化思路供……参考的新模板骨架；用平实学术句重组，保留可、约、超过等事实限定。";
+        return RETRY_FEEDBACK;
     }
 
     static boolean sameLetters(String left, String right) {
@@ -92,37 +76,6 @@ final class OrdinaryRewriteAmplitude {
             count++;
         }
         return count;
-    }
-
-    private static boolean longEnough(String text) {
-        int han = hanCount(text);
-        if (han >= 80) {
-            return true;
-        }
-        return han == 0 && words(text) >= 70;
-    }
-
-    private static int hanCount(String text) {
-        if (text == null || text.isEmpty()) {
-            return 0;
-        }
-        int count = 0;
-        for (int index = 0; index < text.length(); ) {
-            int codePoint = text.codePointAt(index);
-            if (Character.UnicodeScript.of(codePoint) == Character.UnicodeScript.HAN) {
-                count++;
-            }
-            index += Character.charCount(codePoint);
-        }
-        return count;
-    }
-
-    private static int words(String text) {
-        String trimmed = text == null ? "" : text.trim();
-        if (trimmed.isEmpty()) {
-            return 0;
-        }
-        return trimmed.split("\\s+").length;
     }
 
     private static String comparable(String text) {
