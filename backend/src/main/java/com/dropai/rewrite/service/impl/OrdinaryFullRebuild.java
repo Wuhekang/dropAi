@@ -6,15 +6,34 @@ import java.util.regex.Pattern;
 /** Ordinary-only candidate acceptance. This is a lexical guard, not a semantic proof. */
 final class OrdinaryFullRebuild {
     static final String INSTRUCTION = """
-            【普通降AI·全段密集换词 v12】本次送入的摘要和正文每一段、每一句都必须实际改写。先理解意思，再沿整段连续替换可编辑的内容词和词组，动词、名词表达、形容与判断用语都要处理，不能只动开头、结尾或几个近义词，不留大段原句。换信息入口或调整语序只是可选补充，不能代替正文词语替换。
-            每个可编辑内容词/词组都应尝试换成语境相符的平常说法；优先等长或更简短的近义表达，意思成立时以少写为先。检查可依语境换成检验/核验，监测换成监控，协同换成配合/对接，提升换成提高，等待换成等候，明显季节集中性换成明显的季节性特点，仍需进一步协同换成还需要加强合作。示例是表达家族，不是硬字典；查验、核验、核对涉及不同业务时不能随便混成另一操作。专业指标可改周围句法，不把指标改成另一个概念。
-            可少量补足的、了、使得、以及、还、就来展开紧缩词组，但不要层层添修饰，不把换词写成冗长解释，不靠扩写制造密度。没有任何字数或字符比例目标、区间、上下限，也不按篇幅评分、拒绝或重试；不为凑字数补句子或删事实。
-            功能词、数字、单位、专名、引用和结构占位符保留，除此之外不以准确原表达可保留为由跳过内容词改写。保留事实、条件、否定、因果、统计时段和指标含义，近义不等于随意改事实。提高不变达到，约20%不变一半以上，24小时不概括成全天候，主要不是不加强成根本不是，不把建议写成已经实现。不新增实体、案例、调查、步骤、证据或结论。
-            原有序号家族与顺序不能串台，不新增序号；全部结构占位符逐字保留，各出现一次且顺序不变。标题、目录、文献条目、域、书签、图片和版式由文档层保留，不输出新标题或编号。正常的研究发现、据此、因此不是禁词，不用禁词清洗替代全段换词。
-            只输出本段一版完整实际改写正文，不解释、不标注状态，不输出KEEP_ORIGINAL，不回填原稿。近原文只少量换词不是完成，输出前逐句核对是否还有未处理的正文词组。
+            【普通降AI·v7f口语密集展开 v13】按下列实测表达方式完整重述输入正文：在整段范围内连续改写普通词组、谓语和连接成分，把紧缩的书面概念展开成平常的说法，允许补入自然的“的、了、使得、并且、以及、还”等成分。不要只替换开头和结尾，中间各句也要按同样密度处理。
+            例如“持续提高”可说“一直都在进步当中”，“仍需进一步协同”可说“还需要加强合作”，“尚未完全转化为全链条稳定性”可说“还没有完全转化为整个链条的稳定性”，“全过程监测”可说“全程监控”。按语境变通，不是固定词典替换，不把示例中没有的事实加到正文里。
+            论述顺序合理就保留原顺序，句子数量可以不变。不要为追求变化强制拆句、调序或重建背景—问题—根源骨架。意思成立时偏向较短、少绕的表达，不设字数或字符比例目标、区间或上下限，不按篇幅评分、拒绝或重试。让常用表达自然展开，不换成更凝练、更复杂的学术术语。
+            “研究发现、经研究发现、但是、因此本文、据此、以期、希望能够”等不是违禁词，按正文语境保留或自然替换。不另做学术润色、禁词清洗或统一收尾，不为了删掉这些词改回紧缩论文表达。正文整体允许充分改写，不要求词语、数字表达及信息顺序逐字相等；依据已有内容重述，不额外编造实体、经历或证据。
+            仅保护结构：原有序号体系及顺序不能串台，不自行新增序号；全部结构占位符（含文献引用、链接、代码等）逐字保留，各出现一次且顺序不变。标题、目录、文献条目、域、书签、图片和版式由文档层保留，不输出新的标题或编号。
+            所有送改摘要和正文都必须逐句实际改写，不能KEEP_ORIGINAL、回填原稿或只换几个词。密集替换可编辑内容词，但优先平常说法和必要展开，不把每个词升成论文术语；换入口只能补充，不能替代正文换词。专名、数字、单位、引用和序号留存，业务术语可换周围表达来写清，不为换词把指标改成另一概念。
+            正面表达家族：通过→靠着/靠；建设→建起/搭建；同比增长→和上一年同期相比增长了；等待时间→等待时长/等候时间；明显季节集中性→很明显的季节集中特点；进一步协同→还需要加强配合；以期→希望能给……；整个链条、一条链上的各方可依语境使用。约20%可说大概两成，不能说一半以上；提高35%不能说达到35%。不把月度同比改成与全年相比。
+            不要新增核验、流转、疏解、层级、研究结果显示、管控系统这类升档替换，原文已用的词或专名除外。查验可说查验用的/查验这一步，不为了换掉查验而改成另一业务动作；周转、分流、水平可按原义用普通动作说清。不把通行能力改通行效率、货值改交易总额、温度异常改温度超标、系统故障改系统宕机。保留条件、否定、程度和必要限定，不新增实体、调查、步骤或效果。
+            只输出本段一版完整正文，不给解释、不标注完成状态，不直接返回未经改写的原稿。
             """;
     static String instruction(String type) {
         return INSTRUCTION;
+    }
+    /** Source-used terminology is exempt; this is soft candidate preference, not a hard gate. */
+    static List<String> formalUpgrades(String source, String output) {
+        List<String> words = new ArrayList<>();
+        if (source == null || output == null) return words;
+        for (String word : List.of("核验", "流转", "疏解", "层级", "研究结果显示", "管控系统")) {
+            if (!source.contains(word) && output.contains(word)) words.add(word);
+        }
+        for (String[] pair : new String[][]{{"通行能力", "通行效率"}, {"货值", "交易总额"},
+                {"温度异常", "温度超标"}, {"系统故障", "系统宕机"}}) {
+            if (source.contains(pair[0]) && !source.contains(pair[1]) && output.contains(pair[1])) words.add(pair[1]);
+        }
+        return words;
+    }
+    static double candidatePenalty(String source, String output) {
+        return formalUpgrades(source, output).size() + overlap(source, output);
     }
     private static final Pattern ORDINAL = Pattern.compile(com.dropai.rewrite.service.TextStructureProtector.ORDINARY_ORDINAL_REGEX);
     private static final Pattern NUMBER = Pattern.compile("[-+]?\\d+(?:\\.\\d+)?[%％]?");
@@ -62,6 +81,8 @@ final class OrdinaryFullRebuild {
         for (String entity : List.of("实地考察", "海上丝绸之路", "智能仓储")) {
             if (!source.contains(entity) && output.contains(entity)) issues.add("新增未提供的事实：" + entity);
         }
+        List<String> registerIssues = formalUpgrades(source, output);
+        if (!registerIssues.isEmpty()) issues.add("新添书面升档或指标漂移措辞：" + String.join("、", registerIssues));
         if (OrdinaryRewriteAmplitude.needsLexicalRetry(source, output)) issues.add("近原文换词不足：已输出可用候选，但密度质量不通过，需复核");
         return List.copyOf(issues);
     }

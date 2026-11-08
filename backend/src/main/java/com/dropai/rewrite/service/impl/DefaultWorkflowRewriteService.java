@@ -156,10 +156,10 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
                 }
                 // Keep a real, non-identical generated candidate across later failures.
                 if (!OrdinaryRewriteAmplitude.sameLetters(original, candidate)
-                        && (best == null || OrdinaryFullRebuild.overlap(original, candidate) < OrdinaryFullRebuild.overlap(original, best))) best = candidate;
-                if (best != null && !OrdinaryRewriteAmplitude.needsLexicalRetry(original, best)) break;
+                        && (best == null || OrdinaryFullRebuild.candidatePenalty(original, candidate) < OrdinaryFullRebuild.candidatePenalty(original, best))) best = candidate;
+                if (best != null && !OrdinaryRewriteAmplitude.needsSpokenRetry(original, best)) break;
                 if (best != null) {
-                    lastIssues = List.of("近原文换词不足");
+                    lastIssues = List.of("近原文换词不足或语域升档");
                     feedback = baseFeedback + "\n" + OrdinaryRewriteAmplitude.retryFeedback();
                     continue;
                 }

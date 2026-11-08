@@ -2,9 +2,9 @@ package com.dropai.rewrite.service.impl;
 
 /** Ordinary-only lexical-retention feedback; never a detector score or length gate. */
 final class OrdinaryRewriteAmplitude {
-    static final String RETRY_FEEDBACK = "上一候选仍保留过多原文词组，不能只靠换入口、挪句子或少量同义词算完成。"
-            + "请从本次原文重新生成，逐句替换可编辑的内容词和短语，专名、数字、单位、引用和原序号保留。"
-            + "优先自然简短的等义说法，不补冗长解释，不删事实，不新增实体。不要解释，只输出正文。";
+    static final String RETRY_FEEDBACK = "上一候选仍近原文或加入了书面升档用词。请从本次原文重新生成，逐句把内容词换成平常说法，"
+            + "像靠着、建起、不过、还需要配合、整个链条这样自然讲明白，不把查验改成核验、分流改成疏解。"
+            + "专名、数字、指标含义、引用与原序号保留，不新增事实；意思成立时偏短，不堆解释，不给说明。";
 
     private OrdinaryRewriteAmplitude() {
     }
@@ -32,6 +32,9 @@ final class OrdinaryRewriteAmplitude {
         if (original == null || original.isBlank()) return false;
         if (rewritten == null || rewritten.isBlank()) return true;
         return sameLetters(original, rewritten) || OrdinaryFullRebuild.overlap(original, rewritten) > 0.65;
+    }
+    static boolean needsSpokenRetry(String original, String rewritten) {
+        return needsLexicalRetry(original, rewritten) || !OrdinaryFullRebuild.formalUpgrades(original, rewritten).isEmpty();
     }
     static boolean needsStructureRetry(String original, String rewritten) {
         return needsLexicalRetry(original, rewritten);

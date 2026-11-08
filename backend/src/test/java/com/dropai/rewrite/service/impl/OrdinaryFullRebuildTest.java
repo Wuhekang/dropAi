@@ -25,7 +25,7 @@ class OrdinaryFullRebuildTest {
   var skills=org.mockito.Mockito.mock(com.dropai.rewrite.service.SkillPromptService.class);
   var service=new DoubaoAiRewriteService(new com.dropai.rewrite.config.DoubaoProperties(),new com.fasterxml.jackson.databind.ObjectMapper(),org.springframework.web.client.RestClient.builder(),skills,org.mockito.Mockito.mock(com.dropai.rewrite.service.ai.DoubaoModelRouter.class));
   var prompt=DoubaoAiRewriteService.class.getDeclaredMethod("systemPrompt",String.class);prompt.setAccessible(true);
-  assertThat((String)prompt.invoke(service,"humanize@WEIPU")).contains("普通降AI·全段密集换词 v12");
+  assertThat((String)prompt.invoke(service,"humanize@WEIPU")).contains("普通降AI·v7f口语密集展开 v13");
   org.mockito.Mockito.verifyNoInteractions(skills);
   var protectedText=new com.dropai.rewrite.service.TextStructureProtector().protectForOrdinary("一是文献研究。二是流程分析。三是案例研究。");
   assertThat(protectedText.text()).doesNotContain("一是","二是","三是");
@@ -91,5 +91,21 @@ class OrdinaryFullRebuildTest {
   assertThat(workflow.execute(source,"humanize@PAPERPASS").getRewrittenText()).isEqualTo(weak);
   org.mockito.Mockito.verify(ai,org.mockito.Mockito.times(3)).rewriteWithFeedback(org.mockito.ArgumentMatchers.eq(source),org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyInt(),org.mockito.ArgumentMatchers.anyString());
   assertThat(OrdinaryFullRebuild.diagnostics(source,weak)).anyMatch(x->x.contains("密度质量不通过"));
+ }
+
+ @Test void spokenCandidateBeatsMoreDistantFormalThesaurus() {
+  String source="查验车位增加后，通行能力不断提高。";
+  String formal="核验工位扩增，通行效率层级攀升。";
+  String spoken="查验用的车位多了，通过口岸的能力一直都在提升。";
+  var ai=org.mockito.Mockito.mock(com.dropai.rewrite.service.AiRewriteService.class);
+  org.mockito.Mockito.when(ai.rewriteWithFeedback(org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyInt(),org.mockito.ArgumentMatchers.anyString())).thenReturn(formal,spoken);
+  var workflow=new DefaultWorkflowRewriteService(ai,new com.dropai.rewrite.service.TextStructureProtector());
+  assertThat(workflow.execute(source,"humanize@PAPERPASS").getRewrittenText()).isEqualTo(spoken);
+  org.mockito.Mockito.verify(ai,org.mockito.Mockito.times(2)).rewriteWithFeedback(org.mockito.ArgumentMatchers.eq(source),org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyInt(),org.mockito.ArgumentMatchers.anyString());
+ }
+ @Test void sourceUsedFormalTermsAreExemptButMetricSubstitutionIsNot() {
+  assertThat(OrdinaryFullRebuild.formalUpgrades("研究结果显示各个层级已有核验流程。", "研究结果显示，各个层级核验步骤已明确。")).isEmpty();
+  assertThat(OrdinaryFullRebuild.formalUpgrades("通行能力改善，温度异常减少。", "通行效率提升，温度超标减少。"))
+    .contains("通行效率", "温度超标");
  }
 }
