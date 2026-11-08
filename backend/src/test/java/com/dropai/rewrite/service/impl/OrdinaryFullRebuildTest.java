@@ -25,7 +25,7 @@ class OrdinaryFullRebuildTest {
   var skills=org.mockito.Mockito.mock(com.dropai.rewrite.service.SkillPromptService.class);
   var service=new DoubaoAiRewriteService(new com.dropai.rewrite.config.DoubaoProperties(),new com.fasterxml.jackson.databind.ObjectMapper(),org.springframework.web.client.RestClient.builder(),skills,org.mockito.Mockito.mock(com.dropai.rewrite.service.ai.DoubaoModelRouter.class));
   var prompt=DoubaoAiRewriteService.class.getDeclaredMethod("systemPrompt",String.class);prompt.setAccessible(true);
-  assertThat((String)prompt.invoke(service,"humanize@WEIPU")).contains("普通降AI·实测词组展开 v7");
+  assertThat((String)prompt.invoke(service,"humanize@WEIPU")).contains("普通降AI·轻量入口调整 v11");
   org.mockito.Mockito.verifyNoInteractions(skills);
   var protectedText=new com.dropai.rewrite.service.TextStructureProtector().protectForOrdinary("一是文献研究。二是流程分析。三是案例研究。");
   assertThat(protectedText.text()).doesNotContain("一是","二是","三是");
