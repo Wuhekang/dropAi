@@ -160,7 +160,8 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
                 if (best != null && !OrdinaryRewriteAmplitude.needsSpokenRetry(original, best)) break;
                 if (best != null) {
                     lastIssues = List.of("近原文换词不足或语域升档");
-                    feedback = baseFeedback + "\n" + OrdinaryRewriteAmplitude.retryFeedback();
+                    feedback = baseFeedback + "\n" + OrdinaryRewriteAmplitude.retryFeedback()
+                            + "\n上一候选需避免的升档或语义变化：" + String.join("、", OrdinaryFullRebuild.formalUpgrades(original, best));
                     continue;
                 }
                 lastIssues = List.of("候选与原文正文相同");

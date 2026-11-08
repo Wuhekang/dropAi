@@ -108,4 +108,9 @@ class OrdinaryFullRebuildTest {
   assertThat(OrdinaryFullRebuild.formalUpgrades("通行能力改善，温度异常减少。", "通行效率提升，温度超标减少。"))
     .contains("通行效率", "温度超标");
  }
+
+ @Test void registerPreferenceAlsoRetainsAdviceAndDegree() {
+  assertThat(OrdinaryFullRebuild.formalUpgrades("鼓励企业完善记录，明确隔离程序。主要不是场地不足，可减少线下提交。", "我们也明确了隔离程序，根本不是场地不足，企业不用再提交。"))
+   .contains("建议→已明确", "主要不是→根本不是", "减少→不用再");
+ }
 }
