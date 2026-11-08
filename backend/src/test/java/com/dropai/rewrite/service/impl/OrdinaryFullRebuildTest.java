@@ -70,4 +70,15 @@ class OrdinaryFullRebuildTest {
   assertThat(OrdinaryRewriteAmplitude.applies("double@WEIPU")).isFalse();
   assertThat(OrdinaryRewriteAmplitude.applies("humanize@DAYA")).isFalse();
  }
+
+
+ @Test void ordinaryLengthNeverRejectsOrRetriesAnActualRewrite() {
+  for (String candidate : java.util.List.of("口岸车辆等待放行。", "口岸的运输车辆正在有序排队等待办理查验和放行手续，相关环节仍需协调安排。")) {
+   var ai=org.mockito.Mockito.mock(com.dropai.rewrite.service.AiRewriteService.class);
+   org.mockito.Mockito.when(ai.rewriteWithFeedback(org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyInt(),org.mockito.ArgumentMatchers.anyString())).thenReturn(candidate);
+   var workflow=new DefaultWorkflowRewriteService(ai,new com.dropai.rewrite.service.TextStructureProtector());
+   assertThat(workflow.execute("进口车辆在口岸排队。","humanize@PAPERPASS").getRewrittenText()).isEqualTo(candidate);
+   org.mockito.Mockito.verify(ai,org.mockito.Mockito.times(1)).rewriteWithFeedback(org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyInt(),org.mockito.ArgumentMatchers.anyString());
+  }
+ }
 }
