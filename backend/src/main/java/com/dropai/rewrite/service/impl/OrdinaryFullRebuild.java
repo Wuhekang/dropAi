@@ -6,15 +6,15 @@ import java.util.regex.Pattern;
 /** Ordinary-only candidate acceptance. This is a lexical guard, not a semantic proof. */
 final class OrdinaryFullRebuild {
     static final String INSTRUCTION = """
-            【普通整段重构 v4】以原稿命题为边界，先理解再整段重写。几乎每个可替换的普通词都用自然、平实的同义表达重新组织，可加一两个字修饰，但不得让程度、范围、因果或结论发生变化。专名、术语没有等义替代时保留，不为换词制造病句。
-            不能只换两三个词，也不能靠拆句或并句制造改写幅度；数据、措施、限制与建议之间的句架要重新组织。不要使用三项举措、稳步提升、针对这一现状、尚未充分传导为等宣传套话。年度同比可说比上一年增长；等待时间可说等候时间。周转效率和周转率只有定义等价时才替换。
-            数字周边的短语可重写、信息可调整顺序，不要求逐字逐序相同；数值、单位、比较基期、约/超过/可等限定以及提高/达到关系必须等义，不编造实体、事件、调研或改变结论极性。
-            序号体系硬锁：原有首先/其次/最后、一是/二是/三是、第一/第二/第三、①②③、第一章/第二章分别保持原有顺序与体系，不混用、不删号、不跳号。这里优先保留原序号文字。
-            只输出正文。保留所有结构占位符。不要解释改写过程。
+            【普通降AI·实测词组展开 v7】按下列实测表达方式完整重述输入正文：在整段范围内连续改写普通词组、谓语和连接成分，把紧缩的书面概念展开成平常的说法，允许补入自然的“的、了、使得、并且、以及、还”等成分。不要只替换开头和结尾，中间各句也要按同样密度处理。
+            例如“持续提高”可说“一直都在进步当中”，“仍需进一步协同”可说“还需要加强合作”，“尚未完全转化为全链条稳定性”可说“还没有完全转化为整个链条的稳定性”，“全过程监测”可说“全程监控”。按语境变通，不是固定词典替换，不把示例中没有的事实加到正文里。
+            论述顺序合理就保留原顺序，句子数量可以不变。不要为追求变化强制拆句、调序或重建背景—问题—根源骨架。没有压缩任务，不要压短句子，也不设原稿字数比例或扩写上限。让常用表达自然展开，不换成更凝练、更复杂的学术术语。
+            “研究发现、经研究发现、但是、因此本文、据此、以期、希望能够”等不是违禁词，按正文语境保留或自然替换。不另做学术润色、禁词清洗或统一收尾，不为了删掉这些词改回紧缩论文表达。正文整体允许充分改写，不要求词语、数字表达及信息顺序逐字相等；依据已有内容重述，不额外编造实体、经历或证据。
+            仅保护结构：原有序号体系及顺序不能串台，不自行新增序号；全部结构占位符（含文献引用、链接、代码等）逐字保留，各出现一次且顺序不变。标题、目录、文献条目、域、书签、图片和版式由文档层保留，不输出新的标题或编号。
+            只输出本段一版完整正文，不给解释、不标注完成状态，不直接返回未经改写的原稿。
             """;
     private static final Pattern ORDINAL = Pattern.compile(com.dropai.rewrite.service.TextStructureProtector.ORDINARY_ORDINAL_REGEX);
     private static final Pattern NUMBER = Pattern.compile("[-+]?\\d+(?:\\.\\d+)?[%％]?");
-    private static final Pattern BROCHURE = Pattern.compile("研究发现|据此|以期|综合运用|持续提高|尚未完全转化为|三项举措|稳步提升|针对这一现状|尚未充分传导为");
     private OrdinaryFullRebuild() { }
     static List<String> issues(String source, String output) {
         List<String> issues = new ArrayList<>();
@@ -55,13 +55,10 @@ final class OrdinaryFullRebuild {
     static List<String> diagnostics(String source, String output) {
         List<String> issues = new ArrayList<>();
         if (output == null || output.isBlank()) return List.of();
-        if (!numbers(source).equals(numbers(output))) issues.add("数值发生变化；允许顺序和周边措辞改变，不允许数值改变");
+        if (!numbers(source).equals(numbers(output))) issues.add("数值表达有差异（仅供复核，不阻断普通档）");
         for (String entity : List.of("实地考察", "海上丝绸之路", "智能仓储")) {
             if (!source.contains(entity) && output.contains(entity)) issues.add("新增未提供的事实：" + entity);
         }
-        if (source.contains("约20%") && (!output.contains("约20%") || !(output.contains("等候") || output.contains("等待")))) issues.add("约20%的等待时间含义未保留");
-        if (source.contains("提高35%") && !output.matches("(?s).*提高(?:了)?35%.*")) issues.add("提高35%的数量关系未保留");
-        if (BROCHURE.matcher(output).find()) issues.add("仍含旧模板或宣传式句架");
         if (source.length() >= 80 && overlap(source, output) > 0.65) issues.add("整段换词密度不足");
         return List.copyOf(issues);
     }

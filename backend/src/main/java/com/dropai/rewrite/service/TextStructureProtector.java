@@ -57,7 +57,7 @@ public class TextStructureProtector {
 
     public ProtectedText protectForOrdinary(String text) {
         Pattern pattern = Pattern.compile(PROTECTED_BLOCKS.pattern()
-                + "|" + ORDINARY_ORDINAL_REGEX, Pattern.MULTILINE | Pattern.DOTALL);
+                + "|(?:\\[[0-9０-９][0-9０-９,，、\\-–—\\s]*\\])|" + ORDINARY_ORDINAL_REGEX, Pattern.MULTILINE | Pattern.DOTALL);
         return protectWithPattern(text, pattern, true);
     }
 

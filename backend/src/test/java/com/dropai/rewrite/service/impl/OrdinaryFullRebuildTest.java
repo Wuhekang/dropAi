@@ -7,7 +7,7 @@ class OrdinaryFullRebuildTest {
   assertThat(OrdinaryFullRebuild.issues("首先，说明。其次，说明。最后，结束。", "第一，说明。其次，说明。最后，结束。")).anyMatch(x->x.contains("序号"));
  }
  @Test void rejectsDocumentedDriftAndUnchangedProse() {
-  assertThat(OrdinaryFullRebuild.diagnostics("可减少约20%的等待时间，效率提高35%。", "实地考察表明节省一半以上，效率达到35%。")).anyMatch(x->x.contains("数量关系"));
+  assertThat(OrdinaryFullRebuild.diagnostics("可减少约20%的等待时间，效率提高35%。", "实地考察表明节省一半以上，效率达到35%。")).anyMatch(x->x.contains("数值表达"));
   String s="友谊关口岸负责组织进口榴莲的查验和通行，车辆排队与冷链衔接需要协调。".repeat(4);
   assertThat(OrdinaryFullRebuild.diagnostics(s,s)).anyMatch(x->x.contains("密度"));
  }
@@ -25,7 +25,7 @@ class OrdinaryFullRebuildTest {
   var skills=org.mockito.Mockito.mock(com.dropai.rewrite.service.SkillPromptService.class);
   var service=new DoubaoAiRewriteService(new com.dropai.rewrite.config.DoubaoProperties(),new com.fasterxml.jackson.databind.ObjectMapper(),org.springframework.web.client.RestClient.builder(),skills,org.mockito.Mockito.mock(com.dropai.rewrite.service.ai.DoubaoModelRouter.class));
   var prompt=DoubaoAiRewriteService.class.getDeclaredMethod("systemPrompt",String.class);prompt.setAccessible(true);
-  assertThat((String)prompt.invoke(service,"humanize@WEIPU")).contains("普通整段重构 v4");
+  assertThat((String)prompt.invoke(service,"humanize@WEIPU")).contains("普通降AI·实测词组展开 v7");
   org.mockito.Mockito.verifyNoInteractions(skills);
   var protectedText=new com.dropai.rewrite.service.TextStructureProtector().protectForOrdinary("一是文献研究。二是流程分析。三是案例研究。");
   assertThat(protectedText.text()).doesNotContain("一是","二是","三是");
@@ -52,8 +52,22 @@ class OrdinaryFullRebuildTest {
   var codes=java.util.List.of("CNKI","WEIPU","GEZIDA","PAPERPASS","PAPERYY","ZHUQUE","WANFANG");
   assertThat(codes.stream().map(x->OrdinaryPlatformMethods.instruction("humanize@"+x)).distinct().count()).isEqualTo(7);
  }
+ @Test void ordinaryPreservesCitationMarkersWithoutLockingNumbers() {
+  var text=new com.dropai.rewrite.service.TextStructureProtector().protectForOrdinary("车位由28个增至76个[13]，货量增长29%[2, 5]。");
+  assertThat(text.text()).contains("28","76","29%").doesNotContain("[13]","[2, 5]");
+  assertThat(text.restore(text.text())).isEqualTo("车位由28个增至76个[13]，货量增长29%[2, 5]。");
+  org.assertj.core.api.Assertions.assertThatThrownBy(()->text.restore("车位增加了。"))
+      .isInstanceOf(com.dropai.rewrite.service.TextStructureProtector.ProtectedContentIntegrityException.class);
+ }
+ @Test void ordinaryDoesNotTreatRivalConnectorsAsRejectionReasons() {
+  String source="研究发现，口岸服务持续提高，据此提出建议，以期改善物流。";
+  String result="经研究发现，口岸的服务一直都在进步当中，因此本文给出建议，希望能够改善物流。";
+  assertThat(OrdinaryFullRebuild.issues(source,result)).isEmpty();
+  assertThat(OrdinaryFullRebuild.diagnostics(source,result)).noneMatch(x->x.contains("模板")||x.contains("宣传"));
+ }
  @Test void deepAndDoubleRemainOutsideNewRoute() {
   assertThat(OrdinaryRewriteAmplitude.applies("深度降低AI写作痕迹@WEIPU")).isFalse();
   assertThat(OrdinaryRewriteAmplitude.applies("double@WEIPU")).isFalse();
+  assertThat(OrdinaryRewriteAmplitude.applies("humanize@DAYA")).isFalse();
  }
 }
