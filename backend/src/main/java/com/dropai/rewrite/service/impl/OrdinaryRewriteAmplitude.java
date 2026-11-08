@@ -1,18 +1,11 @@
 package com.dropai.rewrite.service.impl;
 
-/**
- * Detects ordinary 降AI drafts that still keep the source sentence skeleton.
- *
- * <p>Character n-grams miss Chinese synonym swaps, so a multi-sentence paragraph
- * that comes back with the same sentence count is treated as unfinished. Short
- * fragments stay untouched. Deep, 双降 shared humanize and 大雅 are out of scope.
- */
+/** Ordinary-only lexical-retention feedback; never a detector score or length gate. */
 final class OrdinaryRewriteAmplitude {
-
-    static final String RETRY_FEEDBACK = "上一版仍沿原句数量或原句顺序换词，检测器仍会看成同一套论文骨架。"
-            + "请保留全部年份、吨位、百分比、专名、引用编号、图表结构和原文结论的原值及相对顺序，"
-            + "从已有对象、数据或条件重排信息入口，并至少拆开或合并一处句子。"
-            + "不要新增事实，不要为了压到130%以内改回近义版或原文。不要解释，只输出正文。";
+    static final String RETRY_FEEDBACK = "上一候选仍有模板家族、近原文贴词、重水包装或升档/生硬词。请从原文重新轻口语重述："
+            + "先改开场与收尾串法，再把中间每句的内容词密换，用并且、从而、使得等少量承接串清原义。"
+            + "不要保留研究发现/据此/以期旧串法，不用一直都在……当中或和上一年同期相比增长了；不编造调查，"
+            + "不把主要不是加强成根本不是，不把减少写成不用再，数字、指标、专名、条件和序号保留。只输出正文。";
 
     private OrdinaryRewriteAmplitude() {
     }
@@ -35,22 +28,24 @@ final class OrdinaryRewriteAmplitude {
         return NativeHumanizeProfiles.usesNativeSkill(NativeHumanizeProfiles.normalize(platform));
     }
 
-    /**
-     * Long ordinary prose that is unchanged, or that still has the same sentence count.
-     * One-sentence and short fragments return false so a completed short call is not retried.
-     */
+    /** A bounded retry signal based on retained source trigrams, independent of sentence count. */
+    static boolean needsLexicalRetry(String original, String rewritten) {
+        if (original == null || original.isBlank()) return false;
+        if (rewritten == null || rewritten.isBlank()) return true;
+        return sameLetters(original, rewritten) || OrdinaryFullRebuild.overlap(original, rewritten) > 0.65;
+    }
+    static boolean needsSpokenRetry(String original, String rewritten) {
+        return needsLexicalRetry(original, rewritten)
+                || !OrdinaryFullRebuild.templateRemnants(rewritten).isEmpty()
+                || !OrdinaryFullRebuild.formalUpgrades(original, rewritten).isEmpty()
+                || !OrdinaryFullRebuild.paddingPhrases(original, rewritten).isEmpty()
+                || !OrdinaryFullRebuild.unnaturalSwaps(original, rewritten).isEmpty()
+                || OrdinaryFullRebuild.lengthRatio(original, rewritten) >= 1.40
+                || (OrdinaryFullRebuild.lengthRatio(original, rewritten) < 1.08
+                    && OrdinaryFullRebuild.overlap(original, rewritten) > 0.45);
+    }
     static boolean needsStructureRetry(String original, String rewritten) {
-        if (!longEnough(original) || rewritten == null || rewritten.isBlank()) {
-            return false;
-        }
-        if (comparable(original).equals(comparable(rewritten))) {
-            return true;
-        }
-        if (hasTemplateSkeleton(rewritten)) {
-            return true;
-        }
-        int sourceSentences = sentences(original);
-        return sourceSentences >= 3 && sourceSentences == sentences(rewritten);
+        return needsLexicalRetry(original, rewritten);
     }
 
     static boolean hasTemplateSkeleton(String text) {
@@ -60,7 +55,7 @@ final class OrdinaryRewriteAmplitude {
     }
 
     static String retryFeedback() {
-        return RETRY_FEEDBACK + "摘要和方法枚举段还须消除研究发现、据此、以期、综合运用以及得到直接提升、针对这些短板研究从……提出优化思路供……参考的新模板骨架；用平实学术句重组，保留可、约、超过等事实限定。";
+        return RETRY_FEEDBACK;
     }
 
     static boolean sameLetters(String left, String right) {
@@ -92,37 +87,6 @@ final class OrdinaryRewriteAmplitude {
             count++;
         }
         return count;
-    }
-
-    private static boolean longEnough(String text) {
-        int han = hanCount(text);
-        if (han >= 80) {
-            return true;
-        }
-        return han == 0 && words(text) >= 70;
-    }
-
-    private static int hanCount(String text) {
-        if (text == null || text.isEmpty()) {
-            return 0;
-        }
-        int count = 0;
-        for (int index = 0; index < text.length(); ) {
-            int codePoint = text.codePointAt(index);
-            if (Character.UnicodeScript.of(codePoint) == Character.UnicodeScript.HAN) {
-                count++;
-            }
-            index += Character.charCount(codePoint);
-        }
-        return count;
-    }
-
-    private static int words(String text) {
-        String trimmed = text == null ? "" : text.trim();
-        if (trimmed.isEmpty()) {
-            return 0;
-        }
-        return trimmed.split("\\s+").length;
     }
 
     private static String comparable(String text) {

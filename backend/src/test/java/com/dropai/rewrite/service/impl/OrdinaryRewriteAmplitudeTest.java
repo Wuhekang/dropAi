@@ -21,7 +21,7 @@ class OrdinaryRewriteAmplitudeTest {
             + "数据安全与隐私保护仍然要盯住，技术方案才谈得上可持续的实践价值。";
 
     @Test
-    void sameSentenceCountOnLongProseNeedsAnotherPass() {
+    void retainedLexicalMaterialTriggersRetryRegardlessOfSentenceCount() {
         assertThat(OrdinaryRewriteAmplitude.needsStructureRetry(INPUT, SAME_SHAPE)).isTrue();
         assertThat(OrdinaryRewriteAmplitude.needsStructureRetry(INPUT, INPUT)).isTrue();
         assertThat(OrdinaryRewriteAmplitude.needsStructureRetry(INPUT, SPLIT)).isFalse();
@@ -30,9 +30,9 @@ class OrdinaryRewriteAmplitudeTest {
     }
 
     @Test
-    void shortFragmentsAndDeepModesStayOut() {
+    void shortOrdinaryFragmentsStillRequireActualRewriteAndDeepModesStayOut() {
         String shortText = "该平台负责核对资料，并记录现场处理情况。";
-        assertThat(OrdinaryRewriteAmplitude.needsStructureRetry(shortText, shortText)).isFalse();
+        assertThat(OrdinaryRewriteAmplitude.needsStructureRetry(shortText, shortText)).isTrue();
         assertThat(OrdinaryRewriteAmplitude.applies("humanize")).isTrue();
         assertThat(OrdinaryRewriteAmplitude.applies("humanize@CNKI")).isTrue();
         assertThat(OrdinaryRewriteAmplitude.applies("humanize@PAPERPASS")).isTrue();
@@ -49,4 +49,12 @@ class OrdinaryRewriteAmplitudeTest {
         assertThat(7250).isLessThanOrEqualTo(DocumentRewriteServiceImpl.humanizeSoftReferenceMax(7002));
         assertThat(12000).isGreaterThan(DocumentRewriteServiceImpl.humanizeSoftReferenceMax(7002));
     }
+
+ @Test void lexicalSwapCanKeepSentenceCountAndNormalConnectors() {
+  String source="检查车辆状态。监测运输情况。记录等待时间。";
+  String rewritten="核验货车状况。监控运送进展。登记等候时长。";
+  assertThat(OrdinaryRewriteAmplitude.sentences(source)).isEqualTo(OrdinaryRewriteAmplitude.sentences(rewritten));
+  assertThat(OrdinaryRewriteAmplitude.needsLexicalRetry(source,rewritten)).isFalse();
+  assertThat(OrdinaryRewriteAmplitude.needsLexicalRetry(source,source.replace("检查","检验"))).isTrue();
+ }
 }

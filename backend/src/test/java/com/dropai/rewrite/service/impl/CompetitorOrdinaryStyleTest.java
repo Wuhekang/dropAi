@@ -5,9 +5,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class CompetitorOrdinaryStyleTest {
     @Test
-    void detectsTemplateEvenAfterSentenceCountChanges() {
+    void detectsNearSourceEvenAfterSentenceCountChanges() {
         String original = "友谊关口岸的研究需要同时关注通行能力与全链条运行的稳定性。".repeat(5);
-        String rewritten = "研究发现，口岸通行能力提升。信息仍需协同。";
+        String rewritten = original.replace("需要同时关注", "需要一并关注") + "还需配合。";
         assertThat(OrdinaryRewriteAmplitude.needsStructureRetry(original, rewritten)).isTrue();
         assertThat(OrdinaryRewriteAmplitude.hasTemplateSkeleton("经过研究得知，现有资料支持这一判断。")).isFalse();
     }

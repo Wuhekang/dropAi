@@ -131,7 +131,8 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
 
     private String rebuildOrdinary(String original, TextStructureProtector.ProtectedText protectedText,
                                    String type, int score, List<WorkflowStepVO> steps) {
-        String feedback = OrdinaryFullRebuild.INSTRUCTION + OrdinaryPlatformMethods.instruction(type);
+        String baseFeedback = OrdinaryFullRebuild.instruction(type) + OrdinaryPlatformMethods.instruction(type, original);
+        String feedback = baseFeedback;
         List<String> lastIssues = List.of();
         String best = null;
         RuntimeException lastFailure = null;
@@ -150,20 +151,29 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
                 candidate = OrdinaryFullRebuild.repairOrdinals(original, candidate);
                 lastIssues = OrdinaryFullRebuild.issues(original, candidate);
                 if (!lastIssues.isEmpty()) {
-                    feedback = OrdinaryFullRebuild.INSTRUCTION + "上一候选需修复：" + String.join("；", lastIssues);
+                    feedback = baseFeedback + "上一候选需修复：" + String.join("；", lastIssues);
                     continue;
                 }
                 // Keep a real, non-identical generated candidate across later failures.
                 if (!OrdinaryRewriteAmplitude.sameLetters(original, candidate)
-                        && (best == null || OrdinaryFullRebuild.overlap(original, candidate) < OrdinaryFullRebuild.overlap(original, best))) best = candidate;
-                if (best != null) break;
+                        && OrdinaryFullRebuild.preferCandidate(original, candidate, best)) best = candidate;
+                if (best != null && !OrdinaryRewriteAmplitude.needsSpokenRetry(original, best)) break;
+                if (best != null) {
+                    lastIssues = List.of("近原文换词不足、重水措辞或语域升档");
+                    feedback = baseFeedback + "\n" + OrdinaryRewriteAmplitude.retryFeedback()
+                            + "\n上一候选需避免的升档或语义变化：" + String.join("、", OrdinaryFullRebuild.formalUpgrades(original, best))
+                            + "\n上一候选需改成轻口语的重水措辞：" + String.join("、", OrdinaryFullRebuild.paddingPhrases(original, best))
+                            + "\n上一候选模板家族：" + String.join("、", OrdinaryFullRebuild.templateRemnants(best))
+                            + "\n上一候选生硬短词：" + String.join("、", OrdinaryFullRebuild.unnaturalSwaps(original, best));
+                    continue;
+                }
                 lastIssues = List.of("候选与原文正文相同");
-                feedback = OrdinaryFullRebuild.INSTRUCTION + "上一候选没有实际改写正文，请重新组织所有可改写句组。不要返回原稿。";
+                feedback = baseFeedback + "上一候选没有实际改写正文，请重新组织所有可改写句组。不要返回原稿。";
             } catch (RuntimeException failure) {
                 lastFailure = failure;
                 log.warn("Ordinary candidate attempt {} failed: {}", attempt + 1, failure.getMessage());
                 lastIssues = List.of(failure.getMessage() == null ? failure.getClass().getSimpleName() : failure.getMessage());
-                feedback = OrdinaryFullRebuild.INSTRUCTION + "上一调用失败或结构内容缺失，请完整输出正文，保留结构占位符，不要返回原稿。";
+                feedback = baseFeedback + "上一调用失败或结构内容缺失，请完整输出正文，保留结构占位符，不要返回原稿。";
             }
         }
         if (best == null) throw new IllegalStateException("普通改写未获得非空且实际改写的候选：" + String.join("；", lastIssues), lastFailure);

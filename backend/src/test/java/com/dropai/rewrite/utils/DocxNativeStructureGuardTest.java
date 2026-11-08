@@ -112,4 +112,29 @@ class DocxNativeStructureGuardTest {
             assertThat(paragraph.getCTP().xmlText()).contains("br");
         }
     }
+    @Test
+    void citationStaysInItsOriginalSuperscriptRun() throws Exception {
+        try (XWPFDocument document = new XWPFDocument()) {
+            var p = document.createParagraph();
+            p.createRun().setText("原有数据说明了变化");
+            var citation = p.createRun();
+            citation.setSubscript(org.apache.poi.xwpf.usermodel.VerticalAlign.SUPERSCRIPT);
+            citation.setFontFamily("Times New Roman");
+            citation.setText("[1][5]");
+            var tail = p.createRun();
+            tail.setItalic(true);
+            tail.setText("，随后讨论原因。");
+            String properties = citation.getCTR().getRPr().xmlText();
+            assertThat(DocxNativeStructureGuard.replacePreservingRuns(p,
+                    "公开的数据反映了不同的变化[1][5]，接着再说明形成这些变化的原因。")).isTrue();
+            assertThat(citation.getText(0)).isEqualTo("[1][5]");
+            assertThat(citation.getCTR().getRPr().xmlText()).isEqualTo(properties);
+            assertThat(p.getText()).isEqualTo("公开的数据反映了不同的变化[1][5]，接着再说明形成这些变化的原因。");
+            assertThat(tail.getText(0)).isNotEmpty();
+            String before = p.getCTP().xmlText();
+            assertThat(DocxNativeStructureGuard.replacePreservingRuns(p, "缺少引用的候选。")).isFalse();
+            assertThat(p.getCTP().xmlText()).isEqualTo(before);
+        }
+    }
+
 }
