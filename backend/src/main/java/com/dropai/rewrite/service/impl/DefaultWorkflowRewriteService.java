@@ -162,7 +162,9 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
                     lastIssues = List.of("近原文换词不足、重水措辞或语域升档");
                     feedback = baseFeedback + "\n" + OrdinaryRewriteAmplitude.retryFeedback()
                             + "\n上一候选需避免的升档或语义变化：" + String.join("、", OrdinaryFullRebuild.formalUpgrades(original, best))
-                            + "\n上一候选需改成短词组的重水措辞：" + String.join("、", OrdinaryFullRebuild.paddingPhrases(original, best));
+                            + "\n上一候选需改成轻口语的重水措辞：" + String.join("、", OrdinaryFullRebuild.paddingPhrases(original, best))
+                            + "\n上一候选模板家族：" + String.join("、", OrdinaryFullRebuild.templateRemnants(best))
+                            + "\n上一候选生硬短词：" + String.join("、", OrdinaryFullRebuild.unnaturalSwaps(original, best));
                     continue;
                 }
                 lastIssues = List.of("候选与原文正文相同");

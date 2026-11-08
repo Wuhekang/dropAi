@@ -13,9 +13,9 @@ class OrdinaryPlatformMethodsTest {
    assertThat(OrdinaryPlatformMethods.instruction(type,"本文研究监测。")).isEqualTo(OrdinaryPlatformMethods.instruction(type));
   }
  }
- @Test void thinGlueHasSoftDiagnosisButNoLengthRetry() {
-  assertThat(OrdinaryFullRebuild.INSTRUCTION).contains("短同义词加薄连接 v14", "都必须逐句实际改写", "约110%—120%", "不按字数单独退回")
+ @Test void rivalLightGuidanceBreaksFamilyWithoutInventingResearch() {
+  assertThat(OrdinaryFullRebuild.INSTRUCTION).contains("维普式轻口语重述 v15", "约112%—120%", "仅字数不构成硬拒绝", "原文未做调查，不得写经过调查发现")
    .doesNotContain("100%", "130%", "例如“持续提高”可说“一直都在进步当中”");
-  assertThat(OrdinaryRewriteAmplitude.retryFeedback()).contains("逐句密换内容词", "不堆整句解释").doesNotContain("130%", "至少拆开");
+  assertThat(OrdinaryRewriteAmplitude.retryFeedback()).contains("先改开场与收尾串法", "不编造调查").doesNotContain("130%", "至少拆开");
  }
 }

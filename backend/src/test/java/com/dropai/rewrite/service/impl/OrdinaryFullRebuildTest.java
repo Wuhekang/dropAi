@@ -25,7 +25,7 @@ class OrdinaryFullRebuildTest {
   var skills=org.mockito.Mockito.mock(com.dropai.rewrite.service.SkillPromptService.class);
   var service=new DoubaoAiRewriteService(new com.dropai.rewrite.config.DoubaoProperties(),new com.fasterxml.jackson.databind.ObjectMapper(),org.springframework.web.client.RestClient.builder(),skills,org.mockito.Mockito.mock(com.dropai.rewrite.service.ai.DoubaoModelRouter.class));
   var prompt=DoubaoAiRewriteService.class.getDeclaredMethod("systemPrompt",String.class);prompt.setAccessible(true);
-  assertThat((String)prompt.invoke(service,"humanize@WEIPU")).contains("普通降AI·短同义词加薄连接 v14");
+  assertThat((String)prompt.invoke(service,"humanize@WEIPU")).contains("普通降AI·维普式轻口语重述 v15");
   org.mockito.Mockito.verifyNoInteractions(skills);
   var protectedText=new com.dropai.rewrite.service.TextStructureProtector().protectForOrdinary("一是文献研究。二是流程分析。三是案例研究。");
   assertThat(protectedText.text()).doesNotContain("一是","二是","三是");
@@ -72,13 +72,13 @@ class OrdinaryFullRebuildTest {
  }
 
 
- @Test void ordinaryLengthNeverRejectsOrRetriesAnActualRewrite() {
+ @Test void ordinaryLengthNeverDropsAnActualRewrite() {
   for (String candidate : java.util.List.of("口岸车辆等待放行。", "口岸的运输车辆正在有序排队等待办理查验和放行手续，相关环节仍需协调安排。")) {
    var ai=org.mockito.Mockito.mock(com.dropai.rewrite.service.AiRewriteService.class);
    org.mockito.Mockito.when(ai.rewriteWithFeedback(org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyInt(),org.mockito.ArgumentMatchers.anyString())).thenReturn(candidate);
    var workflow=new DefaultWorkflowRewriteService(ai,new com.dropai.rewrite.service.TextStructureProtector());
    assertThat(workflow.execute("进口车辆在口岸排队。","humanize@PAPERPASS").getRewrittenText()).isEqualTo(candidate);
-   org.mockito.Mockito.verify(ai,org.mockito.Mockito.times(1)).rewriteWithFeedback(org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyInt(),org.mockito.ArgumentMatchers.anyString());
+   org.mockito.Mockito.verify(ai,org.mockito.Mockito.times(OrdinaryFullRebuild.lengthRatio("进口车辆在口岸排队。",candidate)>=1.40 ? 3 : 1)).rewriteWithFeedback(org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyInt(),org.mockito.ArgumentMatchers.anyString());
   }
  }
 
@@ -96,7 +96,7 @@ class OrdinaryFullRebuildTest {
  @Test void spokenCandidateBeatsMoreDistantFormalThesaurus() {
   String source="查验车位增加后，通行能力不断提高。";
   String formal="核验工位扩增，通行效率层级攀升。";
-  String spoken="查验用的车位多了，通过口岸的能力一直都在提升。";
+  String spoken="查验用的车位多了，通行能力也不断增强。";
   var ai=org.mockito.Mockito.mock(com.dropai.rewrite.service.AiRewriteService.class);
   org.mockito.Mockito.when(ai.rewriteWithFeedback(org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyInt(),org.mockito.ArgumentMatchers.anyString())).thenReturn(formal,spoken);
   var workflow=new DefaultWorkflowRewriteService(ai,new com.dropai.rewrite.service.TextStructureProtector());
@@ -130,7 +130,26 @@ class OrdinaryFullRebuildTest {
   assertThat(OrdinaryFullRebuild.paddingPhrases(padded,padded)).isEmpty();
   String source="运货车辆需要等候。";
   String longOutput="货车先排队，待工作人员检查、登记单据、协调装卸与后续交接安排完成后通行。";
-  assertThat(OrdinaryRewriteAmplitude.needsSpokenRetry(source,longOutput)).isFalse();
+  assertThat(OrdinaryRewriteAmplitude.needsSpokenRetry(source,longOutput)).isTrue();
   assertThat(OrdinaryFullRebuild.issues(source,longOutput)).isEmpty();
+ }
+
+ @Test void rivalLightRebuildBeatsThinTemplateAndMegaPadding() {
+  String source="研究发现，数字管理持续提高效率。据此，本文提出改进建议，以期提供参考。";
+  String thin="研究发现，数字管理持续提升效率。据此，本文给出调整建议，希望提供参考。";
+  String rival="经研究发现，数字手段不断改进作业，并且减少等候。因此本文提出了改进措施，以便为后续安排提供一定的借鉴。";
+  String mega="经研究发现，数字管理一直都在改善当中，和上一年同期相比增长了很多，为搭建的相关工作提供有用的参考。";
+  assertThat(OrdinaryFullRebuild.templateRemnants(thin)).isNotEmpty();
+  assertThat(OrdinaryFullRebuild.templateRemnants(rival)).isEmpty();
+  assertThat(OrdinaryFullRebuild.preferCandidate(source,rival,thin)).isTrue();
+  assertThat(OrdinaryFullRebuild.preferCandidate(source,rival,mega)).isTrue();
+  assertThat(OrdinaryFullRebuild.preferCandidate(source,mega,rival)).isFalse();
+  assertThat(OrdinaryFullRebuild.diagnostics(source,thin)).anyMatch(x->x.contains("模板家族残留"));
+ }
+ @Test void definitionsAndActionTemplatesAlsoNeedRebuildAndAwkwardWordsAreFlagged() {
+  assertThat(OrdinaryFullRebuild.templateRemnants("冷链配合是供应链各方围绕温度形成的安排。")).isNotEmpty();
+  assertThat(OrdinaryFullRebuild.templateRemnants("紧扣成熟度和通风，整理出一套操作指南。")).isNotEmpty();
+  assertThat(OrdinaryFullRebuild.unnaturalSwaps("优化查验顺序和放行速度。","调整查点次序，提高放行进速。"))
+   .contains("查点次序","放行进速");
  }
 }

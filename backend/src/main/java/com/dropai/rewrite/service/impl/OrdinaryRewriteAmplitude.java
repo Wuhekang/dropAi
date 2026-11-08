@@ -2,9 +2,10 @@ package com.dropai.rewrite.service.impl;
 
 /** Ordinary-only lexical-retention feedback; never a detector score or length gate. */
 final class OrdinaryRewriteAmplitude {
-    static final String RETRY_FEEDBACK = "上一候选有近原文、重水包装或书面升档。请从本次原文重新逐句密换内容词，"
-            + "用配合、监控、等候、对接、不断提高等短而平常的表达，只加必要的的/了/以及，不堆整句解释。"
-            + "不能为了少写又留下原句，也不把查验改核验、分流改疏解；专名、数字、指标、条件和原序号保留，不给说明。";
+    static final String RETRY_FEEDBACK = "上一候选仍有模板家族、近原文贴词、重水包装或升档/生硬词。请从原文重新轻口语重述："
+            + "先改开场与收尾串法，再把中间每句的内容词密换，用并且、从而、使得等少量承接串清原义。"
+            + "不要保留研究发现/据此/以期旧串法，不用一直都在……当中或和上一年同期相比增长了；不编造调查，"
+            + "不把主要不是加强成根本不是，不把减少写成不用再，数字、指标、专名、条件和序号保留。只输出正文。";
 
     private OrdinaryRewriteAmplitude() {
     }
@@ -34,8 +35,14 @@ final class OrdinaryRewriteAmplitude {
         return sameLetters(original, rewritten) || OrdinaryFullRebuild.overlap(original, rewritten) > 0.65;
     }
     static boolean needsSpokenRetry(String original, String rewritten) {
-        return needsLexicalRetry(original, rewritten) || !OrdinaryFullRebuild.formalUpgrades(original, rewritten).isEmpty()
-                || !OrdinaryFullRebuild.paddingPhrases(original, rewritten).isEmpty();
+        return needsLexicalRetry(original, rewritten)
+                || !OrdinaryFullRebuild.templateRemnants(rewritten).isEmpty()
+                || !OrdinaryFullRebuild.formalUpgrades(original, rewritten).isEmpty()
+                || !OrdinaryFullRebuild.paddingPhrases(original, rewritten).isEmpty()
+                || !OrdinaryFullRebuild.unnaturalSwaps(original, rewritten).isEmpty()
+                || OrdinaryFullRebuild.lengthRatio(original, rewritten) >= 1.40
+                || (OrdinaryFullRebuild.lengthRatio(original, rewritten) < 1.08
+                    && OrdinaryFullRebuild.overlap(original, rewritten) > 0.45);
     }
     static boolean needsStructureRetry(String original, String rewritten) {
         return needsLexicalRetry(original, rewritten);
