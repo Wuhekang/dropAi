@@ -156,12 +156,13 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
                 }
                 // Keep a real, non-identical generated candidate across later failures.
                 if (!OrdinaryRewriteAmplitude.sameLetters(original, candidate)
-                        && (best == null || OrdinaryFullRebuild.candidatePenalty(original, candidate) < OrdinaryFullRebuild.candidatePenalty(original, best))) best = candidate;
+                        && OrdinaryFullRebuild.preferCandidate(original, candidate, best)) best = candidate;
                 if (best != null && !OrdinaryRewriteAmplitude.needsSpokenRetry(original, best)) break;
                 if (best != null) {
-                    lastIssues = List.of("近原文换词不足或语域升档");
+                    lastIssues = List.of("近原文换词不足、重水措辞或语域升档");
                     feedback = baseFeedback + "\n" + OrdinaryRewriteAmplitude.retryFeedback()
-                            + "\n上一候选需避免的升档或语义变化：" + String.join("、", OrdinaryFullRebuild.formalUpgrades(original, best));
+                            + "\n上一候选需避免的升档或语义变化：" + String.join("、", OrdinaryFullRebuild.formalUpgrades(original, best))
+                            + "\n上一候选需改成短词组的重水措辞：" + String.join("、", OrdinaryFullRebuild.paddingPhrases(original, best));
                     continue;
                 }
                 lastIssues = List.of("候选与原文正文相同");

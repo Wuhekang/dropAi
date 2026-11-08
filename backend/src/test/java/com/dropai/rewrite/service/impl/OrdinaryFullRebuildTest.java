@@ -25,7 +25,7 @@ class OrdinaryFullRebuildTest {
   var skills=org.mockito.Mockito.mock(com.dropai.rewrite.service.SkillPromptService.class);
   var service=new DoubaoAiRewriteService(new com.dropai.rewrite.config.DoubaoProperties(),new com.fasterxml.jackson.databind.ObjectMapper(),org.springframework.web.client.RestClient.builder(),skills,org.mockito.Mockito.mock(com.dropai.rewrite.service.ai.DoubaoModelRouter.class));
   var prompt=DoubaoAiRewriteService.class.getDeclaredMethod("systemPrompt",String.class);prompt.setAccessible(true);
-  assertThat((String)prompt.invoke(service,"humanize@WEIPU")).contains("普通降AI·v7f口语密集展开 v13");
+  assertThat((String)prompt.invoke(service,"humanize@WEIPU")).contains("普通降AI·短同义词加薄连接 v14");
   org.mockito.Mockito.verifyNoInteractions(skills);
   var protectedText=new com.dropai.rewrite.service.TextStructureProtector().protectForOrdinary("一是文献研究。二是流程分析。三是案例研究。");
   assertThat(protectedText.text()).doesNotContain("一是","二是","三是");
@@ -112,5 +112,25 @@ class OrdinaryFullRebuildTest {
  @Test void registerPreferenceAlsoRetainsAdviceAndDegree() {
   assertThat(OrdinaryFullRebuild.formalUpgrades("鼓励企业完善记录，明确隔离程序。主要不是场地不足，可减少线下提交。", "我们也明确了隔离程序，根本不是场地不足，企业不用再提交。"))
    .contains("建议→已明确", "主要不是→根本不是", "减少→不用再");
+ }
+
+ @Test void shorteningNeverOutranksARealLexicalRewrite() {
+  String source="车辆等待查验，人员监测温度，部门协同安排运输。".repeat(4);
+  String near=source.replace("安排","组织");
+  String dense="车子等着检查，工作人员盯着温度，各方配合调度运送。".repeat(4);
+  assertThat(OrdinaryRewriteAmplitude.needsLexicalRetry(source,near)).isTrue();
+  assertThat(OrdinaryRewriteAmplitude.needsLexicalRetry(source,dense)).isFalse();
+  assertThat(OrdinaryFullRebuild.preferCandidate(source,dense,near)).isTrue();
+  assertThat(OrdinaryFullRebuild.preferCandidate(source,near,dense)).isFalse();
+ }
+ @Test void paddingSignalsAreWordingBasedAndSourceTermsAreExempt() {
+  String padded="通行能力一直都在提高当中，和上一年同期相比增长了20%，为这些方向提供有用的参考。";
+  assertThat(OrdinaryFullRebuild.paddingPhrases("通行能力不断提高，同比增长20%。",padded))
+   .contains("一直都在提高当中","和上一年同期相比增长了","有用的参考");
+  assertThat(OrdinaryFullRebuild.paddingPhrases(padded,padded)).isEmpty();
+  String source="运货车辆需要等候。";
+  String longOutput="货车先排队，待工作人员检查、登记单据、协调装卸与后续交接安排完成后通行。";
+  assertThat(OrdinaryRewriteAmplitude.needsSpokenRetry(source,longOutput)).isFalse();
+  assertThat(OrdinaryFullRebuild.issues(source,longOutput)).isEmpty();
  }
 }

@@ -1,27 +1,30 @@
 package com.dropai.rewrite.service.impl;
 
-/** Observable wording patterns from paid outputs, not recovered server prompts. */
+/** Observed plain lexical families, with thin glue rather than spoken sentence expansion. */
 final class OrdinaryPlatformMethods {
-    private OrdinaryPlatformMethods() { }
-    static String instruction(String type) {
-        String code = type != null && type.contains("@") ? type.substring(type.indexOf('@') + 1) : "GENERAL";
-        String method = switch (NativeHumanizeProfiles.normalize(code)) {
-            case "CNKI" -> "知网实稿：把紧缩名词结构展开为完整主谓表达，较多使用并且、使得、还需要、从公开的数据来看等常用连接。“通道规模持续扩大”可以说“通道的规模在不断扩大”。原有方法、数据、限制、建议可沿原顺序自然讲述。";
-            case "WEIPU" -> "维普普通实稿：密集展开普通词组，补足的、了、以及、使得等自然连接。“持续提高”可说“一直都在进步当中”，“明显季节集中性”可说“明显的季节性特点”，“仍需进一步协同”可说“还需要加强合作”，“跨境数据协同、冷链标准衔接、全过程监测”可依语境说“跨境数据共享、冷链标准对接、全程监控”。保留正常的研究—结果—限制—建议顺序也可以，不强制变成另一种段落骨架。";
-            case "GEZIDA" -> "格子达专用实稿：把并列概念改成常见动作或状态，“信息共享深度不足”可说“信息交流比较浅”，“标准衔接不充分”可说“标准衔接不到位”，“进行效率评价”可说“看运行得怎么样”。各句连续改写，不仅改连接词；顺序通顺就保留，普通词不用换成复杂的新术语。";
-            case "PAPERPASS" -> "PaperPass专用实稿：词组替换和句内结构改写更充分，段首可直接从原文主体或原有动作起句，名词链改成完整动词句。“连接境外产地与国内市场”可说“把境外产地和国内市场联系起来”，“车位扩容”可说“车位增多了”，“平台投入使用”可说“平台运行起来了”。原有措施之间可重排，因果与转折保持可读；仍连续处理数据句、限制句和建议句，不能只做首尾替换。不复制竞品样本的新增调查、错误数字或错误指标。";
-            case "PAPERYY" -> "PaperYY普通实稿：多用常见动宾短语，将省略的成分自然补全。“当前主要问题表现为”可说“目前的主要问题就是”，“标准衔接不充分”可说“标准没有实现对接”，“共同原因在于”可说“共同的原因就是”。各句维持原有承接，不为追求简短删去的、了、以及等自然连接。";
-            case "ZHUQUE" -> "朱雀普通实稿：把抽象性质写成普通状态，“季节集中性”可说“有明显的季节性”，“信息共享深度不足”可说“信息共享程度不高”，“全流程监测不足”可说“全过程监控做得不够”。用平常的原因、转折和建议句串起原文内容，不一律改成短句，也不改成自带、另一边看等刻意口语。";
-            case "WANFANG" -> "万方专用实稿：抽象名词链展开为平常的说明，保留数据、观察和解释间的合理顺序。“现阶段、程度不高、存在问题、存在着欠缺、根据公开的数据可以得知”等可自然使用。“数字化管理”可说“数字手段”，“标准衔接不充分”可说“标准之间的衔接存在问题”。不强行数据前置，不用运行水准、覆盖力度等复杂词组重新包装。";
-            default -> "按普通词组展开方式重述，合理顺序可保持，不强制压缩和禁词清洗。";
-        };
-        return "\n【当前平台的实测表达方式】" + method
-                + "\n这些示例用于学习词组展开方式，须按本段语境使用，不是逐项硬替换，不新增例子中的对象、事件或证据。保持结构占位符与原有序号完整。";
-    }
-    static String instruction(String type, String source) {
-        String method = instruction(type);
-        if (!OrdinaryRewriteAmplitude.applies(type) || source == null) return method;
-        return method + "\n【所有摘要与正文必须改写】每一句可编辑正文词组都要连续处理，不能只换段首或少数同义词。仍采用靠着、建起、不过、还需要配合、整个链条等平常说法和必要的的/了/以及，不改成核验、流转、疏解、层级、研究结果显示等新书面词，原文已有词除外。原有事实、专名、指标、数字和序号留存，不能把通行能力等同于通行效率。不要用大段解释凑密度，意思成立时以少写为先；没有篇幅区间或长短门槛。";
-    }
-
+ private OrdinaryPlatformMethods() { }
+ static String instruction(String type) {
+  String code=type!=null && type.contains("@") ? type.substring(type.indexOf('@')+1) : "GENERAL";
+  String method=switch(NativeHumanizeProfiles.normalize(code)) {
+   case "CNKI" -> "知网：所有句组密换短而平常的内容词，保留必要学术指标，不把背景再解释一遍。";
+   case "WEIPU" -> "维普：用配合、对接、等候、监控等短同义词连续换写，少量的、了、以及作连接，原有研究—数据—限制—建议顺序可留。";
+   case "GEZIDA" -> "格子达：短动词与普通状态词替换抽象说法，例如共享不足可说共享不够，衔接不充分可说对接不到位；不补意义句。";
+   case "PAPERPASS" -> "PaperPass：维普式短词组密换覆盖摘要和正文各句，后半段不能照搬。优先冷链配合、标准对接、监控不足、设施安排等问题中的动作与判断词，不靠加长定义提高密度。";
+   case "PAPERYY" -> "PaperYY：逐句换内容词，用短动宾表达接住原意，去掉同义复述，不扩写每个对象的背景。";
+   case "ZHUQUE" -> "朱雀：性质、动作、限制用短而日常的近义词替换，保持长短句差异，不加口语噪声。";
+   case "WANFANG" -> "万方：用普通短语交代原有对象与动作，不添复杂词，不把每个数据句再讲一遍。";
+   default -> "逐句短词组密换＋薄连接，不扩成整句口语解释。";
+  };
+  return "\n【平台短同义词方式】"+method+" 原文专名、数字、单位与指标含义保留；持续提高可说持续提升，协同可说配合，等待可说等候，衔接可说对接，以期可说希望。不是逐项硬词典，不套用示例里的领域事实。";
+ }
+ static String instruction(String type,String source) {
+  String common=instruction(type);
+  if(!OrdinaryRewriteAmplitude.applies(type)||source==null) return common;
+  String focus="";
+  if(source.matches("(?s).*(冷链|温度|温湿度|操作指引|查验后|成熟度).*"))
+   focus=" 本段定义/标准/冷链动作逐句密换，尤其处理后半段的设备、条件、异常处置、记录和依据等表达；只换开头不算完成，不能缩短成原句。温度异常仍是异常，建议仍是建议，不改指标或新增步骤。";
+  else if(source.matches("(?s).*(监测|监控|基础设施|查验车位|应急).*"))
+   focus=" 本段监测/设施问题中的动作、限制和措施都要短词组换写，不让术语周围整句照搬，也不把通行能力换通行效率。";
+  return common+"\n【所有摘要与正文必须改写】不能只换段首；平常说法与密集换词同时成立，短了但近原文仍不算完成。不用一直都在……当中、相关工作、有用的参考这类重水包装，不用新书面升档词；薄连接够用即可。"+focus;
+ }
 }
