@@ -131,7 +131,7 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
 
     private String rebuildOrdinary(String original, TextStructureProtector.ProtectedText protectedText,
                                    String type, int score, List<WorkflowStepVO> steps) {
-        String feedback = OrdinaryFullRebuild.INSTRUCTION + OrdinaryPlatformMethods.instruction(type, original);
+        String feedback = OrdinaryFullRebuild.instruction(type) + OrdinaryPlatformMethods.instruction(type, original);
         List<String> lastIssues = List.of();
         String best = null;
         RuntimeException lastFailure = null;
@@ -150,7 +150,7 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
                 candidate = OrdinaryFullRebuild.repairOrdinals(original, candidate);
                 lastIssues = OrdinaryFullRebuild.issues(original, candidate);
                 if (!lastIssues.isEmpty()) {
-                    feedback = OrdinaryFullRebuild.INSTRUCTION + "上一候选需修复：" + String.join("；", lastIssues);
+                    feedback = OrdinaryFullRebuild.instruction(type) + "上一候选需修复：" + String.join("；", lastIssues);
                     continue;
                 }
                 // Keep a real, non-identical generated candidate across later failures.
@@ -158,12 +158,12 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
                         && (best == null || OrdinaryFullRebuild.overlap(original, candidate) < OrdinaryFullRebuild.overlap(original, best))) best = candidate;
                 if (best != null) break;
                 lastIssues = List.of("候选与原文正文相同");
-                feedback = OrdinaryFullRebuild.INSTRUCTION + "上一候选没有实际改写正文，请重新组织所有可改写句组。不要返回原稿。";
+                feedback = OrdinaryFullRebuild.instruction(type) + "上一候选没有实际改写正文，请重新组织所有可改写句组。不要返回原稿。";
             } catch (RuntimeException failure) {
                 lastFailure = failure;
                 log.warn("Ordinary candidate attempt {} failed: {}", attempt + 1, failure.getMessage());
                 lastIssues = List.of(failure.getMessage() == null ? failure.getClass().getSimpleName() : failure.getMessage());
-                feedback = OrdinaryFullRebuild.INSTRUCTION + "上一调用失败或结构内容缺失，请完整输出正文，保留结构占位符，不要返回原稿。";
+                feedback = OrdinaryFullRebuild.instruction(type) + "上一调用失败或结构内容缺失，请完整输出正文，保留结构占位符，不要返回原稿。";
             }
         }
         if (best == null) throw new IllegalStateException("普通改写未获得非空且实际改写的候选：" + String.join("；", lastIssues), lastFailure);

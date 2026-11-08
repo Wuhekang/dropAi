@@ -5,14 +5,23 @@ import java.util.regex.Pattern;
 
 /** Ordinary-only candidate acceptance. This is a lexical guard, not a semantic proof. */
 final class OrdinaryFullRebuild {
+    private static final String REDUNDANCY_GUIDANCE = "减少重复解释、同义复述和多余修饰，优先用常见词组替换原表达，不要把换词写成逐层加长的解释。只在有必要的词组中补足的、了、以及等连接成分，不堆叠“我们、相关、具体、整个、各个”。篇幅参考原文的120%左右，少一些也正常；不为凑字数补句子，不删事实、条件和必要限定。没有字数上下限，不因篇幅拒绝返回或回填原稿。";
     static final String INSTRUCTION = """
             【普通降AI·实测词组展开 v7】按下列实测表达方式完整重述输入正文：在整段范围内连续改写普通词组、谓语和连接成分，把紧缩的书面概念展开成平常的说法，允许补入自然的“的、了、使得、并且、以及、还”等成分。不要只替换开头和结尾，中间各句也要按同样密度处理。
             例如“持续提高”可说“一直都在进步当中”，“仍需进一步协同”可说“还需要加强合作”，“尚未完全转化为全链条稳定性”可说“还没有完全转化为整个链条的稳定性”，“全过程监测”可说“全程监控”。按语境变通，不是固定词典替换，不把示例中没有的事实加到正文里。
-            论述顺序合理就保留原顺序，句子数量可以不变。不要为追求变化强制拆句、调序或重建背景—问题—根源骨架。减少重复解释、同义复述和多余修饰，优先用常见词组替换原表达，不要把换词写成逐层加长的解释。只在有必要的词组中补足的、了、以及等连接成分，不堆叠“我们、相关、具体、整个、各个”。篇幅参考原文的120%左右，少一些也正常；不为凑字数补句子，不删事实、条件和必要限定。没有字数上下限，不因篇幅拒绝返回或回填原稿。
+            论述顺序合理就保留原顺序，句子数量可以不变。不要为追求变化强制拆句、调序或重建背景—问题—根源骨架。%s
             “研究发现、经研究发现、但是、因此本文、据此、以期、希望能够”等不是违禁词，按正文语境保留或自然替换。不另做学术润色、禁词清洗或统一收尾，不为了删掉这些词改回紧缩论文表达。正文整体允许充分改写，不要求词语、数字表达及信息顺序逐字相等；依据已有内容重述，不额外编造实体、经历或证据。
             仅保护结构：原有序号体系及顺序不能串台，不自行新增序号；全部结构占位符（含文献引用、链接、代码等）逐字保留，各出现一次且顺序不变。标题、目录、文献条目、域、书签、图片和版式由文档层保留，不输出新的标题或编号。
             只输出本段一版完整正文，不给解释、不标注完成状态，不直接返回未经改写的原稿。
-            """;
+            """.formatted(REDUNDANCY_GUIDANCE);
+    /** PaperPass restores the measured expansion strategy; other profiles retain v9. */
+    static String instruction(String type) {
+        if (type == null || !OrdinaryRewriteAmplitude.applies(type) || !type.contains("@")) return INSTRUCTION;
+        String platform = NativeHumanizeProfiles.normalize(type.substring(type.indexOf('@') + 1));
+        if (!"PAPERPASS".equals(platform)) return INSTRUCTION;
+        return INSTRUCTION.replace(REDUNDANCY_GUIDANCE,
+                "保留v7的普通词组展开密度，让常见表达自然展开，补足必要的的、了、以及、使得和并且。不要把正文统一压短，也不要只在原词前后加一两个字；每句的谓语、名词链和连接表达都应依语境充分重述。没有字数上下限，不按篇幅筛选或拒绝返回；不为扩写添加事实、实体、证据或重复背景。数字、单位、统计时间范围和时长沿用原表达，不能把24小时概括为全天候，也不把1—8月改成省略月份的说法。保留原文程度与条件，主要不是、可能、相对不能改成根本不是、必然或绝对；陆路口岸不能写成港口，不把原始记录改成记录标准，不把通行能力等同于通行效率。");
+    }
     private static final Pattern ORDINAL = Pattern.compile(com.dropai.rewrite.service.TextStructureProtector.ORDINARY_ORDINAL_REGEX);
     private static final Pattern NUMBER = Pattern.compile("[-+]?\\d+(?:\\.\\d+)?[%％]?");
     private OrdinaryFullRebuild() { }

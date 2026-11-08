@@ -31,4 +31,20 @@ class OrdinaryPlatformMethodsTest {
         assertThat(OrdinaryPlatformMethods.instruction("humanize@WEIPU", "这批货物从仓库发出。"))
                 .isEqualTo(OrdinaryPlatformMethods.instruction("humanize@WEIPU"));
     }
+
+    @Test
+    void paperPassWeakParagraphGuidanceDoesNotLeakToOtherProfilesOrAbstract() {
+        String weak = "全链条监测缺乏时间戳与温度记录，需统一操作指引和温湿度记录标准。";
+        assertThat(OrdinaryPlatformMethods.instruction("humanize@PAPERPASS", weak))
+                .contains("监测与问题段重点", "标准与对策段重点", "不新增主体、步骤");
+        assertThat(OrdinaryPlatformMethods.instruction("humanize@WEIPU", weak))
+                .doesNotContain("监测与问题段重点", "标准与对策段重点");
+        assertThat(OrdinaryPlatformMethods.instruction("humanize@PAPERPASS", "本文研究全链条监测与温控标准。"))
+                .doesNotContain("监测与问题段重点", "标准与对策段重点");
+        assertThat(OrdinaryFullRebuild.instruction("humanize@PAPERPASS"))
+                .contains("保留v7", "没有字数上下限").doesNotContain("篇幅参考原文的120%", "减少重复解释、同义复述");
+        for (String type : new String[]{"humanize@WEIPU", "humanize@CNKI", "humanize@DAYA", "double@PAPERPASS"}) {
+            assertThat(OrdinaryFullRebuild.instruction(type)).isEqualTo(OrdinaryFullRebuild.INSTRUCTION);
+        }
+    }
 }
