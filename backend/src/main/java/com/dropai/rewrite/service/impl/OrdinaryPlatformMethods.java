@@ -18,4 +18,26 @@ final class OrdinaryPlatformMethods {
         return "\n【当前平台的实测表达方式】" + method
                 + "\n这些示例用于学习词组展开方式，须按本段语境使用，不是逐项硬替换，不新增例子中的对象、事件或证据。保持结构占位符与原有序号完整。";
     }
+    /** Adds paragraph-specific guidance only for the two measured ordinary profiles. */
+    static String instruction(String type, String source) {
+        String common = instruction(type);
+        if (!OrdinaryRewriteAmplitude.applies(type) || type == null || !type.contains("@") || source == null) return common;
+        String platform = NativeHumanizeProfiles.normalize(type.substring(type.indexOf('@') + 1));
+        if (!"PAPERPASS".equals(platform) && !"WEIPU".equals(platform)) return common;
+        // Keep study-summary paragraphs on the measured v7 wording instruction.
+        if (source.contains("本文") || source.contains("本研究")) return common;
+        StringBuilder focus = new StringBuilder();
+        if (source.matches("(?s).*(是指|指的是|概念|理论|协同|成熟度|适宜环境).*")) {
+            focus.append("定义和理论说明也要逐句展开：先辨明原文对象、条件和含义，再把紧缩词组写成完整说明，补出原文省略的主语和自然连接。定义边界、适用条件、否定及程度不能改；不要为解释概念另加案例。 ");
+        }
+        if (source.matches("(?s).*(万吨|亿元|货运量|进出口|同比|增长|贸易规模).*")) {
+            focus.append("规模和数据段不只是换段首：连同数值前后的动作、时间范围和解释一起改写，把紧缩的统计描述展开为通顺句子。保留原值、单位、年份、统计范围、同比基期和引用对应关系；提高多少不能写成达到多少。 ");
+        }
+        if (source.matches("(?s).*(应当|应该|需要|建议|建立|完善|制定|推进|明确|统一|共享|监测|温控|查验区).*")) {
+            focus.append("问题和对策段与摘要采用同样充分的词组改写：将名词并列展开为原文已有主体要做的动作，说明原文已有的对象与条件，各句连续处理，不只改收尾。自然补足的、了、使得、以及，但不要每句机械插入，不新增步骤、责任主体或效果承诺；已有措施顺序通顺就保留。 ");
+        }
+        return focus.isEmpty() ? common : common + "\n【本段类型补充】" + focus
+                + "这只是表达指引，不设换词比例或新验收条件，不强制拆句换骨架；没有原文依据的具体细节不得补写。";
+    }
+
 }

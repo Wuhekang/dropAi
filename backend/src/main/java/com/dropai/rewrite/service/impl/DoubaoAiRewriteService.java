@@ -222,7 +222,7 @@ public class DoubaoAiRewriteService implements AiRewriteService {
 
     private String userPrompt(String originalText, String rewriteType, int beforeScore, String feedback) {
         if (OrdinaryRewriteAmplitude.applies(rewriteType)) {
-            return OrdinaryFullRebuild.INSTRUCTION + OrdinaryPlatformMethods.instruction(rewriteType) + "\n本次具体反馈：" + (isBlank(feedback) ? "无" : feedback)
+            return OrdinaryFullRebuild.INSTRUCTION + OrdinaryPlatformMethods.instruction(rewriteType, originalText) + "\n本次具体反馈：" + (isBlank(feedback) ? "无" : feedback)
                     + "\n结构占位符原样保留，不另造序号。原文：\n" + originalText;
         }
 

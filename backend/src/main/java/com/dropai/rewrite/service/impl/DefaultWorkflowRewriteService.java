@@ -131,7 +131,7 @@ public class DefaultWorkflowRewriteService implements WorkflowRewriteService {
 
     private String rebuildOrdinary(String original, TextStructureProtector.ProtectedText protectedText,
                                    String type, int score, List<WorkflowStepVO> steps) {
-        String feedback = OrdinaryFullRebuild.INSTRUCTION + OrdinaryPlatformMethods.instruction(type);
+        String feedback = OrdinaryFullRebuild.INSTRUCTION + OrdinaryPlatformMethods.instruction(type, original);
         List<String> lastIssues = List.of();
         String best = null;
         RuntimeException lastFailure = null;
